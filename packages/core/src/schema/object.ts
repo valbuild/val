@@ -14,6 +14,7 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { ModuleFilePath, SourcePath } from "../val";
+import { string } from "./string";
 import {
   ValidationError,
   ValidationErrors,
@@ -254,3 +255,9 @@ export const object = <Props extends ObjectSchemaProps>(
 ): ObjectSchema<Props, ObjectSchemaSrcOf<Props>> => {
   return new ObjectSchema(schema);
 };
+
+const a = object({
+  get test() {
+    return string();
+  },
+});

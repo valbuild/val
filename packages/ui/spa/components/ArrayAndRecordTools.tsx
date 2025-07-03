@@ -32,7 +32,7 @@ import { ValPath } from "./ValPath";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
-import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
 import { getPatternFromModuleFilePath } from "@valbuild/shared/internal";
 import {
   Tooltip,

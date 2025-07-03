@@ -19,7 +19,7 @@ import {
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { ArrowRight, TriangleAlert } from "lucide-react";
+import { Link, TriangleAlert } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
@@ -173,7 +173,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
               );
             }}
           >
-            <ArrowRight size={16} />
+            <Link size={16} />
           </button>
         )}
       </div>

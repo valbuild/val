@@ -16,7 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
-import { RoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern } from "@valbuild/shared/internal";
 import {
   Tooltip,
   TooltipContent,

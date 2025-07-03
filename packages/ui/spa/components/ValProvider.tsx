@@ -28,6 +28,7 @@ import {
   ParentRef,
   SharedValConfig,
   ValClient,
+  getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
@@ -1849,23 +1850,14 @@ export function useNextAppRouterSrcFolder():
     if (schemas.status === "success") {
       let currentSrcFolder: string | null = null;
       for (const moduleFilePath in schemas.data) {
-        if (moduleFilePath.startsWith("/app")) {
+        const maybeCurrentSrcFolder = getNextAppRouterSourceFolder(
+          moduleFilePath as ModuleFilePath,
+        );
+        if (maybeCurrentSrcFolder) {
           if (currentSrcFolder === null) {
-            currentSrcFolder = "/app";
+            currentSrcFolder = maybeCurrentSrcFolder;
           } else {
-            if (currentSrcFolder !== "/app") {
-              return {
-                status: "error",
-                error:
-                  "Found multiple different src folders in the same project",
-              };
-            }
-          }
-        } else if (moduleFilePath.startsWith("/src/app")) {
-          if (currentSrcFolder === null) {
-            currentSrcFolder = "/src/app";
-          } else {
-            if (currentSrcFolder !== "/src/app") {
+            if (currentSrcFolder !== maybeCurrentSrcFolder) {
               return {
                 status: "error",
                 error:

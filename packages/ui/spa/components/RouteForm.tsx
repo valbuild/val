@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import { RoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
 import { extractRoutePatternParams } from "../utils/extractRoutePatternParams";
 

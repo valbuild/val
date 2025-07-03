@@ -1,4 +1,4 @@
-import { RoutePattern } from "./parseRoutePattern";
+import { RoutePattern } from "@valbuild/shared/internal";
 
 export function extractRoutePatternParams(
   routePattern: RoutePattern[],

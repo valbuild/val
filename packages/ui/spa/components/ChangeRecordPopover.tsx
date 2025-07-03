@@ -14,7 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import { RoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";

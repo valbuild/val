@@ -1,5 +1,5 @@
 import { s } from "../val.config";
-import { linkSchema } from "./link";
+import { linkSchema } from "./link.val";
 
 export const linkButtonSchema = s.object({
   label: s.string(),
