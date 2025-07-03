@@ -284,38 +284,63 @@ export function ToolsMenuButtons() {
               />
             </div>
           )}
-          <Button
-            className="flex gap-2 items-center"
-            variant={"outline"}
-            onClick={() => {
-              if (
-                maybePreviewRoute.status === "success" &&
-                maybePreviewRoute.data?.previewRoute
-              ) {
-                window.location.href = urlOf("/api/val/enable", {
-                  redirect_to:
-                    window.origin + maybePreviewRoute.data.previewRoute,
-                });
-              } else {
-                window.location.href = urlOf("/api/val/enable", {
-                  redirect_to: window.origin,
-                });
-              }
-            }}
-          >
-            {maybePreviewRoute.status === "success" &&
-            maybePreviewRoute.data?.previewRoute ? (
-              <>
-                <span>Preview</span>
-                <Eye size={16} />
-              </>
-            ) : (
-              <span>Draft mode</span>
-            )}
-          </Button>
+          <PreviewButton maybePreviewRoute={maybePreviewRoute} />
           <PublishButton />
         </div>
       </div>
     </div>
+  );
+}
+
+function PreviewButton({
+  maybePreviewRoute,
+}: {
+  maybePreviewRoute:
+    | {
+        status: "success";
+        data: null | {
+          previewRoute: string;
+        };
+      }
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+    | {
+        status: "not-found";
+      };
+}) {
+  return (
+    <Button
+      className="flex gap-2 items-center"
+      variant={"outline"}
+      onClick={() => {
+        if (
+          maybePreviewRoute.status === "success" &&
+          maybePreviewRoute.data?.previewRoute
+        ) {
+          window.location.href = urlOf("/api/val/enable", {
+            redirect_to: window.origin + maybePreviewRoute.data.previewRoute,
+          });
+        } else {
+          window.location.href = urlOf("/api/val/enable", {
+            redirect_to: window.origin,
+          });
+        }
+      }}
+    >
+      {maybePreviewRoute.status === "success" &&
+      maybePreviewRoute.data?.previewRoute ? (
+        <>
+          <span>Preview</span>
+          <Eye size={16} />
+        </>
+      ) : (
+        <span>Draft mode</span>
+      )}
+    </Button>
   );
 }
