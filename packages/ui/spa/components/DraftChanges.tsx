@@ -261,7 +261,7 @@ export function DraftChanges({
                 <Undo2 size={14} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent container={portalContainer}>
+            <PopoverContent container={portalContainer} className="z-[9001]">
               <div className="flex flex-col gap-4">
                 <div className="text-lg font-bold">Are you sure?</div>
                 <div>This will undo all changes to the current state.</div>
@@ -770,7 +770,7 @@ const PatchOrPatchSetCard = forwardRef<
                 </PopoverTrigger>
                 <PopoverContent
                   container={portalContainer}
-                  className="flex flex-col gap-2"
+                  className="flex flex-col gap-2 z-[9001]"
                 >
                   <div className="text-lg font-bold">Are you sure?</div>
                   <div>
