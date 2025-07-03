@@ -9,6 +9,7 @@ export const linkSchema: Schema<{
   href: string;
 }> = s.union(
   "type",
+  // NOTE: we do `get href() { ... }` to avoid circular dependencies
   s.object({
     type: s.literal("main"),
     get href() {
