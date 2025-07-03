@@ -29,7 +29,7 @@ import {
 } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
 import { useKeysOf } from "./useKeysOf";
-import { DeleteRecordButton } from "./DeleteRecordButton";
+import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { Button } from "./designSystem/button";
 import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
 import { AddRecordPopover } from "./AddRecordPopover";
@@ -39,7 +39,6 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
-import { PopoverClose } from "@radix-ui/react-popover";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
 export function NextAppRouterSitemap({
@@ -267,44 +266,23 @@ function SiteMapNodeOptions({
     [node?.sourcePath],
   );
   const refs = useKeysOf(parentPath, currentKey);
-  const portalContainer = useValPortal();
   return (
-    <div className="grid gap-2 justify-start items-center">
+    <div className="flex flex-col gap-2 justify-center items-start">
       {parentPath && node.sourcePath && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex gap-2 items-center"
-            >
-              <Trash2 size={12} />
-              <span>Delete</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            container={portalContainer}
-            className="flex flex-col gap-2"
-          >
-            <div className="text-lg font-bold">Are you sure?</div>
-            <div>This will delete the {currentKey} page.</div>
-            <PopoverClose asChild>
-              <DeleteRecordButton
-                path={node.sourcePath as SourcePath}
-                parentPath={parentPath}
-                refs={refs}
-                size="sm"
-                variant="destructive"
-                onComplete={onClose}
-              >
-                <div className="flex gap-2 items-center">
-                  <Trash2 size={12} />
-                  <span>Delete</span>
-                </div>
-              </DeleteRecordButton>
-            </PopoverClose>
-          </PopoverContent>
-        </Popover>
+        <DeleteRecordPopover
+          path={node.sourcePath as SourcePath}
+          parentPath={parentPath}
+          refs={refs}
+          size="sm"
+          variant="ghost"
+          onComplete={onClose}
+          confirmationMessage={`This will delete the ${currentKey} page.`}
+        >
+          <div className="flex gap-2 items-center">
+            <Trash2 size={14} />
+            <span>Delete</span>
+          </div>
+        </DeleteRecordPopover>
       )}
       {currentKey !== undefined && node.sourcePath && parentPath && (
         <ChangeRecordPopover

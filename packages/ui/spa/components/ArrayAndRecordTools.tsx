@@ -30,7 +30,7 @@ import {
 } from "../hooks/useParent";
 import { ValPath } from "./ValPath";
 import { useKeysOf } from "./useKeysOf";
-import { DeleteRecordButton } from "./DeleteRecordButton";
+import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
 import { getPatternFromModuleFilePath } from "@valbuild/shared/internal";
@@ -119,15 +119,16 @@ export function ArrayAndRecordTools({
             </ChangeRecordPopover>
           )}
           {canParentDelete && (
-            <DeleteRecordButton
+            <DeleteRecordPopover
               path={path}
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               refs={refs}
+              confirmationMessage={`This will delete the ${last.text} record.`}
             >
               <Trash size={getIconSize(variant)} />
-            </DeleteRecordButton>
+            </DeleteRecordPopover>
           )}
         </>
       )}
