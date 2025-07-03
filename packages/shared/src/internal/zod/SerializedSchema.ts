@@ -198,7 +198,16 @@ export const SerializedKeyOfSchema: z.ZodType<
   return z.object({
     type: z.literal("keyOf"),
     path: SourcePath,
-    schema: SerializedSchema,
+    schema: z
+      .union([
+        z.object({
+          type: z.literal("object"),
+          keys: z.array(z.string()),
+          opt: z.boolean().optional(),
+        }),
+        z.object({ type: z.literal("record"), opt: z.boolean().optional() }),
+      ])
+      .optional(),
     values: z.union([z.literal("string"), z.array(z.string())]),
     opt: z.boolean(),
   });

@@ -31,7 +31,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
     schemaAtPath.data &&
     schemaAtPath.data.type === "keyOf"
       ? {
-          type: schemaAtPath.data.schema.type,
+          type: schemaAtPath.data.schema?.type,
           path: schemaAtPath.data.path,
         }
       : undefined;
@@ -135,7 +135,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
           <span>Value must be one of: {keys.join(", ")}</span>
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex justify-between items-center">
         <Select
           value={source ?? ""}
           onValueChange={(value) => {
