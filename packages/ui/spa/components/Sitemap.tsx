@@ -31,7 +31,7 @@ import { cn } from "./designSystem/cn";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { Button } from "./designSystem/button";
-import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
 import { AddRecordPopover } from "./AddRecordPopover";
 import {
   Tooltip,

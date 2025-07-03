@@ -1,5 +1,6 @@
 "use server";
-import { fetchVal } from "../../../val/rsc";
+import { notFound } from "next/navigation";
+import { fetchValRoute } from "../../../val/rsc";
 import blogsVal from "./page.val";
 
 export default async function BlogPage({
@@ -7,12 +8,14 @@ export default async function BlogPage({
 }: {
   params: Promise<{ blog: string }>;
 }) {
-  const blogs = await fetchVal(blogsVal);
-  const content = blogs[(await params).blog];
+  const blog = await fetchValRoute(blogsVal, params);
+  if (!blog) {
+    return notFound();
+  }
   return (
     <div>
-      <h1>{content.title}</h1>
-      <p>{content.content}</p>
+      <h1>{blog.title}</h1>
+      <p>{blog.content}</p>
     </div>
   );
 }

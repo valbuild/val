@@ -1,5 +1,5 @@
 import { extractRoutePatternParams } from "./extractRoutePatternParams";
-import { parseRoutePattern } from "./parseRoutePattern";
+import { parseRoutePattern } from "@valbuild/shared/internal";
 
 describe("extractRoutePatternParams", () => {
   describe("basic literal routes", () => {

@@ -1,6 +1,6 @@
 import { c, nextAppRouter, s } from "_/val.config";
 import authorsVal from "../../../content/authors.val";
-import { linkButtonSchema } from "../../../components/linkButton";
+import { linkButtonSchema } from "../../../components/linkButton.val";
 
 const blogSchema = s.object({
   title: s.string(),
