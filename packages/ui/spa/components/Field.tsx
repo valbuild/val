@@ -68,8 +68,8 @@ export function Field({
         "border-bg-error-secondary": validationErrors.length > 0,
       })}
     >
-      <div className="flex items-center justify-between pb-2">
-        <div className="flex items-center gap-4">
+      <div className="flex justify-between items-center pb-2">
+        <div className="flex gap-4 items-center">
           {!isBoolean && isNullable && (
             <Checkbox
               disabled={loadingStatus === "loading"}
@@ -123,7 +123,7 @@ export function Field({
           {typeof label === "string" && <Label>{label}</Label>}
           {label && typeof label !== "string" && label}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2 items-center">
           {source !== null && (
             <ArrayAndRecordTools path={path} variant={"field"} />
           )}
@@ -155,7 +155,11 @@ export function Field({
           </AccordionItem>
         </Accordion>
       )}
-      <FieldValidationError validationErrors={validationErrors} />
+      {validationErrors.length > 0 && (
+        <div className="pb-8">
+          <FieldValidationError validationErrors={validationErrors} />
+        </div>
+      )}
     </div>
   );
 }
