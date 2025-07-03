@@ -19,7 +19,7 @@ import {
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, TriangleAlert } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
@@ -130,11 +130,6 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
-        <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-fg-error-primary">
-          <span>Value must be one of: {keys.join(", ")}</span>
-        </div>
-      )}
       <div className="flex justify-between items-center">
         <Select
           value={source ?? ""}
@@ -182,6 +177,21 @@ export function KeyOfField({ path }: { path: SourcePath }) {
           </button>
         )}
       </div>
+      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
+        <div className="flex gap-2 p-2 py-3 mt-2 rounded-md bg-bg-error-primary text-fg-error-primary">
+          <span className="line-clamp-1">
+            Value must be one of: {keys.join(", ")} {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+          </span>
+          <span className="flex-shrink-0">
+            <TriangleAlert size={16} />
+          </span>
+        </div>
+      )}
     </div>
   );
 }
