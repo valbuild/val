@@ -226,7 +226,7 @@ export function ToolsMenuButtons() {
       const keys = Object.keys(maybeRecordSource.data);
       const routePartOfModulePath = Internal.splitModulePath(modulePath)[0];
       for (const key of keys) {
-        if (routePartOfModulePath.startsWith(key)) {
+        if (routePartOfModulePath && routePartOfModulePath.startsWith(key)) {
           return {
             status: "success",
             data: { previewRoute: key },
@@ -313,34 +313,42 @@ function PreviewButton({
         status: "not-found";
       };
 }) {
+  const href = useMemo(() => {
+    if (
+      maybePreviewRoute.status === "success" &&
+      maybePreviewRoute.data?.previewRoute
+    ) {
+      return urlOf("/api/val/enable", {
+        redirect_to: window.origin + maybePreviewRoute.data.previewRoute,
+      });
+    } else {
+      return urlOf("/api/val/enable", {
+        redirect_to: window.origin,
+      });
+    }
+  }, [maybePreviewRoute]);
   return (
-    <Button
-      className="flex gap-2 items-center"
-      variant={"outline"}
-      onClick={() => {
-        if (
-          maybePreviewRoute.status === "success" &&
-          maybePreviewRoute.data?.previewRoute
-        ) {
-          window.location.href = urlOf("/api/val/enable", {
-            redirect_to: window.origin + maybePreviewRoute.data.previewRoute,
-          });
-        } else {
-          window.location.href = urlOf("/api/val/enable", {
-            redirect_to: window.origin,
-          });
-        }
-      }}
-    >
-      {maybePreviewRoute.status === "success" &&
-      maybePreviewRoute.data?.previewRoute ? (
-        <>
-          <span>Preview</span>
-          <Eye size={16} />
-        </>
-      ) : (
-        <span>Draft mode</span>
-      )}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          className="flex gap-2 items-center"
+          variant={"secondary"}
+          asChild
+        >
+          <a href={href}>
+            <span>Preview</span>
+            <Eye size={16} />
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {maybePreviewRoute.status === "success" &&
+        maybePreviewRoute.data?.previewRoute ? (
+          <p>Preview your changes in {maybePreviewRoute.data.previewRoute}</p>
+        ) : (
+          <p>Preview your changes on the main page</p>
+        )}
+      </TooltipContent>
+    </Tooltip>
   );
 }
