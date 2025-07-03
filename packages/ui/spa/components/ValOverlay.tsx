@@ -534,6 +534,9 @@ function Window({
   );
 }
 
+const buttonClassName =
+  "p-2 rounded-md disabled:bg-bg-disabled hover:bg-bg-primary-hover transition-colors";
+
 function WindowField({ path: path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
 
@@ -684,7 +687,7 @@ function ValMenu({
           <Popover>
             <PopoverTrigger
               disabled={publishDisabled}
-              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
+              className={buttonClassName}
             >
               <HoverCard>
                 <HoverCardTrigger>
@@ -774,9 +777,7 @@ function ValMenu({
             }}
           />
           <Popover>
-            <PopoverTrigger
-              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
-            >
+            <PopoverTrigger className={buttonClassName}>
               <Ellipsis size={16} />
             </PopoverTrigger>
             <PopoverContent container={portalContainer} className="z-[9003]">
@@ -896,9 +897,9 @@ function MenuButton({
   return (
     <button
       disabled={disabled}
-      className={classNames("p-2 rounded-full disabled:bg-bg-disabled", {
-        "bg-bg-brand-primary text-fg-brand-primary": variant === "primary",
-        "text-bg-brand-primary": !!active,
+      className={classNames(buttonClassName, {
+        "bg-bg-brand-primary text-fg-brand-primary-alt": variant === "primary",
+        "text-bg-brand-secondary bg-bg-primary-hover": !!active,
       })}
       onClick={onClick}
       aria-label={label}
