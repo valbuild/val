@@ -4,6 +4,7 @@ import {
   Ellipsis,
   Eye,
   EyeOff,
+  Globe,
   LogIn,
   PanelBottom,
   PanelLeft,
@@ -19,11 +20,17 @@ import {
   Fragment,
   SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { AnimateHeight } from "./AnimateHeight";
-import { Internal, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
@@ -37,6 +44,8 @@ import {
   useValMode,
   useValPortal,
   usePublishSummary,
+  useSchemas,
+  useShallowModulesAtPaths,
 } from "./ValProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
@@ -599,6 +608,7 @@ function ValMenu({
     };
   }, []);
   const { publishDisabled } = usePublishSummary();
+  const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -771,10 +781,20 @@ function ValMenu({
           </Popover>
           <MenuButton
             label="Studio"
-            icon={<PanelsTopLeft size={16} />}
-            onClick={() => {
-              window.location.href = window.origin + "/val/~";
-            }}
+            icon={
+              sourcePathResult.status === "success" && sourcePathResult.data ? (
+                <Globe size={16} />
+              ) : (
+                <PanelsTopLeft size={16} />
+              )
+            }
+            href={
+              window.origin +
+              "/val/~" +
+              (sourcePathResult.status === "success" && sourcePathResult.data
+                ? sourcePathResult.data
+                : "")
+            }
           />
           <Popover>
             <PopoverTrigger className={buttonClassName}>
@@ -863,10 +883,20 @@ function ValMenu({
           />
           <MenuButton
             label="Studio"
-            icon={<PanelsTopLeft size={16} />}
-            onClick={() => {
-              window.location.href = window.origin + "/val/~";
-            }}
+            icon={
+              sourcePathResult.status === "success" && sourcePathResult.data ? (
+                <Globe size={16} />
+              ) : (
+                <PanelsTopLeft size={16} />
+              )
+            }
+            href={
+              window.origin +
+              "/val/~" +
+              (sourcePathResult.status === "success" && sourcePathResult.data
+                ? sourcePathResult.data
+                : "")
+            }
           />
           <MenuButton
             label="Disable Val"
@@ -879,6 +909,62 @@ function ValMenu({
   );
 }
 
+function useValRouterSourcePathFromCurrentPathname() {
+  const schemas = useSchemas();
+  const allModuleFilePaths =
+    "data" in schemas && schemas.data
+      ? (Object.keys(schemas.data) as ModuleFilePath[])
+      : [];
+  const maybeRecordSources = useShallowModulesAtPaths(
+    allModuleFilePaths,
+    "record",
+  );
+  const [currentPathname, setCurrentPathname] = useState<string | null>(null);
+  useEffect(() => {
+    setCurrentPathname(window.location.pathname);
+    const listener = () => {
+      setCurrentPathname(window.location.pathname);
+    };
+    window.addEventListener("popstate", listener);
+    return () => {
+      window.removeEventListener("popstate", listener);
+    };
+  }, []);
+  const sourcePathResult = useMemo(() => {
+    if (schemas.status !== "success") {
+      return schemas;
+    }
+    if (maybeRecordSources.status !== "success") {
+      return maybeRecordSources;
+    }
+    if (currentPathname) {
+      const schemasData = schemas.data;
+      for (const moduleFilePath of allModuleFilePaths) {
+        const schema = schemasData[moduleFilePath];
+        if (schema.type === "record" && schema.router) {
+          for (const shallowModuleSource of maybeRecordSources.data || []) {
+            for (const fullPath in shallowModuleSource) {
+              if (fullPath === currentPathname) {
+                return {
+                  status: "success",
+                  data: Internal.joinModuleFilePathAndModulePath(
+                    moduleFilePath,
+                    JSON.stringify(fullPath) as ModulePath,
+                  ),
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+    return {
+      status: "not-found",
+    };
+  }, ["data" in schemas && schemas.data, maybeRecordSources, currentPathname]);
+  return sourcePathResult;
+}
+
 function MenuButton({
   icon,
   onClick,
@@ -886,6 +972,7 @@ function MenuButton({
   active,
   label,
   variant,
+  href,
 }: {
   icon: React.ReactNode;
   onClick?: () => void;
@@ -893,9 +980,12 @@ function MenuButton({
   active?: boolean;
   label?: string;
   variant?: "primary";
+  href?: string;
 }) {
+  const Comp = href ? "a" : "button";
   return (
-    <button
+    <Comp
+      href={href}
       disabled={disabled}
       className={classNames(buttonClassName, {
         "bg-bg-brand-primary text-fg-brand-primary-alt": variant === "primary",
@@ -906,7 +996,7 @@ function MenuButton({
       title={label}
     >
       {icon}
-    </button>
+    </Comp>
   );
 }
 
