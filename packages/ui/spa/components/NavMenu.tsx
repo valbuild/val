@@ -29,7 +29,7 @@ import {
   LogOut,
   User,
   Globe,
-  Folder,
+  PanelsTopLeft,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode } from "../utils/pathTree";
@@ -267,7 +267,7 @@ function NavContentExplorer({
 }) {
   return (
     <NavSection
-      icon={<Folder size={16} />}
+      icon={<PanelsTopLeft size={16} />}
       title={title}
       defaultOpen={defaultOpen}
     >
