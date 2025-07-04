@@ -272,7 +272,7 @@ function NavContentExplorer({
       defaultOpen={defaultOpen}
     >
       {root.children.sort(sortPathTree).map((child, i) => (
-        <ExplorerNode {...child} name={child.name} key={i} />
+        <ExplorerNode {...child} name={child.name} key={i} root />
       ))}
     </NavSection>
   );
@@ -358,7 +358,13 @@ function sortPathTree(a: PathNode, b: PathNode) {
   return a.name.localeCompare(b.name);
 }
 
-function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
+function ExplorerNode({
+  name,
+  fullPath,
+  isDirectory,
+  children,
+  root,
+}: PathNode & { root?: boolean }) {
   const { navigate, currentSourcePath } = useNavigation();
   const { navMenu } = useLayout();
   const [isOpen, setIsOpen] = useState(true);
@@ -390,8 +396,10 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
     <div className="w-full text-sm">
       <button
         className={classNames(
-          "relative flex items-center justify-between w-full p-2",
+          "relative flex items-center justify-between w-full ",
           {
+            "py-2": root,
+            "p-2": !root,
             underline: currentSourcePath.startsWith(path) && !isDirectory,
             "font-bold": currentSourcePath.startsWith(path) && isDirectory,
           },
