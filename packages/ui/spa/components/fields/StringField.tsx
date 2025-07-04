@@ -4,7 +4,6 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useSourceAtPath,
 } from "../ValProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -24,7 +23,7 @@ export function StringField({
 }) {
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useSourceAtPath(path);
+  const sourceAtPath = useShallowSourceAtPath(path, "string");
   const { patchPath, addPatch } = useAddPatch(path);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
@@ -44,7 +43,11 @@ export function StringField({
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -96,9 +99,7 @@ export function StringField({
 export function StringPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "string");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="string" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

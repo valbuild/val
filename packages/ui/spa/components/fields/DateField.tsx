@@ -54,7 +54,11 @@ export function DateField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -101,7 +105,7 @@ export function DateField({ path }: { path: SourcePath }) {
               "w-[280px] justify-start text-left font-normal",
             )}
           >
-            <CalendarIcon className="w-4 h-4 mr-2" />
+            <CalendarIcon className="mr-2 w-4 h-4" />
             {currentValue ? (
               format(currentValue, "PPP")
             ) : (
@@ -109,7 +113,7 @@ export function DateField({ path }: { path: SourcePath }) {
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" container={portalContainer}>
+        <PopoverContent className="p-0 w-auto" container={portalContainer}>
           <Calendar
             mode="single"
             captionLayout="dropdown-buttons"
@@ -148,9 +152,7 @@ export function DateField({ path }: { path: SourcePath }) {
 export function DatePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "date");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="date" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

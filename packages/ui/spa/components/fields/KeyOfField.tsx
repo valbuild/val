@@ -50,7 +50,11 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (referencedSource.status === "error") {
@@ -58,7 +62,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       <FieldSourceError
         path={path}
         error={referencedSource.error}
-        type={keyOf?.type}
+        schema={schemaAtPath}
       />
     );
   }
@@ -203,9 +207,7 @@ function LoadingSelectContent() {
 export function KeyOfPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "keyOf");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="keyOf" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

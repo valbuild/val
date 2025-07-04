@@ -27,7 +27,11 @@ export function BooleanField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -113,9 +117,7 @@ export function EmbeddedBooleanField({
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
   if (typeof source !== "boolean" && source !== null) {
-    return (
-      <FieldSourceError path={path} error={"Expected boolean"} type="boolean" />
-    );
+    return <FieldSourceError path={path} error={"Expected boolean"} />;
   }
   return (
     <Checkbox
@@ -182,9 +184,7 @@ export function EmbeddedBooleanField({
 export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
   const sourceAtPath = useShallowSourceAtPath(path, "boolean");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="boolean" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
