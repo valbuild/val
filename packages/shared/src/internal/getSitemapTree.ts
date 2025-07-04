@@ -19,10 +19,12 @@ export type SitemapNode = {
   type: "node";
   name: string;
   page?: {
-    // if a page is present this is a folder that is also a page
+    /** If a page is present this is a folder that is also a page */
     fullPath: string;
   };
-  pattern?: string; // if a pattern is present you can add new children to this node
+  /** If a pattern is present you can add new children to this node */
+  pattern?: string;
+  /** Means that there is only one child essentially */
   isLinear?: true;
   children: (SitemapNode | PageNode)[];
   moduleFilePath?: ModuleFilePath;
@@ -105,6 +107,11 @@ export function getNextAppRouterSitemapTree(
         }
         currentNode = node;
       } else {
+        console.log(
+          "existing node",
+          currentNode.children[existingNodeIndex],
+          path.urlPath,
+        );
         const existingNode = currentNode.children[existingNodeIndex];
         if (existingNode.type === "leaf" && hasChildren) {
           const sourcePath = existingNode.sourcePath as SourcePath;
@@ -119,6 +126,12 @@ export function getNextAppRouterSitemapTree(
             moduleFilePath,
           };
           currentNode = currentNode.children[existingNodeIndex];
+        } else if (existingNode.type === "node" && isLast) {
+          // add page, source path and module file path
+          existingNode.page = { fullPath };
+          existingNode.sourcePath = sourcePath;
+          existingNode.moduleFilePath = moduleFilePath;
+          existingNode.pattern = pattern;
         } else {
           currentNode = currentNode.children[existingNodeIndex];
         }
