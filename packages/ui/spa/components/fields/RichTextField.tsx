@@ -51,7 +51,6 @@ export function RichTextField({
   const { manager } = useRichTextEditor(
     currentSourceData && richTextToRemirror(currentSourceData),
   );
-  console.log({ currentSourceData: JSON.stringify(currentSourceData) });
   const disabledRef = useRef(false);
   const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
@@ -80,7 +79,6 @@ export function RichTextField({
             selection: prevState.selection,
           });
           if (newState.doc.eq(prevState.doc)) {
-            console.log("no change");
             // Avoid (unnecessary) update that also erases the history
             return prevState;
           }
@@ -205,7 +203,6 @@ export function RichTextField({
                 disabledRef.current = false;
               });
             } else {
-              console.log("-> patch", patch);
               addPatch(patch, "richtext");
             }
           }

@@ -90,7 +90,6 @@ export function NextAppRouterSitemap({
         });
       }
     }
-    console.log({ srcFolder, paths });
     const sitemapData = getNextAppRouterSitemapTree(srcFolder.data, paths);
     return {
       status: shallowModules.status,
@@ -144,7 +143,6 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
     }
   }, [navigate, node]);
   const moduleFilePath = node.moduleFilePath;
-  console.log(node);
   return (
     <div>
       <div className="flex relative justify-between items-center w-full h-10 group">
