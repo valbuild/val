@@ -1777,10 +1777,10 @@ export function useShallowModulesAtPaths<
     () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    return { status: "loading" };
-  }
   return useMemo((): ShallowSourcesOf<SchemaType> => {
+    if (initializedAt === null) {
+      return { status: "loading" };
+    }
     if (!sourcesRes) {
       return {
         status: "not-found",
@@ -1829,7 +1829,7 @@ export function useShallowModulesAtPaths<
       status: "success",
       data: allSources,
     };
-  }, [sourcesRes, type]);
+  }, [sourcesRes, type, initializedAt, moduleFilePaths]);
 }
 
 // TODO: this should be in the next package somehow - that might require a lot of refactoring to accomplish though
