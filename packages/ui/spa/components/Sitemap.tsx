@@ -111,10 +111,14 @@ export function NextAppRouterSitemap({
 
 function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
   const portalContainer = useValPortal();
+  const { currentSourcePath } = useNavigation();
   const [isOpen, setIsOpen] = useState(true);
   const { navigate } = useNavigation();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const isCurrentRoute = useMemo(() => {
+    return !!node.sourcePath?.startsWith(currentSourcePath);
+  }, [currentSourcePath, node.sourcePath]);
   const routePatternWithParams = useMemo(() => {
     if (!node.pattern) {
       return undefined;
@@ -166,7 +170,14 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 {node.sourcePath ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button onClick={onClick}>/</button>
+                      <button
+                        onClick={onClick}
+                        className={cn({
+                          underline: isCurrentRoute,
+                        })}
+                      >
+                        /
+                      </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Go to main page</TooltipContent>
                   </Tooltip>
@@ -180,7 +191,9 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             {node.name !== "/" && (
               <button
                 onClick={onClick}
-                className="cursor-pointer disabled:cursor-default"
+                className={cn("cursor-pointer disabled:cursor-default", {
+                  underline: isCurrentRoute,
+                })}
               >
                 <span className={cn("pr-[2px] text-fg-quaternary")}>/</span>
                 <span>{node.name}</span>
