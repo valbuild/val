@@ -375,7 +375,7 @@ export function UnionPreview({ path }: { path: SourcePath }) {
         />
       );
     }
-    const acutalSchema = schema.items.find((item) => {
+    const actualSchema = schema.items.find((item) => {
       const keySchema = item.items?.[schema.key];
       if (
         keySchema?.type === "literal" &&
@@ -387,7 +387,7 @@ export function UnionPreview({ path }: { path: SourcePath }) {
         return keySchema.value === source[schema.key];
       }
     });
-    if (!acutalSchema) {
+    if (!actualSchema) {
       return (
         <FieldSourceError
           path={path}
@@ -400,6 +400,6 @@ export function UnionPreview({ path }: { path: SourcePath }) {
         />
       );
     }
-    return <ObjectLikePreview path={path} schema={acutalSchema} />;
+    return <ObjectLikePreview path={path} schema={actualSchema} />;
   }
 }
