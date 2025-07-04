@@ -94,7 +94,7 @@ export function ArrayAndRecordTools({
     !parentRoutePattern ||
     // there are no dynamic route parts so we cannot delete
     !isParentFixedRoute;
-  const canParentChange = parentRoutePattern && !isParentFixedRoute;
+  const canParentChange = !parentRoutePattern || !isParentFixedRoute;
 
   const isFixedRoute =
     routePattern?.every((part) => part.type === "literal") || false;
