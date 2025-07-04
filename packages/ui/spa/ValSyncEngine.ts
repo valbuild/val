@@ -430,7 +430,9 @@ export class ValSyncEngine {
     }
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
-    this.emit(this.listeners.source?.[moduleFilePath]);
+    this.emit(this.listeners["sources"]?.[moduleFilePath]);
+    this.emit(this.listeners["source"]?.[moduleFilePath]);
+    this.emit(this.listeners["all-sources"]?.[globalNamespace]);
   }
 
   private invalidateRenders(moduleFilePath: ModuleFilePath) {
@@ -667,6 +669,8 @@ export class ValSyncEngine {
       .join(this.multipleSourcesSep);
     if (this.cachedSourcesSnapshot === null) {
       this.cachedSourcesSnapshot = {};
+    }
+    if (this.cachedSourcesSnapshot[pathsKey] === undefined) {
       for (const moduleFilePath of paths) {
         const data =
           this.optimisticClientSources[moduleFilePath] ||
