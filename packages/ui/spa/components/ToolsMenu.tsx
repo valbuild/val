@@ -11,7 +11,7 @@ import {
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { Eye, Loader2, PanelRightOpen } from "lucide-react";
+import { Globe, Loader2, PanelRightOpen, PanelsTopLeft } from "lucide-react";
 import { useLayout } from "./Layout";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -337,7 +337,12 @@ function PreviewButton({
         >
           <a href={href}>
             <span>Preview</span>
-            <Eye size={16} />
+            {maybePreviewRoute.status === "success" &&
+            maybePreviewRoute.data?.previewRoute ? (
+              <Globe size={16} />
+            ) : (
+              <PanelsTopLeft size={16} />
+            )}
           </a>
         </Button>
       </TooltipTrigger>
