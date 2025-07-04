@@ -7,6 +7,7 @@ import {
   Trash2,
   Loader2,
   Link,
+  StickyNote,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
@@ -89,6 +90,7 @@ export function NextAppRouterSitemap({
         });
       }
     }
+    console.log({ srcFolder, paths });
     const sitemapData = getNextAppRouterSitemapTree(srcFolder.data, paths);
     return {
       status: shallowModules.status,
@@ -142,14 +144,15 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
     }
   }, [navigate, node]);
   const moduleFilePath = node.moduleFilePath;
+  console.log(node);
   return (
     <div>
       <div className="flex relative justify-between items-center w-full h-10 group">
         <div className="flex items-center my-1">
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className={cn("hidden h-6 w-6", {
-              "group-hover:block": node.children?.length > 0,
+            className={cn("hidden h-4 w-4 mr-2", {
+              block: node.children?.length > 0,
             })}
           >
             <ChevronRight
@@ -160,10 +163,12 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             />
           </button>
           <div
-            className={cn("block h-6 w-6", {
-              "group-hover:hidden": node.children?.length > 0,
+            className={cn("block mr-2", {
+              hidden: node.children?.length > 0,
             })}
-          />
+          >
+            <StickyNote size={16} />
+          </div>
           <span>
             {node.name === "/" && (
               <>
