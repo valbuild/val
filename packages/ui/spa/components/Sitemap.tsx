@@ -176,7 +176,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                           underline: isCurrentRoute,
                         })}
                       >
-                        /
+                        Main page
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Go to main page</TooltipContent>
