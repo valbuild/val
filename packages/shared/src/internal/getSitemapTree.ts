@@ -107,11 +107,6 @@ export function getNextAppRouterSitemapTree(
         }
         currentNode = node;
       } else {
-        console.log(
-          "existing node",
-          currentNode.children[existingNodeIndex],
-          path.urlPath,
-        );
         const existingNode = currentNode.children[existingNodeIndex];
         if (existingNode.type === "leaf" && hasChildren) {
           const sourcePath = existingNode.sourcePath as SourcePath;
