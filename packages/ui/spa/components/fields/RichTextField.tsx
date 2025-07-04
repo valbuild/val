@@ -51,6 +51,7 @@ export function RichTextField({
   const { manager } = useRichTextEditor(
     currentSourceData && richTextToRemirror(currentSourceData),
   );
+  console.log({ currentSourceData: JSON.stringify(currentSourceData) });
   const disabledRef = useRef(false);
   const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
@@ -79,6 +80,7 @@ export function RichTextField({
             selection: prevState.selection,
           });
           if (newState.doc.eq(prevState.doc)) {
+            console.log("no change");
             // Avoid (unnecessary) update that also erases the history
             return prevState;
           }
@@ -127,7 +129,11 @@ export function RichTextField({
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -199,6 +205,7 @@ export function RichTextField({
                 disabledRef.current = false;
               });
             } else {
+              console.log("-> patch", patch);
               addPatch(patch, "richtext");
             }
           }
@@ -247,13 +254,7 @@ function createRichTextPatch(
 export function RichTextPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "richtext");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError
-        path={path}
-        error={sourceAtPath.error}
-        type="richtext"
-      />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (sourceAtPath.status == "not-found") {
     return <FieldNotFound path={path} type="richtext" />;
@@ -266,9 +267,7 @@ export function RichTextPreview({ path }: { path: SourcePath }) {
   }
   const asString = richTextToString(sourceAtPath.data);
   if (asString.status === "error") {
-    return (
-      <FieldSourceError path={path} error={asString.error} type="richtext" />
-    );
+    return <FieldSourceError path={path} error={asString.error} />;
   }
   return <div className="truncate">{asString.value}</div>;
 }

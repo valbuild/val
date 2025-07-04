@@ -54,7 +54,11 @@ export function UnionField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -86,7 +90,7 @@ export function UnionField({ path }: { path: SourcePath }) {
         <FieldSourceError
           path={path}
           error={"Expected source to be a string, but found: " + typeof source}
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
@@ -114,7 +118,7 @@ export function UnionField({ path }: { path: SourcePath }) {
         <FieldSourceError
           path={path}
           error={"Expected source to be an object, but found: " + typeof source}
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
@@ -123,7 +127,7 @@ export function UnionField({ path }: { path: SourcePath }) {
         <FieldSourceError
           path={path}
           error={"Expected source to be an object, but found an array"}
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
@@ -322,7 +326,11 @@ export function UnionPreview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="union" />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
@@ -353,7 +361,7 @@ export function UnionPreview({ path }: { path: SourcePath }) {
             "Expected source to be a string, but found: " +
             typeof sourceAtPath.data
           }
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
@@ -371,7 +379,7 @@ export function UnionPreview({ path }: { path: SourcePath }) {
         <FieldSourceError
           path={path}
           error={"Expected source to be an object, but found: " + typeof source}
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
@@ -396,7 +404,7 @@ export function UnionPreview({ path }: { path: SourcePath }) {
             schema.key +
             " but it was not found"
           }
-          type={type}
+          schema={schemaAtPath}
         />
       );
     }
