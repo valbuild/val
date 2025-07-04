@@ -348,8 +348,12 @@ describe("getNextAppRouterSitemapTree", () => {
         {
           type: "node",
           name: "foo",
-          pattern: "/foo/bar",
-          moduleFilePath: "/app/foo/bar/page.val.ts" as ModuleFilePath,
+          pattern: "/foo",
+          page: {
+            fullPath: "/foo",
+          },
+          sourcePath: '/app/foo/page.val.ts?p="/foo"',
+          moduleFilePath: "/app/foo/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "leaf",
@@ -391,6 +395,104 @@ describe("getNextAppRouterSitemapTree", () => {
         },
       ],
       isLinear: true,
+    });
+  });
+
+  it("should handle a complex sitemap", () => {
+    const paths = [
+      {
+        urlPath: "/blogs/blog2",
+        moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+      },
+      {
+        urlPath: "/blogs/blog1",
+        moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+      },
+      {
+        urlPath: "/generic/test/foo",
+        moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+      },
+      {
+        urlPath: "/generic/test",
+        moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+      },
+      {
+        urlPath: "/",
+        moduleFilePath: "/app/page.val.ts",
+      },
+    ];
+    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    console.log(JSON.stringify(sitemap, null, 2));
+    expect(sitemap).toEqual({
+      type: "node",
+      name: "/",
+      pattern: "",
+      page: {
+        fullPath: "/",
+      },
+      sourcePath: "/app/page.val.ts?p=/",
+      moduleFilePath: "/app/page.val.ts",
+      children: [
+        {
+          type: "node",
+          name: "blogs",
+          pattern: "/blogs/[blog]",
+          moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+          children: [
+            {
+              type: "leaf",
+              name: "blog2",
+              pattern: "/blogs/[blog]",
+              fullPath: "/blogs/blog2",
+              moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+              sourcePath: '/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"',
+              children: [],
+            },
+            {
+              type: "leaf",
+              name: "blog1",
+              pattern: "/blogs/[blog]",
+              fullPath: "/blogs/blog1",
+              moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+              sourcePath: '/app/blogs/[blog]/page.val.ts?p="/blogs/blog1"',
+              children: [],
+            },
+          ],
+        },
+        {
+          type: "node",
+          name: "generic",
+          pattern: "/generic/[[...path]]",
+          moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+          children: [
+            {
+              type: "node",
+              name: "test",
+              pattern: "/generic/[[...path]]",
+              moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+              sourcePath:
+                '/app/generic/[[...path]]/page.val.ts?p="/generic/test"',
+              page: {
+                fullPath: "/generic/test",
+              },
+              children: [
+                {
+                  type: "leaf",
+                  name: "foo",
+                  pattern: "/generic/[[...path]]",
+                  fullPath: "/generic/test/foo",
+                  moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+                  sourcePath:
+                    '/app/generic/[[...path]]/page.val.ts?p="/generic/test/foo"',
+                  children: [],
+                },
+              ],
+              isLinear: true,
+            },
+          ],
+          isLinear: true,
+        },
+      ],
     });
   });
 });
