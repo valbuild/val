@@ -457,6 +457,7 @@ function Window({
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
               windowInnerWidth < 1024,
+            "min-w-[500px]": windowInnerWidth >= 1024,
           },
         )}
         ref={ref}
