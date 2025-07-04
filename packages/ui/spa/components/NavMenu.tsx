@@ -28,6 +28,8 @@ import {
   Sun,
   LogOut,
   User,
+  Globe,
+  Folder,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode } from "../utils/pathTree";
@@ -259,12 +261,16 @@ function NavContentExplorer({
   defaultOpen,
   node: root,
 }: {
-  title?: string;
+  title: string;
   defaultOpen?: boolean;
   node: PathNode;
 }) {
   return (
-    <NavSection title={title} defaultOpen={defaultOpen}>
+    <NavSection
+      icon={<Folder size={16} />}
+      title={title}
+      defaultOpen={defaultOpen}
+    >
       {root.children.sort(sortPathTree).map((child, i) => (
         <ExplorerNode {...child} name={child.name} key={i} />
       ))}
@@ -276,30 +282,33 @@ function NavSection({
   title,
   children,
   defaultOpen,
+  icon,
 }: {
-  title?: string;
+  title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  icon: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
   return (
     <div className="py-2">
-      {title && (
-        <button
-          className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
-          onClick={() => {
-            setIsOpen(!isOpen);
-          }}
-        >
+      <button
+        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
+        onClick={() => {
+          setIsOpen(!isOpen);
+        }}
+      >
+        <div className="flex gap-2 items-center">
+          {icon}
           {title}
-          <ChevronRight
-            size={16}
-            className={classNames("transform", {
-              "rotate-90": isOpen,
-            })}
-          />
-        </button>
-      )}
+        </div>
+        <ChevronRight
+          size={16}
+          className={classNames("transform", {
+            "rotate-90": isOpen,
+          })}
+        />
+      </button>
       <AnimateHeight isOpen={isOpen} className="pr-1">
         {children}
       </AnimateHeight>
@@ -312,14 +321,18 @@ function SiteMapExplorer({
   defaultOpen,
   sitemap,
 }: {
-  title?: string;
+  title: string;
   defaultOpen?: boolean;
   sitemap: { [routerId: string]: ModuleFilePath[] };
 }) {
   const nextAppRouterSitemap = sitemap["next-app-router"];
   if (nextAppRouterSitemap) {
     return (
-      <NavSection title={title} defaultOpen={defaultOpen}>
+      <NavSection
+        title={title}
+        defaultOpen={defaultOpen}
+        icon={<Globe size={16} />}
+      >
         <NextAppRouterSitemap moduleFilePaths={nextAppRouterSitemap} />
       </NavSection>
     );
