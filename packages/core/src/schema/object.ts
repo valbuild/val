@@ -14,6 +14,7 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { ModuleFilePath, SourcePath } from "../val";
+import { string } from "./string";
 import {
   ValidationError,
   ValidationErrors,
@@ -71,7 +72,9 @@ export class ObjectSchema<
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
     const customValidationErrors: ValidationError[] =
-      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
+        path,
+      });
     if (this.opt && (src === null || src === undefined)) {
       return customValidationErrors.length > 0
         ? { [path]: customValidationErrors }
@@ -252,3 +255,9 @@ export const object = <Props extends ObjectSchemaProps>(
 ): ObjectSchema<Props, ObjectSchemaSrcOf<Props>> => {
   return new ObjectSchema(schema);
 };
+
+const a = object({
+  get test() {
+    return string();
+  },
+});

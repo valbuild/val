@@ -27,7 +27,11 @@ export function BooleanField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -113,9 +117,7 @@ export function EmbeddedBooleanField({
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
   if (typeof source !== "boolean" && source !== null) {
-    return (
-      <FieldSourceError path={path} error={"Expected boolean"} type="boolean" />
-    );
+    return <FieldSourceError path={path} error={"Expected boolean"} />;
   }
   return (
     <Checkbox
@@ -182,9 +184,7 @@ export function EmbeddedBooleanField({
 export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
   const sourceAtPath = useShallowSourceAtPath(path, "boolean");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="boolean" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
@@ -192,12 +192,12 @@ export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
     return <PreviewNull path={path} />;
   } else if (sourceAtPath.data === true) {
     return (
-      <div className="flex items-center justify-center w-4 h-4 border rounded border-text-primary">
+      <div className="flex justify-center items-center w-4 h-4 rounded border border-border-primary">
         <Check className="w-3 h-3" />
       </div>
     );
   } else if (sourceAtPath.data === false) {
-    return <div className="w-4 h-4 border rounded border-text-primary" />;
+    return <div className="w-4 h-4 rounded border border-border-primary" />;
   } else {
     console.warn("Unexpected value for boolean field", sourceAtPath.data);
     return <div className="w-4 h-4 rounded border-bg-brand-primary" />;

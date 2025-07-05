@@ -5,21 +5,45 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./cn";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-text-disabled disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-fg-disabled disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default:
-          "cursor-pointer bg-bg-brand-primary text-bg-primary hover:bg-bg-secondary_hover/90 disabled:bg-bg-primary disabled:text-text-disabled disabled:border disabled:border-border-primary",
-        destructive:
-          "cursor-pointer bg-bg-error text-text-error-pimary hover:bg-bg-error_hover/90",
-        outline:
-          "cursor-pointer border border-input bg-bg-background hover:bg-bg-secondary",
-        secondary:
-          "cursor-pointer bg-bg-secondary text-fg-secondary-foreground hover:bg-secondary_alt",
-        ghost:
-          "cursor-pointer hover:bg-bg-secondary_hover hover:text-fg-secondary",
-        link: "cursor-pointer text-fg-primary underline-offset-4 hover:underline",
+        default: cn(
+          "cursor-pointer",
+          "border border-border-brand-primary",
+          "bg-bg-brand-primary text-fg-brand-primary",
+          "hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+        ),
+        destructive: cn(
+          "cursor-pointer",
+          "border border-bg-error-primary",
+          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary",
+        ),
+        outline: cn(
+          "cursor-pointer",
+          "border border-transparent",
+          "bg-bg-background hover:bg-bg-secondary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+        ),
+        secondary: cn(
+          "cursor-pointer",
+          "border border-border-secondary",
+          "bg-bg-secondary text-fg-secondary hover:bg-bg-secondary-hover",
+        ),
+        ghost: cn(
+          "cursor-pointer",
+          "border border-transparent",
+          "bg-bg-background hover:bg-bg-secondary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          "hover:bg-bg-secondary-hover hover:text-fg-secondary",
+        ),
+        link: cn(
+          "cursor-pointer",
+          "border border-transparent",
+          "text-fg-primary underline-offset-4 hover:underline",
+        ),
       },
       size: {
         default: "h-10 px-4 py-2",

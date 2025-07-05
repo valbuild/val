@@ -170,7 +170,11 @@ export function FileField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -237,30 +241,30 @@ export function FileField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
         </div>
       )}
       <div className="grid gap-2">
         {filename && (
-          <div className="flex items-center gap-2">
-            <div className="text-sm text-text-secondary">{filename}</div>
+          <div className="flex gap-2 items-center">
+            <div className="text-sm text-fg-secondary">{filename}</div>
             {loading && (
               <Loader2
-                className={`animate-spin text-text-secondary ${
+                className={`animate-spin text-fg-secondary ${
                   loading ? "block" : "hidden"
                 }`}
                 size={16}
               />
             )}
             {progressPercentage !== null && (
-              <div className="text-sm text-text-secondary">
+              <div className="text-sm text-fg-secondary">
                 {progressPercentage}%
               </div>
             )}
           </div>
         )}
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
           {source &&
             (showAsVideo ? (
               <div className="flex flex-col gap-2">
@@ -290,7 +294,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   <label htmlFor={`file_input:${path}`}>Upload</label>
                 </Button>
                 <a
-                  className="flex items-center gap-2"
+                  className="flex gap-2 items-center"
                   target="_blank"
                   rel="noopener noreferrer"
                   download={filename}
@@ -386,9 +390,7 @@ export function FileField({ path }: { path: SourcePath }) {
 export function FilePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "image");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="image" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

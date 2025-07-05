@@ -4,20 +4,15 @@ import {
   ModulePath,
   ModuleFilePath,
 } from "@valbuild/core";
-import { array } from "@valbuild/core/fp";
-import { JSONValue, Patch } from "@valbuild/core/patch";
+import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit, Workflow } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
-import { Input } from "./designSystem/input";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
-  useAllSources,
-  useLoadingStatus,
+  useNextAppRouterSrcFolder,
   useSchemaAtPath,
-  useSchemas,
   useShallowSourceAtPath,
   useValPortal,
 } from "./ValProvider";
@@ -33,14 +28,18 @@ import {
   isRecord,
   useParent,
 } from "../hooks/useParent";
-import { getKeysOf } from "./getKeysOf";
-import { CompressedPath } from "./CompressedPath";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
 import { ValPath } from "./ValPath";
+import { useKeysOf } from "./useKeysOf";
+import { DeleteRecordPopover } from "./DeleteRecordPopover";
+import { AddRecordPopover } from "./AddRecordPopover";
+import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
+import { getPatternFromModuleFilePath } from "@valbuild/shared/internal";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
+import { ChangeRecordPopover } from "./ChangeRecordPopover";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -52,6 +51,7 @@ export function ArrayAndRecordTools({
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchemaAtPath } = useParent(path);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
   const refs = useKeysOf(
@@ -60,24 +60,76 @@ export function ArrayAndRecordTools({
       ? last?.part
       : undefined,
   );
+  const srcFolder = useNextAppRouterSrcFolder();
+  const routePattern =
+    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
+    srcFolder.status === "success" &&
+    srcFolder.data &&
+    "data" in schemaAtPath &&
+    schemaAtPath.data.type === "record" &&
+    schemaAtPath.data.router
+      ? getRouterPattern(
+          moduleFilePath,
+          srcFolder.data,
+          schemaAtPath.data.router,
+        )
+      : null;
+  const parentRoutePattern =
+    isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
+    srcFolder.status === "success" &&
+    srcFolder.data &&
+    parentSchemaAtPath &&
+    parentSchemaAtPath.type === "record" &&
+    parentSchemaAtPath.router
+      ? getRouterPattern(
+          moduleFilePath,
+          srcFolder.data,
+          parentSchemaAtPath.router,
+        )
+      : null;
+  const isParentFixedRoute =
+    parentRoutePattern?.every((part) => part.type === "literal") || false;
+  const canParentDelete =
+    // not a route - just a normal record so can delete:
+    !parentRoutePattern ||
+    // there are no dynamic route parts so we cannot delete
+    !isParentFixedRoute;
+  const canParentChange = !parentRoutePattern || !isParentFixedRoute;
+
+  const isFixedRoute =
+    routePattern?.every((part) => part.type === "literal") || false;
+  const canAdd = !routePattern || !isFixedRoute; // cannot add if this is a router and this has no dynamic route parts
+
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
           <ReferencesPopover refs={refs} variant={variant} />
-          <ChangeRecordPopover
-            defaultValue={last.text}
-            path={path}
-            parentPath={maybeParentPath}
-            variant={variant}
-            refs={refs}
-          />
-          <DeleteRecordButton
-            path={path}
-            parentPath={maybeParentPath}
-            variant={variant}
-            refs={refs}
-          />
+          {canParentChange && (
+            <ChangeRecordPopover
+              defaultValue={last.text}
+              path={path}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={parentRoutePattern}
+              existingKeys={refs}
+            >
+              <Edit size={getIconSize(variant)} />
+            </ChangeRecordPopover>
+          )}
+          {canParentDelete && (
+            <DeleteRecordPopover
+              path={path}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              refs={refs}
+              confirmationMessage={`This will delete the ${last.text} record.`}
+            >
+              <Trash size={getIconSize(variant)} />
+            </DeleteRecordPopover>
+          )}
         </>
       )}
       {isArray("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
@@ -86,11 +138,32 @@ export function ArrayAndRecordTools({
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <>
           <ReferencesPopover refs={refs} variant={variant} />
-          <AddRecordPopover path={path} variant={variant} />
+          {canAdd && (
+            <AddRecordPopover
+              path={path}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={routePattern}
+            >
+              <Plus size={getIconSize(variant)} />
+            </AddRecordPopover>
+          )}
         </>
       )}
     </span>
   );
+}
+
+function getRouterPattern(
+  moduleFilePath: ModuleFilePath,
+  srcFolder: string,
+  router: string,
+): RoutePattern[] | null {
+  if (router === "next-app-router") {
+    const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
+    return parseRoutePattern(pattern);
+  }
+  return null;
 }
 
 function ReferencesPopover({
@@ -106,8 +179,8 @@ function ReferencesPopover({
   }
   return (
     <Popover>
-      <HoverCard>
-        <HoverCardTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
           <Button
             asChild
             size={getButtonSize(variant)}
@@ -117,11 +190,9 @@ function ReferencesPopover({
               <Workflow size={getIconSize(variant)} />
             </PopoverTrigger>
           </Button>
-        </HoverCardTrigger>
-        <HoverCardContent side="top">
-          References to this record
-        </HoverCardContent>
-      </HoverCard>
+        </TooltipTrigger>
+        <TooltipContent side="top">References to this record</TooltipContent>
+      </Tooltip>
       <PopoverContent container={portalContainer}>
         <div className="text-sm">
           <ul>
@@ -214,345 +285,6 @@ function AddArrayButton({
     >
       <Plus size={getIconSize(variant)} />
     </Button>
-  );
-}
-
-function DeleteRecordButton({
-  path,
-  parentPath,
-  variant,
-  refs,
-}: {
-  path: SourcePath;
-  parentPath: SourcePath;
-  variant: Variant;
-  refs: SourcePath[];
-}) {
-  const { navigate } = useNavigation();
-  const { addPatch, patchPath } = useAddPatch(path);
-  const shallowParentSource = useShallowSourceAtPath(parentPath, "record");
-  if (
-    !("data" in shallowParentSource) ||
-    shallowParentSource.data === undefined ||
-    shallowParentSource.data === null
-  ) {
-    // An actual error message should be shown above
-    console.error("Parent source not found", shallowParentSource, { path });
-    return null;
-  }
-  return (
-    <HoverCard>
-      <HoverCardTrigger>
-        <Button
-          size={getButtonSize(variant)}
-          variant={getButtonVariant(variant)}
-          disabled={refs.length > 0}
-          onClick={() => {
-            addPatch(
-              [
-                {
-                  op: "remove",
-                  path: patchPath as array.NonEmptyArray<string>,
-                },
-              ],
-              "record",
-            );
-            navigate(parentPath);
-          }}
-        >
-          <Trash size={getIconSize(variant)} />
-        </Button>
-      </HoverCardTrigger>
-      <HoverCardContent side="top">
-        {refs.length > 0 ? (
-          <div>
-            <p>Cannot delete record.</p>
-            <p>
-              You must change the following references{" "}
-              <Workflow size={10} className="inline" /> to be able to delete:
-            </p>
-            <ul>
-              {refs.map((ref) => (
-                <li key={ref}>
-                  <CompressedPath path={ref} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <p>Delete record</p>
-        )}
-      </HoverCardContent>
-    </HoverCard>
-  );
-}
-
-function ChangeRecordPopover({
-  defaultValue,
-  path,
-  parentPath,
-  variant,
-  refs,
-}: {
-  defaultValue: string;
-  path: SourcePath;
-  parentPath: SourcePath;
-  variant: Variant;
-  refs: SourcePath[];
-}) {
-  const [moduleFilePath, parentModulePath] =
-    Internal.splitModuleFilePathAndModulePath(parentPath);
-  const { navigate } = useNavigation();
-  const { addPatch, addModuleFilePatch } = useAddPatch(path);
-  const shallowParentSource = useShallowSourceAtPath(parentPath, "record");
-  const [key, setKey] = useState(defaultValue); // cannot change - right?
-  const [open, setOpen] = useState(false);
-  const portalContainer = useValPortal();
-  useEffect(() => {
-    const keyDownListener = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", keyDownListener);
-    return () => {
-      window.removeEventListener("keydown", keyDownListener);
-    };
-  }, []);
-
-  const parentPatchPath = Internal.createPatchPath(parentModulePath);
-  if (
-    !("data" in shallowParentSource) ||
-    shallowParentSource.data === undefined ||
-    shallowParentSource.data === null
-  ) {
-    // An actual error message should be shown above
-    console.error("Parent source not found", shallowParentSource, { path });
-    return null;
-  }
-  const disabled =
-    key === defaultValue || key === "" || key in shallowParentSource.data;
-  return (
-    <Popover open={open}>
-      <HoverCard>
-        <HoverCardTrigger>
-          <Button
-            asChild
-            size={getButtonSize(variant)}
-            variant={getButtonVariant(variant)}
-          >
-            <PopoverTrigger
-              onClick={() => {
-                setOpen(true);
-              }}
-            >
-              <Edit size={16} />
-            </PopoverTrigger>
-          </Button>
-        </HoverCardTrigger>
-        <HoverCardContent side="top">Change name</HoverCardContent>
-      </HoverCard>
-      <PopoverContent container={portalContainer} className="text-text-primary">
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(ev) => {
-            ev.preventDefault();
-            const patchOps: Patch = [
-              {
-                op: "move",
-                from: parentPatchPath.concat(
-                  defaultValue,
-                ) as array.NonEmptyArray<string>,
-                path: parentPatchPath.concat(
-                  key,
-                ) as array.NonEmptyArray<string>,
-              },
-            ];
-            addPatch(patchOps, "record");
-            for (const ref of refs) {
-              const [refModuleFilePath, refModulePath] =
-                Internal.splitModuleFilePathAndModulePath(ref);
-              const refPatchPath = Internal.createPatchPath(refModulePath);
-              addModuleFilePatch(
-                refModuleFilePath,
-                [
-                  {
-                    op: "replace",
-                    path: refPatchPath,
-                    value: key,
-                  },
-                ],
-                "record",
-              );
-            }
-            navigate(
-              Internal.joinModuleFilePathAndModulePath(
-                moduleFilePath,
-                Internal.patchPathToModulePath(parentPatchPath.concat(key)),
-              ),
-              {
-                replace: true,
-              },
-            );
-            setOpen(false);
-          }}
-        >
-          <Input
-            type="text"
-            value={key}
-            onChange={(ev) => {
-              setKey(ev.target.value);
-            }}
-          />
-          <div className="flex items-center gap-2">
-            <Button disabled={disabled} variant="outline" type="submit">
-              Update
-            </Button>
-            <Button
-              variant={"ghost"}
-              type="reset"
-              onClick={() => {
-                setOpen(false);
-                setKey(defaultValue);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function useKeysOf(parentPath: ModuleFilePath, keyValue?: string) {
-  const schemas = useSchemas();
-  const loadingStatus = useLoadingStatus();
-  const allSources = useAllSources();
-  const referencingModuleFilePaths = useMemo(() => {
-    if (
-      "data" in schemas &&
-      schemas.data !== undefined &&
-      schemas.data[parentPath] !== undefined
-    ) {
-      return getKeysOf(schemas.data, allSources, parentPath, keyValue);
-    }
-    return [];
-  }, [
-    loadingStatus,
-    allSources,
-    "data" in schemas && schemas.data,
-    parentPath,
-    keyValue,
-  ]);
-  return referencingModuleFilePaths;
-}
-
-function AddRecordPopover({
-  path,
-  variant,
-}: {
-  path: SourcePath;
-  variant: Variant;
-}) {
-  const shallowSourceAtPath = useShallowSourceAtPath(path, "record");
-  const schemaAtPath = useSchemaAtPath(path);
-  const portalContainer = useValPortal();
-  const { addPatch } = useAddPatch(path);
-  const [key, setKey] = useState("");
-  const { navigate } = useNavigation();
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const keyDownListener = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", keyDownListener);
-    return () => {
-      window.removeEventListener("keydown", keyDownListener);
-    };
-  }, []);
-  if (
-    !("data" in shallowSourceAtPath) ||
-    shallowSourceAtPath.data === undefined ||
-    shallowSourceAtPath.data === null
-  ) {
-    // An actual error message should be shown above
-    console.error("Source not found", shallowSourceAtPath, { path });
-    return null;
-  }
-  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
-    // An actual error message should be shown above
-    console.error("Schema not found", shallowSourceAtPath, { path });
-    return null;
-  }
-  const schema = schemaAtPath.data;
-  if (schema.type !== "record") {
-    // An actual error message should be shown above
-    console.error("Schema is not a record", schemaAtPath, { path });
-    return null;
-  }
-  const disabled = key === "" || key in shallowSourceAtPath.data;
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(path);
-  return (
-    <Popover open={open}>
-      <Button
-        asChild
-        size={getButtonSize(variant)}
-        variant={getButtonVariant(variant)}
-      >
-        <PopoverTrigger
-          onClick={() => {
-            setOpen(true);
-          }}
-          title="Add"
-        >
-          <Plus size={getIconSize(variant)} />
-        </PopoverTrigger>
-      </Button>
-      <PopoverContent container={portalContainer}>
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(ev) => {
-            ev.preventDefault();
-            const newPatchPath =
-              Internal.createPatchPath(modulePath).concat(key);
-            addPatch(
-              [
-                {
-                  op: "add",
-                  path: newPatchPath,
-                  value: emptyOf(schema.item) as JSONValue,
-                },
-              ],
-              "record",
-            );
-            navigate(
-              Internal.joinModuleFilePathAndModulePath(
-                moduleFilePath,
-                Internal.patchPathToModulePath(newPatchPath),
-              ) as SourcePath,
-            );
-            setOpen(false);
-          }}
-        >
-          <Input
-            autoFocus
-            value={key}
-            onChange={(ev) => {
-              setKey(ev.target.value);
-            }}
-          />
-          <div>
-            <Button type="submit" disabled={disabled} variant={"outline"}>
-              Add
-            </Button>
-          </div>
-        </form>
-      </PopoverContent>
-    </Popover>
   );
 }
 

@@ -16,7 +16,7 @@ import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
-import { isParentArray, useParent } from "../hooks/useParent";
+import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
 import { getNavPathFromAll } from "./getNavPath";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
@@ -63,11 +63,12 @@ export function Module({ path }: { path: SourcePath }) {
   const init = parts.slice(0, -1);
   const last = parts[parts.length - 1];
   const showNumber = isParentArray(path, maybeParentPath, parentSchema);
+  const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left">
         {parts.length > 1 && (
-          <div className="inline-flex items-center text-sm text-text-quartenary">
+          <div className="inline-flex items-center text-sm text-fg-quaternary">
             {init.map((part, i) => {
               if (i < init.length - 1) {
                 return (
@@ -99,21 +100,29 @@ export function Module({ path }: { path: SourcePath }) {
           </div>
         )}
         <div>
-          <div className="flex items-center justify-between h-6 gap-4 text-xl">
-            {!showNumber && <span>{last.text}</span>}
+          <div className="flex gap-4 justify-between items-center h-6 text-xl">
+            {!showNumber && (
+              <span>
+                <span>{last.text}</span>
+              </span>
+            )}
             {showNumber && <span>#{Number(last.text)}</span>}
             <ArrayAndRecordTools path={path} variant={"module"} />
           </div>
         </div>
       </div>
-      <div
-        className={cn({
-          "border rounded-lg border-bg-error-secondary p-4":
-            validationErrors.length > 0,
-        })}
-      >
-        <AnyField key={path} path={path} schema={schema} />
-        <FieldValidationError validationErrors={validationErrors} />
+      <div>
+        {isKey && validationErrors.length > 0 && (
+          <FieldValidationError validationErrors={validationErrors} />
+        )}
+        <div
+          className={cn({
+            "border rounded-lg border-bg-error-secondary p-4 mt-4":
+              validationErrors.length > 0,
+          })}
+        >
+          <AnyField key={path} path={path} schema={schema} />
+        </div>
       </div>
     </div>
   );

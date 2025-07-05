@@ -25,7 +25,11 @@ export function NumberField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -79,9 +83,7 @@ export function NumberField({ path }: { path: SourcePath }) {
 export function NumberPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "number");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="number" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

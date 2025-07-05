@@ -16,7 +16,7 @@ export function ContentArea() {
         {globalError !== null && (
           <>
             <div className="w-full h-16"></div>
-            <div className="absolute w-full h-16 top-0 p-4 text-center text-white bg-bg-error-primary z-[50]">
+            <div className="absolute w-full h-16 top-0 p-4 text-center text-fg-error-primary bg-bg-error-primary z-[50]">
               {globalError.type === "network-error" &&
                 "Network error - retrying..."}
               {globalError.type === "remote-files-error" && globalError.error}
@@ -25,7 +25,7 @@ export function ContentArea() {
         )}
         <div className="max-h-[calc(100svh-64px)] max-w-[800px] px-4 mx-auto">
           {connectionStatus === "service-unavailable" ? (
-            <div className="p-8 mt-20 text-center text-text-error-primary bg-bg-error-primary">
+            <div className="p-8 mt-20 text-center text-fg-error-primary bg-bg-error-primary">
               <p>Could not connect to the content service.</p>
               <p>Please try again later</p>
             </div>
@@ -41,7 +41,7 @@ export function ContentArea() {
 function ContentAreaHeader() {
   const { navMenu, toolsMenu } = useLayout();
   return (
-    <div className="flex items-center justify-between w-full h-16 px-4 border-b border-border-primary">
+    <div className="flex justify-between items-center px-4 w-full h-16 border-b border-border-primary">
       <button
         className={classNames({
           "ml-[calc(320px+0.5rem)] xl:ml-0": navMenu.isOpen,
@@ -76,11 +76,11 @@ function ContentAreaHeader() {
 
 export function SearchBar() {
   return (
-    <div className="sticky top-0 text-text-primary z-[2] pt-4 hidden xl:block">
+    <div className="sticky top-0 text-fg-primary z-[2] pt-4 hidden xl:block">
       <div className="grid grid-cols-[min-content,1fr,min-content] items-center xl:w-[calc(100%-16px)] ml-2 h-16 p-4 bg-bg-tertiary rounded-3xl">
         <Search size={22} />
         <input
-          className="w-full h-full px-4 text-lg bg-transparent text-text-primary focus:outline-none"
+          className="px-4 w-full h-full text-lg bg-transparent text-fg-primary focus:outline-none"
           onClick={() => {
             // setSearch({ filter: "" });
           }}
@@ -113,7 +113,7 @@ function SourceFields() {
 //     ? Internal.splitModulePath(modulePath)
 //     : [];
 //   return (
-//     <div className="flex items-center gap-2">
+//     <div className="flex gap-2 items-center">
 //       {moduleFilePathParts.map((part, i) => (
 //         <Fragment key={`${part}-${i}`}>
 //           <span

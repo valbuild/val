@@ -45,11 +45,6 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
 import { PublishSummary } from "./PublishSummary";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
@@ -105,16 +100,17 @@ export function DraftChanges({
       clearInterval(interval);
     };
   }, []);
+  const { deletePatches } = useDeletePatches();
 
   return (
     <div className={classNames("text-sm", className)}>
       {allValidationErrors && validationErrorsCount > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem value="error" className="border-b-0">
-                <AccordionTrigger className=" data-[state=open]:mb-4 text-text-error-primary border-fg-error-primary ">
-                  <div className="flex items-center justify-between w-full ">
+                <AccordionTrigger className=" data-[state=open]:mb-4 text-fg-error-primary border-fg-error-primary ">
+                  <div className="flex justify-between items-center w-full">
                     <div>
                       {validationErrorsCount} validation issue
                       {validationErrorsCount > 1 ? "s" : ""}
@@ -153,7 +149,7 @@ export function DraftChanges({
         </div>
       )}
       {globalTransientErrors && globalTransientErrors.length > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem
@@ -169,7 +165,7 @@ export function DraftChanges({
                     {globalTransientErrors.map((error) => (
                       <div
                         key={error.id}
-                        className="flex items-start justify-between gap-2"
+                        className="flex gap-2 justify-between items-start"
                       >
                         <div className="flex flex-col gap-1">
                           <div className="font-bold">{error.message}</div>
@@ -206,9 +202,43 @@ export function DraftChanges({
           />
         </div>
       )}
+      {mode === "http" && (
+        <div className="flex justify-end items-center p-4 border-b z-5 border-border-primary">
+          <Popover
+            open={summaryOpen}
+            onOpenChange={(open) => {
+              setSummaryOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="secondary"
+                className="flex gap-2 items-center text-sm"
+              >
+                <span>Summary</span>
+                {canGenerate && <Sparkles size={14} />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              container={portalContainer}
+              align="end"
+              className="z-[9001] flex flex-col gap-4"
+            >
+              <PopoverClose asChild className="self-end cursor-pointer">
+                <X size={12} />
+              </PopoverClose>
+              <PublishSummary
+                onClose={() => {
+                  setSummaryOpen(false);
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
       <div className="p-4 z-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2 items-center">
             <div className="font-bold">
               {pendingChanges <= 0 ? "No " : `${pendingChanges} `}
               pending change
@@ -220,38 +250,38 @@ export function DraftChanges({
               </div>
             )}
           </div>
-          {mode === "http" && (
-            <Popover
-              open={summaryOpen}
-              onOpenChange={(open) => {
-                setSummaryOpen(open);
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <span>Summary</span>
-                  {canGenerate && <Sparkles size={14} />}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                container={portalContainer}
-                align="end"
-                className="z-[9001] flex flex-col gap-4"
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                disabled={currentPatchIds.length === 0}
+                variant="secondary"
+                className="flex gap-2 items-center text-sm"
               >
-                <PopoverClose asChild className="self-end cursor-pointer">
-                  <X size={12} />
-                </PopoverClose>
-                <PublishSummary
-                  onClose={() => {
-                    setSummaryOpen(false);
-                  }}
-                />
-              </PopoverContent>
-            </Popover>
-          )}
+                <span>Undo all</span>
+                <Undo2 size={14} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent container={portalContainer} className="z-[9001]">
+              <div className="flex flex-col gap-4">
+                <div className="text-lg font-bold">Are you sure?</div>
+                <div>This will undo all changes to the current state.</div>
+                <div>
+                  <PopoverClose asChild>
+                    <Button
+                      variant="destructive"
+                      className="flex gap-2 items-center text-sm"
+                      onClick={() => {
+                        deletePatches(currentPatchIds);
+                      }}
+                    >
+                      <span>Undo all changes</span>
+                      <Undo2 size={14} />
+                    </Button>
+                  </PopoverClose>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
       {(!autoPublish || validationErrorsCount > 0) && (
@@ -306,7 +336,7 @@ function Deployments({
   }, [deployments, observedCommitShas]);
   return (
     <div>
-      <div className="flex items-center justify-between p-2 font-bold">
+      <div className="flex justify-between items-center p-2 font-bold">
         <span>Deployments</span>
         <Loader2 size={16} className="inline animate-spin" />
       </div>
@@ -341,8 +371,8 @@ function Deployment({
   const portalContainer = useValPortal();
   const author = deployment.creator && profilesById[deployment.creator];
   return (
-    <div className="flex items-start justify-between p-2">
-      <div className="flex items-start gap-2">
+    <div className="flex justify-between items-start p-2">
+      <div className="flex gap-2 items-start">
         {author && (
           <img
             src={author.avatar?.url}
@@ -366,8 +396,8 @@ function Deployment({
         </Tooltip>
       </div>
       {isFinished && (
-        <div className="flex items-start gap-2">
-          <span className="text-xs font-light text-text-quartenary">
+        <div className="flex gap-2 items-start">
+          <span className="text-xs font-light text-fg-quaternary">
             Deployed
           </span>
           <button
@@ -414,7 +444,7 @@ function TimeSpent({ since }: { since: Date }) {
     };
   }, [since]);
   return (
-    <div className="text-xs font-light text-text-quartenary">
+    <div className="text-xs font-light text-fg-quaternary">
       {minutes}
       {seconds !== null ? `:${seconds}` : " mins"}
     </div>
@@ -680,12 +710,13 @@ const PatchOrPatchSetCard = forwardRef<
     },
     ref,
   ) => {
+    const portalContainer = useValPortal();
     return (
       <div
         ref={ref}
         className={classNames("p-6", {
           "bg-bg-secondary": !isOpen,
-          "bg-bg-quartenary": isOpen,
+          "bg-bg-tertiary": isOpen,
           "opacity-50": isApplied,
         })}
       >
@@ -717,23 +748,50 @@ const PatchOrPatchSetCard = forwardRef<
               }}
             />
           )}
-          {onDelete && !isApplied && (
-            <button
-              onClick={onDelete}
-              title="Revert change"
-              className="relative ml-5"
-            >
-              {amount && (
-                <span className="absolute px-2 text-xs rounded-full -top-6 -right-5 bg-bg-quartenary">
-                  {amount > 10 ? "10+" : amount}
-                </span>
-              )}
-              <Undo2 size={16} className="inline" />
-            </button>
-          )}
+          <div className="inline relative ml-5">
+            {amount && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <span className="absolute -right-5 -top-6 w-6 h-6 text-xs leading-6 text-center rounded-full bg-bg-primary text-fg-primary">
+                    {amount > 9 ? "9+" : amount}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  <p>
+                    {amount} change{amount > 1 ? "s" : ""} in this patch set
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {onDelete && !isApplied && amount && amount > 0 && (
+              <Popover>
+                <PopoverTrigger>
+                  <Undo2 size={16} className="inline" />
+                </PopoverTrigger>
+                <PopoverContent
+                  container={portalContainer}
+                  className="flex flex-col gap-2 z-[9001]"
+                >
+                  <div className="text-lg font-bold">Are you sure?</div>
+                  <div>
+                    This will undo {amount} change
+                    {amount > 1 ? "s" : ""}.
+                  </div>
+                  <div>
+                    <PopoverClose asChild>
+                      <Button variant="destructive" onClick={onDelete}>
+                        Undo change
+                        {amount > 1 ? "s" : ""}
+                      </Button>
+                    </PopoverClose>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
         </div>
         {errors && errors.length > 0 && !skipped && (
-          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
             {errors.slice(0, 1).map((error, i) => (
               <div key={i} title={error} className="truncate">
                 {error}
@@ -745,19 +803,19 @@ const PatchOrPatchSetCard = forwardRef<
           </div>
         )}
         {(!errors || errors.length === 0) && skipped && (
-          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
             <div className="truncate">Skipped</div>
           </div>
         )}
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex justify-between items-center pt-2">
           <span className="flex flex-shrink-0 gap-2">
             {authors !== undefined && authors.length > 0 && (
               <span className="flex gap-1 mr-2">
                 {authors.slice(0, 2).map((author, i) => {
                   if (author.url) {
                     return (
-                      <HoverCard key={author.url}>
-                        <HoverCardTrigger className="flex-shrink-0 w-6 h-6 ">
+                      <Tooltip key={author.url}>
+                        <TooltipTrigger className="flex-shrink-0 w-6 h-6">
                           <img
                             src={author.url}
                             alt={author.fullName}
@@ -765,48 +823,48 @@ const PatchOrPatchSetCard = forwardRef<
                               "-ml-3": authors.length > 2 && i > 0,
                             })}
                           />
-                        </HoverCardTrigger>
-                        <HoverCardContent>
+                        </TooltipTrigger>
+                        <TooltipContent>
                           <div>{author.fullName}</div>
-                        </HoverCardContent>
-                      </HoverCard>
+                        </TooltipContent>
+                      </Tooltip>
                     );
                   }
                   const initials = getInitials(author.fullName);
                   return (
-                    <HoverCard key={author.fullName + author.url}>
-                      <HoverCardTrigger
+                    <Tooltip key={author.fullName + author.url}>
+                      <TooltipTrigger
                         className={classNames({
                           "-ml-3": authors.length > 2 && i > 0,
                         })}
                       >
                         <span
                           className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary",
+                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary",
                           )}
                           aria-label={"Initials for: " + author.fullName}
                         >
                           {initials}
                         </span>
-                      </HoverCardTrigger>
-                      <HoverCardContent>
+                      </TooltipTrigger>
+                      <TooltipContent>
                         <div>{author.fullName}</div>
-                      </HoverCardContent>
-                    </HoverCard>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
                 {authors.length > 2 && (
-                  <HoverCard>
-                    <HoverCardTrigger
+                  <Tooltip>
+                    <TooltipTrigger
                       className={classNames({
                         "-ml-3": authors.length > 2,
                       })}
                     >
-                      <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary">
+                      <span className="flex justify-center items-center -ml-3 w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary">
                         +{authors.length - 2}
                       </span>
-                    </HoverCardTrigger>
-                    <HoverCardContent className="grid grid-cols-[auto,1fr] gap-2">
+                    </TooltipTrigger>
+                    <TooltipContent className="grid grid-cols-[auto,1fr] gap-2">
                       {authors.slice(2).map((author) => {
                         return (
                           <Fragment key={author.fullName + author.url}>
@@ -825,8 +883,8 @@ const PatchOrPatchSetCard = forwardRef<
                           </Fragment>
                         );
                       })}
-                    </HoverCardContent>
-                  </HoverCard>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </span>
             )}
@@ -839,14 +897,14 @@ const PatchOrPatchSetCard = forwardRef<
               ></span>
             )}
             {changeDescription && (
-              <span className={classNames({ "text-text-disabled": skipped })}>
+              <span className={classNames({ "text-fg-disabled": skipped })}>
                 {changeDescription}
               </span>
             )}
           </span>
           {isOpen !== undefined && (
             <button
-              className="flex-shrink-0 inline-block"
+              className="inline-block flex-shrink-0"
               onClick={() => {
                 if (setOpen) {
                   setOpen(!isOpen);

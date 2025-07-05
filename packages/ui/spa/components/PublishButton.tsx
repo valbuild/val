@@ -18,10 +18,10 @@ import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
 import { useState } from "react";
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 export function PublishButton() {
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -39,9 +39,9 @@ export function PublishButton() {
 
   if (hasValidationErrors) {
     return (
-      <HoverCard>
-        <HoverCardTrigger>
-          <Button className="flex items-center gap-2" disabled={true}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button className="flex gap-2 items-center" disabled={true}>
             {mode === "fs" ? (
               "Save"
             ) : (
@@ -51,20 +51,20 @@ export function PublishButton() {
               </>
             )}
           </Button>
-        </HoverCardTrigger>
-        <HoverCardContent>
+        </TooltipTrigger>
+        <TooltipContent>
           <div className="flex flex-col gap-2">
             <p>Fix validation errors to continue</p>
           </div>
-        </HoverCardContent>
-      </HoverCard>
+        </TooltipContent>
+      </Tooltip>
     );
   }
 
   if (mode === "fs") {
     return (
       <Button
-        className="flex items-center gap-2"
+        className="flex gap-2 items-center"
         disabled={
           publishDisabled ||
           hasValidationErrors ||
@@ -96,7 +96,7 @@ export function PublishButton() {
       >
         <PopoverTrigger asChild>
           <Button
-            className="flex items-center gap-2"
+            className="flex gap-2 items-center"
             disabled={
               publishDisabled ||
               hasValidationErrors ||

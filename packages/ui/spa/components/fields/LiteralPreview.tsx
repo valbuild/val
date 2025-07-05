@@ -8,9 +8,7 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 export function LiteralPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "literal");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="literal" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

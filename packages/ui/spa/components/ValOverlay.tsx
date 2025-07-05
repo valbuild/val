@@ -4,6 +4,7 @@ import {
   Ellipsis,
   Eye,
   EyeOff,
+  Globe,
   LogIn,
   PanelBottom,
   PanelLeft,
@@ -19,11 +20,17 @@ import {
   Fragment,
   SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { AnimateHeight } from "./AnimateHeight";
-import { Internal, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
@@ -37,6 +44,8 @@ import {
   useValMode,
   useValPortal,
   usePublishSummary,
+  useSchemas,
+  useShallowModulesAtPaths,
 } from "./ValProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
@@ -49,6 +58,13 @@ import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 import { PublishButton } from "./PublishButton";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { ValPath } from "./ValPath";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./designSystem/select";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -258,7 +274,7 @@ export function ValOverlay(props: ValOverlayProps) {
           >
             <div className="relative top-0 left-0 w-full">
               <div
-                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-text-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
+                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-fg-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
                 style={{
                   fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
                   maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
@@ -444,10 +460,11 @@ function Window({
        */}
       <div
         className={classNames(
-          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-text-primary cursor-pointer",
+          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-fg-primary cursor-pointer",
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
               windowInnerWidth < 1024,
+            "min-w-[500px]": windowInnerWidth >= 1024,
           },
         )}
         ref={ref}
@@ -534,6 +551,10 @@ function Window({
   );
 }
 
+const buttonClassName =
+  "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
+const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
+
 function WindowField({ path: path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
 
@@ -550,6 +571,69 @@ function WindowField({ path: path }: { path: SourcePath }) {
       <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );
+}
+
+function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
+  if (dropZone === "val-menu-left-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Left Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-left-center") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelLeft className="w-4 h-4" />
+        <span>Left Center</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-left-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Left Bottom</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-center-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Center Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-center-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Center Bottom</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Right Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-center") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelRight className="w-4 h-4" />
+        <span>Right Center</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Right Bottom</span>
+      </div>
+    );
+  } else {
+    console.warn("Unknown drop zone:", dropZone);
+    return null;
+  }
 }
 
 function ValMenu({
@@ -596,6 +680,7 @@ function ValMenu({
     };
   }, []);
   const { publishDisabled } = usePublishSummary();
+  const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -614,6 +699,16 @@ function ValMenu({
                   : dropZone === "val-menu-left-top"
                     ? "bottom"
                     : "top";
+  const allDropZones: DropZones[] = [
+    "val-menu-left-top",
+    "val-menu-left-center",
+    "val-menu-left-bottom",
+    "val-menu-center-top",
+    "val-menu-center-bottom",
+    "val-menu-right-top",
+    "val-menu-right-center",
+    "val-menu-right-bottom",
+  ];
   return (
     <div className="p-4 right-16">
       {/* See ValNextProvider: this same snippet is used there  */}
@@ -647,7 +742,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-text-primary gap-2",
+            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
@@ -684,7 +779,7 @@ function ValMenu({
           <Popover>
             <PopoverTrigger
               disabled={publishDisabled}
-              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
+              className={classNames(buttonClassName, buttonInactiveClassName)}
             >
               <HoverCard>
                 <HoverCardTrigger>
@@ -696,7 +791,7 @@ function ValMenu({
                             "w-4 h-4 text-[9px] leading-4 text-center rounded-full",
                             {
                               "bg-bg-brand-primary": validationErrorCount === 0,
-                              "bg-bg-error-primary text-text-error-primary":
+                              "bg-bg-error-primary text-fg-error-primary":
                                 validationErrorCount > 0,
                             },
                           )}
@@ -719,9 +814,9 @@ function ValMenu({
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent>
-                  <div className="p-2 rounded bg-bg-primary text-text-primary">
+                  <div className="p-2 rounded bg-bg-primary text-fg-primary">
                     {validationErrorCount > 0 && (
-                      <div className="text-text-error-primary">
+                      <div className="text-fg-error-primary">
                         Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
                         {validationErrorCount} validation error
                         {validationErrorCount > 1 && "s"}
@@ -744,7 +839,7 @@ function ValMenu({
               sideOffset={publishPopoverSideOffset}
               className="z-[9000] relative max-w-[352px] w-screen rounded-none sm:rounded flex flex-col items-end"
             >
-              <div className="absolute sm:hidden top-4 right-4">
+              <div className="absolute top-4 right-4 sm:hidden">
                 <PopoverClose>
                   <X size={16} />
                 </PopoverClose>
@@ -768,51 +863,52 @@ function ValMenu({
           </Popover>
           <MenuButton
             label="Studio"
-            icon={<PanelsTopLeft size={16} />}
-            onClick={() => {
-              window.location.href = window.origin + "/val/~";
-            }}
+            icon={
+              sourcePathResult.status === "success" && sourcePathResult.data ? (
+                <Globe size={16} />
+              ) : (
+                <PanelsTopLeft size={16} />
+              )
+            }
+            href={
+              window.origin +
+              "/val/~" +
+              (sourcePathResult.status === "success" && sourcePathResult.data
+                ? sourcePathResult.data
+                : "")
+            }
           />
           <Popover>
             <PopoverTrigger
-              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
+              className={classNames(buttonClassName, buttonInactiveClassName)}
             >
               <Ellipsis size={16} />
             </PopoverTrigger>
             <PopoverContent container={portalContainer} className="z-[9003]">
-              <div className="grid grid-cols-[1fr,auto] gap-2">
-                <span>Dock to top</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-center-top");
+              <div className="grid grid-cols-[1fr,auto] gap-2 items-center">
+                <span>Position</span>
+                <Select
+                  value={dropZone}
+                  onValueChange={(value) => {
+                    setDropZone(value as DropZones);
                   }}
                 >
-                  <PanelTop size={16} />
-                </button>
-                <span>Dock to right</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-right-center");
-                  }}
-                >
-                  <PanelRight size={16} />
-                </button>
-                <span>Dock to left</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-left-center");
-                  }}
-                >
-                  <PanelLeft size={16} />
-                </button>
-                <span>Dock to bottom</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-center-bottom");
-                  }}
-                >
-                  <PanelBottom size={16} />
-                </button>
+                  <SelectTrigger>
+                    <SelectValue>
+                      <DropZoneLabel dropZone={dropZone} />
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    container={portalContainer}
+                    className="z-[9004]"
+                  >
+                    {allDropZones.map((zone) => (
+                      <SelectItem key={zone} value={zone}>
+                        <DropZoneLabel dropZone={zone} />
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <span>Dark mode</span>
                 <Switch
                   checked={theme === "dark"}
@@ -838,7 +934,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary text-text-primary gap-2",
+            "flex relative rounded bg-bg-primary text-fg-primary gap-2 justify-center items-center",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
@@ -862,10 +958,20 @@ function ValMenu({
           />
           <MenuButton
             label="Studio"
-            icon={<PanelsTopLeft size={16} />}
-            onClick={() => {
-              window.location.href = window.origin + "/val/~";
-            }}
+            icon={
+              sourcePathResult.status === "success" && sourcePathResult.data ? (
+                <Globe size={16} />
+              ) : (
+                <PanelsTopLeft size={16} />
+              )
+            }
+            href={
+              window.origin +
+              "/val/~" +
+              (sourcePathResult.status === "success" && sourcePathResult.data
+                ? sourcePathResult.data
+                : "")
+            }
           />
           <MenuButton
             label="Disable Val"
@@ -878,34 +984,97 @@ function ValMenu({
   );
 }
 
+function useValRouterSourcePathFromCurrentPathname() {
+  const schemas = useSchemas();
+  const allModuleFilePaths =
+    "data" in schemas && schemas.data
+      ? (Object.keys(schemas.data) as ModuleFilePath[])
+      : [];
+  const maybeRecordSources = useShallowModulesAtPaths(
+    allModuleFilePaths,
+    "record",
+  );
+  const [currentPathname, setCurrentPathname] = useState<string | null>(null);
+  useEffect(() => {
+    setCurrentPathname(window.location.pathname);
+    const listener = () => {
+      setCurrentPathname(window.location.pathname);
+    };
+    window.addEventListener("popstate", listener);
+    return () => {
+      window.removeEventListener("popstate", listener);
+    };
+  }, []);
+  const sourcePathResult = useMemo(() => {
+    if (schemas.status !== "success") {
+      return schemas;
+    }
+    if (maybeRecordSources.status !== "success") {
+      return maybeRecordSources;
+    }
+    if (currentPathname) {
+      for (const shallowModuleSource of maybeRecordSources.data || []) {
+        for (const [fullPath, sourcePath] of Object.entries(
+          shallowModuleSource,
+        )) {
+          if (fullPath === currentPathname) {
+            const [moduleFilePath] =
+              Internal.splitModuleFilePathAndModulePath(sourcePath);
+            const schemasData = schemas.data[moduleFilePath];
+            if (
+              schemasData?.type === "record" &&
+              schemasData.router !== undefined
+            ) {
+              return {
+                status: "success",
+                data: Internal.joinModuleFilePathAndModulePath(
+                  moduleFilePath,
+                  JSON.stringify(fullPath) as ModulePath,
+                ),
+              };
+            }
+          }
+        }
+      }
+    }
+    return {
+      status: "not-found",
+    };
+  }, ["data" in schemas && schemas.data, maybeRecordSources, currentPathname]);
+  return sourcePathResult;
+}
+
 function MenuButton({
   icon,
   onClick,
   disabled,
   active,
   label,
-  variant,
+  href,
 }: {
   icon: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
   label?: string;
-  variant?: "primary";
+  href?: string;
 }) {
+  const Comp = href ? "a" : "button";
   return (
-    <button
+    <Comp
+      href={href}
       disabled={disabled}
-      className={classNames("p-2 rounded-full disabled:bg-bg-disabled", {
-        "bg-bg-brand-primary text-text-brand-primary": variant === "primary",
-        "text-bg-brand-primary": !!active,
+      className={classNames(buttonClassName, {
+        "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+          active,
+        [buttonInactiveClassName]: !active,
       })}
       onClick={onClick}
       aria-label={label}
       title={label}
     >
       {icon}
-    </button>
+    </Comp>
   );
 }
 

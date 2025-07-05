@@ -50,7 +50,7 @@ export function Layout() {
         }}
         id="val-app-container"
         className={classNames(
-          "font-sans bg-bg-primary text-text-primary grid grid-cols-1",
+          "font-sans bg-bg-primary text-fg-primary grid grid-cols-1",
           {
             "xl:grid-cols-[320px,1fr,320px]": isNavMenuOpen && isToolsMenuOpen,
             "xl:grid-cols-[320px,1fr]": isNavMenuOpen && !isToolsMenuOpen,

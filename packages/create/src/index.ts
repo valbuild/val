@@ -142,7 +142,6 @@ function processTemplateFiles(projectPath: string, projectName: string) {
 
 async function main() {
   try {
-    console.log("here");
     const args = process.argv.slice(2);
     if (args.includes("-h") || args.includes("--help")) {
       printHelp();
