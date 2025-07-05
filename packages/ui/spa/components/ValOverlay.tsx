@@ -58,6 +58,13 @@ import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 import { PublishButton } from "./PublishButton";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { ValPath } from "./ValPath";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./designSystem/select";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -487,7 +494,7 @@ function Window({
             }}
           ></div>
           <form
-            className="flex flex-col gap-4 justify-start items-start w-full lg:justify-start"
+            className="flex flex-col items-start justify-start w-full gap-4 lg:justify-start"
             onSubmit={(ev) => {
               ev.preventDefault();
               ev.stopPropagation();
@@ -565,6 +572,69 @@ function WindowField({ path: path }: { path: SourcePath }) {
   );
 }
 
+function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
+  if (dropZone === "val-menu-left-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Left Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-left-center") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelLeft className="w-4 h-4" />
+        <span>Left Center</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-left-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Left Bottom</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-center-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Center Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-center-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Center Bottom</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-top") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelTop className="w-4 h-4" />
+        <span>Right Top</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-center") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelRight className="w-4 h-4" />
+        <span>Right Center</span>
+      </div>
+    );
+  } else if (dropZone === "val-menu-right-bottom") {
+    return (
+      <div className="flex items-center gap-2">
+        <PanelBottom className="w-4 h-4" />
+        <span>Right Bottom</span>
+      </div>
+    );
+  } else {
+    console.warn("Unknown drop zone:", dropZone);
+    return null;
+  }
+}
+
 function ValMenu({
   dropZone,
   ghost,
@@ -628,19 +698,29 @@ function ValMenu({
                   : dropZone === "val-menu-left-top"
                     ? "bottom"
                     : "top";
+  const allDropZones: DropZones[] = [
+    "val-menu-left-top",
+    "val-menu-left-center",
+    "val-menu-left-bottom",
+    "val-menu-center-top",
+    "val-menu-center-bottom",
+    "val-menu-right-top",
+    "val-menu-right-center",
+    "val-menu-right-bottom",
+  ];
   return (
-    <div className="right-16 p-4">
+    <div className="p-4 right-16">
       {/* See ValNextProvider: this same snippet is used there  */}
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
             <Clock className="animate-spin" size={16} />
           </div>
         </div>
       )}
       {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
             <a
               href={urlOf("/api/val/authorize", {
                 redirect_to: window.location.href,
@@ -764,7 +844,7 @@ function ValMenu({
                 </PopoverClose>
               </div>
               {!publishDisabled && (
-                <div className="flex gap-4 justify-between items-center px-4 py-4 pt-8 sm:hidden">
+                <div className="flex items-center justify-between gap-4 px-4 py-4 pt-8 sm:hidden">
                   <PublishButton />
                 </div>
               )}
@@ -802,39 +882,30 @@ function ValMenu({
               <Ellipsis size={16} />
             </PopoverTrigger>
             <PopoverContent container={portalContainer} className="z-[9003]">
-              <div className="grid grid-cols-[1fr,auto] gap-2">
-                <span>Dock to top</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-center-top");
+              <div className="grid grid-cols-[1fr,auto] gap-2 items-center">
+                <span>Position</span>
+                <Select
+                  value={dropZone}
+                  onValueChange={(value) => {
+                    setDropZone(value as DropZones);
                   }}
                 >
-                  <PanelTop size={16} />
-                </button>
-                <span>Dock to right</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-right-center");
-                  }}
-                >
-                  <PanelRight size={16} />
-                </button>
-                <span>Dock to left</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-left-center");
-                  }}
-                >
-                  <PanelLeft size={16} />
-                </button>
-                <span>Dock to bottom</span>
-                <button
-                  onClick={() => {
-                    setDropZone("val-menu-center-bottom");
-                  }}
-                >
-                  <PanelBottom size={16} />
-                </button>
+                  <SelectTrigger>
+                    <SelectValue>
+                      <DropZoneLabel dropZone={dropZone} />
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    container={portalContainer}
+                    className="z-[9004]"
+                  >
+                    {allDropZones.map((zone) => (
+                      <SelectItem key={zone} value={zone}>
+                        <DropZoneLabel dropZone={zone} />
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <span>Dark mode</span>
                 <Switch
                   checked={theme === "dark"}
