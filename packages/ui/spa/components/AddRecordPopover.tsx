@@ -74,7 +74,6 @@ export function AddRecordPopover({
         return;
       }
       const newPatchPath = Internal.createPatchPath(modulePath).concat(key);
-      console.log("newPatchPath", newPatchPath);
       addPatch(
         [
           {
