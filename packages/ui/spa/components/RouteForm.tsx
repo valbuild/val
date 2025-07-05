@@ -79,13 +79,13 @@ export function RouteForm({
     >
       <div className="flex items-center">
         {routePattern.map((part, i) => (
-          <span key={i}>
+          <span key={i} className="truncate">
             {part.type === "string-param" || part.type === "array-param" ? (
               <span className="flex items-center">
-                /
+                <span>/</span>
                 <span className="flex flex-col">
                   <input
-                    className={cn("p-1 bg-transparent border-0", {
+                    className={cn("p-1 bg-transparent border-0 max-w-[10ch]", {
                       "border-border-secondary border-1":
                         errors[part.paramName],
                     })}
