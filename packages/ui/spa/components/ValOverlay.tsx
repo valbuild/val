@@ -1010,21 +1010,25 @@ function useValRouterSourcePathFromCurrentPathname() {
       return maybeRecordSources;
     }
     if (currentPathname) {
-      const schemasData = schemas.data;
-      for (const moduleFilePath of allModuleFilePaths) {
-        const schema = schemasData[moduleFilePath];
-        if (schema.type === "record" && schema.router) {
-          for (const shallowModuleSource of maybeRecordSources.data || []) {
-            for (const fullPath in shallowModuleSource) {
-              if (fullPath === currentPathname) {
-                return {
-                  status: "success",
-                  data: Internal.joinModuleFilePathAndModulePath(
-                    moduleFilePath,
-                    JSON.stringify(fullPath) as ModulePath,
-                  ),
-                };
-              }
+      for (const shallowModuleSource of maybeRecordSources.data || []) {
+        for (const [fullPath, sourcePath] of Object.entries(
+          shallowModuleSource,
+        )) {
+          if (fullPath === currentPathname) {
+            const [moduleFilePath] =
+              Internal.splitModuleFilePathAndModulePath(sourcePath);
+            const schemasData = schemas.data[moduleFilePath];
+            if (
+              schemasData?.type === "record" &&
+              schemasData.router !== undefined
+            ) {
+              return {
+                status: "success",
+                data: Internal.joinModuleFilePathAndModulePath(
+                  moduleFilePath,
+                  JSON.stringify(fullPath) as ModulePath,
+                ),
+              };
             }
           }
         }
