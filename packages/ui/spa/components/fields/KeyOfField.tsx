@@ -19,7 +19,7 @@ import {
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { ArrowRight } from "lucide-react";
+import { Link, TriangleAlert } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
@@ -31,7 +31,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
     schemaAtPath.data &&
     schemaAtPath.data.type === "keyOf"
       ? {
-          type: schemaAtPath.data.schema.type,
+          type: schemaAtPath.data.schema?.type,
           path: schemaAtPath.data.path,
         }
       : undefined;
@@ -50,7 +50,11 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (referencedSource.status === "error") {
@@ -58,7 +62,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       <FieldSourceError
         path={path}
         error={referencedSource.error}
-        type={keyOf?.type}
+        schema={schemaAtPath}
       />
     );
   }
@@ -130,12 +134,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
-        <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-text-error-primary">
-          <span>Value must be one of: {keys.join(", ")}</span>
-        </div>
-      )}
-      <div className="flex items-center justify-between">
+      <div className="flex justify-between items-center">
         <Select
           value={source ?? ""}
           onValueChange={(value) => {
@@ -178,10 +177,25 @@ export function KeyOfField({ path }: { path: SourcePath }) {
               );
             }}
           >
-            <ArrowRight size={16} />
+            <Link size={16} />
           </button>
         )}
       </div>
+      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
+        <div className="flex gap-2 p-2 py-3 mt-2 rounded-md bg-bg-error-primary text-fg-error-primary">
+          <span className="line-clamp-1">
+            Value must be one of: {keys.join(", ")} {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+            {keys.join(", ")}
+          </span>
+          <span className="flex-shrink-0">
+            <TriangleAlert size={16} />
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -193,9 +207,7 @@ function LoadingSelectContent() {
 export function KeyOfPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "keyOf");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="keyOf" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

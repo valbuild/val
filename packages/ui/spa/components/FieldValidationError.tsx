@@ -24,7 +24,7 @@ export function FieldValidationError({
         <Accordion type="single" collapsible className="w-full min-h-6">
           <AccordionItem
             value="validation-errors"
-            className="w-full pb-2 border-b-0 group"
+            className="pb-2 w-full border-b-0 group"
           >
             <AccordionTrigger
               className={cn(
@@ -35,11 +35,11 @@ export function FieldValidationError({
               )}
             >
               <div className={cn("flex items-center justify-between w-full")}>
-                <div className="text-text-primary group-data-[state=closed]:text-text-error-primary">
+                <div className="text-fg-primary group-data-[state=closed]:text-fg-error-primary">
                   {validationErrors.length} validation error
                   {validationErrors.length > 1 ? "s" : ""}
                 </div>
-                <div className="text-text-error-primary">
+                <div className="text-fg-error-primary">
                   <TriangleAlert size={16} />
                 </div>
               </div>
@@ -51,7 +51,7 @@ export function FieldValidationError({
                     key={i}
                     className={cn(
                       "p-2 rounded-lg",
-                      "bg-bg-error-primary text-text-error-primary",
+                      "bg-bg-error-primary text-fg-error-primary",
                     )}
                   >
                     {error.message}
@@ -124,9 +124,9 @@ function SingleValidationError({
     <div
       ref={containerRef}
       className={cn(
-        "flex items-start justify-between w-full transition-all duration-200 ease-in-out",
+        "flex items-center justify-between w-full transition-all duration-200 ease-in-out",
         "p-2 mt-2",
-        "bg-bg-error-primary text-text-error-primary rounded-lg",
+        "bg-bg-error-primary text-fg-error-primary rounded-lg",
       )}
       style={{
         height: open ? "auto" : undefined,
@@ -145,16 +145,16 @@ function SingleValidationError({
         {validationError.message}
       </div>
       {!showChevron && (
-        <div className="text-text-error-primary">
+        <div className="text-fg-error-primary">
           <TriangleAlert size={16} />
         </div>
       )}
       {showChevron && (
         <button
-          className="flex items-center flex-shrink-0"
+          className="flex flex-shrink-0 items-center"
           onClick={() => setOpen(!open)}
         >
-          <div className="text-text-error-primary">
+          <div className="text-fg-error-primary">
             <TriangleAlert size={16} />
           </div>
           <ChevronDown

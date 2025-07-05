@@ -171,7 +171,6 @@ describe("findRequiredRemoteFiles", () => {
         opt: false,
         schema: {
           type: "record",
-          item: { type: "number", opt: false },
           opt: false,
         },
         values: [""],

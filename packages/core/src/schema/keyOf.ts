@@ -15,15 +15,27 @@ import {
 } from "./validation/ValidationError";
 import { RawString } from "./string";
 import { ReifiedRender } from "../render";
+import { ObjectSchema } from "./object";
+import { RecordSchema } from "./record";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
   path: SourcePath;
-  schema: SerializedSchema;
+  schema?: SerializedRefSchema | undefined;
   opt: boolean;
   values: "string" | string[];
   customValidate?: boolean;
 };
+type SerializedRefSchema =
+  | {
+      type: "object";
+      keys: string[];
+      opt?: boolean | undefined;
+    }
+  | {
+      type: "record";
+      opt?: boolean | undefined;
+    };
 
 type KeyOfSelector<Sel extends GenericSelector<SourceObject>> =
   Sel extends GenericSelector<infer S>
@@ -43,7 +55,7 @@ export class KeyOfSchema<
   Src extends KeyOfSelector<Sel> | null,
 > extends Schema<Src> {
   constructor(
-    private readonly schema?: SerializedSchema,
+    private readonly schema?: SerializedRefSchema,
     private readonly sourcePath?: SourcePath,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
@@ -62,7 +74,9 @@ export class KeyOfSchema<
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const customValidationErrors: ValidationError[] =
-      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
+        path,
+      });
     if (this.opt && (src === null || src === undefined)) {
       return customValidationErrors.length > 0
         ? { [path]: customValidationErrors }
@@ -89,7 +103,8 @@ export class KeyOfSchema<
         [path]: [
           ...customValidationErrors,
           {
-            message: `Schema in keyOf must be an 'object' or 'record'. Found '${serializedSchema.type}'`,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            message: `Schema in keyOf must be an 'object' or 'record'. Found '${(serializedSchema as any).type || "unknown"}'`,
           },
         ],
       };
@@ -108,7 +123,7 @@ export class KeyOfSchema<
       };
     }
     if (serializedSchema.type === "object") {
-      const keys = Object.keys(serializedSchema.items);
+      const keys = serializedSchema.keys;
       if (!keys.includes(src as string)) {
         return {
           [path]: [
@@ -204,7 +219,8 @@ export class KeyOfSchema<
         errors: {
           [path]: [
             {
-              message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${(serializedSchema as any).type || "unknown"}'`,
               typeError: true,
             },
           ],
@@ -228,7 +244,7 @@ export class KeyOfSchema<
     // and there it also makes sense to check the actual string values (i.e. that it is not just a string) since
     // missing one would lead to a runtime error. At least this is what we are thinking currently.
     if (serializedSchema.type === "object") {
-      const keys = Object.keys(serializedSchema.items);
+      const keys = serializedSchema.keys;
       if (!keys.includes(src as string)) {
         return {
           success: false,
@@ -273,11 +289,12 @@ export class KeyOfSchema<
         values = "string";
         break;
       case "object":
-        values = Object.keys(serializedSchema.items);
+        values = serializedSchema.keys;
         break;
       default:
         throw new Error(
-          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          `Cannot serialize keyOf schema with selector of type '${(serializedSchema as any).type || "unknown"}'`,
         );
     }
     return {
@@ -302,8 +319,28 @@ export const keyOf = <
 >(
   valModule: Src,
 ): KeyOfSchema<Src, KeyOfSelector<Src>> => {
+  const refSchema = valModule?.[GetSchema];
+  let serializedRefSchema: SerializedRefSchema | undefined = undefined;
+  if (refSchema instanceof ObjectSchema) {
+    let keys: string[] = [];
+    try {
+      keys = Object.keys(refSchema?.["items"] || {});
+    } catch (e) {
+      // ignore this error here
+    }
+    serializedRefSchema = {
+      type: "object",
+      keys,
+      opt: refSchema?.["opt"],
+    };
+  } else if (refSchema instanceof RecordSchema) {
+    serializedRefSchema = {
+      type: "record",
+      opt: refSchema?.["opt"],
+    };
+  }
   return new KeyOfSchema(
-    valModule?.[GetSchema]?.["executeSerialize"](),
+    serializedRefSchema,
     getValPath(valModule),
   ) as KeyOfSchema<Src, KeyOfSelector<Src>>;
 };

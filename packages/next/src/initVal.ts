@@ -7,6 +7,7 @@ import {
   SelectorSource,
   Json,
   Internal,
+  ValRouter,
 } from "@valbuild/core";
 import { raw } from "./raw";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
@@ -14,6 +15,8 @@ import { decodeValPathOfString } from "./decodeValPathOfString";
 import { ValEncodedString } from "./external_exempt_from_val_quickjs";
 
 type ValAttrs = { "data-val-path"?: string };
+
+const nextAppRouter: ValRouter = Internal.nextAppRouter;
 
 export const initVal = (
   config?: ValConfig,
@@ -36,6 +39,7 @@ export const initVal = (
     attrs: <T extends ValModule<SelectorSource> | Json>(target: T) => ValAttrs;
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
   };
+  nextAppRouter: ValRouter;
 } => {
   const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {
@@ -45,6 +49,7 @@ export const initVal = (
   return {
     s,
     c,
+    nextAppRouter,
     val: {
       ...val,
       attrs: <T extends ValModule<SelectorSource> | Json>(

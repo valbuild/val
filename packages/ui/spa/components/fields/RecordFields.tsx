@@ -42,7 +42,11 @@ export function RecordFields({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -93,7 +97,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
                   "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                  "hover:bg-bg-secondary_subtle",
+                  "hover:bg-bg-secondary-hover",
                 )}
               >
                 <div className="flex justify-between items-start">
@@ -153,7 +157,7 @@ function ListRecordRenderComponent({
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
           className={classNames(
-            "hover:bg-bg-secondary_subtle",
+            "hover:bg-bg-secondary-hover",
             "border rounded-lg cursor-pointer border-border-primary",
           )}
         >
@@ -209,9 +213,7 @@ function ImageOrPlaceholder({
 export function RecordPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "record");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="record" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;

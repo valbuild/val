@@ -5,13 +5,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./cn";
 
 const className =
-  "inline-flex items-center justify-center rounded-md text-sm font-medium bg-bg-brand-primary transition-colors hover:bg-bg-primary_hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-bg-brand-primary data-[state=on]:text-text-brand-primary";
+  "inline-flex items-center justify-center rounded-md text-sm font-medium bg-bg-brand-primary transition-colors hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-bg-brand-primary data-[state=on]:text-fg-brand-primary";
 const toggleVariants = cva(className, {
   variants: {
     variant: {
-      default: "bg-bg-secondary text-text-secondary",
+      default: "bg-bg-secondary text-fg-secondary",
       outline:
-        "border border-input bg-transparent hover:bg-bg-brand-primary_alt hover:text-text-primary",
+        "border border-input bg-transparent hover:bg-bg-brand-primary hover:text-fg-primary",
     },
     size: {
       default: "h-10 px-3",

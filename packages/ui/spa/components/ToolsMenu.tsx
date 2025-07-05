@@ -4,12 +4,14 @@ import {
   useErrors,
   useLoadingStatus,
   usePublishSummary,
+  useSchemas,
+  useShallowSourceAtPath,
   useValMode,
 } from "./ValProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { Eye, Loader2, PanelRightOpen } from "lucide-react";
+import { Globe, Loader2, PanelRightOpen, PanelsTopLeft } from "lucide-react";
 import { useLayout } from "./Layout";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -26,6 +28,11 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
@@ -58,7 +65,7 @@ export function ToolsMenu() {
         <ToolsMenuButtons />
       </div>
       {isPublishing && (
-        <div className="flex items-center justify-end gap-2 p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
+        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
           <span>Publishing changes </span>
           <Loader2 size={16} className="animate-spin" />
         </div>
@@ -70,7 +77,7 @@ export function ToolsMenu() {
             globalErrors.length !== sumValidationErrors && (
               <Accordion type="single" collapsible>
                 <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
                     Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
                     {globalErrors?.length} errors in all.{" "}
                     {globalErrors.length - sumValidationErrors} were
@@ -95,7 +102,7 @@ export function ToolsMenu() {
             errorModules.length > 0 && (
               <Accordion type="single" collapsible>
                 <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
                     <div>
                       <div>
                         Cannot {mode === "fs" ? "save" : "publish"} now.
@@ -134,7 +141,7 @@ function ModuleError({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath);
   const navigation = useNavigation();
   return (
-    <div className="px-4 py-2 border-b bg-bg-error-primary text-text-error-primary border-border-error">
+    <div className="px-4 py-2 border-b bg-bg-error-primary text-fg-error-primary border-border-error-primary">
       <button
         className="underline cursor-pointer"
         onClick={() => {
@@ -144,7 +151,7 @@ function ModuleError({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
         {moduleFilePathParts.map((part, i) => (
           <Fragment key={i}>
             <span
-              className={cn("text-text-brand-secondary", {
+              className={cn("text-fg-brand-secondary", {
                 "ml-1": i > 0,
               })}
             >
@@ -164,7 +171,7 @@ function ShortenedErrorMessage({ error }: { error: string }) {
   return (
     <div
       className={cn(
-        "px-1 py-2 bg-bg-error-primary text-text-error-primary border-b border-border-error",
+        "px-1 py-2 bg-bg-error-primary text-fg-error-primary border-b border-border-error-primary",
         {
           truncate: !isExpanded,
           "whitespace-normal": isExpanded,
@@ -178,12 +185,71 @@ function ShortenedErrorMessage({ error }: { error: string }) {
 }
 
 export function ToolsMenuButtons() {
+  const { currentSourcePath } = useNavigation();
+  const schemas = useSchemas();
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(currentSourcePath);
+  const maybeRecordSource = useShallowSourceAtPath(moduleFilePath, "record");
+  const maybePreviewRoute = useMemo(():
+    | {
+        status: "success";
+        data: null | {
+          previewRoute: string;
+        };
+      }
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+    | {
+        status: "not-found";
+      } => {
+    if (schemas.status !== "success") {
+      return schemas;
+    }
+    if (maybeRecordSource.status !== "success") {
+      return maybeRecordSource;
+    }
+    const schema = schemas.data[moduleFilePath];
+
+    if (schema.type === "record" && schema.router) {
+      if (maybeRecordSource.data === null) {
+        return {
+          status: "success",
+          data: null,
+        };
+      }
+
+      const keys = Object.keys(maybeRecordSource.data);
+      const routePartOfModulePath = Internal.splitModulePath(modulePath)[0];
+      for (const key of keys) {
+        if (routePartOfModulePath && routePartOfModulePath.startsWith(key)) {
+          return {
+            status: "success",
+            data: { previewRoute: key },
+          };
+        }
+      }
+    }
+    return {
+      status: "success",
+      data: null,
+    };
+  }, [
+    "data" in schemas && schemas.data,
+    moduleFilePath,
+    modulePath,
+    maybeRecordSource,
+  ]);
   const { navMenu, toolsMenu } = useLayout();
   const mode = useValMode();
   const { setAutoPublish, autoPublish } = useAutoPublish();
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between w-full gap-2 p-4">
+      <div className="flex gap-2 justify-between items-center p-4 w-full">
         <button
           className="lg:hidden"
           onClick={() => {
@@ -197,31 +263,97 @@ export function ToolsMenuButtons() {
             })}
           />
         </button>
-        <div className="flex items-center justify-end w-full gap-2">
+        <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
-              <span className="truncate text-text-secondary">Auto-save</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="truncate text-fg-secondary">Auto-save</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    When auto-save is enabled Val will save to changes to disk
+                    automatically
+                  </p>
+                  <p>This is a development mode feature</p>
+                </TooltipContent>
+              </Tooltip>
               <Checkbox
                 checked={autoPublish}
                 onCheckedChange={setAutoPublish}
               />
             </div>
           )}
-          <Button
-            className="flex items-center gap-2"
-            variant={"outline"}
-            onClick={() => {
-              window.location.href = urlOf("/api/val/enable", {
-                redirect_to: window.origin,
-              });
-            }}
-          >
-            <span>Preview</span>
-            <Eye size={16} />
-          </Button>
+          <PreviewButton maybePreviewRoute={maybePreviewRoute} />
           <PublishButton />
         </div>
       </div>
     </div>
+  );
+}
+
+function PreviewButton({
+  maybePreviewRoute,
+}: {
+  maybePreviewRoute:
+    | {
+        status: "success";
+        data: null | {
+          previewRoute: string;
+        };
+      }
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+    | {
+        status: "not-found";
+      };
+}) {
+  const href = useMemo(() => {
+    if (
+      maybePreviewRoute.status === "success" &&
+      maybePreviewRoute.data?.previewRoute
+    ) {
+      return urlOf("/api/val/enable", {
+        redirect_to: window.origin + maybePreviewRoute.data.previewRoute,
+      });
+    } else {
+      return urlOf("/api/val/enable", {
+        redirect_to: window.origin,
+      });
+    }
+  }, [maybePreviewRoute]);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          className="flex gap-2 items-center"
+          variant={"secondary"}
+          asChild
+        >
+          <a href={href}>
+            <span>Preview</span>
+            {maybePreviewRoute.status === "success" &&
+            maybePreviewRoute.data?.previewRoute ? (
+              <Globe size={16} />
+            ) : (
+              <PanelsTopLeft size={16} />
+            )}
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {maybePreviewRoute.status === "success" &&
+        maybePreviewRoute.data?.previewRoute ? (
+          <p>Preview your changes in {maybePreviewRoute.data.previewRoute}</p>
+        ) : (
+          <p>Preview your changes on the main page</p>
+        )}
+      </TooltipContent>
+    </Tooltip>
   );
 }

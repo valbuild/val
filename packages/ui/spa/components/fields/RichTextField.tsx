@@ -127,7 +127,11 @@ export function RichTextField({
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -247,13 +251,7 @@ function createRichTextPatch(
 export function RichTextPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "richtext");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError
-        path={path}
-        error={sourceAtPath.error}
-        type="richtext"
-      />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (sourceAtPath.status == "not-found") {
     return <FieldNotFound path={path} type="richtext" />;
@@ -266,9 +264,7 @@ export function RichTextPreview({ path }: { path: SourcePath }) {
   }
   const asString = richTextToString(sourceAtPath.data);
   if (asString.status === "error") {
-    return (
-      <FieldSourceError path={path} error={asString.error} type="richtext" />
-    );
+    return <FieldSourceError path={path} error={asString.error} />;
   }
   return <div className="truncate">{asString.value}</div>;
 }

@@ -1,4 +1,9 @@
-import { DEFAULT_APP_HOST, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  DEFAULT_APP_HOST,
+  ModuleFilePath,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 import classNames from "classnames";
 import {
   ChevronRight,
@@ -23,10 +28,11 @@ import {
   Sun,
   LogOut,
   User,
+  Globe,
+  PanelsTopLeft,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { PathNode, pathTree } from "../utils/pathTree";
-import { Remote } from "../utils/Remote";
+import { PathNode } from "../utils/pathTree";
 import {
   useAllValidationErrors,
   useCurrentProfile,
@@ -39,13 +45,18 @@ import {
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
-import { ScrollArea } from "./designSystem/scroll-area";
+import { ScrollArea, ScrollBar } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
-import { Popover, PopoverContent } from "./designSystem/popover";
-import { PopoverTrigger } from "@radix-ui/react-popover";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "./designSystem/popover";
 import { useLayout } from "./Layout";
 import { ProfileImage } from "./ProfileImage";
 import { urlOf } from "@valbuild/shared/internal";
+import { NextAppRouterSitemap } from "./Sitemap";
+import { useTrees } from "./useTrees";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
@@ -100,6 +111,7 @@ export function NavMenu() {
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();
   const { navMenu } = useLayout();
+  const remoteSchemaTree = useTrees();
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
   const profile = useCurrentProfile();
@@ -109,8 +121,8 @@ export function NavMenu() {
 
   return (
     <nav className="relative min-h-[100svh] bg-bg-primary">
-      <div className="flex items-center justify-between h-16 gap-4 p-4 pr-6 border-b border-border-primary">
-        <div className="flex items-center gap-4">
+      <div className="flex gap-4 justify-between items-center p-4 pr-6 h-16 border-b border-border-primary">
+        <div className="flex gap-4 items-center">
           {mainImageUrl ? (
             <img src={mainImageUrl} alt={""} className="w-4 h-4" />
           ) : (
@@ -141,13 +153,29 @@ export function NavMenu() {
       {"data" in remoteSchemasByModuleFilePath && (
         <div className={classNames("py-4 pl-2", {})}>
           <ScrollArea>
-            <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
-              <NavContentExplorer />
+            <div className="max-h-[calc(100svh-32px-64px-32px-16px)] max-w-[320px] px-2">
+              {"data" in remoteSchemaTree ? (
+                <>
+                  <SiteMapExplorer
+                    title="Site map"
+                    defaultOpen={true}
+                    sitemap={remoteSchemaTree.data.sitemap}
+                  />
+                  <NavContentExplorer
+                    title="Explorer"
+                    defaultOpen={true}
+                    node={remoteSchemaTree.data.root}
+                  />
+                </>
+              ) : remoteSchemaTree.status === "loading" ? (
+                <Loading />
+              ) : null}
             </div>
+            <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
       )}
-      <div className="h-6 p-4" />
+      <div className="p-4 h-6" />
       <div className="absolute bottom-0 left-0 w-full">
         <Popover>
           <PopoverTrigger className="flex items-center justify-between w-full p-4 border-t border-border-primary hover:bg-bg-secondary data-[state=open]:bg-bg-secondary">
@@ -161,10 +189,10 @@ export function NavMenu() {
             container={portalContainer}
             side="top"
           >
-            <div className="flex flex-col items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 justify-between items-center">
               {profile && (
                 <>
-                  <div className="flex items-center w-full gap-2 px-4 py-2">
+                  <div className="flex gap-2 items-center px-4 py-2 w-full">
                     <ProfileImage size="sm" profile={profile} />
                     <div className="text-sm">
                       <div className="truncate">{profile.fullName}</div>
@@ -175,10 +203,10 @@ export function NavMenu() {
                       )}
                     </div>
                   </div>
-                  <hr className="w-full h-1 mb-1 border-t border-border-primary" />
+                  <hr className="mb-1 w-full h-1 border-t border-border-primary" />
                 </>
               )}
-              <div className="flex items-center w-full gap-2 px-4">
+              <div className="flex gap-2 items-center px-4 w-full">
                 {theme === "dark" ? (
                   <Moon size={"1rem"} />
                 ) : (
@@ -198,7 +226,7 @@ export function NavMenu() {
                 </button>
               </div>
               {profile && (
-                <div className="flex items-center w-full gap-2 px-4">
+                <div className="flex gap-2 items-center px-4 w-full">
                   <User size={"1rem"} />
                   <a href={membersUrl}>
                     <span className="text-sm truncate">Manage members</span>
@@ -207,8 +235,8 @@ export function NavMenu() {
               )}
               {profile && (
                 <>
-                  <hr className="w-full h-1 mt-1 mb-1 border-t border-border-primary" />
-                  <div className="flex items-center w-full gap-2 px-4">
+                  <hr className="mt-1 mb-1 w-full h-1 border-t border-border-primary" />
+                  <div className="flex gap-2 items-center px-4 w-full">
                     <LogOut size={"1rem"} />
                     <a
                       href={urlOf("/api/val/logout", {
@@ -228,44 +256,96 @@ export function NavMenu() {
   );
 }
 
-function useSchemasTree(): Remote<PathNode> {
-  const remoteSchemasByModuleFilePath = useSchemas();
-  return useMemo(() => {
-    if (remoteSchemasByModuleFilePath.status === "success") {
-      const filePaths = Object.keys(remoteSchemasByModuleFilePath.data);
-      return {
-        status: remoteSchemasByModuleFilePath.status,
-        data: pathTree(filePaths),
-      };
-    }
-    return remoteSchemasByModuleFilePath;
-  }, [remoteSchemasByModuleFilePath]);
+function NavContentExplorer({
+  title,
+  defaultOpen,
+  node: root,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  node: PathNode;
+}) {
+  return (
+    <NavSection
+      icon={<PanelsTopLeft size={16} />}
+      title={title}
+      defaultOpen={defaultOpen}
+    >
+      {root.children.sort(sortPathTree).map((child, i) => (
+        <ExplorerNode {...child} name={child.name} key={i} root />
+      ))}
+    </NavSection>
+  );
 }
 
-function NavContentExplorer({ title }: { title?: string }) {
-  const remoteSchemaTree = useSchemasTree();
-  if (remoteSchemaTree.status === "error") {
-    console.error(remoteSchemaTree.error);
-    return null;
-  }
-  if (remoteSchemaTree.status !== "success") {
-    return <Loading />;
-  }
-  const root = remoteSchemaTree.data;
+function NavSection({
+  title,
+  children,
+  defaultOpen,
+  icon,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  icon: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
   return (
-    <div className="pl-0 pr-4">
-      {title && <div className="py-2">{title}</div>}
-      <div>
-        {root.children.sort(sortPathTree).map((child, i) => (
-          <ExplorerNode {...child} name={child.name} key={i} />
-        ))}
-      </div>
+    <div className="py-2">
+      <button
+        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
+        onClick={() => {
+          setIsOpen(!isOpen);
+        }}
+      >
+        <div className="flex gap-2 items-center">
+          {icon}
+          {title}
+        </div>
+        <ChevronRight
+          size={16}
+          className={classNames("transform", {
+            "rotate-90": isOpen,
+          })}
+        />
+      </button>
+      <AnimateHeight isOpen={isOpen} className="pr-1">
+        {children}
+      </AnimateHeight>
     </div>
   );
 }
 
-function Loading() {
+function SiteMapExplorer({
+  title,
+  defaultOpen,
+  sitemap,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  sitemap: { [routerId: string]: ModuleFilePath[] };
+}) {
+  const nextAppRouterSitemap = sitemap["next-app-router"];
+  if (nextAppRouterSitemap) {
+    return (
+      <NavSection
+        title={title}
+        defaultOpen={defaultOpen}
+        icon={<Globe size={16} />}
+      >
+        <NextAppRouterSitemap moduleFilePaths={nextAppRouterSitemap} />
+      </NavSection>
+    );
+  }
   return null;
+}
+
+function Loading() {
+  return (
+    <div className="flex justify-start items-center w-full h-full">
+      <Loader2 size={16} className="animate-spin" />
+    </div>
+  );
 }
 
 function sortPathTree(a: PathNode, b: PathNode) {
@@ -278,7 +358,13 @@ function sortPathTree(a: PathNode, b: PathNode) {
   return a.name.localeCompare(b.name);
 }
 
-function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
+function ExplorerNode({
+  name,
+  fullPath,
+  isDirectory,
+  children,
+  root,
+}: PathNode & { root?: boolean }) {
   const { navigate, currentSourcePath } = useNavigation();
   const { navMenu } = useLayout();
   const [isOpen, setIsOpen] = useState(true);
@@ -310,8 +396,10 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
     <div className="w-full text-sm">
       <button
         className={classNames(
-          "relative flex items-center justify-between w-full p-2",
+          "relative flex items-center justify-between w-full ",
           {
+            "py-2": root,
+            "p-2": !root,
             underline: currentSourcePath.startsWith(path) && !isDirectory,
             "font-bold": currentSourcePath.startsWith(path) && isDirectory,
           },
@@ -342,7 +430,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
           <span>{prettifyFilename(name)}</span>
         </div>
         {showErrorIndicator && (
-          <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-secondary"></div>
+          <div className="ml-2 w-2 h-2 rounded-full bg-bg-error-secondary"></div>
         )}
       </button>
       <div className="pl-2">

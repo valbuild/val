@@ -16,7 +16,7 @@ export function LoginDialog() {
       <DialogContent
         container={portalContainer}
         aria-label="Login required"
-        className="bg-bg-primary text-text-primary"
+        className="bg-bg-primary text-fg-primary"
       >
         <DialogHeader>
           <DialogTitle>

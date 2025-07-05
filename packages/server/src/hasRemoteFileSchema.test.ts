@@ -150,7 +150,6 @@ describe("hasRemoteFileSchema", () => {
         schema: {
           type: "record",
           opt: false,
-          item: { type: "string", raw: false, opt: false },
         },
       },
     ];

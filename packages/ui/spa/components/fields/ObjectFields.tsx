@@ -23,7 +23,11 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -130,7 +134,7 @@ function PreviewField({
 }) {
   return (
     <>
-      <span className="flex whitespace-nowrap text-fg-quinary">
+      <span className="flex whitespace-nowrap text-fg-disabled">
         {fixCapitalization(label)}
       </span>
       {children}

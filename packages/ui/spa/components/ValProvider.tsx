@@ -28,6 +28,7 @@ import {
   ParentRef,
   SharedValConfig,
   ValClient,
+  getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
@@ -640,7 +641,7 @@ const SavePatchFileResponse = z.object({
   filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
 });
 
-export function useAddPatch(sourcePath: SourcePath) {
+export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   const { syncEngine, client } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -1414,7 +1415,7 @@ export function useRenderOverrideAtPath(
   }, [renderRes, initializedAt, sourcesRes, sourcePath]);
 }
 
-export function useSchemaAtPath(sourcePath: SourcePath):
+export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
   | { status: "not-found" }
   | { status: "loading" }
   | {
@@ -1702,7 +1703,10 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
  */
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
->(sourcePath?: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
+>(
+  sourcePath?: SourcePath | ModuleFilePath,
+  type?: SchemaType,
+): ShallowSourceOf<SchemaType> {
   const { syncEngine } = useContext(ValContext);
   const [moduleFilePath, modulePath] = sourcePath
     ? Internal.splitModuleFilePathAndModulePath(sourcePath)
@@ -1739,6 +1743,134 @@ export function useShallowSourceAtPath<
     };
   }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type]);
   return source;
+}
+
+type ShallowSourcesOf<SchemaType extends SerializedSchema["type"]> =
+  | {
+      status: "not-found";
+      data: ShallowSource[SchemaType][];
+      notFoundPaths: ModuleFilePath[];
+    }
+  | {
+      status: "success";
+      data: ShallowSource[SchemaType][] | null;
+    }
+  | {
+      status: "loading";
+      data?: ShallowSource[SchemaType][] | null;
+    }
+  | {
+      status: "error";
+      data?: ShallowSource[SchemaType][] | null;
+      errors: { moduleFilePath: ModuleFilePath; message: string }[];
+    };
+export function useShallowModulesAtPaths<
+  SchemaType extends SerializedSchema["type"],
+>(
+  moduleFilePaths: ModuleFilePath[],
+  type: SchemaType,
+): ShallowSourcesOf<SchemaType> {
+  const { syncEngine } = useContext(ValContext);
+  const sourcesRes = useSyncExternalStore(
+    syncEngine.subscribe("sources", moduleFilePaths || []),
+    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
+    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
+  );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  return useMemo((): ShallowSourcesOf<SchemaType> => {
+    if (initializedAt === null) {
+      return { status: "loading" };
+    }
+    if (!sourcesRes) {
+      return {
+        status: "not-found",
+        data: [],
+        notFoundPaths: moduleFilePaths || [],
+      };
+    }
+    const allSources: ShallowSource[SchemaType][] = [];
+    const errors: { moduleFilePath: ModuleFilePath; message: string }[] = [];
+    const notFoundPaths: ModuleFilePath[] = [];
+    if (!moduleFilePaths || moduleFilePaths.length === 0) {
+      return { status: "success", data: [] };
+    }
+    for (let i = 0; i < moduleFilePaths.length; i++) {
+      const moduleFilePath = moduleFilePaths?.[i];
+      if (moduleFilePath === undefined) {
+        // should never happen
+        throw new Error(
+          "While resolving shallow modules at paths, we unexpectedly got an undefined module file path",
+        );
+      }
+      const source = sourcesRes?.[i];
+      if (!source) {
+        notFoundPaths.push(moduleFilePath);
+      }
+      const mappedSource = mapSource(
+        moduleFilePath,
+        "" as ModulePath,
+        type,
+        source,
+      );
+
+      if (mappedSource.status === "success") {
+        allSources.push(mappedSource.data as ShallowSource[SchemaType]);
+      } else {
+        errors.push({ moduleFilePath, message: mappedSource.error });
+      }
+    }
+    if (notFoundPaths.length > 0) {
+      return { status: "not-found", data: allSources, notFoundPaths };
+    }
+    if (errors.length > 0) {
+      return { status: "error", data: allSources, errors };
+    }
+    return {
+      status: "success",
+      data: allSources,
+    };
+  }, [sourcesRes, type, initializedAt, moduleFilePaths]);
+}
+
+// TODO: this should be in the next package somehow - that might require a lot of refactoring to accomplish though
+export function useNextAppRouterSrcFolder():
+  | {
+      status: "success";
+      data: string | null;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "loading";
+    } {
+  const schemas = useSchemas();
+  return useMemo(() => {
+    if (schemas.status === "success") {
+      let currentSrcFolder: string | null = null;
+      for (const moduleFilePath in schemas.data) {
+        const maybeCurrentSrcFolder = getNextAppRouterSourceFolder(
+          moduleFilePath as ModuleFilePath,
+        );
+        if (maybeCurrentSrcFolder) {
+          if (currentSrcFolder === null) {
+            currentSrcFolder = maybeCurrentSrcFolder;
+          } else {
+            if (currentSrcFolder !== maybeCurrentSrcFolder) {
+              return {
+                status: "error",
+                error:
+                  "Found multiple different src folders in the same project",
+              };
+            }
+          }
+        }
+      }
+      return { status: "success", data: currentSrcFolder };
+    }
+    return schemas;
+  }, [schemas]);
 }
 
 export function useAllSources() {

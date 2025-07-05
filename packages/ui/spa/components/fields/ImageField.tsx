@@ -111,7 +111,11 @@ export function ImageField({ path }: { path: SourcePath }) {
   }
   if (sourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        schema={schemaAtPath}
+      />
     );
   }
   if (
@@ -163,14 +167,14 @@ export function ImageField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
         </div>
       )}
       {schemaAtPath.data.type === "image" &&
         schemaAtPath.data.remote &&
         remoteFiles.status === "inactive" && (
-          <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+          <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
             {getRemoteFilesError(remoteFiles.reason)}
           </div>
         )}
@@ -237,10 +241,10 @@ export function ImageField({ path }: { path: SourcePath }) {
         {source && url && (
           <div className="relative rounded-lg bg-bg-secondary">
             {loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="flex absolute inset-0 flex-col justify-center items-center">
                 <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
                 <Loader2 size={24} className="animate-spin" />
-                <div className="mt-2 text-xs font-thin text-white z-5">
+                <div className="mt-2 text-xs font-thin text-[white] z-5">
                   {progressPercentage !== null ? `${progressPercentage}%` : ""}
                 </div>
               </div>
@@ -304,7 +308,7 @@ export function ImageField({ path }: { path: SourcePath }) {
             />
             {hotspot && (
               <div
-                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-solid border-2 absolute pointer-events-none"
+                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-primary border-2 absolute pointer-events-none"
                 style={{
                   top: `${hotspot.y * 100}%`,
                   left: `${hotspot.x * 100}%`,
@@ -429,9 +433,7 @@ function getRemoteFilesError(
 export function ImagePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "image");
   if (sourceAtPath.status === "error") {
-    return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type="image" />
-    );
+    return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
