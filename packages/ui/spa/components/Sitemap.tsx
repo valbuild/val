@@ -7,7 +7,9 @@ import {
   Trash2,
   Loader2,
   Link,
-  StickyNote,
+  Compass,
+  FileText,
+  Folder,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
@@ -34,11 +36,6 @@ import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { Button } from "./designSystem/button";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
 import { AddRecordPopover } from "./AddRecordPopover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
@@ -98,7 +95,7 @@ export function NextAppRouterSitemap({
   }, [shallowModules, srcFolder]);
   if (rootNode.status === "loading" || rootNode.status === "not-asked") {
     return (
-      <div className="flex justify-center items-center h-full">
+      <div className="flex items-center justify-center h-full">
         <Loader2 size={16} className="animate-spin" />
       </div>
     );
@@ -145,7 +142,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
   const moduleFilePath = node.moduleFilePath;
   return (
     <div>
-      <div className="flex relative justify-between items-center w-full h-10 group">
+      <div className="relative flex items-center justify-between w-full h-10 group">
         <div className="flex items-center my-1">
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -160,46 +157,40 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
               })}
             />
           </button>
-          <div
-            className={cn("block mr-2", {
-              hidden: node.children?.length > 0,
-            })}
-          >
-            <StickyNote size={16} />
-          </div>
           <span>
-            {node.name === "/" && (
-              <>
-                {node.sourcePath ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={onClick}
-                        className={cn({
-                          underline: isCurrentRoute,
-                        })}
-                      >
-                        Main page
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Go to main page</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <button onClick={onClick}>
-                    <span className="text-fg-brand-secondary">/</span>
-                  </button>
-                )}
-              </>
-            )}
-            {node.name !== "/" && (
+            {node.sourcePath ? (
               <button
                 onClick={onClick}
-                className={cn("cursor-pointer disabled:cursor-default", {
-                  underline: isCurrentRoute,
-                })}
+                className={cn("flex items-center gap-1", {})}
               >
-                <span className={cn("pr-[2px] text-fg-quaternary")}>/</span>
-                <span>{node.name}</span>
+                {node.name === "/" ? (
+                  <Compass size={14} />
+                ) : node.type === "leaf" ||
+                  (node.type === "node" && node.page) ? (
+                  <FileText size={14} />
+                ) : null}
+                <span>
+                  {/* <span className={cn({ underline: isCurrentRoute })}>/</span> */}
+                  {node.name === "/" && (
+                    <span className="ml-2 text-fg-primary-alt">Main page</span>
+                  )}
+                  {node.name !== "/" && (
+                    <span className={cn({ underline: isCurrentRoute })}>
+                      {node.name}
+                    </span>
+                  )}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={onClick}
+                className={cn("flex items-center gap-1", {})}
+              >
+                <Folder size={14} />
+                <span>
+                  {/* <span>/</span> */}
+                  <span>{node.name}</span>
+                </span>
               </button>
             )}
           </span>
@@ -218,7 +209,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
               size="sm"
               variant="ghost"
               onClick={onClick}
-              className="flex gap-2 items-center"
+              className="flex items-center gap-2"
             >
               <Link size={12} />
             </Button>
@@ -283,7 +274,7 @@ function SiteMapNodeOptions({
   );
   const refs = useKeysOf(parentPath, currentKey);
   return (
-    <div className="flex flex-col gap-2 justify-center items-start">
+    <div className="flex flex-col items-start justify-center gap-2">
       {parentPath && node.sourcePath && (
         <DeleteRecordPopover
           path={node.sourcePath as SourcePath}
@@ -294,7 +285,7 @@ function SiteMapNodeOptions({
           onComplete={onClose}
           confirmationMessage={`This will delete the ${currentKey} page.`}
         >
-          <div className="flex gap-2 items-center">
+          <div className="flex items-center gap-2">
             <Trash2 size={14} />
             <span>Delete</span>
           </div>
@@ -311,7 +302,7 @@ function SiteMapNodeOptions({
           parentPath={parentPath}
           onComplete={onClose}
         >
-          <div className="flex gap-2 items-center">
+          <div className="flex items-center gap-2">
             <Edit2 size={12} />
             <span>Rename</span>
           </div>
