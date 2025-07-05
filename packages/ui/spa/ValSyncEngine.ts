@@ -1941,9 +1941,6 @@ export class ValSyncEngine {
           return res;
         }
       }
-      console.debug("Syncing?", {
-        changedModules,
-      });
       if (changedModules === "all" || changedModules.length > 0) {
         const path =
           // We could be smarter wrt to the modules we fetch.
