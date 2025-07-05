@@ -105,7 +105,7 @@ export function DateField({ path }: { path: SourcePath }) {
               "w-[280px] justify-start text-left font-normal",
             )}
           >
-            <CalendarIcon className="mr-2 w-4 h-4" />
+            <CalendarIcon className="w-4 h-4 mr-2" />
             {currentValue ? (
               format(currentValue, "PPP")
             ) : (
@@ -113,7 +113,7 @@ export function DateField({ path }: { path: SourcePath }) {
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="p-0 w-auto" container={portalContainer}>
+        <PopoverContent className="w-auto p-0" container={portalContainer}>
           <Calendar
             mode="single"
             captionLayout="dropdown-buttons"
