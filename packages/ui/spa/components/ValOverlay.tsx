@@ -552,7 +552,8 @@ function Window({
 }
 
 const buttonClassName =
-  "p-2 rounded-md disabled:bg-bg-disabled hover:bg-bg-primary-hover transition-colors";
+  "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
+const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
 
 function WindowField({ path: path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -778,7 +779,7 @@ function ValMenu({
           <Popover>
             <PopoverTrigger
               disabled={publishDisabled}
-              className={buttonClassName}
+              className={classNames(buttonClassName, buttonInactiveClassName)}
             >
               <HoverCard>
                 <HoverCardTrigger>
@@ -878,7 +879,9 @@ function ValMenu({
             }
           />
           <Popover>
-            <PopoverTrigger className={buttonClassName}>
+            <PopoverTrigger
+              className={classNames(buttonClassName, buttonInactiveClassName)}
+            >
               <Ellipsis size={16} />
             </PopoverTrigger>
             <PopoverContent container={portalContainer} className="z-[9003]">
@@ -1047,7 +1050,6 @@ function MenuButton({
   disabled,
   active,
   label,
-  variant,
   href,
 }: {
   icon: React.ReactNode;
@@ -1055,7 +1057,6 @@ function MenuButton({
   disabled?: boolean;
   active?: boolean;
   label?: string;
-  variant?: "primary";
   href?: string;
 }) {
   const Comp = href ? "a" : "button";
@@ -1064,8 +1065,9 @@ function MenuButton({
       href={href}
       disabled={disabled}
       className={classNames(buttonClassName, {
-        "bg-bg-brand-primary text-fg-brand-primary-alt": variant === "primary",
-        "text-bg-brand-secondary bg-bg-primary-hover": !!active,
+        "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+          active,
+        [buttonInactiveClassName]: !active,
       })}
       onClick={onClick}
       aria-label={label}
