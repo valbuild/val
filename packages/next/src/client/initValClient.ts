@@ -67,7 +67,7 @@ function useValRouteStega<T extends SelectorSource>(
       );
     } else {
       console.error(
-        `Val: useValRoute can only be used with a promise if the React.use hook is available.`,
+        `Val: useValRoute params argument was promise, but the React.use hook is available. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
       );
       return null as UseValType<T>;
     }
