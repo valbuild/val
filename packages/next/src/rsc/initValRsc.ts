@@ -14,18 +14,12 @@ import {
   Internal,
   ValModule,
   SourceObject,
-  RecordSchema,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import {
-  getNextAppRouterSourceFolder,
-  getPatternFromModuleFilePath,
-  parseRoutePattern,
-  RoutePattern,
-  VAL_SESSION_COOKIE,
-} from "@valbuild/shared/internal";
+import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
+import { initValRouteFromVal } from "../initValRouteFromVal";
 
 SET_RSC(true);
 const initFetchValStega =
@@ -207,135 +201,18 @@ const initFetchValRouteStega =
       getHeaders,
       getCookies,
     );
-    const path = selector && Internal.getValPath(selector);
-    if (!path) {
-      console.error(
-        "Val: fetchValRoute can only be used with a Val module (details: no Val path found).",
-      );
-      return null as T extends ValModule<infer S>
-        ? S extends SourceObject
-          ? StegaOfSource<NonNullable<S>[string]> | null
-          : never
-        : never;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const val: any = await fetchVal(selector);
-    if (val === null) {
-      return null as FetchValRouteReturnType<T>;
-    }
-    if (typeof val !== "object") {
-      console.error(
-        `Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: expected type object, found ${typeof val} instead).`,
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    if (Array.isArray(val)) {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: expected type object, found array instead).",
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    const schema = Internal.getSchema(selector);
-    if (!schema) {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: no schema found).",
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    if (!(schema instanceof RecordSchema)) {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: schema is not a record).",
-      );
-    } else if (!schema["currentRouter"]) {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: router is not set).",
-      );
-    } else if (
-      schema["currentRouter"].getRouterId() !==
-      Internal.nextAppRouter.getRouterId()
-    ) {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: router is not the Next.js App Router).",
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
     const resolvedParams = await Promise.resolve(params);
-    if (typeof resolvedParams !== "object") {
-      console.error(
-        "Val: fetchValRoute must be used with a Val Module that is a s.record().router(...) (details: params is not an object).",
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-    if (
-      !(
-        moduleFilePath.endsWith("page.val.ts") ||
-        moduleFilePath.endsWith("page.val.js")
-      )
-    ) {
-      console.error(
-        `Val: fetchValRoute is used with a Val module that does not have a page.val.ts or page.val.js file. Make sure the Val module is in the same directory as your page.tsx or page.js file.`,
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    const srcFolder = getNextAppRouterSourceFolder(
-      moduleFilePath as ModuleFilePath,
+    const path = selector && Internal.getValPath(selector);
+    const schema = selector && Internal.getSchema(selector);
+    const val = selector && (await fetchVal(selector));
+    const route = initValRouteFromVal(
+      resolvedParams,
+      "fetchValRoute",
+      path,
+      schema,
+      val,
     );
-    if (!srcFolder) {
-      console.error(
-        "Val: fetchValRoute was used with a Val module that is not in the /app or /src/app folder",
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
-    const parsedPattern = parseRoutePattern(pattern);
-    const missingPatterns: RoutePattern[] = [];
-    const fullPathParts: string[] = [];
-    const missingParamKeys = { ...resolvedParams };
-    for (const part of parsedPattern ?? []) {
-      if (part.type === "literal") {
-        fullPathParts.push(part.name);
-      } else if (part.type === "array-param" || part.type === "string-param") {
-        const value = resolvedParams[part.paramName];
-        if (typeof value !== "string" && !Array.isArray(value)) {
-          missingPatterns.push(part);
-        } else if (Array.isArray(value)) {
-          delete missingParamKeys[part.paramName];
-          fullPathParts.push(value.join("/"));
-        } else {
-          delete missingParamKeys[part.paramName];
-          fullPathParts.push(value);
-        }
-      }
-    }
-    if (missingPatterns.length > 0) {
-      const errorMessageParams = missingPatterns.map((part) => {
-        if (part.type === "literal") {
-          return part.name;
-        } else if (part.type === "string-param") {
-          return `[${part.paramName}]`;
-        } else if (part.type === "array-param") {
-          return `[...${part.paramName}]`;
-        }
-      });
-      console.error(
-        `Val: fetchValRoute could not find route since parameters: ${errorMessageParams.join(", ")} where not provided. Make sure the Val module is in the same directory as your page.tsx or page.js file and that the Val module filename is called page.val.ts or page.val.js.`,
-      );
-      return null as FetchValRouteReturnType<T>;
-    }
-    if (Object.keys(missingParamKeys).length > 0) {
-      console.error(
-        `Val: fetchValRoute could not find route since parameters: ${Object.keys(missingParamKeys).join(", ")} where not found in the path of: ${moduleFilePath}. Make sure  ${moduleFilePath} in the same directory as your page.tsx or page.js file.`,
-      );
-      // We do not return null here since we found a route that matches the path
-      // though chances are that there's something wrong in the way fetchValRoute is used
-    }
-    const fullPath = fullPathParts.join("/");
-    const actualRoute = val[`/${fullPath}`];
-    if (!actualRoute) {
-      return null as FetchValRouteReturnType<T>;
-    }
-    return actualRoute;
+    return route;
   };
 
 const valApiEndpoints = "/api/val";

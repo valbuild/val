@@ -1,9 +1,11 @@
 import {
   GenericSelector,
+  Internal,
   Json,
   ModuleFilePath,
   SelectorOf,
   SelectorSource,
+  Source,
 } from "@valbuild/core";
 import {
   StegaOfSource,
@@ -13,6 +15,8 @@ import {
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { initValRouteFromVal } from "../initValRouteFromVal";
+import { Selector } from "@valbuild/core/src/selector";
 
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
@@ -46,11 +50,45 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   });
 }
 
+function useValRouteStega<T extends SelectorSource>(
+  selector: T,
+  params:
+    | Record<string, string | string[]>
+    | Promise<Record<string, string | string[]>>,
+): UseValType<T> {
+  const val = useValStega(selector);
+  let resolvedParams: Record<string, string | string[]> | undefined =
+    "then" in params ? undefined : params;
+  if ("then" in params) {
+    if ("use" in React) {
+      // This feels fairly safe: use should be possible to use inside if (?) and the if should most likely
+      resolvedParams = React.use(
+        params as Promise<Record<string, string | string[]>>,
+      );
+    } else {
+      console.error(
+        `Val: useValRoute can only be used with a promise if the React.use hook is available.`,
+      );
+      return null as UseValType<T>;
+    }
+  }
+  const route = initValRouteFromVal(
+    resolvedParams || {},
+    "useValRoute",
+    selector && Internal.getValPath(selector as Selector<Source>),
+    selector && Internal.getSchema(selector as Selector<Source>),
+    val,
+  );
+  return route;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValClient(config: ValConfig): {
   useValStega: typeof useValStega;
+  useValRouteStega: typeof useValRouteStega;
 } {
   return {
     useValStega,
+    useValRouteStega,
   };
 }
