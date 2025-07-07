@@ -6,6 +6,8 @@ import {
   SelectorOf,
   SelectorSource,
   Source,
+  SourceObject,
+  ValModule,
 } from "@valbuild/core";
 import {
   StegaOfSource,
@@ -50,12 +52,19 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   });
 }
 
-function useValRouteStega<T extends SelectorSource>(
+type UseValRouteReturnType<T extends ValModule<GenericSelector<SourceObject>>> =
+  T extends ValModule<infer S>
+    ? S extends SourceObject
+      ? StegaOfSource<NonNullable<S>[string]> | null
+      : never
+    : never;
+
+function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
   selector: T,
   params:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
-): UseValType<T> {
+): UseValRouteReturnType<T> {
   const val = useValStega(selector);
   let resolvedParams: Record<string, string | string[]> | undefined =
     "then" in params ? undefined : params;
@@ -69,7 +78,7 @@ function useValRouteStega<T extends SelectorSource>(
       console.error(
         `Val: useValRoute params argument was promise, but the React.use hook is available. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
       );
-      return null as UseValType<T>;
+      return null as UseValRouteReturnType<T>;
     }
   }
   const route = initValRouteFromVal(
