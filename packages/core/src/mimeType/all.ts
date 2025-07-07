@@ -19,6 +19,7 @@ export const EXT_TO_MIME_TYPES: Record<string, string> = {
   aam: "application/x-authorware-map",
   aas: "application/x-authorware-seg",
   air: "application/vnd.adobe.air-application-installer-package+zip",
+  avif: "image/avif",
   swf: "application/x-shockwave-flash",
   fxp: "application/vnd.adobe.fxp",
   pdf: "application/pdf",
