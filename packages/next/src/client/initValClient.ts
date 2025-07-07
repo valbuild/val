@@ -5,7 +5,6 @@ import {
   ModuleFilePath,
   SelectorOf,
   SelectorSource,
-  Source,
   SourceObject,
   ValModule,
 } from "@valbuild/core";
@@ -18,7 +17,6 @@ import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { initValRouteFromVal } from "../initValRouteFromVal";
-import { Selector } from "@valbuild/core/src/selector";
 
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
@@ -84,8 +82,8 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
   const route = initValRouteFromVal(
     resolvedParams || {},
     "useValRoute",
-    selector && Internal.getValPath(selector as Selector<Source>),
-    selector && Internal.getSchema(selector as Selector<Source>),
+    selector && Internal.getValPath(selector),
+    selector && Internal.getSchema(selector),
     val,
   );
   return route;
