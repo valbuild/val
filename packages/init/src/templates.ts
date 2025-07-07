@@ -2,9 +2,10 @@ export const VAL_CLIENT = (configImportPath: string) => `import "client-only";
 import { initValClient } from "@valbuild/next/client";
 import { config } from "${configImportPath}";
 
-const { useValStega: useVal } = initValClient(config);
+const { useValStega: useVal, useValRouteStega: useValRoute } =
+  initValClient(config);
 
-export { useVal };
+export { useVal, useValRoute };
 `;
 
 export const VAL_RSC = (
@@ -16,13 +17,14 @@ import { config } from "${configImportPath}";
 import valModules from "${valModulesImportPath}";
 import { cookies, draftMode, headers } from "next/headers";
 
-const { fetchValStega: fetchVal } = initValRsc(config, valModules, {
-  draftMode,
-  headers,
-  cookies,
-});
+const { fetchValStega: fetchVal, fetchValRouteStega: fetchValRoute } =
+  initValRsc(config, valModules, {
+    draftMode,
+    headers,
+    cookies,
+  });
 
-export { fetchVal };
+export { fetchVal, fetchValRoute };
 `;
 
 export const VAL_SERVER = (
