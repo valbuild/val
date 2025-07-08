@@ -124,8 +124,14 @@ export function initValRouteFromVal(
       if (part.type === "literal") {
         return part.name;
       } else if (part.type === "string-param") {
+        if (part.optional) {
+          return `[[${part.paramName}]]`;
+        }
         return `[${part.paramName}]`;
       } else if (part.type === "array-param") {
+        if (part.optional) {
+          return `[[...${part.paramName}]]`;
+        }
         return `[...${part.paramName}]`;
       }
     });
