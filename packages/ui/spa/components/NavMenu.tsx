@@ -265,6 +265,9 @@ function NavContentExplorer({
   defaultOpen?: boolean;
   node: PathNode;
 }) {
+  if (!root || root?.children.length === 0) {
+    return null;
+  }
   return (
     <NavSection
       icon={<PanelsTopLeft size={16} />}
