@@ -108,6 +108,17 @@ export function initValRouteFromVal(
       }
     }
   }
+  const lastPattern = missingPatterns?.[missingPatterns.length - 1];
+  const isLastOptional =
+    lastPattern && lastPattern.type === "array-param" && lastPattern.optional;
+  if (isLastOptional) {
+    // We **think** that if the last pattern is optional we might still want to match
+    // An example: /some-path/[[...test]]
+    // Or even: /[[...path]]
+    // We believe there's no other legal ways to have optional patterns? Right?
+    missingPatterns.pop();
+  }
+
   if (missingPatterns.length > 0) {
     const errorMessageParams = missingPatterns.map((part) => {
       if (part.type === "literal") {
