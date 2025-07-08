@@ -1006,12 +1006,6 @@ function useValRouterSourcePathFromCurrentPathname() {
     };
   }, []);
   const sourcePathResult = useMemo(() => {
-    if (schemas.status !== "success") {
-      return schemas;
-    }
-    if (maybeRecordSources.status !== "success") {
-      return maybeRecordSources;
-    }
     if (currentPathname) {
       for (const shallowModuleSource of maybeRecordSources.data || []) {
         for (const [fullPath, sourcePath] of Object.entries(
@@ -1020,7 +1014,8 @@ function useValRouterSourcePathFromCurrentPathname() {
           if (fullPath === currentPathname) {
             const [moduleFilePath] =
               Internal.splitModuleFilePathAndModulePath(sourcePath);
-            const schemasData = schemas.data[moduleFilePath];
+            const schemasData =
+              "data" in schemas ? schemas.data[moduleFilePath] : undefined;
             if (
               schemasData?.type === "record" &&
               schemasData.router !== undefined
