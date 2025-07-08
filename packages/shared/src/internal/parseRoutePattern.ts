@@ -4,7 +4,12 @@ export type RoutePattern =
       name: string;
     }
   | { type: "string-param"; paramName: string; optional: boolean }
-  | { type: "array-param"; paramName: string; optional: boolean };
+  | {
+      type: "array-param";
+      // in NextJS this is called a catch-all segment
+      paramName: string;
+      optional: boolean;
+    };
 export function parseRoutePattern(pattern: string): RoutePattern[] {
   if (pattern === "" || pattern === "/") {
     return [];
