@@ -1,12 +1,13 @@
-import { fetchValRoute } from "../../../val/rsc";
+"use client";
+import { useValRoute } from "../../../val/client";
 import pageVal from "./page.val";
 
-export default async function GenericPage({
+export default function GenericPage({
   params,
 }: {
   params: { path: string[] };
 }) {
-  const content = await fetchValRoute(pageVal, params);
+  const content = useValRoute(pageVal, params);
   return (
     <main>
       <h1>{content?.title}</h1>

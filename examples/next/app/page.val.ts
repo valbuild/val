@@ -1,12 +1,23 @@
-import { s, c, type t, nextAppRouter } from "_/val.config";
+import { s, c, type t, nextAppRouter } from "../val.config";
 import authorsVal from "../content/authors.val";
 import image from "../schema/image.val";
 
 export const schema = s.object({
   /**
+   * Objects:
+   */
+  hero: s.object({
+    title: s.string(),
+    image: s.image(),
+  }),
+  /**
    * Arrays and string:
    */
   tags: s.array(s.string().regexp(/CMS|github|react|NextJS|headless/)),
+  /**
+   * Reference to other content:
+   */
+  author: s.keyOf(authorsVal),
   /**
    * Rich Text that is optional:
    */
@@ -15,34 +26,22 @@ export const schema = s.object({
       // enables all features
       // styling:
       style: {
-        bold: true, // enables bold
-        italic: true, // enables italic text
-        lineThrough: true, // enables line/strike-through
+        bold: true, // enables bold, ...
+        italic: true,
+        lineThrough: true,
       },
       block: {
-        // tags:
-        h1: true, // enables h1
-        h2: true,
-        ul: true, // enables unordered lists
-        ol: true, // enables ordered lists
+        h2: true, // enables h2 blocks, ...
+        ul: true,
       },
       inline: {
         a: true,
-        img: true,
       },
     })
     .nullable(),
-  /**
-   * Reference to other content:
-   */
-  author: s.keyOf(authorsVal),
-  video: s.file({ accept: "video/*" }),
-  /**
-   * Objects:
-   */
-  hero: s.object({
-    title: s.string(),
-    image: s.image(),
+  video: s.object({
+    text: s.string(),
+    file: s.file({ accept: "video/*" }),
   }),
   // Boolean:
   featured: s.boolean(),
@@ -55,9 +54,12 @@ export default c.define(
   s.record(schema).router(nextAppRouter),
   {
     "/": {
-      video: c.file("/public/val/file_example.webm", {
-        mimeType: "video/webm",
-      }),
+      video: {
+        text: "Val is more than just basics - here's a video for example",
+        file: c.file("/public/val/file_example.webm", {
+          mimeType: "video/webm",
+        }),
+      },
       hero: {
         title: "Content as code",
         image: c.image("/public/val/logo_7adc7.png", {

@@ -10,6 +10,11 @@ body {
   overflow-x: hidden;
 }
 
+main {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
 a {
   color: inherit;
 }
@@ -29,65 +34,4 @@ a {
 img {
   width: 100%;
   height: auto;
-}
-
-.content {
-  --gap: clamp(1rem, 6vw, 3rem);
-  --full: minmax(var(--gap), 1fr);
-  --content: min(50ch, 100% - var(--gap) * 2);
-  --popout: minmax(0, 2rem);
-  --feature: minmax(0, 5rem);
-
-  display: grid;
-  grid-template-columns:
-    [full-start] var(--full)
-    [feature-start] var(--feature)
-    [popout-start] var(--popout)
-    [content-start] var(--content) [content-end]
-    var(--popout) [popout-end]
-    var(--feature) [feature-end]
-    var(--full) [full-end];
-}
-
-.content > * {
-  grid-column: content;
-}
-
-.popout {
-  grid-column: popout;
-}
-
-.feature {
-  grid-column: feature;
-}
-
-.full {
-  grid-column: full;
-}
-
-.hero {
-  display: grid;
-  place-content: center;
-}
-
-.rt-ul-list {
-  list-style: disc;
-  padding: 0 1em;
-  grid-column: popout;
-}
-
-.rt-paragraph {
-  margin: 1em 0;
-  line-height: 1.2;
-}
-
-.rt-paragraph:empty {
-  /* display: block;  */
-  height: calc(1em * 1.2);
-  margin: 0;
-}
-
-.rt-link {
-  color: blue;
-  text-decoration: underline;
 }
