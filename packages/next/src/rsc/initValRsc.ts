@@ -191,7 +191,8 @@ const initFetchValRouteStega =
     selector: T,
     params:
       | Promise<Record<string, string | string[]>>
-      | Record<string, string | string[]>,
+      | Record<string, string | string[]>
+      | unknown,
   ): Promise<FetchValRouteReturnType<T>> => {
     const fetchVal = initFetchValStega(
       config,

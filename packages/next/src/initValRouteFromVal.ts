@@ -7,7 +7,7 @@ import {
 } from "@valbuild/shared/internal";
 
 export function initValRouteFromVal(
-  resolvedParams: Record<string, string | string[]>,
+  resolvedParams: Record<string, string | string[]> | unknown,
   methodName: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   path: any,
@@ -96,14 +96,22 @@ export function initValRouteFromVal(
     if (part.type === "literal") {
       fullPathParts.push(part.name);
     } else if (part.type === "array-param" || part.type === "string-param") {
-      const value = resolvedParams[part.paramName];
+      const key = part.paramName;
+      const value = resolvedParams?.[key as keyof typeof resolvedParams] as
+        | string
+        | string[]
+        | undefined;
       if (typeof value !== "string" && !Array.isArray(value)) {
         missingPatterns.push(part);
       } else if (Array.isArray(value)) {
-        delete missingParamKeys[part.paramName];
+        if (missingParamKeys?.[key as keyof typeof missingParamKeys]) {
+          delete missingParamKeys[key as keyof typeof missingParamKeys];
+        }
         fullPathParts.push(value.join("/"));
       } else {
-        delete missingParamKeys[part.paramName];
+        if (missingParamKeys?.[key as keyof typeof missingParamKeys]) {
+          delete missingParamKeys[key as keyof typeof missingParamKeys];
+        }
         fullPathParts.push(value);
       }
     }

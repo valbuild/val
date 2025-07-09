@@ -4,7 +4,7 @@ import pageVal from "./page.val";
 import { ValImage, ValRichText } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
 
-export default async function Home({ params }: { params: Promise<{}> }) {
+export default async function Home({ params }: { params: unknown }) {
   const page = await fetchValRoute(pageVal, params);
   if (page === null) {
     notFound();
