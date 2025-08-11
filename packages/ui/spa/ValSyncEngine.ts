@@ -398,7 +398,7 @@ export class ValSyncEngine {
         }
         return () => {
           for (const idx of indices) {
-            listeners[type]?.[p[idx]].splice(idx, 1);
+            listeners[type]?.[p[idx]]?.splice(idx, 1);
           }
         };
       } else {
@@ -446,9 +446,7 @@ export class ValSyncEngine {
   }
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
-    if (this.errors.patchErrors) {
-      this.errors.patchErrors[moduleFilePath] = null;
-    }
+    this.cachedPatchErrorsSnapshot = null;
     this.emit(this.listeners["patch-errors"]?.[moduleFilePath]);
   }
 
@@ -809,8 +807,8 @@ export class ValSyncEngine {
         }
       }
       if (hasErrors) {
-      this.cachedPatchErrorsSnapshot[pathsKey] = result;
-    }
+        this.cachedPatchErrorsSnapshot[pathsKey] = result;
+      }
     }
     return this.cachedPatchErrorsSnapshot[pathsKey];
   }
