@@ -97,6 +97,10 @@ const ValContext = React.createContext<ValContextValue>(
   ) as ValContextValue,
 );
 
+export function useClient() {
+  return useContext(ValContext).client;
+}
+
 export function ValProvider({
   children,
   client,
@@ -1119,6 +1123,12 @@ export function usePublishSummary() {
     () => syncEngine.getPublishDisabledSnapshot(),
     () => syncEngine.getPublishDisabledSnapshot(),
   );
+  const { patchErrors } = useAllPatchErrors();
+  const hasPatchErrors = useMemo(() => {
+    if (patchErrors) {
+      return Object.values(patchErrors).some((errors) => errors !== null);
+    }
+  }, [patchErrors]);
   const [canGenerate, setCanGenerate] = useState(false);
   useEffect(() => {
     if (
@@ -1261,7 +1271,7 @@ export function usePublishSummary() {
   );
   return {
     publish,
-    publishDisabled,
+    publishDisabled: publishDisabled || hasPatchErrors,
     isPublishing,
     generateSummary,
     canGenerate,
