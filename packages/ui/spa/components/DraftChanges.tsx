@@ -22,6 +22,7 @@ import {
   useAllValidationErrors,
   useAutoPublish,
   useGlobalTransientErrors,
+  useAllPatchErrors,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -91,6 +92,8 @@ export function DraftChanges({
     useDeployments();
   const { globalTransientErrors, removeGlobalTransientErrors } =
     useGlobalTransientErrors();
+  const { patchErrors } = useAllPatchErrors();
+  console.log("patchErrors", patchErrors);
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -104,6 +107,30 @@ export function DraftChanges({
 
   return (
     <div className={classNames("text-sm", className)}>
+      {patchErrors &&
+        Object.values(patchErrors).some((errors) => errors !== null) && (
+          <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
+            <div className="flex flex-col gap-4">
+              {Object.entries(patchErrors).map(
+                ([moduleFilePath, errors], i) => (
+                  <div key={moduleFilePath + "#" + i} className="pb-4">
+                    <div className="items-start text-left">
+                      <ValidationErrorValPath sourcePath={moduleFilePath} />
+                    </div>
+                    <div>
+                      <ScrollArea
+                        orientation="horizontal"
+                        className="max-w-[280px] text-pretty text-xs"
+                      >
+                        Hepp
+                      </ScrollArea>
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        )}
       {allValidationErrors && validationErrorsCount > 0 && (
         <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
           <ScrollArea orientation="horizontal">
@@ -466,18 +493,11 @@ function PatchCard({
     committedPatchIds.has(patchMetadata.patchId),
   );
   const profilesById = useProfilesByAuthorId();
-  const { patchErrors, skippedPatches } = useErrors();
-  const [errors, skipped] = useMemo(
-    () =>
-      [
-        patchErrors[patchMetadata.patchId] || [],
-        !!skippedPatches[patchMetadata.patchId],
-      ] as const,
-    [
-      patchMetadata.patchId,
-      patchErrors[patchMetadata.patchId],
-      skippedPatches[patchMetadata.patchId],
-    ],
+  const { skippedPatches } = useErrors();
+  const errors = undefined; // TODO
+  const [skipped] = useMemo(
+    () => [!!skippedPatches[patchMetadata.patchId]] as const,
+    [patchMetadata.patchId, skippedPatches[patchMetadata.patchId]],
   );
   const mode = useValMode();
   let authors: {
@@ -585,7 +605,8 @@ function PatchSetCard({
       observer.disconnect();
     };
   }, []);
-  const { patchErrors, skippedPatches } = useErrors();
+  const { skippedPatches } = useErrors();
+  const patchErrors = {} as Record<PatchId, string[]>; // TODO
   const { deletePatches } = useDeletePatches();
   const patchIds = useMemo(
     () => patchSet.patches.map((p) => p.patchId),

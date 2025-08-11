@@ -138,6 +138,10 @@ export class ValSyncEngine {
      */
     hasNetworkErrorTimestamp: number | null;
     validationErrors: Record<SourcePath, ValidationError[] | undefined>;
+    patchErrors: Record<
+      ModuleFilePath,
+      Record<PatchId, { message: string }> | null
+    >;
   }>;
   /**
    * If this is true, the next sync (and only the next) will sync all modules
@@ -199,6 +203,7 @@ export class ValSyncEngine {
     this.cachedPublishDisabledSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
+    this.cachedPatchErrorsSnapshot = null;
   }
 
   setAutoPublish(now: number, autoPublish: boolean) {
@@ -308,6 +313,7 @@ export class ValSyncEngine {
     this.cachedPublishDisabledSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
+    this.cachedPatchErrorsSnapshot = null;
 
     this.invalidateInitializedAt();
   }
@@ -364,6 +370,10 @@ export class ValSyncEngine {
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(type: "all-patches"): (listener: () => void) => () => void;
+  subscribe(
+    type: "patch-errors",
+    path: ModuleFilePath[],
+  ): (listener: () => void) => () => void;
   subscribe(
     type: SyncEngineListenerType,
     path?: string | string[],
@@ -433,6 +443,13 @@ export class ValSyncEngine {
     this.emit(this.listeners["sources"]?.[moduleFilePath]);
     this.emit(this.listeners["source"]?.[moduleFilePath]);
     this.emit(this.listeners["all-sources"]?.[globalNamespace]);
+  }
+
+  private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
+    if (this.errors.patchErrors) {
+      this.errors.patchErrors[moduleFilePath] = null;
+    }
+    this.emit(this.listeners["patch-errors"]?.[moduleFilePath]);
   }
 
   private invalidateRenders(moduleFilePath: ModuleFilePath) {
@@ -764,6 +781,38 @@ export class ValSyncEngine {
       };
     }
     return this.cachedInitializedAtSnapshot;
+  }
+
+  private cachedPatchErrorsSnapshot: Record<
+    string,
+    Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
+  > | null;
+  getPatchErrorsSnapshot(moduleFilePaths: ModuleFilePath[]) {
+    if (this.cachedPatchErrorsSnapshot === null) {
+      this.cachedPatchErrorsSnapshot = {};
+    }
+
+    const pathsKey = moduleFilePaths.sort().join("|");
+    if (this.cachedPatchErrorsSnapshot[pathsKey] === undefined) {
+      const result: Record<
+        ModuleFilePath,
+        Record<PatchId, { message: string }> | null
+      > = {};
+
+      for (const moduleFilePath of moduleFilePaths) {
+        if (this.errors.patchErrors?.[moduleFilePath]) {
+          result[moduleFilePath] = deepClone(
+            this.errors.patchErrors[moduleFilePath]!,
+          );
+        } else {
+          result[moduleFilePath] = null;
+        }
+      }
+
+      this.cachedPatchErrorsSnapshot[pathsKey] = result;
+    }
+
+    return this.cachedPatchErrorsSnapshot[pathsKey];
   }
 
   private cachedPatchData: Record<
@@ -2033,6 +2082,14 @@ export class ValSyncEngine {
               // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
               this.overlayEmitter?.(moduleFilePath, valModule.source);
+              this.invalidatePatchErrors(moduleFilePath);
+              if (valModule.patches?.errors) {
+                if (this.errors.patchErrors === undefined) {
+                  this.errors.patchErrors = {};
+                }
+                this.errors.patchErrors[moduleFilePath] = valModule.patches
+                  .errors as Record<PatchId, { message: string }>;
+              }
               // NOTE: we clean up relevant validation errors above
               for (const sourcePathS in valModule.validationErrors) {
                 const sourcePath = sourcePathS as SourcePath;
@@ -2335,7 +2392,8 @@ type SyncEngineListenerType =
   | "all-sources"
   | "render"
   | "source"
-  | "sources";
+  | "sources"
+  | "patch-errors";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {
   createdAt: number;

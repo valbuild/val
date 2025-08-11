@@ -1617,9 +1617,30 @@ export function useGlobalError():
   return null;
 }
 
+export function useAllPatchErrors() {
+  const { syncEngine } = useContext(ValContext);
+  const [allModuleFilePaths, setAllModuleFilePaths] = useState<
+    ModuleFilePath[]
+  >([]);
+  const schemas = useSyncExternalStore(
+    syncEngine.subscribe("schema"),
+    () => syncEngine.getAllSchemasSnapshot(),
+    () => syncEngine.getAllSchemasSnapshot(),
+  );
+  useEffect(() => {
+    setAllModuleFilePaths(Object.keys(schemas) as ModuleFilePath[]);
+  }, [schemas]);
+
+  const patchErrors = useSyncExternalStore(
+    syncEngine.subscribe("patch-errors", allModuleFilePaths),
+    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
+    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
+  );
+  return { patchErrors };
+}
+
 export function useErrors() {
   const globalErrors: string[] = [];
-  const patchErrors: Record<PatchId, string[]> = {};
   const skippedPatches: Record<PatchId, true> = {};
 
   // if (schemas.status === "error") {
@@ -1670,7 +1691,7 @@ export function useErrors() {
   //   }
   // }
 
-  return { globalErrors, patchErrors, skippedPatches };
+  return { globalErrors, skippedPatches };
 }
 
 export function useProfilesByAuthorId() {
