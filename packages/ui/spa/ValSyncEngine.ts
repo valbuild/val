@@ -787,31 +787,31 @@ export class ValSyncEngine {
     string,
     Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
   > | null;
-  getPatchErrorsSnapshot(moduleFilePaths: ModuleFilePath[]) {
+  getPatchErrorsSnapshot(
+    moduleFilePaths: ModuleFilePath[],
+  ): Record<ModuleFilePath, Record<PatchId, { message: string }> | null> {
+    const pathsKey = moduleFilePaths.sort().join("|");
+    // TODO: not quite sure this works well, however it is only used in one place and seems to work there - something to revise!
     if (this.cachedPatchErrorsSnapshot === null) {
       this.cachedPatchErrorsSnapshot = {};
-    }
-
-    const pathsKey = moduleFilePaths.sort().join("|");
-    if (this.cachedPatchErrorsSnapshot[pathsKey] === undefined) {
       const result: Record<
         ModuleFilePath,
         Record<PatchId, { message: string }> | null
       > = {};
-
+      let hasErrors = false;
       for (const moduleFilePath of moduleFilePaths) {
         if (this.errors.patchErrors?.[moduleFilePath]) {
-          result[moduleFilePath] = deepClone(
-            this.errors.patchErrors[moduleFilePath]!,
-          );
-        } else {
-          result[moduleFilePath] = null;
+          result[moduleFilePath] = {
+            ...(result[moduleFilePath] || {}),
+            ...deepClone(this.errors.patchErrors[moduleFilePath]!),
+          };
+          hasErrors = true;
         }
       }
-
+      if (hasErrors) {
       this.cachedPatchErrorsSnapshot[pathsKey] = result;
     }
-
+    }
     return this.cachedPatchErrorsSnapshot[pathsKey];
   }
 
