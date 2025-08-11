@@ -23,12 +23,14 @@ import {
   useAutoPublish,
   useGlobalTransientErrors,
   useAllPatchErrors,
+  useClient,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {
   Check,
   ChevronDown,
+  Download,
   Loader2,
   Sparkles,
   TriangleAlert,
@@ -54,6 +56,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
+import * as RadixAccordion from "@radix-ui/react-accordion";
 import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
 import {
   Tooltip,
@@ -93,7 +96,6 @@ export function DraftChanges({
   const { globalTransientErrors, removeGlobalTransientErrors } =
     useGlobalTransientErrors();
   const { patchErrors } = useAllPatchErrors();
-  console.log("patchErrors", patchErrors);
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -104,27 +106,125 @@ export function DraftChanges({
     };
   }, []);
   const { deletePatches } = useDeletePatches();
+  const client = useClient();
+  const downloadReport = (
+    moduleFilePath: ModuleFilePath | string,
+    patchId: PatchId | string,
+    error: string,
+  ) => {
+    client("/patches", "GET", {
+      query: {
+        patch_id: [patchId as PatchId],
+        exclude_patch_ops: false,
+      },
+    }).then((response) => {
+      if (response.status === 200) {
+        const json = response.json;
+        const fileName = `val-patch-error-report-${moduleFilePath.replace("/", "__").replace(/\.val\./, "-")}-${patchId}.json`;
+        const blob = new Blob(
+          [
+            JSON.stringify(
+              {
+                moduleFilePath,
+                patchId,
+                error,
+                patch: json,
+              },
+              null,
+              2,
+            ),
+          ],
+          {
+            type: "application/json",
+          },
+        );
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+      }
+    });
+  };
 
   return (
     <div className={classNames("text-sm", className)}>
       {patchErrors &&
         Object.values(patchErrors).some((errors) => errors !== null) && (
           <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 p-4">
+              <div className="px-4 text-pretty">
+                <div>Unfortunately, one or more changes have errors.</div>
+                <div>No changes can currently be applied</div>
+                <div>Please report this issue</div>
+              </div>
               {Object.entries(patchErrors).map(
                 ([moduleFilePath, errors], i) => (
                   <div key={moduleFilePath + "#" + i} className="pb-4">
-                    <div className="items-start text-left">
-                      <ValidationErrorValPath sourcePath={moduleFilePath} />
-                    </div>
-                    <div>
-                      <ScrollArea
-                        orientation="horizontal"
-                        className="max-w-[280px] text-pretty text-xs"
-                      >
-                        Hepp
-                      </ScrollArea>
-                    </div>
+                    <ScrollArea
+                      orientation="horizontal"
+                      className="max-w-[280px] text-pretty text-xs"
+                    >
+                      {errors &&
+                        Object.entries(errors).map(([patchId, error], j) => (
+                          <RadixAccordion.Root
+                            key={j}
+                            className="grid grid-cols-2 gap-2"
+                            type="single"
+                            collapsible
+                          >
+                            <RadixAccordion.AccordionItem value={patchId}>
+                              <div>
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => {
+                                    deletePatches([patchId as PatchId]);
+                                  }}
+                                >
+                                  <span className="flex gap-2 justify-between items-center text-left">
+                                    <span>Remove change and fix issue</span>
+                                  </span>
+                                </Button>
+                              </div>
+
+                              <RadixAccordion.AccordionTrigger asChild>
+                                <Button variant="destructive">
+                                  <span className="text-left truncate">
+                                    See details
+                                  </span>
+                                </Button>
+                              </RadixAccordion.AccordionTrigger>
+                              <RadixAccordion.AccordionContent>
+                                <div>
+                                  <Button
+                                    variant="destructive"
+                                    onClick={() => {
+                                      downloadReport(
+                                        moduleFilePath,
+                                        patchId,
+                                        error.message,
+                                      );
+                                    }}
+                                  >
+                                    <span className="flex gap-2 justify-between items-center text-left">
+                                      <span>Get report</span>
+                                      <Download size={14} />
+                                    </span>
+                                  </Button>
+                                  <div className="font-bold">Details</div>
+                                  <div>Module file path</div>
+                                  <div>
+                                    <ValidationErrorValPath
+                                      sourcePath={moduleFilePath as SourcePath}
+                                    />
+                                  </div>
+                                  <div>Error message</div>
+                                  <pre>{error.message}</pre>
+                                </div>
+                              </RadixAccordion.AccordionContent>
+                            </RadixAccordion.AccordionItem>
+                          </RadixAccordion.Root>
+                        ))}
+                    </ScrollArea>
                   </div>
                 ),
               )}
