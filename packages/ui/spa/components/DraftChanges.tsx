@@ -429,6 +429,7 @@ export function DraftChanges({
                   }
                   committedPatchIds={committedPatchIds}
                   patchSet={patchSet}
+                  patchErrors={patchErrors[patchSet.moduleFilePath]}
                 />
               );
             })}
@@ -688,9 +689,11 @@ function useChangeDescription(
 function PatchSetCard({
   patchSet,
   committedPatchIds,
+  patchErrors,
 }: {
   patchSet: PatchSetMetadata;
   committedPatchIds: Set<PatchId>;
+  patchErrors: Record<PatchId, { message: string }> | null;
 }) {
   const [isOpen, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -712,7 +715,6 @@ function PatchSetCard({
     };
   }, []);
   const { skippedPatches } = useErrors();
-  const patchErrors = {} as Record<PatchId, string[]>; // TODO
   const { deletePatches } = useDeletePatches();
   const patchIds = useMemo(
     () => patchSet.patches.map((p) => p.patchId),
@@ -723,10 +725,9 @@ function PatchSetCard({
   const errors = useMemo(() => {
     const errors: string[] = [];
     for (const patchId of patchIds) {
-      for (const patchError of patchErrors[patchId] || []) {
-        if (!skippedPatches[patchId]) {
-          errors.unshift(patchError);
-        }
+      const patchError = patchErrors?.[patchId];
+      if (!skippedPatches[patchId] && patchError) {
+        errors.unshift(patchError.message);
       }
     }
     return errors;
@@ -918,10 +919,10 @@ const PatchOrPatchSetCard = forwardRef<
           </div>
         </div>
         {errors && errors.length > 0 && !skipped && (
-          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary rounded-lg">
             {errors.slice(0, 1).map((error, i) => (
               <div key={i} title={error} className="truncate">
-                {error}
+                Invalid change
               </div>
             ))}
             {errors.length > 1 && (
