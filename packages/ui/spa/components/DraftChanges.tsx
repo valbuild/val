@@ -107,43 +107,44 @@ export function DraftChanges({
   }, []);
   const { deletePatches } = useDeletePatches();
   const client = useClient();
-  const downloadReport = (
+  const downloadReport = async (
     moduleFilePath: ModuleFilePath | string,
     patchId: PatchId | string,
     error: string,
   ) => {
-    client("/patches", "GET", {
+    const patchRes = await client("/patches", "GET", {
       query: {
         patch_id: [patchId as PatchId],
         exclude_patch_ops: false,
       },
-    }).then((response) => {
-      if (response.status === 200) {
-        const json = response.json;
-        const fileName = `val-patch-error-report-${moduleFilePath.replace("/", "__").replace(/\.val\./, "-")}-${patchId}.json`;
-        const blob = new Blob(
-          [
-            JSON.stringify(
-              {
-                moduleFilePath,
-                patchId,
-                error,
-                patch: json,
-              },
-              null,
-              2,
-            ),
-          ],
-          {
-            type: "application/json",
-          },
-        );
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = fileName;
-        a.click();
-      }
     });
+    if (patchRes.status === 200) {
+      const json = patchRes.json;
+      const fileName = `val-patch-error-report-${moduleFilePath.replace("/", "__").replace(/\.val\./, "-")}-${patchId}.json`;
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            {
+              moduleFilePath,
+              patchId,
+              error,
+              patch: json,
+            },
+            null,
+            2,
+          ),
+        ],
+        {
+          type: "application/json",
+        },
+      );
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName;
+      a.click();
+    } else {
+      alert("Failed to download report");
+    }
   };
 
   return (
@@ -154,8 +155,7 @@ export function DraftChanges({
             <div className="flex flex-col gap-4 p-4">
               <div className="px-4 text-pretty">
                 <div>Unfortunately, one or more changes have errors.</div>
-                <div>No changes can currently be applied</div>
-                <div>Please report this issue</div>
+                <div>No changes can currently be applied.</div>
               </div>
               {Object.entries(patchErrors).map(
                 ([moduleFilePath, errors], i) => (
@@ -186,30 +186,36 @@ export function DraftChanges({
                                 </Button>
                               </div>
 
-                              <RadixAccordion.AccordionTrigger asChild>
+                              <RadixAccordion.AccordionTrigger
+                                asChild
+                                className="group"
+                              >
                                 <Button variant="destructive">
-                                  <span className="text-left truncate">
-                                    See details
+                                  <span className="text-left truncate group-data-[state=open]:hidden">
+                                    Report
+                                  </span>
+                                  <span className="text-left truncate group-data-[state=open]:block hidden">
+                                    Hide
                                   </span>
                                 </Button>
                               </RadixAccordion.AccordionTrigger>
                               <RadixAccordion.AccordionContent>
-                                <div>
-                                  <Button
-                                    variant="destructive"
-                                    onClick={() => {
-                                      downloadReport(
-                                        moduleFilePath,
-                                        patchId,
-                                        error.message,
-                                      );
-                                    }}
-                                  >
-                                    <span className="flex gap-2 justify-between items-center text-left">
-                                      <span>Get report</span>
-                                      <Download size={14} />
-                                    </span>
-                                  </Button>
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => {
+                                    downloadReport(
+                                      moduleFilePath,
+                                      patchId,
+                                      error.message,
+                                    );
+                                  }}
+                                >
+                                  <span className="flex gap-2 justify-between items-center text-left">
+                                    <span>Download debug report</span>
+                                    <Download size={14} />
+                                  </span>
+                                </Button>
+                                <div className="p-4">
                                   <div className="font-bold">Details</div>
                                   <div>Module file path</div>
                                   <div>
