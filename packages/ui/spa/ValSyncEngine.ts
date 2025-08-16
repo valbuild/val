@@ -787,7 +787,9 @@ export class ValSyncEngine {
   > | null;
   getPatchErrorsSnapshot(
     moduleFilePaths: ModuleFilePath[],
-  ): Record<ModuleFilePath, Record<PatchId, { message: string }> | null> {
+  ):
+    | Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
+    | undefined {
     const pathsKey = moduleFilePaths.sort().join("|");
     // TODO: not quite sure this works well, however it is only used in one place and seems to work there - something to revise!
     if (this.cachedPatchErrorsSnapshot === null) {

@@ -429,7 +429,7 @@ export function DraftChanges({
                   }
                   committedPatchIds={committedPatchIds}
                   patchSet={patchSet}
-                  patchErrors={patchErrors[patchSet.moduleFilePath]}
+                  patchErrors={patchErrors?.[patchSet.moduleFilePath] ?? {}}
                 />
               );
             })}
