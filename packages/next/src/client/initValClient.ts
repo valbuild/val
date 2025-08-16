@@ -74,7 +74,7 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
       );
     } else {
       console.error(
-        `Val: useValRoute params argument was promise, but the React.use hook is available. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
+        `Val: useValRoute params argument was promise, but the React.use hook is unavailable. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
       );
       return null as UseValRouteReturnType<T>;
     }
