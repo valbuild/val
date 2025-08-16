@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/eslint-plugin",
-  "version": "0.84.2",
+  "version": "0.84.3",
   "description": "ESLint rules for val",
   "keywords": [
     "eslint",
