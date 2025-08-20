@@ -464,42 +464,7 @@ export function createValApiRouter<Res>(
       );
       let query = {};
       if (reqDefinition.query) {
-        // This is code is particularly heavy, however
-        // @see ValidQueryParamTypes in ApiRouter.ts where we explain what we want to support
-        // We prioritized a declarative ApiRouter, so this code is what we ended up with for better of worse
-        const queryRules: Record<string, z.ZodTypeAny> = {};
-        for (const [key, zodRule] of Object.entries(reqDefinition.query)) {
-          let innerType: z.ZodTypeAny = zodRule;
-          let isOptional = false;
-          let isArray = false;
-          // extract inner types:
-          if (innerType instanceof z.ZodOptional) {
-            isOptional = true;
-            innerType = innerType.unwrap();
-          }
-          if (innerType instanceof z.ZodArray) {
-            isArray = true;
-            innerType = innerType.element;
-          }
-          // convert boolean to union of literals true and false so we can parse it as a string
-          if (innerType instanceof z.ZodBoolean) {
-            innerType = z
-              .union([z.literal("true"), z.literal("false")])
-              .transform((arg) => arg === "true");
-          }
-          // re-build rules:
-          let arrayCompatibleRule = innerType;
-          arrayCompatibleRule = z.array(innerType); // we always want to parse an array because we group the query params by into an array
-          if (isOptional) {
-            arrayCompatibleRule = arrayCompatibleRule.optional();
-          }
-          if (!isArray) {
-            arrayCompatibleRule = arrayCompatibleRule.transform(
-              (arg) => arg && arg[0],
-            );
-          }
-          queryRules[key] = arrayCompatibleRule;
-        }
+        const queryRules = reqDefinition.query;
         const queryRes = z.object(queryRules).safeParse(actualQueryParams);
         if (!queryRes.success) {
           return zodErrorResult(
