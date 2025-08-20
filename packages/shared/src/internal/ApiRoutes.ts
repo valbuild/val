@@ -113,12 +113,23 @@ type CookieValue =
       };
     };
 
+const onlyOneStringQueryParam = z
+  .array(z.string())
+  .max(1, "At most one query param is allowed")
+  .transform((arg) => arg[0]);
+const onlyOneBooleanQueryParam = onlyOneStringQueryParam
+  .refine(
+    (arg) => arg === "true" || arg === "false",
+    "Value must be true or false",
+  )
+  .transform((arg) => arg === "true");
+
 export const Api = {
   "/draft/enable": {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -144,7 +155,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -187,7 +198,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -231,7 +242,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -262,7 +273,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
       },
       res: z.union([
@@ -294,8 +305,8 @@ export const Api = {
     GET: {
       req: {
         query: {
-          code: z.string().optional(),
-          state: z.string().optional(),
+          code: onlyOneStringQueryParam.optional(),
+          state: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_STATE_COOKIE]: z.string() },
       },
@@ -384,7 +395,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirect_to: z.string().optional(),
+          redirect_to: onlyOneStringQueryParam.optional(),
         },
       }, // TODO fix req types
       res: z.union([
@@ -634,7 +645,7 @@ export const Api = {
     DELETE: {
       req: {
         query: {
-          id: z.array(PatchId),
+          id: z.array(PatchId).min(1, "At least one patch id is required"),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -708,7 +719,7 @@ export const Api = {
       req: {
         query: {
           patch_id: z.array(PatchId).optional(),
-          exclude_patch_ops: z.boolean().optional(),
+          exclude_patch_ops: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -789,8 +800,8 @@ export const Api = {
       req: {
         path: z.string().optional(),
         query: {
-          validate_sources: z.boolean().optional(),
-          validate_binary_files: z.boolean().optional(),
+          validate_sources: onlyOneBooleanQueryParam.optional(),
+          validate_binary_files: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -966,8 +977,12 @@ export const Api = {
       req: {
         path: z.string(),
         query: {
-          patch_id: PatchId.optional(),
-          remote: z.string().optional(),
+          patch_id: z
+            .array(PatchId)
+            .max(1, "At most one patch id is allowed")
+            .transform((arg) => arg[0])
+            .optional(),
+          remote: onlyOneStringQueryParam.optional(),
         },
       },
       res: z.union([
@@ -1016,7 +1031,10 @@ export type ApiEndpoint = {
   req: {
     path?: z.ZodString | z.ZodOptional<z.ZodString>;
     body?: z.ZodTypeAny;
-    query?: Record<string, z.ZodSchema<ValidQueryParamTypes>>;
+    query?: Record<
+      string,
+      z.ZodSchema<ValidQueryParamTypes, z.ZodTypeDef, string[] | undefined>
+    >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
   };
   res: z.ZodSchema<
