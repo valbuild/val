@@ -91,7 +91,12 @@ export function getValRouteUrlFromVal(
   const parsedPattern = parseRoutePattern(pattern);
   const missingPatterns: RoutePattern[] = [];
   const fullPathParts: string[] = [];
-  const missingParamKeys = resolvedParams ? { ...resolvedParams } : {};
+  const missingParamKeys =
+    typeof resolvedParams === "object" &&
+    resolvedParams !== null &&
+    !Array.isArray(resolvedParams)
+      ? { ...resolvedParams }
+      : {};
   for (const part of parsedPattern ?? []) {
     if (part.type === "literal") {
       fullPathParts.push(part.name);
