@@ -27,6 +27,16 @@ function App() {
         <link
           rel="stylesheet"
           href={`${host}/static${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`}
+          onLoad={() => {
+            // send an event that css is loaded:
+            window.dispatchEvent(
+              new CustomEvent("val-css-loaded", {
+                detail: {
+                  type: "val-css-loaded",
+                },
+              }),
+            );
+          }}
         />
         <ErrorBoundary fallbackRender={fallbackRender}>
           <ValStudio client={client} config={config} />

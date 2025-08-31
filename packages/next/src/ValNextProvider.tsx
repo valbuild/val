@@ -18,21 +18,8 @@ import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
 import { useRemoteConfigSender } from "./useRemoteConfigSender";
+import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 
-const valPrefixedClass =
-  "val-prefix-" +
-  Internal.getSHA256Hash(new TextEncoder().encode(UIVersion || "")).slice(
-    0,
-    8,
-  ) +
-  "-";
-const prefixStyles = (styles: Record<string, string>) => {
-  return Object.entries(styles)
-    .map(([key, value]) => {
-      return `.${valPrefixedClass}${key.replace(/\//g, "\\/")} { ${value} }`;
-    })
-    .join("\n");
-};
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
@@ -358,7 +345,7 @@ ${prefixStyles(commonStyles)}
           </div>
         </React.Fragment>
       )}
-      {mountOverlay && draftMode !== null && (
+      {mountOverlay && (
         <React.Fragment>
           <Script
             type="module"
@@ -377,14 +364,15 @@ ${prefixStyles(commonStyles)}
        * In Next.js applications, the draft mode must be switched on the API side.
        * We load the App.tsx with a query parameter, that tells us whether or not it is in draft mode.
        */}
-      {iframeSrc && draftMode !== null && mountOverlay && (
+      {mountOverlay && iframeSrc && (
         <iframe
+          loading="eager"
           style={{
-            top: 0,
-            left: 0,
+            top: 10,
+            left: 10,
             position: "absolute",
-            width: 0,
-            height: 0,
+            width: 1000,
+            height: 1000,
           }}
           src={iframeSrc}
           key={iframeSrc}
@@ -440,8 +428,6 @@ const positionStyles = prefixStyles({
   "right-0": "right: 0;",
   "bottom-0": "bottom: 0;",
 });
-const cn = (className: string[]) =>
-  className.map((c) => `${valPrefixedClass}${c}`).join(" ");
 
 // This is a copy of the function from the ValMenu component.
 function getPositionClassName(dropZone: string | null) {

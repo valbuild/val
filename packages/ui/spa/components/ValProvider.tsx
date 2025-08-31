@@ -135,7 +135,6 @@ export function ValProvider({
   );
   const config =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
-  const configError = "error" in stat ? stat.error : undefined;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -159,36 +158,23 @@ export function ValProvider({
     }
   }, [serviceUnavailable, showServiceUnavailable]);
 
-  const [theme, setTheme] = useState<Themes | null>(null);
+  const [theme, setTheme] = useState<Themes | null>(
+    config?.defaultTheme || null,
+  );
   useEffect(() => {
-    try {
-      const storedTheme = localStorage.getItem(
-        "val-theme-" + (config?.project || "unknown"),
-      );
-      if (storedTheme) {
-        if (storedTheme === "light" || storedTheme === "dark") {
-          setTheme(storedTheme);
-        } else {
-          throw new Error(`Invalid Val theme: ${storedTheme}`);
-        }
-      } else if (configError) {
-        setTheme("dark");
-      }
-    } catch (e) {
-      console.error("Error getting theme from local storage", e);
-    }
-  }, [config, configError]);
-  useEffect(() => {
-    if (config?.defaultTheme && theme === null) {
+    const storedProjectTheme = localStorage.getItem(
+      "val-theme-" + (config?.project || "unknown"),
+    );
+    if (storedProjectTheme === "light" || storedProjectTheme === "dark") {
+      setTheme(storedProjectTheme);
+    } else if (config?.defaultTheme) {
       if (config?.defaultTheme === "dark" || config?.defaultTheme === "light") {
         setTheme(config.defaultTheme);
       } else {
         console.warn(`Invalid config default theme: ${config.defaultTheme}`);
       }
-    } else if (config !== undefined && theme === null) {
-      setTheme("dark");
     }
-  }, [theme, config]);
+  }, [config]);
 
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
