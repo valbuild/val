@@ -4,7 +4,7 @@ import { ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import Script from "next/script";
 import { useEffect, useState } from "react";
-import { useRemoteConfigSender } from "./useRemoteConfigSender";
+import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 
 // eslint-disable-next-line no-empty-pattern
@@ -12,7 +12,7 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
   const route = "/api/val"; // TODO: make configurable
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
-  useRemoteConfigSender(config);
+  useConfigStorageSave(config);
   useEffect(() => {
     if (location.search === "?message_onready=true") {
       setInMessageMode(true);

@@ -17,7 +17,7 @@ import React from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
-import { useRemoteConfigSender } from "./useRemoteConfigSender";
+import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 
 /**
@@ -289,7 +289,7 @@ export const ValNextProvider = (props: {
       setDropZone("val-menu-right-center");
     }
   }, []);
-  useRemoteConfigSender(props.config);
+  useConfigStorageSave(props.config);
   const [spaLoaded, setSpaLoaded] = React.useState(false);
 
   const commonStyles = React.useMemo(() => {
