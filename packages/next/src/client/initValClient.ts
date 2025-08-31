@@ -116,7 +116,7 @@ function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
     params === undefined ? undefined : resolveParams(params);
   // Careful: null means there was an error - undefined means no params
   if (resolvedParams === null) {
-    return null as UseValRouteReturnType<T>;
+    return null;
   }
   const route = getValRouteUrlFromVal(
     resolvedParams || {},
