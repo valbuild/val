@@ -56,7 +56,7 @@ export const ValNextProvider = (props: {
   const valStore = React.useMemo(() => new ValExternalStore(), []);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
-  const [spaReady, setSpaReady] = React.useState(false);
+  const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
   const [, startTransition] = React.useTransition();
   const rerenderCounterRef = React.useRef(0);
