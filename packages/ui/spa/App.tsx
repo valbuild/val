@@ -8,10 +8,10 @@ import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH, VERSION } from "../src";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
-import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
+import { useConfig } from "./hooks/useConfig";
 
 function App() {
-  const config = useRemoteConfigReceiver();
+  const config = useConfig();
   const host = "/api/val"; // TODO: make configurable
   const { client } = useMemo(() => {
     const client = createValClient(host, {

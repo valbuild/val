@@ -10,11 +10,11 @@ import { useEffect, useState } from "react";
 import { ValProvider } from "./components/ValProvider";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
-import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
+import { useConfig } from "./hooks/useConfig";
 import { VERSION } from "../src";
 
 function Overlay() {
-  const config = useRemoteConfigReceiver();
+  const config = useConfig();
   const host = "/api/val";
   const client = createValClient("/api/val", {
     ...config,
