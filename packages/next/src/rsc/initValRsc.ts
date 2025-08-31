@@ -19,7 +19,7 @@ import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
-import { initValRouteFromVal } from "../initValRouteFromVal";
+import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
 
 SET_RSC(true);
 const initFetchValStega =
@@ -216,6 +216,49 @@ const initFetchValRouteStega =
     return route;
   };
 
+const initFetchValRouteUrl =
+  (
+    config: ValConfig,
+    valApiEndpoints: string,
+    valServerPromise: Promise<ValServer>,
+    isEnabled: () => Promise<boolean>,
+    getHeaders: () => Promise<{
+      get(name: string): string | null;
+    }>,
+    getCookies: () => Promise<{
+      get(name: string): { name: string; value: string } | undefined;
+    }>,
+  ) =>
+  async <T extends ValModule<GenericSelector<SourceObject>>>(
+    selector: T,
+    params?:
+      | Promise<Record<string, string | string[]>>
+      | Record<string, string | string[]>
+      | unknown,
+  ): Promise<string | null> => {
+    const fetchVal = initFetchValStega(
+      config,
+      valApiEndpoints,
+      valServerPromise,
+      isEnabled,
+      getHeaders,
+      getCookies,
+    );
+    const resolvedParams =
+      params === undefined ? undefined : await Promise.resolve(params);
+    const path = selector && Internal.getValPath(selector);
+    const schema = selector && Internal.getSchema(selector);
+    const val = selector && (await fetchVal(selector));
+    const route = getValRouteUrlFromVal(
+      resolvedParams,
+      "fetchValRouteUrl",
+      path,
+      schema,
+      val,
+    );
+    return route;
+  };
+
 const valApiEndpoints = "/api/val";
 
 type ValNextRscConfig = {
@@ -232,6 +275,7 @@ export function initValRsc(
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
+  fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
 } {
   const coreVersion = Internal.VERSION.core;
   if (!coreVersion) {
@@ -281,6 +325,20 @@ export function initValRsc(
       },
     ),
     fetchValRouteStega: initFetchValRouteStega(
+      config,
+      valApiEndpoints,
+      valServerPromise,
+      async () => {
+        return (await rscNextConfig.draftMode()).isEnabled;
+      },
+      async () => {
+        return await rscNextConfig.headers();
+      },
+      async () => {
+        return await rscNextConfig.cookies();
+      },
+    ),
+    fetchValRouteUrl: initFetchValRouteUrl(
       config,
       valApiEndpoints,
       valServerPromise,
