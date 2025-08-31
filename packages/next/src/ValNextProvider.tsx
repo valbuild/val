@@ -40,7 +40,7 @@ export const ValNextProvider = (props: {
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
-  const [showOverlay, setShowOverlay] = React.useState<boolean>();
+  const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
   const [spaReady, setSpaReady] = React.useState(false);
   const router = useRouter();
@@ -48,23 +48,23 @@ export const ValNextProvider = (props: {
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
 
-  useConsoleLogEnableVal(showOverlay);
+  useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
       console.warn("Val is verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
-      setShowOverlay(false);
+      setMountOverlay(false);
       return;
     }
-    setShowOverlay(
+    setMountOverlay(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
   }, []);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     const interval = setInterval(() => {
@@ -80,10 +80,10 @@ export const ValNextProvider = (props: {
     return () => {
       clearInterval(interval);
     };
-  }, [showOverlay, props.disableRefresh]);
+  }, [mountOverlay, props.disableRefresh]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     if (draftMode === null) {
@@ -141,15 +141,15 @@ export const ValNextProvider = (props: {
         valProviderOverlayListener,
       );
     };
-  }, [showOverlay, draftMode]);
+  }, [mountOverlay, draftMode]);
 
   const pollDraftStatIdRef = React.useRef(0);
   React.useEffect(() => {
-    // continous polling to check for updates:
+    // continuous polling to check for updates:
 
     let timeout: NodeJS.Timeout;
     function pollCurrentDraftMode() {
-      if (!showOverlay) {
+      if (!mountOverlay) {
         return;
       }
 
@@ -205,10 +205,10 @@ export const ValNextProvider = (props: {
     return () => {
       clearTimeout(timeout);
     };
-  }, [showOverlay, iframeSrc]);
+  }, [mountOverlay, iframeSrc]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     window.dispatchEvent(
@@ -219,10 +219,10 @@ export const ValNextProvider = (props: {
         },
       }),
     );
-  }, [showOverlay, draftMode, spaReady]);
+  }, [mountOverlay, draftMode, spaReady]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
@@ -262,10 +262,10 @@ export const ValNextProvider = (props: {
         };
       }
     }
-  }, [showOverlay, draftMode, props.disableRefresh]);
+  }, [mountOverlay, draftMode, props.disableRefresh]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     const listener = (event: MessageEvent) => {
@@ -277,7 +277,7 @@ export const ValNextProvider = (props: {
     return () => {
       window.removeEventListener("message", listener);
     };
-  }, [showOverlay]);
+  }, [mountOverlay]);
 
   const [dropZone, setDropZone] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -289,12 +289,12 @@ export const ValNextProvider = (props: {
     }
   }, []);
   useRemoteConfigSender(props.config);
-  const isReady = showOverlay && draftMode !== null;
+  const [spaLoaded, setSpaLoaded] = React.useState(false);
 
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
-      {!isReady && dropZone && (
+      {dropZone !== null && !spaLoaded && (
         <React.Fragment>
           <style>
             {`
@@ -361,12 +361,15 @@ ${positionStyles}
           </div>
         </React.Fragment>
       )}
-      {isReady && (
+      {mountOverlay && draftMode !== null && (
         <React.Fragment>
           <Script
             type="module"
             src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
             crossOrigin="anonymous"
+            onLoad={() => {
+              setSpaLoaded(true);
+            }}
           />
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID}></div>
@@ -377,7 +380,7 @@ ${positionStyles}
        * In Next.js applications, the draft mode must be switched on the API side.
        * We load the App.tsx with a query parameter, that tells us whether or not it is in draft mode.
        */}
-      {iframeSrc && draftMode !== null && showOverlay && (
+      {iframeSrc && draftMode !== null && mountOverlay && (
         <iframe
           style={{
             top: 0,
