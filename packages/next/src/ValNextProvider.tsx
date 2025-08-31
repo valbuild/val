@@ -19,6 +19,20 @@ import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
 import { useRemoteConfigSender } from "./useRemoteConfigSender";
 
+const valPrefixedClass =
+  "val-prefix-" +
+  Internal.getSHA256Hash(new TextEncoder().encode(UIVersion || "")).slice(
+    0,
+    8,
+  ) +
+  "-";
+const prefixStyles = (styles: Record<string, string>) => {
+  return Object.entries(styles)
+    .map(([key, value]) => {
+      return `.${valPrefixedClass}${key.replace(/\//g, "\\/")} { ${value} }`;
+    })
+    .join("\n");
+};
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
@@ -291,60 +305,38 @@ export const ValNextProvider = (props: {
   useRemoteConfigSender(props.config);
   const [spaLoaded, setSpaLoaded] = React.useState(false);
 
+  const commonStyles = React.useMemo(() => {
+    return {
+      "backdrop-blur": "backdrop-filter: blur(10px);",
+      "text-white": "color: white;",
+      "bg-black": "background: black;",
+      rounded: "border-radius: 0.25rem;",
+      fixed: "position: fixed;",
+      "bottom-4": "bottom: 1rem;",
+      "right-12": "right: 3rem;",
+      "right-16": "right: 4rem;",
+      "p-4": "padding: 1rem;",
+      "p-2": "padding: 0.5rem;",
+      "p-1": "padding: 0.25rem;",
+      flex: "display: flex;",
+      "items-center": "align-items: center;",
+      "justify-center": "justify-content: center;",
+    };
+  }, [valPrefixedClass]);
+
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
-      {dropZone !== null && !spaLoaded && (
+      {dropZone !== null && !spaLoaded && mountOverlay && (
         <React.Fragment>
           <style>
             {`
 ${positionStyles}
-.backdrop-blur {
-  backdrop-filter: blur(10px);
+${prefixStyles(commonStyles)}
+.${valPrefixedClass}animate-spin {
+  animation: ${valPrefixedClass}spin 2s linear infinite;
 }
-.text-white {
-  color: white;
-}
-.bg-black {
-  background: black;
-}
-.rounded {
-  border-radius: 0.25rem;
-}
-.fixed {
-  position: fixed;
-}
-.bottom-4 {
-  bottom: 1rem;
-}
-.right-12 {
-  right: 3rem;
-}
-.right-16 {
-  right: 4rem;
-}
-.p-4 {
-  padding: 1rem;
-}
-.p-2 {
-  padding: 0.5rem;
-}
-.p-1 {
-  padding: 0.25rem;
-}
-.flex {
-  display: flex;
-}
-.items-center {
-  align-items: center;
-}
-.justify-center {
-  justify-content: center;
-}
-.animate-spin {
-  animation: spin 2s linear infinite;
-}
-@keyframes spin {
+@keyframes ${valPrefixedClass}spin {
   0% {
     transform: rotate(0deg);
   }
@@ -354,9 +346,14 @@ ${positionStyles}
 }`}
           </style>
           {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
-          <div className={getPositionClassName(dropZone) + " p-4"}>
-            <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
-              <Clock className="animate-spin" size={16} />
+          <div className={`${getPositionClassName(dropZone)} ${cn(["p-4"])}`}>
+            <div
+              className={
+                `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
+                `${cn(["text-white", "bg-black", "rounded", "backdrop-blur"])}`
+              }
+            >
+              <Clock className={`${cn(["animate-spin"])}`} size={16} />
             </div>
           </div>
         </React.Fragment>
@@ -433,52 +430,40 @@ You are seeing this message because you are in development mode.`,
   }, [showOverlay]);
 }
 
-const positionStyles = `
-.left-0 {
-  left: 0;
-}
-.top-0 {
-  top: 0;
-}
-.left-1\\/2 {
-  left: 50%;
-}
-.top-1\\/2 {
-  top: 50%;
-}
-.-translate-y-1\\/2 {
-  transform: translateY(-50%);
-}
-.-translate-x-1\\/2 {
-  transform: translateX(-50%);
-}
-.right-0 {
-  right: 0;
-}
-.bottom-0 {
-  bottom: 0;
-}`;
+const positionStyles = prefixStyles({
+  "left-0": "left: 0;",
+  "top-0": "top: 0;",
+  "left-1/2": "left: 50%;",
+  "top-1/2": "top: 50%;",
+  "-translate-y-1/2": "transform: translateY(-50%);",
+  "-translate-x-1/2": "transform: translateX(-50%);",
+  "right-0": "right: 0;",
+  "bottom-0": "bottom: 0;",
+});
+const cn = (className: string[]) =>
+  className.map((c) => `${valPrefixedClass}${c}`).join(" ");
+
 // This is a copy of the function from the ValMenu component.
 function getPositionClassName(dropZone: string | null) {
-  let className = "fixed transform";
+  let className = cn(["fixed", "transform"]);
   if (dropZone === "val-menu-left-top") {
-    className += " left-0 top-0";
+    className += ` ${cn(["left-0", "top-0"])}`;
   } else if (dropZone === "val-menu-left-center") {
-    className += " left-0 top-1/2 -translate-y-1/2";
+    className += ` ${cn(["left-0", "top-1/2", "-translate-y-1/2"])}`;
   } else if (dropZone === "val-menu-left-bottom") {
-    className += " left-0 bottom-0";
+    className += ` ${cn(["left-0", "bottom-0"])}`;
   } else if (dropZone === "val-menu-center-top") {
-    className += " left-1/2 -translate-x-1/2 top-0";
+    className += ` ${cn(["left-1/2", "-translate-x-1/2", "top-0"])}`;
   } else if (dropZone === "val-menu-center-bottom") {
-    className += " left-1/2 -translate-x-1/2 bottom-0";
+    className += ` ${cn(["left-1/2", "-translate-x-1/2", "bottom-0"])}`;
   } else if (dropZone === "val-menu-right-top") {
-    className += " right-0 top-0";
+    className += ` ${cn(["right-0", "top-0"])}`;
   } else if (dropZone === "val-menu-right-center") {
-    className += " right-0 top-1/2 -translate-y-1/2";
+    className += ` ${cn(["right-0", "top-1/2", "-translate-y-1/2"])}`;
   } else if (dropZone === "val-menu-right-bottom") {
-    className += " right-0 bottom-0";
+    className += ` ${cn(["right-0", "bottom-0"])}`;
   } else {
-    className += " right-0 bottom-0";
+    className += ` ${cn(["right-0", "bottom-0"])}`;
   }
   return className;
 }
