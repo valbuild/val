@@ -17,7 +17,8 @@ import React from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
-import { useRemoteConfigSender } from "./useRemoteConfigSender";
+import { useConfigStorageSave } from "./useConfigStorageSave";
+import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -40,31 +41,31 @@ export const ValNextProvider = (props: {
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
-  const [showOverlay, setShowOverlay] = React.useState<boolean>();
+  const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
-  const [spaReady, setSpaReady] = React.useState(false);
+  const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
   const [, startTransition] = React.useTransition();
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
 
-  useConsoleLogEnableVal(showOverlay);
+  useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
       console.warn("Val is verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
-      setShowOverlay(false);
+      setMountOverlay(false);
       return;
     }
-    setShowOverlay(
+    setMountOverlay(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
   }, []);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     const interval = setInterval(() => {
@@ -80,10 +81,10 @@ export const ValNextProvider = (props: {
     return () => {
       clearInterval(interval);
     };
-  }, [showOverlay, props.disableRefresh]);
+  }, [mountOverlay, props.disableRefresh]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     if (draftMode === null) {
@@ -141,15 +142,15 @@ export const ValNextProvider = (props: {
         valProviderOverlayListener,
       );
     };
-  }, [showOverlay, draftMode]);
+  }, [mountOverlay, draftMode]);
 
   const pollDraftStatIdRef = React.useRef(0);
   React.useEffect(() => {
-    // continous polling to check for updates:
+    // continuous polling to check for updates:
 
     let timeout: NodeJS.Timeout;
     function pollCurrentDraftMode() {
-      if (!showOverlay) {
+      if (!mountOverlay) {
         return;
       }
 
@@ -205,10 +206,10 @@ export const ValNextProvider = (props: {
     return () => {
       clearTimeout(timeout);
     };
-  }, [showOverlay, iframeSrc]);
+  }, [mountOverlay, iframeSrc]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     window.dispatchEvent(
@@ -219,10 +220,10 @@ export const ValNextProvider = (props: {
         },
       }),
     );
-  }, [showOverlay, draftMode, spaReady]);
+  }, [mountOverlay, draftMode, spaReady]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
@@ -262,10 +263,10 @@ export const ValNextProvider = (props: {
         };
       }
     }
-  }, [showOverlay, draftMode, props.disableRefresh]);
+  }, [mountOverlay, draftMode, props.disableRefresh]);
 
   React.useEffect(() => {
-    if (!showOverlay) {
+    if (!mountOverlay) {
       return;
     }
     const listener = (event: MessageEvent) => {
@@ -277,7 +278,7 @@ export const ValNextProvider = (props: {
     return () => {
       window.removeEventListener("message", listener);
     };
-  }, [showOverlay]);
+  }, [mountOverlay]);
 
   const [dropZone, setDropZone] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -288,62 +289,41 @@ export const ValNextProvider = (props: {
       setDropZone("val-menu-right-center");
     }
   }, []);
-  useRemoteConfigSender(props.config);
+  useConfigStorageSave(props.config);
+  const [spaLoaded, setSpaLoaded] = React.useState(false);
+
+  const commonStyles = React.useMemo(() => {
+    return {
+      "backdrop-blur": "backdrop-filter: blur(10px);",
+      "text-white": "color: white;",
+      "bg-black": "background: black;",
+      rounded: "border-radius: 0.25rem;",
+      fixed: "position: fixed;",
+      "bottom-4": "bottom: 1rem;",
+      "right-12": "right: 3rem;",
+      "right-16": "right: 4rem;",
+      "p-4": "padding: 1rem;",
+      "p-2": "padding: 0.5rem;",
+      "p-1": "padding: 0.25rem;",
+      flex: "display: flex;",
+      "items-center": "align-items: center;",
+      "justify-center": "justify-content: center;",
+    };
+  }, [valPrefixedClass]);
 
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
-      {!spaReady && showOverlay && dropZone && (
+      {dropZone !== null && !spaLoaded && mountOverlay && (
         <React.Fragment>
           <style>
             {`
 ${positionStyles}
-.backdrop-blur {
-  backdrop-filter: blur(10px);
+${prefixStyles(commonStyles)}
+.${valPrefixedClass}animate-spin {
+  animation: ${valPrefixedClass}spin 2s linear infinite;
 }
-.text-white {
-  color: white;
-}
-.bg-black {
-  background: black;
-}
-.rounded {
-  border-radius: 0.25rem;
-}
-.fixed {
-  position: fixed;
-}
-.bottom-4 {
-  bottom: 1rem;
-}
-.right-12 {
-  right: 3rem;
-}
-.right-16 {
-  right: 4rem;
-}
-.p-4 {
-  padding: 1rem;
-}
-.p-2 {
-  padding: 0.5rem;
-}
-.p-1 {
-  padding: 0.25rem;
-}
-.flex {
-  display: flex;
-}
-.items-center {
-  align-items: center;
-}
-.justify-center {
-  justify-content: center;
-}
-.animate-spin {
-  animation: spin 2s linear infinite;
-}
-@keyframes spin {
+@keyframes ${valPrefixedClass}spin {
   0% {
     transform: rotate(0deg);
   }
@@ -353,19 +333,27 @@ ${positionStyles}
 }`}
           </style>
           {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
-          <div className={getPositionClassName(dropZone) + " p-4"}>
-            <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
-              <Clock className="animate-spin" size={16} />
+          <div className={`${getPositionClassName(dropZone)} ${cn(["p-4"])}`}>
+            <div
+              className={
+                `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
+                `${cn(["text-white", "bg-black", "rounded", "backdrop-blur"])}`
+              }
+            >
+              <Clock className={`${cn(["animate-spin"])}`} size={16} />
             </div>
           </div>
         </React.Fragment>
       )}
-      {showOverlay && draftMode !== undefined && (
+      {mountOverlay && (
         <React.Fragment>
           <Script
             type="module"
             src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
             crossOrigin="anonymous"
+            onLoad={() => {
+              setSpaLoaded(true);
+            }}
           />
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID}></div>
@@ -376,14 +364,15 @@ ${positionStyles}
        * In Next.js applications, the draft mode must be switched on the API side.
        * We load the App.tsx with a query parameter, that tells us whether or not it is in draft mode.
        */}
-      {iframeSrc && draftMode !== null && showOverlay && (
+      {mountOverlay && iframeSrc && (
         <iframe
+          loading="eager"
           style={{
-            top: 0,
-            left: 0,
+            top: 10,
+            left: 10,
             position: "absolute",
-            width: 0,
-            height: 0,
+            width: 1000,
+            height: 1000,
           }}
           src={iframeSrc}
           key={iframeSrc}
@@ -429,52 +418,38 @@ You are seeing this message because you are in development mode.`,
   }, [showOverlay]);
 }
 
-const positionStyles = `
-.left-0 {
-  left: 0;
-}
-.top-0 {
-  top: 0;
-}
-.left-1\\/2 {
-  left: 50%;
-}
-.top-1\\/2 {
-  top: 50%;
-}
-.-translate-y-1\\/2 {
-  transform: translateY(-50%);
-}
-.-translate-x-1\\/2 {
-  transform: translateX(-50%);
-}
-.right-0 {
-  right: 0;
-}
-.bottom-0 {
-  bottom: 0;
-}`;
+const positionStyles = prefixStyles({
+  "left-0": "left: 0;",
+  "top-0": "top: 0;",
+  "left-1/2": "left: 50%;",
+  "top-1/2": "top: 50%;",
+  "-translate-y-1/2": "transform: translateY(-50%);",
+  "-translate-x-1/2": "transform: translateX(-50%);",
+  "right-0": "right: 0;",
+  "bottom-0": "bottom: 0;",
+});
+
 // This is a copy of the function from the ValMenu component.
 function getPositionClassName(dropZone: string | null) {
-  let className = "fixed transform";
+  let className = cn(["fixed", "transform"]);
   if (dropZone === "val-menu-left-top") {
-    className += " left-0 top-0";
+    className += ` ${cn(["left-0", "top-0"])}`;
   } else if (dropZone === "val-menu-left-center") {
-    className += " left-0 top-1/2 -translate-y-1/2";
+    className += ` ${cn(["left-0", "top-1/2", "-translate-y-1/2"])}`;
   } else if (dropZone === "val-menu-left-bottom") {
-    className += " left-0 bottom-0";
+    className += ` ${cn(["left-0", "bottom-0"])}`;
   } else if (dropZone === "val-menu-center-top") {
-    className += " left-1/2 -translate-x-1/2 top-0";
+    className += ` ${cn(["left-1/2", "-translate-x-1/2", "top-0"])}`;
   } else if (dropZone === "val-menu-center-bottom") {
-    className += " left-1/2 -translate-x-1/2 bottom-0";
+    className += ` ${cn(["left-1/2", "-translate-x-1/2", "bottom-0"])}`;
   } else if (dropZone === "val-menu-right-top") {
-    className += " right-0 top-0";
+    className += ` ${cn(["right-0", "top-0"])}`;
   } else if (dropZone === "val-menu-right-center") {
-    className += " right-0 top-1/2 -translate-y-1/2";
+    className += ` ${cn(["right-0", "top-1/2", "-translate-y-1/2"])}`;
   } else if (dropZone === "val-menu-right-bottom") {
-    className += " right-0 bottom-0";
+    className += ` ${cn(["right-0", "bottom-0"])}`;
   } else {
-    className += " right-0 bottom-0";
+    className += ` ${cn(["right-0", "bottom-0"])}`;
   }
   return className;
 }
