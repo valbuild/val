@@ -289,11 +289,12 @@ export const ValNextProvider = (props: {
     }
   }, []);
   useRemoteConfigSender(props.config);
+  const isReady = showOverlay && draftMode !== null;
 
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
-      {!spaReady && showOverlay && dropZone && (
+      {!isReady && dropZone && (
         <React.Fragment>
           <style>
             {`
@@ -360,7 +361,7 @@ ${positionStyles}
           </div>
         </React.Fragment>
       )}
-      {showOverlay && draftMode !== undefined && (
+      {isReady && (
         <React.Fragment>
           <Script
             type="module"
