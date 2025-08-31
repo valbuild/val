@@ -6,7 +6,7 @@ import {
   RoutePattern,
 } from "@valbuild/shared/internal";
 
-export function initValRouteFromVal(
+export function getValRouteUrlFromVal(
   resolvedParams: Record<string, string | string[]> | unknown,
   methodName: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -91,7 +91,12 @@ export function initValRouteFromVal(
   const parsedPattern = parseRoutePattern(pattern);
   const missingPatterns: RoutePattern[] = [];
   const fullPathParts: string[] = [];
-  const missingParamKeys = { ...resolvedParams };
+  const missingParamKeys =
+    typeof resolvedParams === "object" &&
+    resolvedParams !== null &&
+    !Array.isArray(resolvedParams)
+      ? { ...resolvedParams }
+      : {};
   for (const part of parsedPattern ?? []) {
     if (part.type === "literal") {
       fullPathParts.push(part.name);
@@ -156,7 +161,30 @@ export function initValRouteFromVal(
     // though chances are that there's something wrong in the way ${methodName} is used
   }
   const fullPath = fullPathParts.join("/");
-  const actualRoute = val[`/${fullPath}`];
+  return `/${fullPath}`;
+}
+
+export function initValRouteFromVal(
+  resolvedParams: Record<string, string | string[]> | unknown,
+  methodName: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  path: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  schema: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  val: any,
+) {
+  const url = getValRouteUrlFromVal(
+    resolvedParams,
+    methodName,
+    path,
+    schema,
+    val,
+  );
+  if (!url) {
+    return null;
+  }
+  const actualRoute = val[url];
   if (!actualRoute) {
     return null;
   }

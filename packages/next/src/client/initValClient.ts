@@ -16,7 +16,7 @@ import {
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
-import { initValRouteFromVal } from "../initValRouteFromVal";
+import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
 
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
@@ -57,13 +57,14 @@ type UseValRouteReturnType<T extends ValModule<GenericSelector<SourceObject>>> =
       : never
     : never;
 
-function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
-  selector: T,
+function resolveParams(
   params:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
-): UseValRouteReturnType<T> {
-  const val = useValStega(selector);
+) {
+  if (!params) {
+    return null;
+  }
   let resolvedParams: Record<string, string | string[]> | undefined =
     "then" in params ? undefined : params;
   if ("then" in params) {
@@ -76,8 +77,23 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
       console.error(
         `Val: useValRoute params argument was promise, but the React.use hook is unavailable. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
       );
-      return null as UseValRouteReturnType<T>;
+      return null;
     }
+  }
+  return resolvedParams;
+}
+
+function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
+  selector: T,
+  params:
+    | Record<string, string | string[]>
+    | Promise<Record<string, string | string[]>>,
+): UseValRouteReturnType<T> {
+  const val = useValStega(selector);
+  const resolvedParams = resolveParams(params);
+  // Careful: null means there was an error - undefined means no params
+  if (resolvedParams === null) {
+    return null as UseValRouteReturnType<T>;
   }
   const route = initValRouteFromVal(
     resolvedParams || {},
@@ -89,13 +105,38 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
   return route;
 }
 
+function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
+  selector: T,
+  params?:
+    | Record<string, string | string[]>
+    | Promise<Record<string, string | string[]>>,
+): string | null {
+  const val = useValStega(selector);
+  const resolvedParams =
+    params === undefined ? undefined : resolveParams(params);
+  // Careful: null means there was an error - undefined means no params
+  if (resolvedParams === null) {
+    return null;
+  }
+  const route = getValRouteUrlFromVal(
+    resolvedParams || {},
+    "useValRouteUrl",
+    selector && Internal.getValPath(selector),
+    selector && Internal.getSchema(selector),
+    val,
+  );
+  return route;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValClient(config: ValConfig): {
   useValStega: typeof useValStega;
   useValRouteStega: typeof useValRouteStega;
+  useValRouteUrl: typeof useValRouteUrl;
 } {
   return {
     useValStega,
     useValRouteStega,
+    useValRouteUrl,
   };
 }
