@@ -48,6 +48,7 @@ import {
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { ReifiedRender } from "@valbuild/core";
+import { VERSION as uiVersion } from "@valbuild/ui";
 
 export type ValServerOptions = {
   route: string;
@@ -364,8 +365,101 @@ export const ValServer = (
       json: { remoteFileAuth },
     };
   };
+  const serverVersion = ((): string | null => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      return require("../package.json").version;
+    } catch {
+      return null;
+    }
+  })();
 
   return {
+    "/admin/status": {
+      POST: async (req) => {
+        const timestamp = Date.now();
+        // We imagine it is safer to not return the status directly, but to write the status back to the build url with the status
+        if (req.body.apiKey !== options.apiKey || !req.body.code) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 5000 + Math.random() * 5000),
+          ); // make it harder to guess if the api key was wrong or the request code was wrong
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const getStatus = () => {
+          const versions = {
+            core: Internal.VERSION.core || "unknown",
+            ui: uiVersion,
+            server: serverVersion || "unknown",
+          };
+          if (options.mode === "fs") {
+            return {
+              versions,
+              mode: options.mode,
+              project: options.project,
+            };
+          }
+          return {
+            versions,
+            mode: options.mode,
+            project: options.project,
+            commit: options.commit,
+            branch: options.branch,
+            root: options.root,
+          };
+        };
+        const searchParams = new URLSearchParams();
+        searchParams.set("code", req.body.code);
+        const url = new URL(
+          `/api/val/status?${searchParams.toString()}`,
+          options.valBuildUrl,
+        );
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${req.body.apiKey}`,
+          },
+          body: JSON.stringify({
+            status: getStatus(),
+            timestamp,
+          }),
+        });
+        if (res.status === 401) {
+          try {
+            const resBody = await res.json();
+            await new Promise((resolve) =>
+              // Both here and if apiKey is wrong, we wait a bit to make it harder to guess if the api key was wrong or the request code was wrong
+              setTimeout(resolve, resBody.timestamp - timestamp),
+            );
+          } catch (err) {
+            console.error("Could not parse response body: ", err);
+          }
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        if (res.status !== 200) {
+          return {
+            status: 400,
+            json: {
+              status: res.status,
+              statusText: res.statusText,
+            },
+          };
+        }
+        return {
+          status: 200,
+        };
+      },
+    },
     "/draft/enable": {
       GET: async (req) => {
         const cookies = req.cookies;
