@@ -125,6 +125,30 @@ const onlyOneBooleanQueryParam = onlyOneStringQueryParam
   .transform((arg) => arg === "true");
 
 export const Api = {
+  "/admin/status": {
+    POST: {
+      req: {
+        body: z.object({
+          apiKey: z.string(),
+          code: z.string(),
+        }),
+        cookies: {},
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            status: z.number(),
+            statusText: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/draft/enable": {
     GET: {
       req: {
