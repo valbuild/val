@@ -377,12 +377,14 @@ export const ValServer = (
   return {
     "/admin/status": {
       POST: async (req) => {
-        const timestamp = Date.now();
+        // This endpoint is the only that uses only the API key to authenticate.
+        // The reason is that it is called by the admin app to get the status of the current build and the admin app only has the api key
+        // The status information is not very sensitive, but the api key is so we're taking extra precautions to protect against brute force attacks and timing attacks...
+        const authTimeout = 7500; // constant timeout for 401s to make it harder to guess if the api key was wrong or the request code was wrong
+        const start = Date.now();
         // We imagine it is safer to not return the status directly, but to write the status back to the build url with the status
         if (req.body.apiKey !== options.apiKey || !req.body.code) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, 5000 + Math.random() * 5000),
-          ); // make it harder to guess if the api key was wrong or the request code was wrong
+          await new Promise((resolve) => setTimeout(resolve, authTimeout)); // make it harder to guess if the api key was wrong or the request code was wrong
           return {
             status: 401,
             json: {
@@ -418,27 +420,43 @@ export const ValServer = (
           `/api/val/status?${searchParams.toString()}`,
           options.valBuildUrl,
         );
+        type Versions = {
+          core: string;
+          ui: string;
+          server: string;
+        };
+        const statusData = getStatus();
+        const body:
+          | {
+              versions: Versions;
+              mode: "fs";
+              project: string | undefined;
+              timestamp: number;
+            }
+          | {
+              mode: "http";
+              versions: Versions;
+              root: string | undefined;
+              project: string | undefined;
+              commit: string | undefined;
+              branch: string | undefined;
+              timestamp: number;
+            } = {
+          ...statusData,
+          timestamp: start,
+        };
         const res = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${req.body.apiKey}`,
           },
-          body: JSON.stringify({
-            status: getStatus(),
-            timestamp,
-          }),
+          body: JSON.stringify(body),
         });
         if (res.status === 401) {
-          try {
-            const resBody = await res.json();
-            await new Promise((resolve) =>
-              // Both here and if apiKey is wrong, we wait a bit to make it harder to guess if the api key was wrong or the request code was wrong
-              setTimeout(resolve, resBody.timestamp - timestamp),
-            );
-          } catch (err) {
-            console.error("Could not parse response body: ", err);
-          }
+          const timestamp = Date.now();
+          const delay = Math.max(0, authTimeout - (start - timestamp));
+          await new Promise((resolve) => setTimeout(resolve, delay));
           return {
             status: 401,
             json: {
@@ -457,6 +475,9 @@ export const ValServer = (
         }
         return {
           status: 200,
+          json: {
+            ...statusData,
+          },
         };
       },
     },
