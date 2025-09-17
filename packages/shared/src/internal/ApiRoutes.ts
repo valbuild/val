@@ -154,8 +154,25 @@ export const Api = {
         z.object({
           status: z.literal(400),
           json: z.object({
-            status: z.number(),
-            statusText: z.string(),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(502),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(503),
+          json: z.object({
+            message: z.string(),
           }),
         }),
       ]),

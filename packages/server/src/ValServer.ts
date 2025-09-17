@@ -380,6 +380,17 @@ export const ValServer = (
         // This endpoint is the only that uses only the API key to authenticate.
         // The reason is that it is called by the admin app to get the status of the current build and the admin app only has the api key
         // The status information is not very sensitive but we figured it is might be used for reconnaissance, so we're taking extra precautions to protect against brute force attacks and timing attacks...
+
+        // Input validation
+        if (
+          !req.body?.apiKey ||
+          !req.body?.code ||
+          typeof req.body.apiKey !== "string" ||
+          typeof req.body.code !== "string"
+        ) {
+          return { status: 400, json: { message: "Invalid request" } };
+        }
+
         const getStatus = () => {
           const versions = {
             core: Internal.VERSION.core || "unknown",
@@ -403,14 +414,8 @@ export const ValServer = (
           };
         };
         // We do NOT check the api key prior to sending the request, because it would open us up to a timing attack
-        const searchParams = new URLSearchParams();
-        searchParams.set("request_code", req.body.code);
         const clientCode = crypto.randomUUID();
-        searchParams.set("client_code", clientCode);
-        const url = new URL(
-          `/api/val/status?${searchParams.toString()}`,
-          options.valBuildUrl,
-        );
+        const url = new URL(`/api/val/status`, options.valBuildUrl);
         type Versions = {
           core: string;
           ui: string;
@@ -423,6 +428,8 @@ export const ValServer = (
               mode: "fs";
               project: string | undefined;
               timestamp: number;
+              request_code: string;
+              client_code: string;
             }
           | {
               mode: "http";
@@ -432,23 +439,52 @@ export const ValServer = (
               commit: string | undefined;
               branch: string | undefined;
               timestamp: number;
+              request_code: string;
+              client_code: string;
             } = {
           ...statusData,
           timestamp: Date.now(),
+          request_code: req.body.code,
+          client_code: clientCode,
         };
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${req.body.apiKey}`,
-          },
-          body: JSON.stringify(body),
-        });
-        const resBody = await res.json();
-        // The response might include a delay to make it harder to brute force the api key
-        const delay = resBody.delay || 0;
+
+        // Network request with timeout and error handling
+        let res, resBody;
+        try {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+          res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${req.body.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          resBody = await res.json();
+        } catch (error) {
+          return {
+            status: 503,
+            json: { message: "Service temporarily unavailable" },
+          };
+        }
+
+        // Response validation
+        if (!resBody || typeof resBody !== "object") {
+          return {
+            status: 502,
+            json: { message: "Invalid response from service" },
+          };
+        }
+
+        // Bounded delay to prevent DDoS
+        const delay = Math.min(Math.max(resBody.delay || 0, 0), 10000); // Cap at 10 seconds
         await new Promise((resolve) => setTimeout(resolve, delay));
-        if (resBody.client_code !== clientCode) {
+
+        // Safe client code validation
+        if (!resBody.client_code || resBody.client_code !== clientCode) {
           return {
             status: 401,
             json: {
@@ -456,6 +492,7 @@ export const ValServer = (
             },
           };
         }
+
         if (res.status === 401) {
           return {
             status: 401,
@@ -464,12 +501,12 @@ export const ValServer = (
             },
           };
         }
+
         if (res.status !== 200) {
           return {
-            status: 400,
+            status: 500,
             json: {
-              status: res.status,
-              statusText: res.statusText,
+              message: "Internal server error",
             },
           };
         }
