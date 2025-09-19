@@ -416,7 +416,7 @@ function getRemoteFilesError(
     case "pat-error":
       return "Val is running in development mode. To upload remote files and images, you must either login (by running `npx -p @valbuild/cli val login`) or set the VAL_API_KEY env";
     case "project-not-configured":
-      return "Project is not configured. To upload remote files and images, the val.config must contain a project id that is obtained from https://app.val.build. Contact a developer to fix this issue.";
+      return "Project is not configured. To upload remote files and images, the val.config must contain a project id that is obtained from https://admin.val.build. Contact a developer to fix this issue.";
     case "unauthorized":
       return "Cannot upload remote files and images since you are unauthorized";
     case "unauthorized-personal-access-token-error":

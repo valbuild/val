@@ -48,7 +48,7 @@ type ValServerOverrides = Partial<{
    * "local" means that changes will be written to the local filesystem,
    * which is what you want when developing locally.
    *
-   * "proxy" means that changes will proxied to https://app.val.build
+   * "proxy" means that changes will proxied to https://admin.val.build
    * and eventually be committed in the Git repository.
    *
    * It will automatically be "proxy" if both VAL_API_KEY env var (or the apiKey property) and VAL_SECRET env var (or the valSecret property)
@@ -81,7 +81,7 @@ type ValServerOverrides = Partial<{
    *
    * Can also be overridden using the VAL_BUILD_URL env var.
    *
-   * @example "https://app.val.build"
+   * @example "https://admin.val.build"
    */
   valBuildUrl: string;
   /**
@@ -162,7 +162,7 @@ async function initHandlerOptions(
 
   const maybeValProject = opts.project || process.env.VAL_PROJECT;
   const valBuildUrl =
-    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
+    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
   const valContentUrl =
     opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
   if (isProxyMode) {
@@ -211,7 +211,9 @@ async function initHandlerOptions(
   } else {
     const cwd = process.cwd();
     const valBuildUrl =
-      opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
+      opts.valBuildUrl ||
+      process.env.VAL_BUILD_URL ||
+      "https://admin.val.build";
     return {
       mode: "fs",
       cwd,

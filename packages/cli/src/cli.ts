@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 
       
       Command: login
-      Description: login to app.val.build and generate a Personal Access Token
+      Description: login to admin.val.build and generate a Personal Access Token
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
