@@ -944,7 +944,7 @@ Val was successfully initialized!
   ${chalk.bgBlack
     .hex("#37cd99")
     .underline(
-      `https://app.val.build/orgs/new${
+      `https://admin.val.build/orgs/new${
         plan.gitRemote
           ? `?org=${encodeURIComponent(
               plan.gitRemote.owner,
