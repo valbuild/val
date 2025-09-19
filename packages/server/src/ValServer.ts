@@ -117,10 +117,7 @@ export const ValServer = (
     if (!options.valBuildUrl) {
       throw new Error("Val build url is not set");
     }
-    const url = new URL(
-      `/auth/~/${options.project}/authorize`,
-      options.valBuildUrl,
-    );
+    const url = new URL(`/authorize`, options.valBuildUrl);
     url.searchParams.set(
       "redirect_uri",
       encodeURIComponent(`${publicValApiRe}/callback`),
@@ -138,10 +135,7 @@ export const ValServer = (
     if (!options.valBuildUrl) {
       throw new Error("Val build url is not set");
     }
-    const url = new URL(
-      `/auth/~/${options.project}/authorize`,
-      options.valBuildUrl,
-    );
+    const url = new URL(`/authorize`, options.valBuildUrl);
     url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
   };
@@ -258,7 +252,7 @@ export const ValServer = (
     const token = crypto.randomUUID();
     const redirectUrl = new URL(redirectTo);
     const appAuthorizeUrl = getAuthorizeUrl(
-      `${redirectUrl.origin}/${options.route}`,
+      `${redirectUrl.origin}${options.route}`,
       token,
     );
     await callbacks.onEnable(true);
