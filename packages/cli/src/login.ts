@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { getPersonalAccessTokenPath } from "@valbuild/server";
 
-const host = process.env.VAL_BUILD_URL || "https://app.val.build";
+const host = process.env.VAL_BUILD_URL || "https://admin.val.build";
 
 export async function login(options: { root?: string }) {
   try {
