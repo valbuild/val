@@ -118,7 +118,7 @@ export const ValServer = (
       throw new Error("Val build url is not set");
     }
     const url = new URL(
-      `/auth/${options.project}/authorize`,
+      `/auth/~/${options.project}/authorize`,
       options.valBuildUrl,
     );
     url.searchParams.set(
@@ -139,7 +139,7 @@ export const ValServer = (
       throw new Error("Val build url is not set");
     }
     const url = new URL(
-      `/auth/${options.project}/authorize`,
+      `/auth/~/${options.project}/authorize`,
       options.valBuildUrl,
     );
     url.searchParams.set("error", encodeURIComponent(error));
@@ -161,10 +161,7 @@ export const ValServer = (
     if (!options.valBuildUrl) {
       throw new Error("Val build url is not set");
     }
-    const url = new URL(
-      `/api/val/${options.project}/auth/token`,
-      options.valBuildUrl,
-    );
+    const url = new URL(`/api/val/auth/token`, options.valBuildUrl);
     url.searchParams.set("code", encodeURIComponent(code));
     if (!options.apiKey) {
       return null;
