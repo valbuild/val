@@ -363,6 +363,73 @@ s.object({
 });
 ```
 
+#### Page router
+
+You can configure Val to track your page structure and display content as navigable web pages in the editor interface.
+
+For editors, this creates an intuitive page-based editing experience where they can navigate through your site structure and edit content directly within the context of each page.
+
+You can use the `.router` method on `record` to achieve this.
+
+When using the `.router` with the `nextAppRouter`, it will automatically generate routes based on your record keys and integrate seamlessly with Next.js App Router conventions.
+
+#### Example:
+
+```ts
+import { s, c, nextAppRouter } from "../val.config";
+
+const pageSchema = s.object({ title: s.string() });
+const pagesSchema = s.record(pageSchema).router(nextAppRouter);
+
+// NOTE: to use router(nextAppRouter) - the module must be a sibling of the page.tsx. In other words it must with page.val.ts or page.val.js
+export default c.define("/app/[slug]/page.val.ts", pageSchema, {
+  "/test-page": {
+    // This is the full pathname of the page - it must match the pattern of the Next JS route of the page.tsx you are consuming this from
+    title: "Test page",
+  },
+});
+```
+
+To consume a page route from a NextJS "page component", it is recommended you use `fetchValRoute` or `useValRoute`.
+
+NOTE: to be refactor proof (i.e. not break when changing the route), you should always provide the params of the NextJS page component.
+
+#### Example fetchValRoute
+
+```ts
+export default async function MyPage({ params }: { params:
+ Promise<{ slug: string }> // use params: Promise<unknown> if this page route has no params
+}) {
+  const page = await fetchValRoute(pageVal, params)
+  return <MyPageComponent {...page}>
+}
+```
+
+### Custom render
+
+You can customize how records are displayed in the Val editor interface by using the `.render` method on `record`. This allows you to control how individual record items appear in the editor's preview.
+
+The only currently supported layout is `list`, which provides a customizable list view for record previews.
+
+#### Example
+
+```ts
+const pagesSchema = s
+  .record(s.object({ title: s.string(), image: s.image() }))
+  .router(nextAppRouter)
+  .render({
+    layout: "list", // Use list layout for record preview
+    select({ key, val }) {
+      return {
+        // Capitalize the first letter of the key for display
+        title: key?.[0]?.toUpperCase() + key?.slice(1),
+        // Show the image from the record
+        image: val.image,
+      };
+    },
+  });
+```
+
 ## RichText
 
 <details>
@@ -705,4 +772,19 @@ const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
 const authors = useVal(otherVal); // s.record(s.object({ name: s.string() }))
 
 const nameOfAuthor = authors[articleVal.author].name;
+```
+
+# Custom validation
+
+All schema can use the `validate` method to show custom validation errors to editors.
+
+## Example
+
+```ts
+s.string().validate((val) => {
+  if (val.startsWith("something")) {
+    return "Cannot have something in this string";
+  }
+  return false; // no validation error
+});
 ```
