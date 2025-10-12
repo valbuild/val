@@ -22,9 +22,11 @@ export async function login(options: { root?: string }) {
       const text = await response.text();
       console.error(
         pc.red(
-          "Unexpected failure while trying to login (content type was not JSON). Server response:",
+          "Unexpected failure while trying to login (content type was not JSON). ",
         ),
-        text || "<empty>",
+        text
+          ? `Server response: ${text} (status: ${response.status})`
+          : `Status: ${response.status}`,
       );
       process.exit(1);
     }
@@ -61,7 +63,7 @@ export async function login(options: { root?: string }) {
 
 const MAX_DURATION = 5 * 60 * 1000; // 5 minutes
 async function pollForConfirmation(token: string): Promise<{
-  profile: { username: string };
+  profile: { email: string };
   pat: string;
 }> {
   const start = Date.now();
@@ -69,6 +71,7 @@ async function pollForConfirmation(token: string): Promise<{
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const response = await fetch(
       `${host}/api/login?token=${token}&consume=true`,
+      { method: "POST" },
     );
     if (response.status === 500) {
       console.error(pc.red("An error occurred on the server."));
@@ -78,7 +81,7 @@ async function pollForConfirmation(token: string): Promise<{
       const json = await response.json();
       if (json) {
         if (
-          typeof json.profile.username === "string" &&
+          typeof json.profile.email === "string" &&
           typeof json.pat === "string"
         ) {
           return json;
@@ -95,7 +98,7 @@ async function pollForConfirmation(token: string): Promise<{
 
 function saveToken(
   result: {
-    profile: { username: string };
+    profile: { email: string };
     pat: string;
   },
   filePath: string,
@@ -105,7 +108,7 @@ function saveToken(
   console.log(
     pc.green(
       `Token for ${pc.cyan(
-        result.profile.username,
+        result.profile.email,
       )} saved to ${pc.cyan(filePath)}`,
     ),
   );
