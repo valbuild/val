@@ -1,6 +1,6 @@
 <p align="center">
   <p align="center">
-    <a href="https://app.val.build">
+    <a href="https://admin.val.build">
 <svg width="100" height="100" viewBox="0 0 944 944" fill="none" xmlns="http://www.w3.org/2000/svg">
 <circle cx="472" cy="472" r="472" fill="#1D1C28"/>
 <g filter="url(#filter0_d_14_601)">
@@ -196,7 +196,7 @@ export default async function Home() {
 
 # Remote Mode
 
-Enable remote mode to allow editors to update content online (outside of local development) by creating a project at [app.val.build](https://app.val.build).
+Enable remote mode to allow editors to update content online (outside of local development) by creating a project at [admin.val.build](https://admin.val.build).
 
 **NOTE**: Your content remains yours. Hosting content from your repository does not require a subscription. However, to edit content online, a subscription is needed — unless your project is a public repository or qualifies for the free tier. Visit the [pricing page](https://val.build/pricing) for details.
 
@@ -204,11 +204,11 @@ Enable remote mode to allow editors to update content online (outside of local d
 
 ## Remote Mode Configuration
 
-Once your project is set up in [app.val.build](https://app.val.build), configure your application to use it by setting the following:
+Once your project is set up in [admin.val.build](https://admin.val.build), configure your application to use it by setting the following:
 
 ### Environment Variables
 
-- **`VAL_API_KEY`**: This is the API key used to authenticate server side API requests. You can find it under Settings in your project on [app.val.build](https://app.val.build).
+- **`VAL_API_KEY`**: This is the API key used to authenticate server side API requests. You can find it under Settings in your project on [admin.val.build](https://admin.val.build).
 - **`VAL_SECRET`**: In addition to the VAL_API_KEY, you need to generate a random secret to secure communication between the UX client and your Next.js application. You can use any random string for this, but if you have openssl installed you can run the following command: `openssl rand -hex 16`
 
 ### `val.config` Properties

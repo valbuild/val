@@ -107,6 +107,14 @@ ${chalk.cyan("Next steps:")}
   ${chalk.cyan("cd")} ${chalk.white(projectName)}
   ${chalk.cyan("npm run dev")}
 
+${chalk.bold("Optionally run:")}
+  ${chalk.cyan("npx -p @valbuild/cli val connect")}  
+${chalk.bold("to connect your project to Val Build")}
+
+${chalk.bold("Need help?")} Join our community on Discord: ${chalk.underline(
+    "https://discord.gg/cZzqPvaX8k",
+  )}
+
 ${chalk.green("Happy coding! 🚀")}
 `);
 
