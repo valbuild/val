@@ -939,18 +939,18 @@ Val was successfully initialized!
 
   ${chalk.bgBlack.hex("#37cd99").underline(`http://localhost:3000/val`)}
 
-  When you want to enable editor support, import the project by opening the following link:
+  When you want to enable editor support, connect the project by opening the following link:
   
   ${chalk.bgBlack
     .hex("#37cd99")
     .underline(
-      `https://admin.val.build/orgs/new${
+      `https://admin.val.build/connect${
         plan.gitRemote
-          ? `?org=${encodeURIComponent(
+          ? `?github_repo=${encodeURIComponent(
+              [plan.gitRemote.repo, plan.gitRemote.owner].join("/"),
+            )}&org=${encodeURIComponent(
               plan.gitRemote.owner,
-            )}&owner=${encodeURIComponent(
-              plan.gitRemote.owner,
-            )}&repo=${encodeURIComponent(plan.gitRemote.repo)}`
+            )}&project=${encodeURIComponent(plan.gitRemote.repo)}`
           : ""
       }`,
     )}
