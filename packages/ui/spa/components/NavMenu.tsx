@@ -115,8 +115,8 @@ export function NavMenu() {
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
   const profile = useCurrentProfile();
-  const orgUrl = `${appHostUrl}/orgs/${orgName}`;
-  const membersUrl = `${appHostUrl}/orgs/${orgName}/members`;
+  const orgUrl = `${appHostUrl}/~/${orgName}`;
+  const membersUrl = `${appHostUrl}/members/${orgName}`;
   const projectUrl = `${orgUrl}/projects/${projectName}`;
 
   return (
