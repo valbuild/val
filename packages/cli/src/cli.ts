@@ -1,8 +1,9 @@
 import meow from "meow";
 import { error } from "./logger";
 import { validate } from "./validate";
-import { files as files } from "./files";
+import { listUnusedFiles as listUnusedFiles } from "./listUnusedFiles";
 import { getVersions } from "./getVersions";
+import { connect } from "./connect";
 import chalk from "chalk";
 import { login } from "./login";
 
@@ -18,7 +19,8 @@ async function main(): Promise<void> {
       Commands:
         validate
         login
-        list-files
+        files
+        connect
         versions
       
       Command: validate
@@ -29,21 +31,21 @@ async function main(): Promise<void> {
 
       
       Command: login
-      Description: login to app.val.build and generate a Personal Access Token
+      Description: login to admin.val.build and generate a Personal Access Token
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
 
-      Command: files
-      Description: EXPERIMENTAL.
-        Perform file operations in Val.
-        By default it lists files (images, ...) currently in use by Val. 
+      Command: connect
+      Description: connect your local project to a Val Build project at admin.val.build
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
 
-        If a managed directory is specified, 
-        it will list all files in the managed directory that ARE NOT currently used by Val.
+      Command: list-unused-files
+      Description: EXPERIMENTAL.
+        List files that are in public/val but not in use by any Val module.
         This is useful for cleaning up unused files.
       Options:
-        --managedDir [dir]      If set, list files found in directory that are not managed by Val
         --root [root], -r [root] Set project root directory (default process.cwd())
     `,
     {
@@ -81,20 +83,28 @@ async function main(): Promise<void> {
 
   const [command] = input;
   switch (command) {
-    case "files":
+    case "list-unused-files":
       if (flags.fix || flags.noEslint) {
         return error(
-          `Command "files" does not support --fix or --noEslint flags`,
+          `Command "list-unused-files" does not support --fix or --noEslint flags`,
         );
       }
-      return files({
+      return listUnusedFiles({
         root: flags.root,
-        managedDir: flags.managedDir,
       });
     case "versions":
       return versions();
     case "login":
       return login({
+        root: flags.root,
+      });
+    case "connect":
+      if (flags.fix || flags.noEslint) {
+        return error(
+          `Command "connect" does not support --fix or --noEslint flags`,
+        );
+      }
+      return connect({
         root: flags.root,
       });
     case "validate":

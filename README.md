@@ -1,6 +1,6 @@
 <p align="center">
   <p align="center">
-    <a href="https://app.val.build">
+    <a href="https://val.build">
 <svg width="100" height="100" viewBox="0 0 944 944" fill="none" xmlns="http://www.w3.org/2000/svg">
 <circle cx="472" cy="472" r="472" fill="#1D1C28"/>
 <g filter="url(#filter0_d_14_601)">
