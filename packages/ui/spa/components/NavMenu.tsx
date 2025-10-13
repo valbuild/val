@@ -115,9 +115,9 @@ export function NavMenu() {
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
   const profile = useCurrentProfile();
+  const membersUrl = `${appHostUrl}/manage-members/${orgName}`;
   const orgUrl = `${appHostUrl}/~/${orgName}`;
-  const membersUrl = `${appHostUrl}/members/${orgName}`;
-  const projectUrl = `${orgUrl}/projects/${projectName}`;
+  const projectUrl = `${orgUrl}/${projectName}`;
 
   return (
     <nav className="relative min-h-[100svh] bg-bg-primary">
