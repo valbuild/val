@@ -18,7 +18,7 @@ async function main(): Promise<void> {
       Commands:
         validate
         login
-        list-files
+        files
         versions
       
       Command: validate
