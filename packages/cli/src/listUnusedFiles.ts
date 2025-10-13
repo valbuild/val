@@ -9,14 +9,8 @@ import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
 import path from "path";
 
-export async function files({
-  root,
-  managedDir,
-}: {
-  root?: string;
-  managedDir?: string;
-}) {
-  const printFilesUsedByVal = !managedDir;
+export async function listUnusedFiles({ root }: { root?: string }) {
+  const managedDir = "public/val";
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
   const service = await createService(projectRoot, {});
@@ -26,8 +20,8 @@ export async function files({
     cwd: projectRoot,
   });
 
-  const absoluteFilesPathUsedByVal: string[] = [];
-  async function printOrGetFileRefs(file: string) {
+  const filesUsedByVal: string[] = [];
+  async function pushFilesUsedByVal(file: string) {
     const moduleId = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
@@ -47,11 +41,7 @@ export async function files({
                 projectRoot,
                 ...value[FILE_REF_PROP].split("/"),
               );
-              if (printFilesUsedByVal) {
-                console.log(absoluteFilePathUsedByVal);
-              } else {
-                absoluteFilesPathUsedByVal.push(absoluteFilePathUsedByVal);
-              }
+              filesUsedByVal.push(absoluteFilePathUsedByVal);
             }
           }
         }
@@ -59,22 +49,18 @@ export async function files({
     }
   }
   for (const file of valFiles) {
-    await printOrGetFileRefs(file);
+    await pushFilesUsedByVal(file);
   }
 
-  if (managedDir) {
-    const managedRoot = path.isAbsolute(managedDir)
-      ? managedDir
-      : path.join(projectRoot, managedDir);
-    const allFilesInManagedDir = await glob("**/*", {
-      ignore: ["node_modules/**"],
-      cwd: managedRoot,
-    });
-    for (const file of allFilesInManagedDir) {
-      const absoluteFilePath = path.join(managedRoot, file);
-      if (!absoluteFilesPathUsedByVal.includes(absoluteFilePath)) {
-        console.log(path.join(managedRoot, file));
-      }
+  const managedRoot = path.join(projectRoot, managedDir);
+  const allFilesInManagedDir = await glob("**/*", {
+    ignore: ["node_modules/**"],
+    cwd: managedRoot,
+  });
+  for (const file of allFilesInManagedDir) {
+    const absoluteFilePath = path.join(managedRoot, file);
+    if (!filesUsedByVal.includes(absoluteFilePath)) {
+      console.log(path.join(managedRoot, file));
     }
   }
 
