@@ -2,7 +2,6 @@ import pc from "picocolors";
 import fs from "fs";
 import path from "path";
 import { evalValConfigFile } from "./utils/evalValConfigFile";
-import { exec } from "child_process";
 
 const host = process.env.VAL_BUILD_URL || "https://admin.val.build";
 
@@ -29,22 +28,11 @@ export async function connect(options: { root?: string }) {
   }
   const url = `${host}/connect?${params.toString()}`;
 
-  // Open url in default browser and show fallback instructions:
-  console.log(pc.cyan("\nStarting connect process in browser...\n"));
   console.log(
-    pc.dim(`\nIf the browser does not open, please visit:\n${url}\n`),
+    pc.dim(
+      `\nFollow the instructions in your browser to complete the setup:\n${pc.cyan(url)}\n`,
+    ),
   );
-
-  if (process.platform === "win32") {
-    // Windows
-    exec(`start ${url}`);
-  } else if (process.platform === "darwin") {
-    // macOS
-    exec(`open ${url}`);
-  } else {
-    // Linux and others
-    exec(`xdg-open ${url}`);
-  }
 }
 
 async function tryGetProject(projectRoot: string): Promise<{
