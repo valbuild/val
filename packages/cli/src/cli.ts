@@ -1,7 +1,7 @@
 import meow from "meow";
 import { error } from "./logger";
 import { validate } from "./validate";
-import { files as files } from "./files";
+import { listUnusedFiles as listUnusedFiles } from "./listUnusedFiles";
 import { getVersions } from "./getVersions";
 import { connect } from "./connect";
 import chalk from "chalk";
@@ -41,16 +41,11 @@ async function main(): Promise<void> {
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
-      Command: files
+      Command: list-unused-files
       Description: EXPERIMENTAL.
-        Perform file operations in Val.
-        By default it lists files (images, ...) currently in use by Val. 
-
-        If a managed directory is specified, 
-        it will list all files in the managed directory that ARE NOT currently used by Val.
+        List files that are in public/val but not in use by any Val module.
         This is useful for cleaning up unused files.
       Options:
-        --managedDir [dir]      If set, list files found in directory that are not managed by Val
         --root [root], -r [root] Set project root directory (default process.cwd())
     `,
     {
@@ -88,15 +83,14 @@ async function main(): Promise<void> {
 
   const [command] = input;
   switch (command) {
-    case "files":
+    case "list-unused-files":
       if (flags.fix || flags.noEslint) {
         return error(
-          `Command "files" does not support --fix or --noEslint flags`,
+          `Command "list-unused-files" does not support --fix or --noEslint flags`,
         );
       }
-      return files({
+      return listUnusedFiles({
         root: flags.root,
-        managedDir: flags.managedDir,
       });
     case "versions":
       return versions();
@@ -111,7 +105,7 @@ async function main(): Promise<void> {
         );
       }
       return connect({
-          root: flags.root,
+        root: flags.root,
       });
     case "validate":
     case "idate":
