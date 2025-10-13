@@ -16,6 +16,7 @@ export async function connect(options: { root?: string }) {
     maybeGitRemote !== null ? getGitHubOwnerAndRepo(maybeGitRemote) : null;
 
   const params = new URLSearchParams();
+  params.set("step", "create-project");
   if (maybeProject) {
     params.set("org", maybeProject.orgName);
     params.set("project", maybeProject.projectName);
