@@ -566,7 +566,9 @@ export const ValServer = (
                 value: null,
               },
             },
-            redirectTo: getAppErrorUrl("Failed to exchange code for user"),
+            redirectTo: getAppErrorUrl(
+              "Failed to exchange code for token - check that API Key and project are correct",
+            ),
           };
         }
         const exp = getExpire();
