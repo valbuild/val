@@ -3,6 +3,7 @@ import { error } from "./logger";
 import { validate } from "./validate";
 import { files as files } from "./files";
 import { getVersions } from "./getVersions";
+import { connect } from "./connect";
 import chalk from "chalk";
 import { login } from "./login";
 
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
         validate
         login
         files
+        connect
         versions
       
       Command: validate
@@ -33,6 +35,11 @@ async function main(): Promise<void> {
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
+
+      Command: connect
+      Description: connect your local project to a Val Build project at admin.val.build
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
 
       Command: files
       Description: EXPERIMENTAL.
@@ -96,6 +103,15 @@ async function main(): Promise<void> {
     case "login":
       return login({
         root: flags.root,
+      });
+    case "connect":
+      if (flags.fix || flags.noEslint) {
+        return error(
+          `Command "connect" does not support --fix or --noEslint flags`,
+        );
+      }
+      return connect({
+          root: flags.root,
       });
     case "validate":
     case "idate":
