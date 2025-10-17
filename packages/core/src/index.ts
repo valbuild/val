@@ -128,7 +128,7 @@ export {
   type ListArrayRender,
   type ReifiedRender,
 } from "./render";
-export type { ValRouter, RouteValidationError } from "./router";
+export type { ValRouter, NextAppRouter, RouteValidationError } from "./router";
 import { nextAppRouter } from "./router";
 
 export const FATAL_ERROR_TYPES = [

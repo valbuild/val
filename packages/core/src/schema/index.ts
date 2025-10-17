@@ -83,6 +83,7 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: Src,
   ): ValidationErrors;
+
   protected executeCustomValidateFunctions(
     src: Src,
     customValidateFunctions: CustomValidateFunction<Src>[],

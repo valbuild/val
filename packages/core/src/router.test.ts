@@ -1,4 +1,8 @@
-import { parseNextJsRoutePattern } from "./router";
+import { NextAppRouterImpl, parseNextJsRoutePattern } from "./router";
+import { object } from "./schema/object";
+import { record } from "./schema/record";
+import { string } from "./schema/string";
+import { ModuleFilePath } from "./val";
 
 describe("parseNextJsRoutePattern", () => {
   describe("App Router patterns", () => {
@@ -153,6 +157,25 @@ describe("parseNextJsRoutePattern", () => {
           "/app/(..)(dashboard)/docs/[...slug]/page.val.ts",
         ),
       ).toEqual(["docs", "[...slug]"]);
+    });
+  });
+
+  describe("Localization", () => {
+    const router = new NextAppRouterImpl(
+      record(object({ title: string() })),
+    ).localize({
+      type: "directory",
+      segment: "locale",
+      translation: "translation",
+    });
+
+    test("validate", () => {
+      expect(
+        router.validate(
+          "/app/[locale]/blogs/[blog]/page.val.ts" as ModuleFilePath,
+          ["/en/blogs/test"],
+        ),
+      ).toEqual([]);
     });
   });
 });
