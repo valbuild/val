@@ -3,7 +3,7 @@
 import { ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import Script from "next/script";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 
@@ -13,6 +13,7 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
   useConfigStorageSave(config);
+  const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (location.search === "?message_onready=true") {
       setInMessageMode(true);
@@ -31,6 +32,11 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
       setInMessageMode(false);
     }
   }, []);
+  useEffect(() => {
+    if (container.current?.childElementCount === 0) {
+      window.dispatchEvent(new CustomEvent("val-append-studio"));
+    }
+  });
 
   // this theme is used to avoid flickering
   const [loadingTheme, setLoadingTheme] = useState<string | null>(
@@ -129,7 +135,7 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
         src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
         crossOrigin="anonymous"
       />
-      <div id={VAL_APP_ID}></div>
+      <div id={VAL_APP_ID} ref={container}></div>
     </>
   );
 };
