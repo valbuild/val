@@ -1,6 +1,5 @@
 import classNames from "classnames";
 import {
-  Clock,
   Ellipsis,
   Eye,
   EyeOff,
@@ -65,6 +64,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./designSystem/select";
+import { AnimatedClock } from "./AnimatedClock";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -715,7 +715,7 @@ function ValMenu({
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
           <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
-            <Clock className="animate-spin" size={16} />
+            <AnimatedClock size={16} />
           </div>
         </div>
       )}
@@ -768,7 +768,7 @@ function ValMenu({
             disabled={draftModeLoading}
             icon={
               draftModeLoading ? (
-                <Clock size={16} className="animate-spin" />
+                <AnimatedClock size={16} />
               ) : (
                 <EyeOff size={16} />
               )
@@ -946,11 +946,7 @@ function ValMenu({
             label="Enable preview mode"
             disabled={draftModeLoading}
             icon={
-              draftModeLoading ? (
-                <Clock size={16} className="animate-spin" />
-              ) : (
-                <Eye size={16} />
-              )
+              draftModeLoading ? <AnimatedClock size={16} /> : <Eye size={16} />
             }
             onClick={() => {
               setDraftMode(true);

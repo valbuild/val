@@ -334,17 +334,15 @@ export const ValNextProvider = (props: {
             {`
 ${positionStyles}
 ${prefixStyles(commonStyles)}
-.${valPrefixedClass}animate-spin {
-  animation: ${valPrefixedClass}spin 2s linear infinite;
-}
-@keyframes ${valPrefixedClass}spin {
+@keyframes rotate-clock {
   0% {
     transform: rotate(0deg);
   }
   100% {
     transform: rotate(360deg);
   }
-}`}
+}
+`}
           </style>
           {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
           <div className={`${getPositionClassName(dropZone)} ${cn(["p-4"])}`}>
@@ -354,7 +352,39 @@ ${prefixStyles(commonStyles)}
                 `${cn(["text-white", "bg-bg-primary", "rounded", "backdrop-blur"])}`
               }
             >
-              <Clock className={`${cn(["animate-spin"])}`} size={16} />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="11" />
+                <line
+                  x1="12"
+                  y1="4"
+                  x2="12"
+                  y2="12"
+                  style={{
+                    transformOrigin: "center",
+                    animation: "rotate-clock 1000ms linear infinite",
+                  }}
+                />
+                <line
+                  x1="12"
+                  y1="8"
+                  x2="12"
+                  y2="12"
+                  style={{
+                    transformOrigin: "center",
+                    animation: "rotate-clock 12000ms linear infinite",
+                  }}
+                />
+              </svg>
             </div>
           </div>
         </React.Fragment>
@@ -562,23 +592,3 @@ function isValStudioPath(pathname: string): boolean {
 //     </svg>
 //   );
 // }
-
-function Clock({ className, size }: { className?: string; size: number }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={"lucide lucide-clock " + className}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  );
-}
