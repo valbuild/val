@@ -16,6 +16,7 @@ if (valAppElem) {
     </React.StrictMode>,
   );
   valAppElem.appendChild(root);
+  window.dispatchEvent(new CustomEvent("val-ui-created"));
 } else if (valOverlayElem) {
   root = document.createElement("div");
   ReactDOM.createRoot(root).render(
@@ -24,6 +25,7 @@ if (valAppElem) {
     </React.StrictMode>,
   );
   valOverlayElem.appendChild(root);
+  window.dispatchEvent(new CustomEvent("val-ui-created"));
 } else {
   console.error("Val: could not mount Val element. Check your configuration.");
 }
@@ -46,6 +48,7 @@ function appendValRoot(elem) {
     return;
   }
   elem?.appendChild(root);
+  window.dispatchEvent(new CustomEvent("val-ui-created"));
 }
 
 window.addEventListener("val-append-studio", () => {
@@ -53,6 +56,5 @@ window.addEventListener("val-append-studio", () => {
 });
 
 window.addEventListener("val-append-overlay", () => {
-  console.log("Appending overlay");
   appendValRoot(document.getElementById(VAL_OVERLAY_ID));
 });
