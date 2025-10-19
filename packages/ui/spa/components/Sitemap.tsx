@@ -7,7 +7,6 @@ import {
   Trash2,
   Loader2,
   Link,
-  Compass,
   FileText,
   Folder,
 } from "lucide-react";
@@ -115,7 +114,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
   const isCurrentRoute = useMemo(() => {
-    return !!node.sourcePath?.startsWith(currentSourcePath);
+    return node.sourcePath === currentSourcePath;
   }, [currentSourcePath, node.sourcePath]);
   const routePatternWithParams = useMemo(() => {
     if (!node.pattern) {
@@ -163,22 +162,12 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 onClick={onClick}
                 className={cn("flex items-center gap-1", {})}
               >
-                {node.name === "/" ? (
-                  <Compass size={14} />
-                ) : node.type === "leaf" ||
-                  (node.type === "node" && node.page) ? (
+                {node.type === "leaf" || (node.type === "node" && node.page) ? (
                   <FileText size={14} />
                 ) : null}
-                <span>
-                  {/* <span className={cn({ underline: isCurrentRoute })}>/</span> */}
-                  {node.name === "/" && (
-                    <span className="ml-2 text-fg-primary-alt">Main page</span>
-                  )}
-                  {node.name !== "/" && (
-                    <span className={cn({ underline: isCurrentRoute })}>
-                      {node.name}
-                    </span>
-                  )}
+                <span className={cn({ underline: isCurrentRoute })}>
+                  {"/"}
+                  {node.name !== "/" && node.name}
                 </span>
               </button>
             ) : (
@@ -189,7 +178,10 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 <Folder size={14} />
                 <span>
                   {/* <span>/</span> */}
-                  <span>{node.name}</span>
+                  <span>
+                    {"/"}
+                    {node.name !== "/" && node.name}
+                  </span>
                 </span>
               </button>
             )}
