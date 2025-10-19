@@ -279,6 +279,12 @@ export const ValNextProvider = (props: {
       window.removeEventListener("message", listener);
     };
   }, [mountOverlay]);
+  const container = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (container.current?.childElementCount === 0) {
+      window.dispatchEvent(new CustomEvent("val-append-overlay"));
+    }
+  });
 
   const [dropZone, setDropZone] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -291,12 +297,20 @@ export const ValNextProvider = (props: {
   }, []);
   useConfigStorageSave(props.config);
   const [spaLoaded, setSpaLoaded] = React.useState(false);
-
+  React.useEffect(() => {
+    const listener = () => {
+      setSpaLoaded(true);
+    };
+    window.addEventListener("val-ui-created", listener);
+    return () => {
+      window.removeEventListener("val-ui-created", listener);
+    };
+  }, []);
   const commonStyles = React.useMemo(() => {
     return {
       "backdrop-blur": "backdrop-filter: blur(10px);",
       "text-white": "color: white;",
-      "bg-black": "background: black;",
+      "bg-bg-primary": "background: #0c111d;",
       rounded: "border-radius: 0.25rem;",
       fixed: "position: fixed;",
       "bottom-4": "bottom: 1rem;",
@@ -337,7 +351,7 @@ ${prefixStyles(commonStyles)}
             <div
               className={
                 `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
-                `${cn(["text-white", "bg-black", "rounded", "backdrop-blur"])}`
+                `${cn(["text-white", "bg-bg-primary", "rounded", "backdrop-blur"])}`
               }
             >
               <Clock className={`${cn(["animate-spin"])}`} size={16} />
@@ -351,12 +365,9 @@ ${prefixStyles(commonStyles)}
             type="module"
             src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
             crossOrigin="anonymous"
-            onLoad={() => {
-              setSpaLoaded(true);
-            }}
           />
           {/* TODO: use portal to mount overlay */}
-          <div id={VAL_OVERLAY_ID}></div>
+          <div id={VAL_OVERLAY_ID} ref={container}></div>
         </React.Fragment>
       )}
       {/**
