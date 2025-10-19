@@ -216,7 +216,7 @@ export const ValNextProvider = (props: {
       new CustomEvent("val-overlay-spa", {
         detail: {
           type: "draftMode",
-          value: draftMode,
+          value: draftMode ?? false,
         },
       }),
     );
