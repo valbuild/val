@@ -1,5 +1,5 @@
 import { s } from "../val.config";
-import blogsVal from "../app/blogs/[blog]/page.val";
+import blogsVal from "../app/[locale]/blog/[blog]/page.val";
 import genericPageVal from "../app/generic/[[...path]]/page.val";
 import { Schema } from "@valbuild/core";
 import pageVal from "../app/page.val";

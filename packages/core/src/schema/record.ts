@@ -21,12 +21,14 @@ import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
+import { validateLocale } from "../locale";
 
 export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
   opt: boolean;
   router?: string;
+  locale?: string | null;
   customValidate?: boolean;
 };
 
@@ -39,6 +41,7 @@ export class RecordSchema<
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly currentRouter: ValRouter | null = null,
+    private readonly currentLocale: string | null = null,
   ) {
     super();
   }
@@ -90,6 +93,13 @@ export class RecordSchema<
     const routerValidations = this.getRouterValidations(path, src);
     if (routerValidations) {
       return routerValidations;
+    }
+    if (this.currentLocale) {
+      const localeValidation = validateLocale(this.currentLocale);
+      if (localeValidation) {
+        const message = localeValidation;
+        error = this.appendValidationError(error, path, message, src, true);
+      }
     }
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
@@ -177,7 +187,7 @@ export class RecordSchema<
       this.item,
       this.opt,
       this.customValidateFunctions,
-      router,
+      router.withSchema(this),
     );
   }
 
@@ -249,6 +259,7 @@ export class RecordSchema<
       item: this.item["executeSerialize"](),
       opt: this.opt,
       router: this.currentRouter?.getRouterId(),
+      locale: this.currentLocale,
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
