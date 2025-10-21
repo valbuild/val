@@ -59,6 +59,8 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, minLength },
       this.opt,
       this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
     );
   }
 
@@ -74,6 +76,8 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, maxLength },
       this.opt,
       this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
     );
   }
 
@@ -82,6 +86,8 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, regexp, regExpMessage: message },
       this.opt,
       this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
     );
   }
 
@@ -93,6 +99,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions.concat(validationFunction),
+      this.renderInput,
     );
   }
 
@@ -170,15 +177,25 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   }
 
   nullable(): StringSchema<Src | null> {
-    return new StringSchema<Src | null>(this.options, true, this.isRaw);
+    return new StringSchema(
+      this.options,
+      true,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
+    ) as unknown as StringSchema<Src | null>;
   }
 
   raw(): StringSchema<Src extends null ? RawString | null : RawString> {
-    return new StringSchema<Src extends null ? RawString | null : RawString>(
+    return new StringSchema(
       this.options,
       this.opt,
       true,
-    );
+      this.customValidateFunctions,
+      this.renderInput,
+    ) as unknown as StringSchema<
+      Src extends null ? RawString | null : RawString
+    >;
   }
 
   protected executeSerialize(): SerializedSchema {
