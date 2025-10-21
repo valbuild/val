@@ -2,7 +2,7 @@ import { c, nextAppRouter, s } from "_/val.config";
 
 const genericPageSchema = s.object({
   title: s.string(),
-  content: s.string(),
+  content: s.string().render({ as: "textarea" }),
 });
 
 export default c.define(

@@ -2,6 +2,7 @@ import { SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
   useAddPatch,
+  useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValProvider";
@@ -13,6 +14,7 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { ValidationErrors } from "../../components/ValidationError";
+import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
 
 export function StringField({
   path,
@@ -36,6 +38,19 @@ export function StringField({
       );
     }
   }, [maybeSourceData, maybeClientSideOnly]);
+  const renderAtPath = useRenderOverrideAtPath(path);
+  const [renderAsTextarea, setRenderAsTextarea] = useState(false);
+  useEffect(() => {
+    if (renderAtPath && renderAtPath.status === "success") {
+      // Only change if render has indeed loaded (if not we will go from input to textarea and back which is bad)
+      if (renderAtPath.data.layout === "textarea") {
+        setRenderAsTextarea(true);
+      } else {
+        setRenderAsTextarea(false);
+      }
+    }
+  }, [renderAtPath]);
+
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -71,6 +86,32 @@ export function StringField({
       />
     );
   }
+  if (renderAsTextarea) {
+    return (
+      <div id={path}>
+        <ValidationErrors path={path} />
+        <AutoGrowingTextarea
+          className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
+          autoFocus={autoFocus}
+          defaultValue={currentValue || ""}
+          onChange={(ev) => {
+            setCurrentValue(ev.target.value);
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: ev.target.value,
+                },
+              ],
+              type,
+            );
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div id={path}>
       <ValidationErrors path={path} />

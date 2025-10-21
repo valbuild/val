@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ReifiedRender } from "../render";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
@@ -42,6 +42,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
+    private readonly renderInput: { as: "textarea" } | null = null,
   ) {
     super();
   }
@@ -203,7 +204,30 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  render(input: { as: "textarea" }): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      input,
+    );
+  }
+
+  protected executeRender(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedRender {
+    if (this.renderInput) {
+      return {
+        [sourcePath]: {
+          status: "success" as const,
+          data: {
+            layout: this.renderInput.as,
+          },
+        },
+      };
+    }
     return {};
   }
 }
