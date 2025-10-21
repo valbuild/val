@@ -5,6 +5,7 @@ import { ImageSource } from "./source/image";
 import { RemoteSource } from "./source/remote";
 import { ModuleFilePath, SourcePath } from "./val";
 
+// TODO: we want to change layout -> as to be more consistent across the board
 export type ListRecordRender = {
   layout: "list";
   parent: "record";

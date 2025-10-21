@@ -136,7 +136,7 @@ export class ArraySchema<
   }
 
   private renderInput: {
-    layout: "list";
+    as: "list";
     select: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
@@ -166,7 +166,7 @@ export class ArraySchema<
       }
     }
     if (this.renderInput) {
-      const { select, layout: layout } = this.renderInput;
+      const { select, as: layout } = this.renderInput;
       if (layout !== "list") {
         res[sourcePath] = {
           status: "error",
@@ -197,7 +197,7 @@ export class ArraySchema<
   }
 
   render(input: {
-    layout: "list";
+    as: "list";
     select: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
