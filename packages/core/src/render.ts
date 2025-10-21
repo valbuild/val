@@ -29,8 +29,12 @@ export type ListArrayRender = {
   }[];
 };
 
+export type TextareaRender = {
+  layout: "textarea";
+};
+
 // Main render type:
-type RenderTypes = ListRecordRender | ListArrayRender;
+type RenderTypes = ListRecordRender | ListArrayRender | TextareaRender;
 //
 
 type WithStatus<T> =
