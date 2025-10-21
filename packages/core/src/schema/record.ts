@@ -316,14 +316,17 @@ export class RecordSchema<
   }
 
   render(input: {
-    layout: "list";
+    as: "list";
     select: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
   }) {
-    this.renderInput = input;
+    this.renderInput = {
+      layout: input.as,
+      select: input.select,
+    };
     return this;
   }
 }
