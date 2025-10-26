@@ -22,8 +22,8 @@
     --colors-gray-light-mode-gray-500: #697586;
     --colors-gray-light-mode-gray-600: #475467;
     --colors-gray-light-mode-gray-700: #344054;
-    --colors-gray-light-mode-grey-800: #182230;
-    --colors-gray-light-mode-grey-900: #101828;
+    --colors-gray-light-mode-gray-800: #182230;
+    --colors-gray-light-mode-gray-900: #101828;
     --colors-gray-light-mode-gray-950: #0c111d;
     --colors-gray-light-mode-gray-50: #f9fafb;
     --colors-gray-light-mode-gray-25: #fcfcfd;
@@ -79,7 +79,7 @@
     --radius: 0.5rem;
 
     /* (Text) Selection colors */
-    --bg-selection: var(--colors-gray-light-mode-gray-200);
+    --bg-selection: var(--colors-gray-light-mode-gray-300);
     --text-selection: var(--colors-gray-light-mode-gray-900);
 
     /* Primary colors */
@@ -139,8 +139,8 @@
   /* dark theme */
   *[data-mode="dark"] {
     /* (Text) Selection colors */
-    --bg-selection: var(--colors-gray-light-mode-gray-50);
-    --text-selection: var(--colors-gray-light-mode-gray-900);
+    --bg-selection: var(--colors-gray-dark-mode-gray-200);
+    --text-selection: var(--colors-gray-dark-mode-gray-900);
 
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
@@ -207,7 +207,7 @@
 
   ::selection {
     background-color: var(--bg-selection);
-    color: var(--text-selection);
+    color: var(--text-selection) !important;
   }
 }
 
