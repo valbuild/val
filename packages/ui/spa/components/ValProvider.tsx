@@ -1590,6 +1590,15 @@ export function useGlobalError():
   | {
       type: "remote-files-error";
       error: string;
+      reason:
+        | "unknown-error"
+        | "project-not-configured"
+        | "api-key-missing"
+        | "pat-error"
+        | "error-could-not-get-settings"
+        | "no-internet-connection"
+        | "unauthorized-personal-access-token-error"
+        | "unauthorized";
     }
   | null {
   const { syncEngine, remoteFiles } = useContext(ValContext);
@@ -1608,6 +1617,7 @@ export function useGlobalError():
     return {
       type: "remote-files-error" as const,
       error: remoteFiles.message,
+      reason: remoteFiles.reason,
     };
   }
   return null;
