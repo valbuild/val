@@ -224,9 +224,10 @@ export function ToolsMenuButtons() {
       }
 
       const keys = Object.keys(maybeRecordSource.data);
-      const routePartOfModulePath = Internal.splitModulePath(modulePath)[0];
+      const parts = Internal.splitModulePath(modulePath);
+      const routePartOfModulePath = parts[0]; // currently we only need to check for the first key of a router since it is always a record where the keys are the full pathname
       for (const key of keys) {
-        if (routePartOfModulePath && routePartOfModulePath.startsWith(key)) {
+        if (routePartOfModulePath && routePartOfModulePath === key) {
           return {
             status: "success",
             data: { previewRoute: key },
