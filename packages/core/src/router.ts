@@ -1,3 +1,5 @@
+import { Schema } from "./schema";
+import { SelectorSource } from "./selector";
 import { ModuleFilePath } from "./val";
 
 export type RouteValidationError = {
@@ -126,10 +128,52 @@ function validateUrlAgainstPattern(
   return { isValid: true };
 }
 
-// This router should not be in core package
-export const nextAppRouter: ValRouter = {
-  getRouterId: () => "next-app-router",
-  validate: (moduleFilePath, urlPaths) => {
+// Next App router should not be in core package (it should be in the next package)
+export class NextAppRouterImpl implements NextAppRouter {
+  constructor(
+    private readonly schema: Schema<SelectorSource> | null = null,
+    private readonly thisLocalize: {
+      type: "directory";
+      segment: string;
+      translation: string;
+    } | null = null,
+  ) {}
+
+  withSchema(schema: Schema<SelectorSource>): NextAppRouter {
+    return new NextAppRouterImpl(schema, this.thisLocalize);
+  }
+  getRouterId(): string {
+    return "next-app-router";
+  }
+  localize(input: {
+    type: "directory";
+    segment: string;
+    translation: string;
+  }): NextAppRouter {
+    return new NextAppRouterImpl(this.schema, input);
+  }
+
+  validate(
+    moduleFilePath: ModuleFilePath,
+    urlPaths: string[],
+  ): RouteValidationError[] {
+    if (this.thisLocalize) {
+      this.routerLocalizedValidate(moduleFilePath, urlPaths);
+    }
+    return this.routerValidate(moduleFilePath, urlPaths);
+  }
+
+  private routerLocalizedValidate(
+    moduleFilePath: ModuleFilePath,
+    urlPaths: string[],
+  ): RouteValidationError[] {
+    return this.routerValidate(moduleFilePath, urlPaths);
+  }
+
+  private routerValidate(
+    moduleFilePath: ModuleFilePath,
+    urlPaths: string[],
+  ): RouteValidationError[] {
     const routePattern = parseNextJsRoutePattern(moduleFilePath);
     const errors: RouteValidationError[] = [];
 
@@ -148,8 +192,10 @@ export const nextAppRouter: ValRouter = {
     }
 
     return errors;
-  },
-};
+  }
+}
+
+export const nextAppRouter: NextAppRouter = new NextAppRouterImpl();
 
 /**
  * Parse Next.js route pattern from file path
@@ -209,4 +255,54 @@ export interface ValRouter {
     moduleFilePath: ModuleFilePath,
     urlPaths: string[],
   ): RouteValidationError[];
+  withSchema(schema: Schema<SelectorSource>): ValRouter;
+}
+
+export interface NextAppRouter extends ValRouter {
+  /**
+   * Configure localization for this router.
+   *
+   * When localized, the file organization changes from a single `page.val.ts` file to
+   * separate `<locale>.val.ts` files for each locale (e.g., `en-us.val.ts`, `nb-no.val.ts`).
+   *
+   * @param input - Localization configuration
+   * @param input.moduleName - Must be `"locale"` to indicate locale-based filenames (e.g., `en-us.val.ts`, `nb-no.val.ts`)
+   * @param input.segment - The URL segment name for the locale (e.g., `"locale"` for `/[locale]/...`)
+   * @param input.translations - The field name in your schema that links translations across locales.
+   *                            This field should contain the URL path to the translation in another locale.
+   *
+   * @example
+   * ```typescript
+   * // In schema.val.ts
+   * export const schema = s.record(blogSchema).router(
+   *   nextAppRouter.localize({
+   *     moduleName: "locale",
+   *     segment: "locale",
+   *     translations: "translations",
+   *   })
+   * );
+   *
+   * // Creates locale-specific files:
+   * // - en-us.val.ts
+   * // - nb-no.val.ts
+   * // - fr-fr.val.ts
+   *
+   * // In en-us.val.ts
+   * export default c.define("/app/[locale]/blogs/[blog]/en-us.val.ts", schema, {
+   *   "/en-us/blogs/my-post": {
+   *     title: "My Post",
+   *     translations: ["/nb-no/blogs/min-post", "/fr-fr/blogs/mon-post"], // or path to translated version
+   *   },
+   * });
+   * ```
+   *
+   * @remarks
+   * Locale identifiers must follow BCP 47 format in lowercase (e.g., `en-us`, `nb-no`, `fr-fr`)
+   * to ensure web-safe file names and URL paths.
+   */
+  localize: (input: {
+    moduleName: "locale";
+    segment: string;
+    translations?: string;
+  }) => NextAppRouter;
 }

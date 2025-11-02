@@ -188,7 +188,7 @@ const initFetchValRouteStega =
     }>,
   ) =>
   async <T extends ValModule<GenericSelector<SourceObject>>>(
-    selector: T,
+    selector: T | T[],
     params:
       | Promise<Record<string, string | string[]>>
       | Record<string, string | string[]>
@@ -203,17 +203,20 @@ const initFetchValRouteStega =
       getCookies,
     );
     const resolvedParams = await Promise.resolve(params);
-    const path = selector && Internal.getValPath(selector);
-    const schema = selector && Internal.getSchema(selector);
-    const val = selector && (await fetchVal(selector));
-    const route = initValRouteFromVal(
-      resolvedParams,
-      "fetchValRoute",
-      path,
-      schema,
-      val,
-    );
-    return route;
+    for (const s of Array.isArray(selector) ? selector : [selector]) {
+      const path = s && Internal.getValPath(s);
+      const schema = s && Internal.getSchema(s);
+      const val = s && (await fetchVal(s));
+      const route = initValRouteFromVal(
+        resolvedParams,
+        "fetchValRoute",
+        path,
+        schema,
+        val,
+      );
+      return route;
+    }
+    return null as FetchValRouteReturnType<T>;
   };
 
 const initFetchValRouteUrl =
