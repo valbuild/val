@@ -130,7 +130,11 @@ function isObjectSchema(
 function isRecordSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
-  | RecordSchema<Schema<SelectorSource>, Record<string, SelectorSource>>
+  | RecordSchema<
+      Schema<SelectorSource>,
+      Schema<string>,
+      Record<string, SelectorOfSchema<Schema<SelectorSource>>>
+    >
   | SerializedRecordSchema {
   return (
     schema instanceof RecordSchema ||
