@@ -532,7 +532,6 @@ describe("RecordSchema", () => {
         andhere: 2,
       },
     );
-    console.log(failingRes);
     expect(failingRes).not.toBe(false);
     if (failingRes !== false) {
       expect(Object.keys(failingRes).length).toBe(2); // Both keys should fail maxLength
