@@ -25,6 +25,7 @@ import {
 export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
+  key?: SerializedSchema;
   opt: boolean;
   router?: string;
   customValidate?: boolean;
@@ -33,23 +34,28 @@ export type SerializedRecordSchema = {
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   Src extends Record<string, SelectorOfSchema<T>> | null,
+  K extends Schema<string> = Schema<string>,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly currentRouter: ValRouter | null = null,
+    private readonly keySchema: K | null = null,
   ) {
     super();
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
-  ): RecordSchema<T, Src> {
-    return new RecordSchema(this.item, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+  ): RecordSchema<T, Src, K> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.currentRouter,
+      this.keySchema,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -101,6 +107,35 @@ export class RecordSchema<
       );
     }
     Object.entries(src).forEach(([key, elem]) => {
+      if (this.keySchema) {
+        const keyPath = createValPathOfItem(path, key);
+        if (!keyPath) {
+          throw new Error(
+            `Internal error: could not create path at ${
+              !path && typeof path === "string" ? "<empty string>" : path
+            } for key validation`, // Should! never happen
+          );
+        }
+        const keyError = this.keySchema["executeValidate"](keyPath, key);
+        if (keyError) {
+          keyError[keyPath] = keyError[keyPath].map((err) => ({
+            ...err,
+            keyError: true,
+          }));
+        }
+        if (keyError) {
+          if (error) {
+            if (error[keyPath]) {
+              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
+            } else {
+              error[keyPath] = keyError[keyPath];
+            }
+          } else {
+            error = keyError;
+          }
+        }
+      }
+
       const subPath = createValPathOfItem(path, key);
       if (!subPath) {
         error = this.appendValidationError(
@@ -168,16 +203,23 @@ export class RecordSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): RecordSchema<T, Src | null> {
-    return new RecordSchema(this.item, true);
+  nullable(): RecordSchema<T, Src | null, K> {
+    return new RecordSchema(
+      this.item,
+      true,
+      [],
+      this.currentRouter,
+      this.keySchema,
+    ) as RecordSchema<T, Src | null, K>;
   }
 
-  router(router: ValRouter): RecordSchema<T, Src> {
+  router(router: ValRouter): RecordSchema<T, Src, K> {
     return new RecordSchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
       router,
+      this.keySchema,
     );
   }
 
@@ -247,6 +289,7 @@ export class RecordSchema<
     return {
       type: "record",
       item: this.item["executeSerialize"](),
+      key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
       router: this.currentRouter?.getRouterId(),
       customValidate:
@@ -331,8 +374,33 @@ export class RecordSchema<
   }
 }
 
-export const record = <S extends Schema<SelectorSource>>(
+// Overload: with key schema
+export function record<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+>(key: K, schema: S): RecordSchema<S, Record<string, SelectorOfSchema<S>>, K>;
+
+// Overload: without key schema
+export function record<S extends Schema<SelectorSource>>(
   schema: S,
-): RecordSchema<S, Record<string, SelectorOfSchema<S>>> => {
-  return new RecordSchema(schema);
-};
+): RecordSchema<S, Record<string, SelectorOfSchema<S>>>;
+
+// Implementation
+export function record<S extends Schema<SelectorSource>>(
+  keyOrSchema: Schema<string> | S,
+  schema?: S,
+): RecordSchema<S, Record<string, SelectorOfSchema<S>>, Schema<string>> {
+  if (schema) {
+    // Two-argument call: first is key schema, second is value schema
+    return new RecordSchema(
+      schema,
+      false,
+      [],
+      null,
+      keyOrSchema as Schema<string>,
+    );
+  } else {
+    // One-argument call: only value schema
+    return new RecordSchema(keyOrSchema as S, false, [], null, null);
+  }
+}
