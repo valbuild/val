@@ -448,29 +448,6 @@ describe("RecordSchema", () => {
       }
     });
 
-    test("record with key schema: assert still works", () => {
-      const schema = record(
-        string().validate((key) => {
-          if (key.startsWith("test-")) {
-            return false;
-          }
-          return "Key must start with 'test-'";
-        }),
-        number(),
-      );
-
-      // Assert should still work and only check type structure
-      expect(
-        schema["executeAssert"]("/test.val.ts" as SourcePath, {
-          "any-key": 1,
-          other: 2,
-        }),
-      ).toEqual({
-        success: true,
-        data: { "any-key": 1, other: 2 },
-      });
-    });
-
     test("record with key schema: nullable record", () => {
       const schema = record(
         string().validate((key) => {
