@@ -33,8 +33,8 @@ export type SerializedRecordSchema = {
 
 export class RecordSchema<
   T extends Schema<SelectorSource>,
-  Src extends Record<string, SelectorOfSchema<T>> | null,
-  K extends Schema<string> = Schema<string>,
+  K extends Schema<string>,
+  Src extends Record<SelectorOfSchema<K>, SelectorOfSchema<T>> | null,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
@@ -48,7 +48,7 @@ export class RecordSchema<
 
   validate(
     validationFunction: (src: Src) => false | string,
-  ): RecordSchema<T, Src, K> {
+  ): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -203,17 +203,17 @@ export class RecordSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): RecordSchema<T, Src | null, K> {
+  nullable(): RecordSchema<T, K, Src | null> {
     return new RecordSchema(
       this.item,
       true,
-      [],
+      this.customValidateFunctions,
       this.currentRouter,
       this.keySchema,
-    ) as RecordSchema<T, Src | null, K>;
+    ) as RecordSchema<T, K, Src | null>;
   }
 
-  router(router: ValRouter): RecordSchema<T, Src, K> {
+  router(router: ValRouter): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -316,7 +316,7 @@ export class RecordSchema<
       return res;
     }
     for (const key in src) {
-      const itemSrc = src[key];
+      const itemSrc = src[key as unknown as SelectorOfSchema<K>];
       if (itemSrc === null || itemSrc === undefined) {
         continue;
       }
@@ -343,7 +343,10 @@ export class RecordSchema<
             parent: "record",
             items: Object.entries(src).map(([key, val]) => {
               // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = prepare({ key, val });
+              const { title, subtitle, image } = prepare({
+                key: key as unknown as KeyType,
+                val: val as SelectorOfSchema<T>,
+              });
               return [key, { title, subtitle, image }];
             }),
           },
@@ -378,29 +381,35 @@ export class RecordSchema<
 export function record<
   K extends Schema<string>,
   S extends Schema<SelectorSource>,
->(key: K, schema: S): RecordSchema<S, Record<string, SelectorOfSchema<S>>, K>;
+>(
+  key: K,
+  schema: S,
+): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>>;
 
 // Overload: without key schema
 export function record<S extends Schema<SelectorSource>>(
   schema: S,
-): RecordSchema<S, Record<string, SelectorOfSchema<S>>>;
+): RecordSchema<S, Schema<string>, Record<string, SelectorOfSchema<S>>>;
 
 // Implementation
-export function record<S extends Schema<SelectorSource>>(
-  keyOrSchema: Schema<string> | S,
+export function record<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+>(
+  keyOrSchema: K | S,
   schema?: S,
-): RecordSchema<S, Record<string, SelectorOfSchema<S>>, Schema<string>> {
+): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>> {
   if (schema) {
     // Two-argument call: first is key schema, second is value schema
+    return new RecordSchema(schema, false, [], null, keyOrSchema as K);
+  } else {
+    // One-argument call: only value schema
     return new RecordSchema(
-      schema,
+      keyOrSchema as S,
       false,
       [],
       null,
-      keyOrSchema as Schema<string>,
+      keyOrSchema as K,
     );
-  } else {
-    // One-argument call: only value schema
-    return new RecordSchema(keyOrSchema as S, false, [], null, null);
   }
 }
