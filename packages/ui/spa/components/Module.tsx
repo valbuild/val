@@ -64,6 +64,8 @@ export function Module({ path }: { path: SourcePath }) {
   const last = parts[parts.length - 1];
   const showNumber = isParentArray(path, maybeParentPath, parentSchema);
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
+  const keyErrors = validationErrors.filter((error) => !!error.keyError);
+  const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left">
@@ -99,7 +101,12 @@ export function Module({ path }: { path: SourcePath }) {
             })}
           </div>
         )}
-        <div>
+        <div
+          className={cn({
+            "border rounded-lg border-bg-error-secondary p-4":
+              keyErrors.length > 0,
+          })}
+        >
           <div className="flex gap-4 justify-between items-center h-6 text-xl">
             {!showNumber && (
               <span>
@@ -109,16 +116,19 @@ export function Module({ path }: { path: SourcePath }) {
             {showNumber && <span>#{Number(last.text)}</span>}
             <ArrayAndRecordTools path={path} variant={"module"} />
           </div>
+          {keyErrors.length > 0 && (
+            <FieldValidationError validationErrors={keyErrors} />
+          )}
         </div>
       </div>
       <div>
-        {isKey && validationErrors.length > 0 && (
+        {isKey && nonKeyErrors.length > 0 && (
           <FieldValidationError validationErrors={validationErrors} />
         )}
         <div
           className={cn({
             "border rounded-lg border-bg-error-secondary p-4 mt-4":
-              validationErrors.length > 0,
+              nonKeyErrors.length > 0,
           })}
         >
           <AnyField key={path} path={path} schema={schema} />
