@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { nextAppRouter } from "../router";
 import { SourcePath } from "../val";
+import { deserializeSchema } from "./deserialize";
 import { number } from "./number";
 import { object } from "./object";
 import { record } from "./record";
@@ -295,6 +296,260 @@ describe("RecordSchema", () => {
           errors.some((error) => error.message.includes("/dashboard/feed/123")),
         ),
       ).toBe(true);
+    }
+  });
+
+  describe("Key validation", () => {
+    test("record with key schema: valid keys", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (key.startsWith("test-")) {
+            return false;
+          }
+          return "Key must start with 'test-'";
+        }),
+        number(),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "test-1": 1,
+        "test-2": 2,
+      });
+
+      expect(result).toBe(false); // No validation errors
+    });
+
+    test("record with key schema: invalid keys", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (key.startsWith("test-")) {
+            return false;
+          }
+          return "Key must start with 'test-'";
+        }),
+        number(),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "test-1": 1,
+        invalid: 2,
+        "bad-key": 3,
+      });
+
+      expect(result).not.toBe(false);
+      if (result !== false) {
+        expect(Object.keys(result).length).toBeGreaterThan(0);
+        // should have keyError set to true for key validation errors
+        expect(
+          Object.values(result).reduce(
+            (acc, errors) =>
+              errors.filter((error) => error.keyError).length + acc,
+            0,
+          ),
+        ).toBe(2);
+      }
+    });
+
+    test("record with key schema: multiple validation rules", () => {
+      const schema = record(
+        string()
+          .validate((key) => {
+            if (key.length >= 3) {
+              return false;
+            }
+            return "Key must be at least 3 characters long";
+          })
+          .validate((key) => {
+            if (/^[a-z-]+$/.test(key)) {
+              return false;
+            }
+            return "Key must only contain lowercase letters and hyphens";
+          }),
+        string(),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "valid-key": "value1",
+        ab: "value2", // Too short
+        Invalid: "value3", // Has uppercase
+        "valid-123": "value4", // Has numbers
+      });
+
+      expect(result).not.toBe(false);
+      if (result !== false) {
+        expect(Object.keys(result).length).toBeGreaterThan(0);
+      }
+    });
+
+    test("record without key schema: no key validation", () => {
+      const schema = record(number());
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "any-key": 1,
+        ANY_KEY: 2,
+        "123": 3,
+        "!@#$": 4,
+      });
+
+      expect(result).toBe(false); // No validation errors - keys are not validated
+    });
+
+    test("record with key schema: nullable values", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (key.startsWith("item-")) {
+            return false;
+          }
+          return "Key must start with 'item-'";
+        }),
+        string().nullable(),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "item-1": "value1",
+        "item-2": null,
+        wrong: "value3",
+      });
+
+      expect(result).not.toBe(false);
+      if (result !== false) {
+        // Should have error for 'wrong' key
+        expect(Object.keys(result).length).toBeGreaterThan(0);
+      }
+    });
+
+    test("record with key schema: complex value types", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (/^[a-z]+$/.test(key)) {
+            return false;
+          }
+          return "Key must contain only lowercase letters";
+        }),
+        object({
+          title: string(),
+          count: number(),
+        }),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        validkey: { title: "Valid", count: 1 },
+        "invalid-key": { title: "Invalid", count: 2 },
+      });
+
+      expect(result).not.toBe(false);
+      if (result !== false) {
+        expect(Object.keys(result).length).toBeGreaterThan(0);
+      }
+    });
+
+    test("record with key schema: assert still works", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (key.startsWith("test-")) {
+            return false;
+          }
+          return "Key must start with 'test-'";
+        }),
+        number(),
+      );
+
+      // Assert should still work and only check type structure
+      expect(
+        schema["executeAssert"]("/test.val.ts" as SourcePath, {
+          "any-key": 1,
+          other: 2,
+        }),
+      ).toEqual({
+        success: true,
+        data: { "any-key": 1, other: 2 },
+      });
+    });
+
+    test("record with key schema: nullable record", () => {
+      const schema = record(
+        string().validate((key) => {
+          if (key.length > 0) {
+            return false;
+          }
+          return "Key must not be empty";
+        }),
+        string(),
+      ).nullable();
+
+      const result = schema["executeValidate"](
+        "/test.val.ts" as SourcePath,
+        null,
+      );
+
+      expect(result).toBe(false); // Null is valid for nullable record
+    });
+
+    test("record with key schema: serialize includes keySchema", () => {
+      const keySchema = string().validate((key) => {
+        if (key.startsWith("test-")) {
+          return false;
+        }
+        return "Key must start with 'test-'";
+      });
+      const schema = record(keySchema, number());
+
+      const serialized = schema["executeSerialize"]();
+
+      expect(serialized.type).toBe("record");
+      expect(serialized.item).toBeDefined();
+      expect(serialized.key).toBeDefined();
+      expect(serialized.key?.type).toBe("string");
+    });
+
+    test("record without key schema: serialize excludes keySchema", () => {
+      const schema = record(number());
+
+      const serialized = schema["executeSerialize"]();
+
+      expect(serialized.type).toBe("record");
+      expect(serialized.item).toBeDefined();
+      expect(serialized.key).toBeUndefined();
+    });
+  });
+
+  test("deserialize: round-trip serialization with key schema", () => {
+    const keySchema = string().maxLength(3);
+    const schema = record(keySchema, number());
+
+    const serialized = schema["executeSerialize"]();
+    const deserialized = deserializeSchema(serialized);
+
+    const failingRes = deserialized["executeValidate"](
+      "/test.val.ts" as SourcePath,
+      {
+        failhere: 1,
+        andhere: 2,
+      },
+    );
+    console.log(failingRes);
+    expect(failingRes).not.toBe(false);
+    if (failingRes !== false) {
+      expect(Object.keys(failingRes).length).toBe(2); // Both keys should fail maxLength
+    }
+
+    const passingRes = deserialized["executeValidate"](
+      "/test.val.ts" as SourcePath,
+      {
+        ok: 1,
+        yes: 2,
+      },
+    );
+    expect(passingRes).toBe(false); // No validation errors
+
+    const reserialized = deserialized["executeSerialize"]();
+
+    // Compare structures (note: custom validate functions won't be preserved)
+    expect(reserialized.type).toBe("record");
+    expect(reserialized.opt).toBe(serialized.opt);
+    if (reserialized.type === "record" && serialized.type === "record") {
+      expect(reserialized.item.type).toBe(serialized.item.type);
+      expect(reserialized.key?.type).toBe(serialized.key?.type);
     }
   });
 });
