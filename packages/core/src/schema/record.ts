@@ -25,6 +25,7 @@ import {
 export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
+  key?: SerializedSchema;
   opt: boolean;
   router?: string;
   customValidate?: boolean;
@@ -32,24 +33,29 @@ export type SerializedRecordSchema = {
 
 export class RecordSchema<
   T extends Schema<SelectorSource>,
-  Src extends Record<string, SelectorOfSchema<T>> | null,
+  K extends Schema<string>,
+  Src extends Record<SelectorOfSchema<K>, SelectorOfSchema<T>> | null,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly currentRouter: ValRouter | null = null,
+    private readonly keySchema: Schema<string> | null = null,
   ) {
     super();
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
-  ): RecordSchema<T, Src> {
-    return new RecordSchema(this.item, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+  ): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.currentRouter,
+      this.keySchema,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -101,6 +107,33 @@ export class RecordSchema<
       );
     }
     Object.entries(src).forEach(([key, elem]) => {
+      if (this.keySchema) {
+        const keyPath = createValPathOfItem(path, key);
+        if (!keyPath) {
+          throw new Error(
+            `Internal error: could not create path at ${
+              !path && typeof path === "string" ? "<empty string>" : path
+            } for key validation`, // Should! never happen
+          );
+        }
+        const keyError = this.keySchema["executeValidate"](keyPath, key);
+        if (keyError) {
+          keyError[keyPath] = keyError[keyPath].map((err) => ({
+            ...err,
+            keyError: true,
+          }));
+          if (error) {
+            if (error[keyPath]) {
+              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
+            } else {
+              error[keyPath] = keyError[keyPath];
+            }
+          } else {
+            error = keyError;
+          }
+        }
+      }
+
       const subPath = createValPathOfItem(path, key);
       if (!subPath) {
         error = this.appendValidationError(
@@ -168,16 +201,23 @@ export class RecordSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): RecordSchema<T, Src | null> {
-    return new RecordSchema(this.item, true);
+  nullable(): RecordSchema<T, K, Src | null> {
+    return new RecordSchema(
+      this.item,
+      true,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+    ) as RecordSchema<T, K, Src | null>;
   }
 
-  router(router: ValRouter): RecordSchema<T, Src> {
+  router(router: ValRouter): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
       router,
+      this.keySchema,
     );
   }
 
@@ -199,45 +239,45 @@ export class RecordSchema<
         ],
       };
     }
-    const routerValidations = this.currentRouter.validate(
+    const routerValidationErrors = this.currentRouter.validate(
       moduleFilePath,
       Object.keys(src),
     );
-    if (routerValidations.length > 0) {
+    if (routerValidationErrors.length > 0) {
       return Object.fromEntries(
-        routerValidations.map((validation): [SourcePath, ValidationError[]] => {
-          if (!validation.error.urlPath) {
+        routerValidationErrors.map(
+          (validation): [SourcePath, ValidationError[]] => {
+            if (!validation.error.urlPath) {
+              return [
+                path,
+                [
+                  {
+                    message: `Router validation error: ${validation.error.message} has no url path`,
+                    schemaError: true,
+                  },
+                ],
+              ];
+            }
+            const subPath = createValPathOfItem(path, validation.error.urlPath);
+            if (!subPath) {
+              throw new Error(
+                `Internal error: could not create path at ${
+                  !path && typeof path === "string" ? "<empty string>" : path
+                } for router validation`, // Should! never happen
+              );
+            }
             return [
-              path,
+              subPath,
               [
                 {
-                  message: `Router validation error: ${validation.error.message} has no url path`,
-                  schemaError: true,
+                  message: validation.error.message,
+                  value: validation.error.urlPath,
+                  keyError: true,
                 },
               ],
             ];
-          }
-          const subPath = createValPathOfItem(path, validation.error.urlPath);
-          if (!subPath) {
-            return [
-              path,
-              [
-                {
-                  message: `Could not create path for router validation error`,
-                  schemaError: true,
-                },
-              ],
-            ];
-          }
-          return [
-            subPath,
-            [
-              {
-                message: validation.error.message,
-              },
-            ],
-          ];
-        }),
+          },
+        ),
       );
     }
     return false;
@@ -247,6 +287,7 @@ export class RecordSchema<
     return {
       type: "record",
       item: this.item["executeSerialize"](),
+      key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
       router: this.currentRouter?.getRouterId(),
       customValidate:
@@ -273,7 +314,7 @@ export class RecordSchema<
       return res;
     }
     for (const key in src) {
-      const itemSrc = src[key];
+      const itemSrc = src[key as unknown as SelectorOfSchema<K>];
       if (itemSrc === null || itemSrc === undefined) {
         continue;
       }
@@ -300,7 +341,10 @@ export class RecordSchema<
             parent: "record",
             items: Object.entries(src).map(([key, val]) => {
               // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = prepare({ key, val });
+              const { title, subtitle, image } = prepare({
+                key,
+                val: val as SelectorOfSchema<T>,
+              });
               return [key, { title, subtitle, image }];
             }),
           },
@@ -331,8 +375,33 @@ export class RecordSchema<
   }
 }
 
-export const record = <S extends Schema<SelectorSource>>(
+// Overload: with key schema
+export function record<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+>(
+  key: K,
   schema: S,
-): RecordSchema<S, Record<string, SelectorOfSchema<S>>> => {
-  return new RecordSchema(schema);
-};
+): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>>;
+
+// Overload: without key schema
+export function record<S extends Schema<SelectorSource>>(
+  schema: S,
+): RecordSchema<S, Schema<string>, Record<string, SelectorOfSchema<S>>>;
+
+// Implementation
+export function record<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+>(
+  keyOrSchema: K | S,
+  schema?: S,
+): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>> {
+  if (schema) {
+    // Two-argument call: first is key schema, second is value schema
+    return new RecordSchema(schema, false, [], null, keyOrSchema as K);
+  } else {
+    // One-argument call: only value schema
+    return new RecordSchema(keyOrSchema as S, false, [], null, null);
+  }
+}

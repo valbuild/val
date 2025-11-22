@@ -89,6 +89,11 @@ export function deserializeSchema(
       return new RecordSchema(
         deserializeSchema(serialized.item),
         serialized.opt,
+        [],
+        null,
+        serialized.key
+          ? (deserializeSchema(serialized.key) as Schema<string>)
+          : null,
       );
     case "keyOf":
       return new KeyOfSchema(
