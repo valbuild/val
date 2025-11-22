@@ -41,7 +41,7 @@ export class RecordSchema<
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly currentRouter: ValRouter | null = null,
-    private readonly keySchema: K | null = null,
+    private readonly keySchema: Schema<string> | null = null,
   ) {
     super();
   }
@@ -402,12 +402,6 @@ export function record<
     return new RecordSchema(schema, false, [], null, keyOrSchema as K);
   } else {
     // One-argument call: only value schema
-    return new RecordSchema(
-      keyOrSchema as S,
-      false,
-      [],
-      null,
-      keyOrSchema as K,
-    );
+    return new RecordSchema(keyOrSchema as S, false, [], null, null);
   }
 }
