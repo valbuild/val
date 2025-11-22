@@ -110,6 +110,11 @@ describe("RecordSchema", () => {
           errors.some((error) => error.message.includes("/blog/test")),
         ),
       ).toBe(true);
+      const error = Object.values(result).find((errors) =>
+        errors.find((error) => error.value === "/blog/test"),
+      )?.[0];
+      expect(error?.value).toStrictEqual("/blog/test");
+      expect(error?.keyError).toBe(true);
     }
   });
 

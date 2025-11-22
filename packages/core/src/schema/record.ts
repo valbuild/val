@@ -241,45 +241,45 @@ export class RecordSchema<
         ],
       };
     }
-    const routerValidations = this.currentRouter.validate(
+    const routerValidationErrors = this.currentRouter.validate(
       moduleFilePath,
       Object.keys(src),
     );
-    if (routerValidations.length > 0) {
+    if (routerValidationErrors.length > 0) {
       return Object.fromEntries(
-        routerValidations.map((validation): [SourcePath, ValidationError[]] => {
-          if (!validation.error.urlPath) {
+        routerValidationErrors.map(
+          (validation): [SourcePath, ValidationError[]] => {
+            if (!validation.error.urlPath) {
+              return [
+                path,
+                [
+                  {
+                    message: `Router validation error: ${validation.error.message} has no url path`,
+                    schemaError: true,
+                  },
+                ],
+              ];
+            }
+            const subPath = createValPathOfItem(path, validation.error.urlPath);
+            if (!subPath) {
+              throw new Error(
+                `Internal error: could not create path at ${
+                  !path && typeof path === "string" ? "<empty string>" : path
+                } for router validation`, // Should! never happen
+              );
+            }
             return [
-              path,
+              subPath,
               [
                 {
-                  message: `Router validation error: ${validation.error.message} has no url path`,
-                  schemaError: true,
+                  message: validation.error.message,
+                  value: validation.error.urlPath,
+                  keyError: true,
                 },
               ],
             ];
-          }
-          const subPath = createValPathOfItem(path, validation.error.urlPath);
-          if (!subPath) {
-            return [
-              path,
-              [
-                {
-                  message: `Could not create path for router validation error`,
-                  schemaError: true,
-                },
-              ],
-            ];
-          }
-          return [
-            subPath,
-            [
-              {
-                message: validation.error.message,
-              },
-            ],
-          ];
-        }),
+          },
+        ),
       );
     }
     return false;
