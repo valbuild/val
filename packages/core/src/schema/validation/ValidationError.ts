@@ -7,6 +7,7 @@ export type ValidationError = {
   typeError?: boolean;
   schemaError?: boolean;
   fixes?: ValidationFix[];
+  keyError?: boolean;
 };
 
 /**
