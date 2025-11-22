@@ -342,7 +342,7 @@ export class RecordSchema<
             items: Object.entries(src).map(([key, val]) => {
               // NB NB: display is actually defined by the user
               const { title, subtitle, image } = prepare({
-                key: key as unknown as KeyType,
+                key,
                 val: val as SelectorOfSchema<T>,
               });
               return [key, { title, subtitle, image }];
