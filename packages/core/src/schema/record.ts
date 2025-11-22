@@ -122,8 +122,6 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-        }
-        if (keyError) {
           if (error) {
             if (error[keyPath]) {
               error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
