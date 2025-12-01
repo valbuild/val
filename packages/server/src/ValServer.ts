@@ -48,6 +48,7 @@ import {
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { ReifiedRender } from "@valbuild/core";
+import { VERSION as uiVersion } from "@valbuild/ui";
 
 export type ValServerOptions = {
   route: string;
@@ -355,8 +356,159 @@ export const ValServer = (
       json: { remoteFileAuth },
     };
   };
+  const serverVersion = ((): string | null => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      return require("../package.json").version;
+    } catch {
+      return null;
+    }
+  })();
 
   return {
+    "/admin/status": {
+      POST: async (req) => {
+        // This endpoint is the only that uses only the API key to authenticate.
+        // The reason is that it is called by the admin app to get the status of the current build and the admin app only has the api key
+        // The status information is not very sensitive but we figured it is might be used for reconnaissance, so we're taking extra precautions to protect against brute force attacks and timing attacks...
+
+        // Input validation
+        if (
+          !req.body?.apiKey ||
+          !req.body?.code ||
+          typeof req.body.apiKey !== "string" ||
+          typeof req.body.code !== "string"
+        ) {
+          return { status: 400, json: { message: "Invalid request" } };
+        }
+
+        const getStatus = () => {
+          const versions = {
+            core: Internal.VERSION.core || "unknown",
+            ui: uiVersion,
+            server: serverVersion || "unknown",
+          };
+          if (options.mode === "fs") {
+            return {
+              versions,
+              mode: options.mode,
+              project: options.project,
+            };
+          }
+          return {
+            versions,
+            mode: options.mode,
+            project: options.project,
+            commit: options.commit,
+            branch: options.branch,
+            root: options.root,
+          };
+        };
+        // We do NOT check the api key prior to sending the request, because it would open us up to a timing attack
+        const clientCode = crypto.randomUUID();
+        const url = new URL(`/api/val/status`, options.valBuildUrl);
+        type Versions = {
+          core: string;
+          ui: string;
+          server: string;
+        };
+        const statusData = getStatus();
+        const body:
+          | {
+              versions: Versions;
+              mode: "fs";
+              project: string | undefined;
+              timestamp: number;
+              request_code: string;
+              client_code: string;
+            }
+          | {
+              mode: "http";
+              versions: Versions;
+              root: string | undefined;
+              project: string | undefined;
+              commit: string | undefined;
+              branch: string | undefined;
+              timestamp: number;
+              request_code: string;
+              client_code: string;
+            } = {
+          ...statusData,
+          timestamp: Date.now(),
+          request_code: req.body.code,
+          client_code: clientCode,
+        };
+
+        // Network request with timeout and error handling
+        let res, resBody;
+        try {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+          res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${req.body.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          resBody = await res.json();
+        } catch (error) {
+          return {
+            status: 503,
+            json: { message: "Service temporarily unavailable" },
+          };
+        }
+
+        // Response validation
+        if (!resBody || typeof resBody !== "object") {
+          return {
+            status: 502,
+            json: { message: "Invalid response from service" },
+          };
+        }
+
+        // Bounded delay to prevent DDoS
+        const delay = Math.min(Math.max(resBody.delay || 0, 0), 10000); // Cap at 10 seconds
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+        // Safe client code validation
+        if (!resBody.client_code || resBody.client_code !== clientCode) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+
+        if (res.status === 401) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+
+        if (res.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: "Internal server error",
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            ...statusData,
+          },
+        };
+      },
+    },
     "/draft/enable": {
       GET: async (req) => {
         const cookies = req.cookies;
