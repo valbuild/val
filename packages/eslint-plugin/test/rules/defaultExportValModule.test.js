@@ -1,4 +1,4 @@
-import { RuleTester } from "eslint";
+import { RuleTester } from "@typescript-eslint/rule-tester";
 import { rules as valRules } from "@valbuild/eslint-plugin";
 import path from "path";
 
