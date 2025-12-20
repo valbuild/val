@@ -313,7 +313,7 @@ export class Hash {
   digest(encoding: string): string;
   digest(encoding?: string) {
     const { _byte, _word } = this;
-    let i = this._size % N.inputBytes | 0;
+    let i = (this._size % N.inputBytes) | 0;
     _byte[i++] = 0x80;
 
     // pad 0 for current word

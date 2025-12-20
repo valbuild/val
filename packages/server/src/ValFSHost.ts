@@ -8,8 +8,7 @@ import { Buffer } from "buffer";
  * that uses ValFS to resolve modules and read/write files.
  */
 export interface IValFSHost
-  extends ts.ParseConfigHost,
-    ts.ModuleResolutionHost {
+  extends ts.ParseConfigHost, ts.ModuleResolutionHost {
   useCaseSensitiveFileNames: boolean;
 
   writeFile(
