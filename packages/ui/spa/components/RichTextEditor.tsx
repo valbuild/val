@@ -471,8 +471,7 @@ export function LinkToolBar() {
   );
 }
 
-export interface ToolbarButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ToolbarButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary";
   active?: boolean;
   disabled?: boolean;
