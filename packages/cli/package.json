@@ -18,8 +18,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@inquirer/confirm": "^2.0.15",
-    "@inquirer/prompts": "^3.0.2",
     "@valbuild/core": "~0.87.3",
     "@valbuild/eslint-plugin": "~0.87.3",
     "@valbuild/server": "~0.87.3",
