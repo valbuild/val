@@ -414,6 +414,7 @@ ${prefixStyles(commonStyles)}
             position: "absolute",
             width: 1000,
             height: 1000,
+            visibility: "hidden",
           }}
           src={iframeSrc}
           key={iframeSrc}
