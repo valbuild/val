@@ -85,7 +85,7 @@
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
     --bg-primary-hover: var(--colors-gray-light-mode-gray-100);
-    --fg-primary: var(--colors-gray-light-mode-grey-900);
+    --fg-primary: var(--colors-gray-light-mode-gray-900);
     --fg-primary-alt: var(--colors-gray-light-mode-gray-500);
     --border-primary: var(--colors-gray-light-mode-gray-300);
 
