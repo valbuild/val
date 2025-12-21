@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.87.3",
+  "version": "0.87.4",
   "description": "Val CLI tools",
   "bin": {
     "val": "./bin.js"
@@ -18,9 +18,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/core": "~0.87.3",
-    "@valbuild/eslint-plugin": "~0.87.3",
-    "@valbuild/server": "~0.87.3",
+    "@valbuild/core": "~0.87.4",
+    "@valbuild/eslint-plugin": "~0.87.4",
+    "@valbuild/server": "~0.87.4",
     "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
