@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { CodeLanguage, SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
   useAddPatch,
@@ -15,6 +15,7 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
+import { CodeEditor } from "../CodeEditor";
 
 export function StringField({
   path,
@@ -40,11 +41,16 @@ export function StringField({
   }, [maybeSourceData, maybeClientSideOnly]);
   const renderAtPath = useRenderOverrideAtPath(path);
   const [renderAsTextarea, setRenderAsTextarea] = useState(false);
+  const [renderAsCodeLanguage, setRenderAsCodeLanguage] = useState<
+    CodeLanguage | false
+  >(false);
   useEffect(() => {
     if (renderAtPath && renderAtPath.status === "success") {
       // Only change if render has indeed loaded (if not we will go from input to textarea and back which is bad)
       if (renderAtPath.data.layout === "textarea") {
         setRenderAsTextarea(true);
+      } else if (renderAtPath.data.layout === "code") {
+        setRenderAsCodeLanguage(renderAtPath.data.language);
       } else {
         setRenderAsTextarea(false);
       }
@@ -111,7 +117,31 @@ export function StringField({
       </div>
     );
   }
-
+  if (renderAsCodeLanguage) {
+    return (
+      <div id={path}>
+        <ValidationErrors path={path} />
+        <CodeEditor
+          language={renderAsCodeLanguage}
+          value={currentValue || ""}
+          autoFocus={autoFocus}
+          onChange={(value) => {
+            setCurrentValue(value);
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: value,
+                },
+              ],
+              type,
+            );
+          }}
+        />
+      </div>
+    );
+  }
   return (
     <div id={path}>
       <ValidationErrors path={path} />

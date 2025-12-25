@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { ReifiedRender } from "../render";
+import { CodeLanguage, ReifiedRender } from "../render";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -42,7 +42,10 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput: { as: "textarea" } | null = null,
+    private readonly renderInput:
+      | { as: "textarea" }
+      | { as: "code"; language: CodeLanguage }
+      | null = null,
   ) {
     super();
   }
@@ -221,7 +224,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  render(input: { as: "textarea" }): StringSchema<Src> {
+  render(
+    input: { as: "textarea" } | { as: "code"; language: CodeLanguage },
+  ): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -236,6 +241,17 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     src: Src,
   ): ReifiedRender {
     if (this.renderInput) {
+      if (this.renderInput.as === "code") {
+        return {
+          [sourcePath]: {
+            status: "success" as const,
+            data: {
+              layout: this.renderInput.as,
+              language: this.renderInput.language,
+            },
+          },
+        };
+      }
       return {
         [sourcePath]: {
           status: "success" as const,
