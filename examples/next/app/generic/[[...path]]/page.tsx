@@ -16,6 +16,7 @@ export default function GenericPage({
     <main>
       <h1>{content.title}</h1>
       <p>{content.content}</p>
+      <pre>{content.exampleCode}</pre>
     </main>
   );
 }
