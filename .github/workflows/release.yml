@@ -33,3 +33,4 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org
           NPM_CONFIG_ALWAYS_AUTH: true
           NPM_CONFIG_ACCESS: public
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
