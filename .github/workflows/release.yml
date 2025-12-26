@@ -12,13 +12,16 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
           cache: npm
+      - name: Enable npm provenance (OIDC)
+        run: npm config set provenance true
       - run: npm ci
       - uses: changesets/action@v1
         with:
@@ -26,3 +29,7 @@ jobs:
           version: npm run version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_ALWAYS_AUTH: true
+          NPM_CONFIG_ACCESS: public
