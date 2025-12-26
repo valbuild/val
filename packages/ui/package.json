@@ -2,6 +2,10 @@
   "name": "@valbuild/ui",
   "version": "0.87.4",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "vite build && vite --config server.vite.config.mts build && rollup --config rollup.config.js && vite --config spa.vite.config.mts build && node fix-server-hack.js && node fix-version-hack.js",

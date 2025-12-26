@@ -3,6 +3,10 @@
   "private": false,
   "version": "0.87.4",
   "description": "Val CLI tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "bin": {
     "val": "./bin.js"
   },

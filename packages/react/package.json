@@ -3,6 +3,10 @@
   "version": "0.87.4",
   "private": false,
   "description": "Val - React internal helpers",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
