@@ -3,6 +3,10 @@
   "version": "0.87.4",
   "private": false,
   "description": "Val shared types and utilities",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"

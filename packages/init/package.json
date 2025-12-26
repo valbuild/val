@@ -2,6 +2,10 @@
   "name": "@valbuild/init",
   "version": "0.87.4",
   "description": "Initialize a new val.build project",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "exports": {
     "./main": {
       "module": "./main/dist/valbuild-init-main.esm.js",
@@ -14,7 +18,7 @@
     "test": "jest"
   },
   "bin": {
-    "@valbuild/init": "./bin.js"
+    "valbuild-init": "./bin.js"
   },
   "dependencies": {
     "@inquirer/confirm": "^2.0.15",
