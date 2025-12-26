@@ -33,8 +33,37 @@ export type TextareaRender = {
   layout: "textarea";
 };
 
+export type CodeLanguage =
+  | "typescript"
+  | "javascript"
+  | "javascriptreact"
+  | "typescriptreact"
+  | "json"
+  | "java"
+  | "html"
+  | "css"
+  | "xml"
+  | "markdown"
+  | "sql"
+  | "python"
+  | "rust"
+  | "php"
+  | "go"
+  | "cpp"
+  | "sass"
+  | "vue"
+  | "angular";
+export type CodeRender = {
+  layout: "code";
+  language: CodeLanguage;
+};
+
 // Main render type:
-type RenderTypes = ListRecordRender | ListArrayRender | TextareaRender;
+type RenderTypes =
+  | ListRecordRender
+  | ListArrayRender
+  | TextareaRender
+  | CodeRender;
 //
 
 type WithStatus<T> =

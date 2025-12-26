@@ -3,6 +3,7 @@ import { c, nextAppRouter, s } from "_/val.config";
 const genericPageSchema = s.object({
   title: s.string(),
   content: s.string().render({ as: "textarea" }),
+  exampleCode: s.string().render({ as: "code", language: "typescript" }),
 });
 
 export default c.define(
@@ -11,11 +12,13 @@ export default c.define(
   {
     "/generic": {
       title: "Generic",
-      content: "Generic content",
+      content: "Generic content in a textarea",
+      exampleCode: 'console.log("Val is great for documentation")',
     },
     "/generic/test/foo": {
       title: "Test",
-      content: "Test content",
+      content: "hva er det som skjer noen ganger?",
+      exampleCode: "function contentAsCode() {\n  return true;\n}",
     },
   },
 );

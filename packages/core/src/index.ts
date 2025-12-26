@@ -127,6 +127,8 @@ export {
   type ListRecordRender,
   type ListArrayRender,
   type ReifiedRender,
+  type CodeLanguage,
+  type CodeRender,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 import { nextAppRouter } from "./router";
