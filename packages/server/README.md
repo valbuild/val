@@ -1,10 +1,9 @@
-# Environment variables
+# Val Server
 
-- VAL_API_KEY (Proxy)
-- VAL_SECRET (Proxy)
-- VAL_GIT_COMMIT
-- VAL_GIT_BRANCH
-- VAL_BUILD_URL
-- VAL_PROJECT (Proxy)
+This package contains Val's integrated server for handling content operations and evaluation.
 
-![val auth flow](val_auth.png "Val Auth flow")
+NOTE: do not use this directly, use the package corresponding to your meta-framework (e.g. Next) instead.
+
+## Contributors
+
+This package provides server-side Val functionality including module evaluation, file watching, and content validation.
