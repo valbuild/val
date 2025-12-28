@@ -4,7 +4,7 @@
   "description": "Val - integrated server",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "main": "dist/valbuild-server.cjs.js",
   "module": "dist/valbuild-server.esm.js",

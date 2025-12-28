@@ -5,7 +5,7 @@
   "description": "Val - supercharged hard-coded content",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

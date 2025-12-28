@@ -5,7 +5,7 @@
   "description": "Val shared types and utilities",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
