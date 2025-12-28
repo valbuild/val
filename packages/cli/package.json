@@ -5,7 +5,7 @@
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "bin": {
     "val": "./bin.js"

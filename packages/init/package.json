@@ -4,7 +4,7 @@
   "description": "Initialize a new val.build project",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "exports": {
     "./main": {

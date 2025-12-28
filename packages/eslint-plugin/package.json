@@ -4,7 +4,7 @@
   "description": "ESLint rules for val",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "keywords": [
     "eslint",

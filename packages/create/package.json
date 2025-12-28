@@ -4,7 +4,7 @@
   "description": "Create a new Val project with Next.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/valbuild/val.git"
+    "url": "git+https://github.com/valbuild/val.git"
   },
   "main": "dist/valbuild-create.cjs.js",
   "module": "dist/valbuild-create.esm.js",
