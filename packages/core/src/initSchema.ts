@@ -16,13 +16,83 @@ import { date } from "./schema/date";
 // import { oneOf } from "./schema/future/oneOf";
 
 export type InitSchema = {
+  /**
+   * Define a string.
+   *
+   * @example
+   * const schema = s.string();
+   * export default c.define("/example.val.ts", schema, "test");
+   *
+   */
   readonly string: typeof string;
+  /**
+   * Define a boolean.
+   *
+   * @example
+   * const schema = s.boolean();
+   * export default c.define("/example.val.ts", schema, true);
+   *
+   */
   readonly boolean: typeof boolean;
+  /**
+   * Define an array.
+   *
+   * @example
+   * const schema = s.array(s.string());
+   * export default c.define("/example.val.ts", schema, ["test", "test2"]);
+   *
+   */
   readonly array: typeof array;
+  /**
+   * Define an object.
+   *
+   * @example
+   * const schema = s.object({
+   *  text: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, { text: "test" });
+   */
   readonly object: typeof object;
+  /**
+   * Define a number.
+   *
+   * @example
+   * const schema = s.number();
+   * export default c.define("/example.val.ts", schema, 1);
+   *
+   */
   readonly number: typeof number;
+  /**
+   * Define a union.
+   *
+   * @example // union of string literals
+   * const schema = s.union(s.literal("test"), s.literal("test2"));
+   * export default c.define("/example.val.ts", schema, "test");
+   *
+   * @example // union of string literals
+   * const schema = s.union("type", s.object({
+   *   type: s.literal("test"),
+   *   value: s.string()
+   * }), s.object({
+   *   type: s.literal("test2"),
+   *   value: s.string()
+   * }));
+   * export default c.define("/example.val.ts", schema, {
+   *   type: "test",
+   *   value: "test"
+   * });
+   *
+   */
   readonly union: typeof union;
-  // readonly oneOf: typeof oneOf;
+  /**
+   * Define a rich text.
+   *
+   * @example
+   * const schema = s.richtext();
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "h1", children: ["Title 1"] },
+   * ]);
+   */
   readonly richtext: typeof richtext;
   /**
    * Define an image.
@@ -43,10 +113,52 @@ export type InitSchema = {
    *
    */
   readonly image: typeof image;
+  /**
+   * Define a literal.
+   *
+   * @example
+   * const schema = s.literal("test");
+   * export default c.define("/example.val.ts", schema, "test");
+   *
+   */
   readonly literal: typeof literal;
+  /**
+   * Define a key of.
+   *
+   * @example
+   * const schema = s.keyOf(s.string());
+   * export default c.define("/example.val.ts", schema, "test");
+   *
+   */
   readonly keyOf: typeof keyOf;
+  /**
+   * Define a record.
+   *
+   * @example
+   * const schema = s.record(s.string());
+   * export default c.define("/example.val.ts", schema, { "test": "test" });
+   *
+   */
   readonly record: typeof record;
+  /**
+   * Define a file.
+   *
+   * Use `c.file` to create a file source.
+   *
+   * @example
+   * const schema = s.file();
+   * export default c.define("/example.val.ts", schema, c.file("/public/val/example.png"));
+   *
+   */
   readonly file: typeof file;
+  /**
+   * Define a date.
+   *
+   * @example
+   * const schema = s.date();
+   * export default c.define("/example.val.ts", schema, "2025-01-01");
+   *
+   */
   readonly date: typeof date;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
