@@ -65,6 +65,8 @@ import {
   SelectValue,
 } from "./designSystem/select";
 import { AnimatedClock } from "./AnimatedClock";
+import { VERCEL_STEGA_REGEX, vercelStegaDecode } from "@vercel/stega";
+import { cn } from "./designSystem/cn";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -102,91 +104,104 @@ type EditMode = {
     height: number;
   };
 };
+
 export function ValOverlay(props: ValOverlayProps) {
   const [mode, setMode] = useState<OverlayModes>(null);
-  const [boundingBoxes, setBoundingBoxes] = useState<
-    {
-      top: number;
-      left: number;
-      width: number;
-      height: number;
-      joinedPaths: string;
-    }[]
-  >([]);
-  const [scrollPos, setScrollPos] = useState({ x: 0, y: 0 });
+  const [editMode, setEditMode] = useState<EditMode | null>(null);
+
+  const [boundingBox, setBoundingBox] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    joinedPaths: string;
+  } | null>(null);
   useEffect(() => {
-    const scrollListener = () => {
-      setScrollPos({ x: window.scrollX, y: window.scrollY });
-    };
-    window.addEventListener("scroll", scrollListener, { passive: false });
-    return () => {
-      window.removeEventListener("scroll", scrollListener);
-    };
-  }, []);
+    if (!props.draftMode) {
+      setMode(null);
+      setEditMode(null);
+      setBoundingBox(null);
+    }
+  }, [props.draftMode]);
   useEffect(() => {
-    if (mode === "select") {
-      let timeout: NodeJS.Timeout;
-      const updateElements = () => {
-        const newBoundingBoxes: {
+    if (mode === "select" && editMode === null) {
+      const listener = (clientX: number, clientY: number) => {
+        const elements = document.elementsFromPoint(clientX, clientY);
+        let boundingBox: {
           top: number;
           left: number;
           width: number;
           height: number;
           joinedPaths: string;
-        }[] = [];
-        document.querySelectorAll("[data-val-path]").forEach((el) => {
-          const path = el.getAttribute("data-val-path");
-          if (!path) {
-            return;
-          }
-          if (el.tagName === "SOURCE" || el.tagName === "TRACK") {
-            const sourceParentEl = el.parentElement;
+        } | null = null;
+        for (const el of elements) {
+          if (el instanceof HTMLElement) {
+            let path = el.getAttribute("data-val-path");
             if (
-              !sourceParentEl ||
-              !(
-                sourceParentEl.tagName === "VIDEO" ||
-                sourceParentEl.tagName === "PICTURE" ||
-                sourceParentEl.tagName === "AUDIO"
-              )
+              !path &&
+              el.textContent &&
+              el.textContent.match(VERCEL_STEGA_REGEX)
             ) {
-              return;
+              const cleanText = vercelStegaDecode(el.textContent);
+              if (
+                cleanText &&
+                typeof cleanText === "object" &&
+                "data" in cleanText &&
+                typeof cleanText.data === "object" &&
+                cleanText.data &&
+                "valPath" in cleanText.data &&
+                typeof cleanText.data.valPath === "string"
+              ) {
+                path = cleanText.data.valPath;
+              }
             }
-            const rect = sourceParentEl.getBoundingClientRect();
-            newBoundingBoxes.push({
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              height: rect.height,
-              joinedPaths: path,
-            });
-            return;
+            if (path) {
+              boundingBox = {
+                top: el.offsetTop,
+                left: el.offsetLeft,
+                width: el.offsetWidth,
+                height: el.offsetHeight,
+                joinedPaths: path,
+              };
+            }
           }
-          const rect = el.getBoundingClientRect();
-          newBoundingBoxes.push({
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-            joinedPaths: path,
-          });
-        });
-        setBoundingBoxes(newBoundingBoxes);
-        timeout = setTimeout(updateElements, 1000);
+        }
+        if (boundingBox) {
+          setBoundingBox(boundingBox);
+        }
       };
-      updateElements();
+      const touchListener = (ev: TouchEvent) => {
+        listener(ev.touches[0].clientX, ev.touches[0].clientY);
+      };
+      const mouseListener = (ev: MouseEvent) => {
+        listener(ev.clientX, ev.clientY);
+      };
+      const mouseLeaveListener = () => {
+        setBoundingBox(null);
+      };
+      const resizeListener = () => {
+        setBoundingBox(null);
+      };
+      window.addEventListener("mousemove", mouseListener);
+      window.addEventListener("touchmove", touchListener);
+      window.addEventListener("touchstart", touchListener);
+      window.addEventListener("mouseleave", mouseLeaveListener);
+      window.addEventListener("resize", resizeListener);
       return () => {
-        clearTimeout(timeout);
+        window.removeEventListener("mousemove", mouseListener);
+        window.removeEventListener("touchmove", touchListener);
+        window.removeEventListener("touchstart", touchListener);
+        window.removeEventListener("mouseleave", mouseLeaveListener);
+        window.removeEventListener("resize", resizeListener);
       };
-    } else {
-      setBoundingBoxes([]);
     }
-  }, [mode, scrollPos]);
-  const [editMode, setEditMode] = useState<EditMode | null>(null);
+  }, [editMode, mode]);
   useEffect(() => {
     if (mode === "select" && editMode === null) {
       const keyDownListener = (ev: KeyboardEvent) => {
         if (ev.key === "Escape") {
           setMode(null);
+          setBoundingBox(null);
         }
       };
       window.addEventListener("keydown", keyDownListener);
@@ -249,59 +264,48 @@ export function ValOverlay(props: ValOverlayProps) {
   return (
     <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
       <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
-      {boundingBoxes.map((boundingBox, i) => {
-        return (
-          <div
-            className="absolute top-0 border border-bg-brand-primary z-[8998] hover:border-2 rounded"
-            onClickCapture={(ev) => {
-              ev.stopPropagation();
-              setMode(null);
-              setEditMode({
-                joinedPaths: boundingBox.joinedPaths,
-                clientY: ev.clientY,
-                clientX: ev.clientX,
-                boundingBox: boundingBox,
-              });
-            }}
-            key={i}
-            style={{
-              display: "block",
-              top: boundingBox?.top + scrollPos.y,
-              left: boundingBox?.left + scrollPos.x,
-              width: boundingBox?.width,
-              height: boundingBox?.height,
-            }}
-          >
-            <div className="relative top-0 left-0 w-full">
-              <div
-                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-fg-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
-                style={{
-                  fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
-                  maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
-                  maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
-                }}
-              >
-                {Internal.splitJoinedSourcePaths(boundingBox.joinedPaths).map(
-                  (path) => {
-                    const [moduleFilePath, modulePath] =
-                      Internal.splitModuleFilePathAndModulePath(path);
-
-                    return (
-                      <ValPath
-                        key={path}
-                        link={false}
-                        toolTip={false}
-                        moduleFilePath={moduleFilePath}
-                        patchPath={Internal.splitModulePath(modulePath)}
-                      />
-                    );
-                  },
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {boundingBox && (
+        <div
+          className={cn(
+            "absolute z-[8998]",
+            "cursor-pointer",
+            "rounded-sm",
+            "transition-all duration-150 ease-in-out",
+            "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
+          )}
+          style={maxRect(
+            {
+              top: boundingBox.top,
+              left: boundingBox.left,
+              width: boundingBox.width,
+              height: boundingBox.height,
+            },
+            {
+              top: window.innerHeight,
+              left: window.innerWidth,
+              width: window.innerWidth,
+              height: window.innerHeight,
+            },
+            2,
+          )}
+          onClick={(ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            setBoundingBox(null);
+            setEditMode({
+              joinedPaths: boundingBox.joinedPaths,
+              clientX: boundingBox.left,
+              clientY: boundingBox.top,
+              boundingBox: {
+                top: boundingBox.top,
+                left: boundingBox.left,
+                width: boundingBox.width,
+                height: boundingBox.height,
+              },
+            });
+          }}
+        ></div>
+      )}
       {editMode === null && (
         <DraggableValMenu
           {...props}
@@ -1219,3 +1223,16 @@ const DropZone = ({
 }) => {
   return <div onDrop={onDrop(id)} onDragOver={onDragOver(id)}></div>;
 };
+
+function maxRect(
+  rect: { top: number; left: number; width: number; height: number },
+  max: { top: number; left: number; width: number; height: number },
+  strokeWidth: number,
+) {
+  return {
+    top: Math.max(0, rect.top - strokeWidth),
+    left: Math.max(0, rect.left - strokeWidth),
+    width: Math.min(max.width - rect.left, rect.width + strokeWidth * 2),
+    height: Math.min(max.height - rect.top, rect.height + strokeWidth * 2),
+  };
+}
