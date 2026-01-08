@@ -203,10 +203,7 @@ export type StegaOfRichTextSource<T extends Source> = Json extends T
  **/
 export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
   RichTextSource<O>
-> & {
-  /** This path is used internally by Val to identify where this RichText source is defined */
-  valPath?: string;
-};
+>;
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
@@ -309,11 +306,37 @@ export function stegaEncode(
       }
     }
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
-      const res = rec(sourceOrSelector);
-      if (typeof res === "object" && res !== null) {
-        res.valPath = recOpts.path;
+      if (typeof sourceOrSelector === "string") {
+        return rec(sourceOrSelector, {
+          path: recOpts.path,
+          schema: {
+            type: "string",
+          },
+        });
       }
-      return res;
+      if (Array.isArray(sourceOrSelector)) {
+        const a = sourceOrSelector.map((el) =>
+          rec(el, {
+            path: recOpts.path,
+            schema: recOpts.schema,
+          }),
+        );
+        return a;
+      } else if (typeof sourceOrSelector === "object") {
+        const a = Object.fromEntries(
+          Object.entries(sourceOrSelector).map(([key, value]) => [
+            key,
+            key === "tag" || key === "styles"
+              ? value
+              : rec(value, {
+                  path: recOpts.path,
+                  schema: recOpts.schema,
+                }),
+          ]),
+        );
+        return a;
+      }
+      return sourceOrSelector;
     }
 
     if (typeof sourceOrSelector === "object") {

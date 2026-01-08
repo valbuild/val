@@ -175,7 +175,7 @@ export function ValRichText<O extends RichTextOptions>({
     });
   }
   return (
-    <div className={className} style={style} data-val-path={root?.valPath}>
+    <div className={className} style={style}>
       {root?.map(build)}
     </div>
   );
