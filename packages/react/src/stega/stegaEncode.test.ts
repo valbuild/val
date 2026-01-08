@@ -68,12 +68,31 @@ describe("stega transform", () => {
       "/val/test2.png",
     );
 
-    expect(transformed[0].text.valPath).toStrictEqual(
-      '/test.val.ts?p=0."text"',
+    expect(vercelStegaDecode(transformed[0].text[0].children[0])).toStrictEqual(
+      {
+        data: {
+          valPath: '/test.val.ts?p=0."text"',
+        },
+        origin: "val.build",
+      },
     );
-    expect(transformed[1].text.valPath).toStrictEqual(
-      '/test.val.ts?p=1."text"',
+
+    expect(
+      vercelStegaSplit(transformed[0].text[0].children[0]).cleaned,
+    ).toStrictEqual("Test");
+
+    expect(vercelStegaDecode(transformed[1].text[0].children[0])).toStrictEqual(
+      {
+        data: {
+          valPath: '/test.val.ts?p=1."text"',
+        },
+        origin: "val.build",
+      },
     );
+
+    expect(
+      vercelStegaSplit(transformed[1].text[0].children[0]).cleaned,
+    ).toStrictEqual("Test");
   });
 
   test("basic with remote image", () => {
