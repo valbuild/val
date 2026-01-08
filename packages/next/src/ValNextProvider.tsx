@@ -18,6 +18,7 @@ import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
+import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 
 /**
@@ -296,6 +297,10 @@ export const ValNextProvider = (props: {
     }
   }, []);
   useConfigStorageSave(props.config);
+  const initTheme = React.useMemo(
+    () => initSessionTheme(props.config),
+    [props.config],
+  );
   const [spaLoaded, setSpaLoaded] = React.useState(false);
   React.useEffect(() => {
     const listener = () => {
@@ -306,11 +311,18 @@ export const ValNextProvider = (props: {
       window.removeEventListener("val-ui-created", listener);
     };
   }, []);
+  const [backgroundColor, textColor] = React.useMemo(() => {
+    if (initTheme !== "light") {
+      return ["#0c111d", "white"];
+    } else {
+      return ["white", "black"];
+    }
+  }, [initTheme]);
   const commonStyles = React.useMemo(() => {
     return {
       "backdrop-blur": "backdrop-filter: blur(10px);",
-      "text-white": "color: white;",
-      "bg-bg-primary": "background: #0c111d;",
+      "text-text-primary": `color: ${textColor};`,
+      "bg-bg-primary": `background: ${backgroundColor};`,
       rounded: "border-radius: 0.25rem;",
       fixed: "position: fixed;",
       "bottom-4": "bottom: 1rem;",
@@ -349,7 +361,7 @@ ${prefixStyles(commonStyles)}
             <div
               className={
                 `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
-                `${cn(["text-white", "bg-bg-primary", "rounded", "backdrop-blur"])}`
+                `${cn(["text-text-primary", "bg-bg-primary", "rounded", "backdrop-blur"])}`
               }
             >
               <svg

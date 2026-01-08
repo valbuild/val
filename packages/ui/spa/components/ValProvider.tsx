@@ -29,6 +29,7 @@ import {
   SharedValConfig,
   ValClient,
   getNextAppRouterSourceFolder,
+  VAL_THEME_SESSION_STORAGE_KEY,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
@@ -158,23 +159,15 @@ export function ValProvider({
     }
   }, [serviceUnavailable, showServiceUnavailable]);
 
-  const [theme, setTheme] = useState<Themes | null>(
-    config?.defaultTheme || null,
-  );
-  useEffect(() => {
-    const storedProjectTheme = localStorage.getItem(
-      "val-theme-" + (config?.project || "unknown"),
-    );
-    if (storedProjectTheme === "light" || storedProjectTheme === "dark") {
-      setTheme(storedProjectTheme);
-    } else if (config?.defaultTheme) {
-      if (config?.defaultTheme === "dark" || config?.defaultTheme === "light") {
-        setTheme(config.defaultTheme);
-      } else {
-        console.warn(`Invalid config default theme: ${config.defaultTheme}`);
-      }
+  // Theme is initialized by ValNextProvider in session storage
+  // We just read it once on init and then rely on React state
+  const [theme, setTheme] = useState<Themes | null>(() => {
+    const storedTheme = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      return storedTheme;
     }
-  }, [config]);
+    return null;
+  });
 
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
@@ -446,17 +439,27 @@ export function ValProvider({
         setTheme: (theme) => {
           if (theme === "dark" || theme === "light") {
             try {
+              sessionStorage.setItem(VAL_THEME_SESSION_STORAGE_KEY, theme);
               localStorage.setItem(
                 "val-theme-" + (config?.project || "unknown"),
                 theme,
               );
-              localStorage.setItem("val-theme-unknown", theme);
             } catch (e) {
-              console.error("Error setting theme in local storage", e);
+              console.error("Error setting theme in storage", e);
             }
             setTheme(theme);
+          } else if (theme === null) {
+            try {
+              sessionStorage.removeItem(VAL_THEME_SESSION_STORAGE_KEY);
+              localStorage.removeItem(
+                "val-theme-" + (config?.project || "unknown"),
+              );
+            } catch (e) {
+              console.error("Error removing theme from storage", e);
+            }
+            setTheme(null);
           } else {
-            console.warn(`Cannot set invalid theme theme: ${theme}`);
+            console.warn(`Cannot set invalid theme: ${theme}`);
           }
         },
         config,
