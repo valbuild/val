@@ -464,7 +464,7 @@ function Window({
        */}
       <div
         className={classNames(
-          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-fg-primary cursor-pointer",
+          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-fg-primary border-2 border-border-secondary",
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
               windowInnerWidth < 1024,
