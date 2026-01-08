@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   Globe,
+  GripHorizontal,
   LogIn,
   PanelBottom,
   PanelLeft,
@@ -16,7 +17,6 @@ import {
 } from "lucide-react";
 import {
   Dispatch,
-  Fragment,
   SetStateAction,
   useEffect,
   useMemo,
@@ -56,7 +56,6 @@ import { HoverCard } from "./designSystem/hover-card";
 import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 import { PublishButton } from "./PublishButton";
 import { ScrollArea } from "./designSystem/scroll-area";
-import { ValPath } from "./ValPath";
 import {
   Select,
   SelectContent,
@@ -334,8 +333,15 @@ function Window({
     x: window.innerWidth,
     y: window.innerHeight,
   });
+  const [windowSize, setWindowSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
   const ref = useRef<HTMLDivElement>(null);
+  const isMobile = windowInnerWidth < 1024;
+  const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
+
   useEffect(() => {
     const handlePosition = () => {
       if (editMode) {
@@ -343,24 +349,33 @@ function Window({
           if (ref.current) {
             const { innerWidth, innerHeight } = window;
             const { offsetWidth, offsetHeight } = ref.current;
-            const height = offsetHeight;
-            const width = offsetWidth;
             let newX = editMode.clientX;
             let newY = editMode.clientY;
-            const padding = 80;
-            const overflowX = innerWidth - (editMode.clientX + width);
-            if (overflowX < 0) {
-              newX = newX + (overflowX - padding);
+            const padding = 20;
+
+            // Set initial size
+            setWindowSize({ width: offsetWidth, height: offsetHeight });
+
+            // Keep window within viewport bounds
+            if (newX + offsetWidth > innerWidth - padding) {
+              newX = innerWidth - offsetWidth - padding;
             }
-            const overflowY = innerHeight - (editMode.clientY + height);
-            if (overflowY < 0) {
-              newY = newY + (overflowY - padding);
+            if (newX < padding) {
+              newX = padding;
             }
+            if (newY + offsetHeight > innerHeight - padding) {
+              newY = innerHeight - offsetHeight - padding;
+            }
+            if (newY < padding) {
+              newY = padding;
+            }
+
             setWindowPos({ x: newX, y: newY });
           }
         }, 100);
       } else {
         setWindowPos({ x: window.innerWidth, y: window.innerHeight });
+        setWindowSize({ width: 0, height: 0 });
       }
     };
 
@@ -374,8 +389,25 @@ function Window({
   useEffect(() => {
     const handleResize = () => {
       setWindowInnerWidth(window.innerWidth);
-      if (windowInnerWidth < 1024) {
+      if (window.innerWidth < 1024) {
         setWindowPos({ x: 16, y: 16 });
+      } else if (ref.current) {
+        // On desktop, constrain position if window is now out of bounds
+        setWindowPos((pos) => {
+          const { innerWidth, innerHeight } = window;
+          const { offsetWidth } = ref.current!;
+
+          const minVisible = 100;
+          const maxX = innerWidth - minVisible;
+          const maxY = innerHeight - minVisible;
+          const minX = -(offsetWidth - minVisible);
+          const minY = 0;
+
+          const newX = Math.max(minX, Math.min(maxX, pos.x));
+          const newY = Math.max(minY, Math.min(maxY, pos.y));
+
+          return { x: newX, y: newY };
+        });
       }
     };
     handleResize();
@@ -387,40 +419,87 @@ function Window({
 
   const [isDragging, setIsDragging] = useState(false);
   useEffect(() => {
-    if (isDragging) {
-      const handleMove = (ev: MouseEvent | TouchEvent) => {
-        if (ev instanceof MouseEvent) {
-          setWindowPos((pos) => ({
-            x: pos.x + ev.movementX,
-            y: pos.y + ev.movementY,
-          }));
-        } else {
-          const touch = ev.touches[0];
-          setWindowPos(() => ({
-            x: touch.clientX,
-            y: touch.clientY,
-          }));
-        }
+    if (isDragging && !isMobile) {
+      const handleMove = (ev: MouseEvent) => {
+        setWindowPos((pos) => {
+          if (!ref.current) return pos;
+
+          const { innerWidth, innerHeight } = window;
+          const { offsetWidth } = ref.current;
+
+          // Calculate new position
+          let newX = pos.x + ev.movementX;
+          let newY = pos.y + ev.movementY;
+
+          // Constrain to viewport - keep at least 100px of the window visible
+          const minVisible = 100;
+          const maxX = innerWidth - minVisible;
+          const maxY = innerHeight - minVisible;
+          const minX = -(offsetWidth - minVisible);
+          const minY = 0;
+
+          newX = Math.max(minX, Math.min(maxX, newX));
+          newY = Math.max(minY, Math.min(maxY, newY));
+
+          return { x: newX, y: newY };
+        });
       };
       const handleMoveEnd = () => {
         setIsDragging(false);
       };
-      const handleClick = () => {
-        setIsDragging(false);
-      };
       window.addEventListener("mousemove", handleMove);
       window.addEventListener("mouseup", handleMoveEnd);
-      // window.addEventListener("touchmove", handleMove);
-      // window.addEventListener("touchend", handleMoveEnd);
-      window.addEventListener("click", handleClick);
       return () => {
         window.removeEventListener("mousemove", handleMove);
         window.removeEventListener("mouseup", handleMoveEnd);
-        // window.addEventListener("touchend", handleMoveEnd);
-        window.removeEventListener("click", handleClick);
       };
     }
-  }, [isDragging]);
+  }, [isDragging, isMobile]);
+
+  useEffect(() => {
+    if (isResizing && !isMobile) {
+      const handleResize = (ev: MouseEvent) => {
+        const minWidth = 400;
+        const minHeight = 300;
+        const { innerWidth, innerHeight } = window;
+
+        if (isResizing === "se" || isResizing === "e") {
+          setWindowSize((size) => {
+            const newWidth = Math.max(
+              minWidth,
+              Math.min(
+                innerWidth - windowPos.x - 20,
+                size.width + ev.movementX,
+              ),
+            );
+            return { ...size, width: newWidth };
+          });
+        }
+        if (isResizing === "se" || isResizing === "s") {
+          setWindowSize((size) => {
+            const newHeight = Math.max(
+              minHeight,
+              Math.min(
+                innerHeight - windowPos.y - 20,
+                size.height + ev.movementY,
+              ),
+            );
+            return { ...size, height: newHeight };
+          });
+        }
+      };
+      const handleResizeEnd = () => {
+        setIsResizing(null);
+      };
+      window.addEventListener("mousemove", handleResize);
+      window.addEventListener("mouseup", handleResizeEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleResize);
+        window.removeEventListener("mouseup", handleResizeEnd);
+      };
+    }
+  }, [isResizing, isMobile, windowPos.x, windowPos.y]);
+
   useEffect(() => {
     const keydownListener = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") {
@@ -435,121 +514,205 @@ function Window({
     };
   }, []);
 
+  const handleClose = () => {
+    setMode("select");
+    setEditMode(null);
+  };
+
   return (
     <div
       className={classNames("fixed top-0 left-0 z-[8998]", {
         hidden: editMode === null,
-        // 200vw to make sure we can drag the window all the way to the right:
-        "opacity-100 w-[200svw] h-[100svh]": editMode !== null,
+        "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
+        "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
       })}
     >
       <div
         className={classNames("fixed top-0 left-0", {
           hidden: editMode === null,
-          "opacity-100 w-[100vw] h-[100svh]": editMode !== null,
+          "w-[100vw] h-[100svh]": editMode !== null,
         })}
         onClick={(ev) => {
           ev.preventDefault();
           if (!isDragging) {
-            setMode("select");
-            setEditMode(null);
+            handleClose();
           }
         }}
       ></div>
-      {/**
-       * We place the grab handles around the form, since we couldn't figure out to avoid
-       * having the mouse down behaving weirdly if other buttons (navigate to path) where clicked.
-       *
-       * TODO: fix this
-       */}
       <div
         className={classNames(
-          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-fg-primary border-2 border-border-secondary",
+          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
+          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
           {
-            "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
-              windowInnerWidth < 1024,
-            "min-w-[500px]": windowInnerWidth >= 1024,
+            "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
+              isMobile,
           },
         )}
         ref={ref}
         style={{
           top: windowPos.y,
           left: windowPos.x,
+          ...(!isMobile && windowSize.width > 0
+            ? {
+                width: windowSize.width,
+                height: windowSize.height,
+              }
+            : !isMobile
+              ? { maxWidth: "640px" }
+              : {}),
         }}
       >
+        {/* Header bar - for dragging on desktop, shows close button on mobile */}
         <div
-          className="cursor-grab"
-          // onTouchStart={() => {
-          //   setIsDragging(true);
-          // }}
-          onMouseDown={() => {
-            setIsDragging(true);
-          }}
-        ></div>
-        <div className="grid grid-rows-[32px,1fr,32px]">
-          <div
-            ref={ref}
-            className="cursor-grab"
-            // onTouchStart={() => {
-            //   setIsDragging(true);
-            // }}
-            onMouseDown={() => {
+          className={classNames(
+            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
+            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            {
+              "cursor-grab active:cursor-grabbing": !isMobile,
+            },
+          )}
+          onMouseDown={(ev) => {
+            if (!isMobile) {
+              ev.preventDefault();
               setIsDragging(true);
-            }}
-          ></div>
+            }
+          }}
+        >
+          <div className="text-sm font-semibold text-fg-primary">
+            Edit Content
+          </div>
+          <div className="flex justify-center">
+            {!isMobile && (
+              <GripHorizontal size={16} className="text-fg-secondary" />
+            )}
+          </div>
+          <div className="flex justify-end">
+            {isMobile && (
+              <button
+                onClick={handleClose}
+                className="p-1 rounded hover:bg-bg-secondary transition-colors"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Content area with scroll */}
+        <div
+          className={classNames("flex-1 overflow-y-auto", {
+            "p-6": !isMobile,
+            "p-4": isMobile,
+          })}
+        >
           <form
-            className="flex flex-col items-start justify-start w-full gap-4 lg:justify-start"
+            className="flex flex-col gap-6 w-full"
             onSubmit={(ev) => {
               ev.preventDefault();
               ev.stopPropagation();
-              setMode("select");
-              setEditMode(null);
+              handleClose();
             }}
           >
-            {editMode &&
-              Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
-                (path) => {
-                  const [moduleFilePath, modulePath] =
-                    Internal.splitModuleFilePathAndModulePath(path);
-                  const patchPath = Internal.splitModulePath(modulePath);
-                  return (
-                    <Fragment key={path}>
-                      <ValPath
-                        link
-                        toolTip
-                        moduleFilePath={moduleFilePath}
-                        patchPath={patchPath}
-                      />
-                      <WindowField path={path} />
-                    </Fragment>
-                  );
-                },
-              )}
-            <Button className="self-end" type="submit">
-              Done
-            </Button>
+            {editMode && (
+              <>
+                {/* Studio buttons - only show at top if multiple fields */}
+                {Internal.splitJoinedSourcePaths(editMode.joinedPaths).length >
+                  1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
+                      (path, index) => {
+                        const studioUrl = window.origin + "/val/~" + path;
+                        return (
+                          <a
+                            key={path}
+                            href={studioUrl}
+                            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
+                          >
+                            <PanelsTopLeft size={16} />
+                            <span>Open Studio {index + 1}</span>
+                          </a>
+                        );
+                      },
+                    )}
+                  </div>
+                )}
+                {/* Fields */}
+                {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
+                  (path) => {
+                    return <WindowField key={path} path={path} />;
+                  },
+                )}
+              </>
+            )}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-border-secondary">
+              {/* Show Studio button at bottom if only one field */}
+              {editMode &&
+                Internal.splitJoinedSourcePaths(editMode.joinedPaths).length ===
+                  1 && (
+                  <a
+                    href={
+                      window.origin +
+                      "/val/~" +
+                      Internal.splitJoinedSourcePaths(editMode.joinedPaths)[0]
+                    }
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
+                  >
+                    <PanelsTopLeft size={16} />
+                    <span>Open Studio</span>
+                  </a>
+                )}
+              <div className="flex-1" />
+              <Button type="submit">Done</Button>
+            </div>
           </form>
-          <div
-            ref={ref}
-            className="cursor-grab"
-            // onTouchStart={() => {
-            //   setIsDragging(true);
-            // }}
-            onMouseDown={() => {
-              setIsDragging(true);
-            }}
-          ></div>
         </div>
-        <div
-          ref={ref}
-          className="cursor-grab"
-          // onTouchStart={() => {
-          //   setIsDragging(true);
-          // }}
-          onMouseDown={() => {
-            setIsDragging(true);
-          }}
-        ></div>
+
+        {/* Resize handles - desktop only */}
+        {!isMobile && (
+          <>
+            {/* Right edge resize handle */}
+            <div
+              className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-bg-brand-primary/50 transition-colors"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("e");
+              }}
+            />
+            {/* Bottom edge resize handle */}
+            <div
+              className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-bg-brand-primary/50 transition-colors"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("s");
+              }}
+            />
+            {/* Bottom-right corner resize handle */}
+            <div
+              className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize group"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("se");
+              }}
+            >
+              <svg
+                className="absolute bottom-0.5 right-0.5 w-3 h-3 text-fg-tertiary group-hover:text-fg-secondary transition-colors"
+                viewBox="0 0 12 12"
+                fill="none"
+              >
+                <path
+                  d="M10 2L2 10M10 6L6 10M10 10H10.01"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -571,7 +734,7 @@ function WindowField({ path: path }: { path: SourcePath }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-[600px] w-full">
+    <div className="flex flex-col gap-4 w-full">
       <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );
