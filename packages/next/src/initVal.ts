@@ -3,18 +3,13 @@ import {
   type ValConfig,
   type InitVal,
   type ValConstructor,
-  ValModule,
-  SelectorSource,
-  Json,
   Internal,
   ValRouter,
 } from "@valbuild/core";
 import { raw } from "./raw";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathOfString } from "./decodeValPathOfString";
-import { ValEncodedString } from "./external_exempt_from_val_quickjs";
-
-type ValAttrs = { "data-val-path"?: string };
+import { attrs } from "./attrs";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 
@@ -35,10 +30,36 @@ export const initVal = (
      * outside of the actual application.
      */
     unstable_getUnpatchedUnencodedVal: typeof getUnpatchedUnencodedVal;
+    /**
+     * Convert any object that is encoded with Val stega encoding back to the original values
+     */
     raw: typeof raw;
-    attrs: <T extends ValModule<SelectorSource> | Json>(target: T) => ValAttrs;
+    /**
+     * Get the Val path attributes for any object.
+     *
+     * This is typically used to manually set the data-val-path attribute for visual editing on any element.
+     *
+     * @example
+     * const page = useVal(pageVal)
+     * <a href={page.url.href} {...val.attrs(page)}>
+     *   {page.url.label}
+     * </a>
+     */
+    attrs: typeof attrs;
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
   };
+  /**
+   * The Next.js App Router for use on s.record().router(...)
+   *
+   * @see https://val.build/docs/page-router
+   *
+   * @example
+   * const pages = s.record(s.object({ title: s.string() })).router(nextAppRouter);
+   * export default c.define("/pages/[slug].val.ts", pages, {
+   *   "/about": { title: "About" },
+   *   "/contact": { title: "Contact" },
+   * });
+   */
   nextAppRouter: ValRouter;
 } => {
   const { s, c, val, config: systemConfig } = createValSystem(config);
@@ -52,30 +73,7 @@ export const initVal = (
     nextAppRouter,
     val: {
       ...val,
-      attrs: <T extends ValModule<SelectorSource> | Json>(
-        target: T,
-      ): ValAttrs => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const anyTarget = target as any;
-        let path: string | undefined;
-        if (target === null) {
-          return {};
-        }
-        path = Internal.getValPath(anyTarget);
-        if (!path && typeof anyTarget === "object") {
-          path = anyTarget["valPath"];
-        }
-        if (typeof anyTarget === "string") {
-          path = decodeValPathOfString(anyTarget as ValEncodedString);
-        }
-
-        if (path) {
-          return {
-            "data-val-path": path,
-          };
-        }
-        return {};
-      },
+      attrs,
       unstable_decodeValPathOfString: decodeValPathOfString,
       raw,
       unstable_getUnpatchedUnencodedVal: getUnpatchedUnencodedVal,
