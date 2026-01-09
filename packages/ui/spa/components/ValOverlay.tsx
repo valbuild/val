@@ -206,13 +206,17 @@ export function ValOverlay(props: ValOverlayProps) {
                 }
               }
 
+              const rect = targetElement.getBoundingClientRect();
               boundingBox = {
-                top: targetElement.offsetTop,
-                left: targetElement.offsetLeft,
-                width: targetElement.offsetWidth,
-                height: targetElement.offsetHeight,
+                top: rect.top + window.scrollY,
+                left: rect.left + window.scrollX,
+                width: rect.width,
+                height: rect.height,
                 joinedPaths: path,
               };
+              if (path === '/app/page.val.ts?p="/"."video"."file"') {
+                console.log("video", el, boundingBox);
+              }
             }
           }
         }
@@ -337,11 +341,12 @@ export function ValOverlay(props: ValOverlayProps) {
             }
           }
 
+          const rect = targetElement.getBoundingClientRect();
           boxes.push({
-            top: targetElement.offsetTop,
-            left: targetElement.offsetLeft,
-            width: targetElement.offsetWidth,
-            height: targetElement.offsetHeight,
+            top: rect.top + window.scrollY,
+            left: rect.left + window.scrollX,
+            width: rect.width,
+            height: rect.height,
             joinedPaths: path,
           });
         }
@@ -371,8 +376,8 @@ export function ValOverlay(props: ValOverlayProps) {
               height: boundingBox.height,
             },
             {
-              top: window.innerHeight,
-              left: window.innerWidth,
+              top: window.scrollY,
+              left: window.scrollX,
               width: window.innerWidth,
               height: window.innerHeight,
             },
@@ -415,8 +420,8 @@ export function ValOverlay(props: ValOverlayProps) {
                 height: box.height,
               },
               {
-                top: window.innerHeight,
-                left: window.innerWidth,
+                top: window.scrollY,
+                left: window.scrollX,
                 width: window.innerWidth,
                 height: window.innerHeight,
               },
@@ -1600,13 +1605,31 @@ const DropZone = ({
 
 function maxRect(
   rect: { top: number; left: number; width: number; height: number },
-  max: { top: number; left: number; width: number; height: number },
+  viewport: { top: number; left: number; width: number; height: number },
   strokeWidth: number,
 ) {
+  // Calculate the rect with stroke
+  const rectTop = rect.top - strokeWidth;
+  const rectLeft = rect.left - strokeWidth;
+  const rectWidth = rect.width + strokeWidth * 2;
+  const rectHeight = rect.height + strokeWidth * 2;
+
+  // Clip to viewport bounds
+  const clippedTop = Math.max(viewport.top, rectTop);
+  const clippedLeft = Math.max(viewport.left, rectLeft);
+  const clippedRight = Math.min(
+    viewport.left + viewport.width,
+    rectLeft + rectWidth,
+  );
+  const clippedBottom = Math.min(
+    viewport.top + viewport.height,
+    rectTop + rectHeight,
+  );
+
   return {
-    top: Math.max(0, rect.top - strokeWidth),
-    left: Math.max(0, rect.left - strokeWidth),
-    width: Math.min(max.width - rect.left, rect.width + strokeWidth * 2),
-    height: Math.min(max.height - rect.top, rect.height + strokeWidth * 2),
+    top: clippedTop,
+    left: clippedLeft,
+    width: Math.max(0, clippedRight - clippedLeft),
+    height: Math.max(0, clippedBottom - clippedTop),
   };
 }
