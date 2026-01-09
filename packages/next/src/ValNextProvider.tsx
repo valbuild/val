@@ -340,10 +340,13 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
-      {dropZone !== null && !spaLoaded && mountOverlay && (
-        <React.Fragment>
-          <style>
-            {`
+      {dropZone !== null &&
+        !spaLoaded &&
+        mountOverlay &&
+        initTheme !== null && (
+          <React.Fragment>
+            <style>
+              {`
 ${positionStyles}
 ${prefixStyles(commonStyles)}
 @keyframes rotate-clock {
@@ -355,52 +358,52 @@ ${prefixStyles(commonStyles)}
   }
 }
 `}
-          </style>
-          {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
-          <div className={`${getPositionClassName(dropZone)} ${cn(["p-4"])}`}>
-            <div
-              className={
-                `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
-                `${cn(["text-text-primary", "bg-bg-primary", "rounded", "backdrop-blur"])}`
-              }
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            </style>
+            {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
+            <div className={`${getPositionClassName(dropZone)} ${cn(["p-4"])}`}>
+              <div
+                className={
+                  `${cn(["flex", "justify-center", "items-center", "p-2"])} ` +
+                  `${cn(["text-text-primary", "bg-bg-primary", "rounded", "backdrop-blur"])}`
+                }
               >
-                <circle cx="12" cy="12" r="11" />
-                <line
-                  x1="12"
-                  y1="4"
-                  x2="12"
-                  y2="12"
-                  style={{
-                    transformOrigin: "center",
-                    animation: "rotate-clock 1000ms linear infinite",
-                  }}
-                />
-                <line
-                  x1="12"
-                  y1="8"
-                  x2="12"
-                  y2="12"
-                  style={{
-                    transformOrigin: "center",
-                    animation: "rotate-clock 12000ms linear infinite",
-                  }}
-                />
-              </svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="11" />
+                  <line
+                    x1="12"
+                    y1="4"
+                    x2="12"
+                    y2="12"
+                    style={{
+                      transformOrigin: "center",
+                      animation: "rotate-clock 1000ms linear infinite",
+                    }}
+                  />
+                  <line
+                    x1="12"
+                    y1="8"
+                    x2="12"
+                    y2="12"
+                    style={{
+                      transformOrigin: "center",
+                      animation: "rotate-clock 12000ms linear infinite",
+                    }}
+                  />
+                </svg>
+              </div>
             </div>
-          </div>
-        </React.Fragment>
-      )}
+          </React.Fragment>
+        )}
       {mountOverlay && (
         <React.Fragment>
           <Script
