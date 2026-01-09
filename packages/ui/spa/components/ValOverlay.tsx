@@ -70,6 +70,7 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { VERCEL_STEGA_REGEX, vercelStegaDecode } from "@vercel/stega";
 import { cn } from "./designSystem/cn";
+import { HoverCardArrow } from "@radix-ui/react-hover-card";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -965,6 +966,7 @@ function ValMenu({
             <HoverCardContent side={publishPopoverSide} className="z-50">
               Exit preview mode to see the currently published version of your
               content
+              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
@@ -1009,7 +1011,7 @@ function ValMenu({
                     <Upload size={16} />
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent side={publishPopoverSide}>
+                <HoverCardContent side={publishPopoverSide} className="z-50">
                   {validationErrorCount > 0 && (
                     <div className="text-fg-error-primary">
                       Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
@@ -1023,6 +1025,7 @@ function ValMenu({
                       {patchIds.length > 1 && "es"} ready to publish
                     </div>
                   )}
+                  <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
                 </HoverCardContent>
               </HoverCard>
             </PopoverTrigger>
@@ -1078,6 +1081,7 @@ function ValMenu({
             </HoverCardTrigger>
             <HoverCardContent side={publishPopoverSide} className="z-50">
               Open Val Studio to edit and manage your content
+              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
           <Popover>
