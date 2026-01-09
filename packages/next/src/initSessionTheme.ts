@@ -2,6 +2,9 @@ import { ValConfig } from "@valbuild/core";
 import { VAL_THEME_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 
 export function initSessionTheme(config: ValConfig) {
+  if (typeof window === "undefined") {
+    return null;
+  }
   const existingSessionTheme = sessionStorage.getItem(
     VAL_THEME_SESSION_STORAGE_KEY,
   );
