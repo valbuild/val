@@ -473,6 +473,17 @@ async function checkKeyIsValid(
   };
 }
 
+/**
+ * Handler for router:check-route validation fix
+ * TODO: Implement route validation logic
+ */
+async function handleRouteCheck(): Promise<FixHandlerResult> {
+  return {
+    success: false,
+    errorMessage: "Route validation is not yet implemented",
+  };
+}
+
 // Fix handler registry
 const currentFixHandlers: Record<ValidationFix, FixHandler> = {
   "image:check-metadata": handleFileMetadata,
@@ -480,6 +491,7 @@ const currentFixHandlers: Record<ValidationFix, FixHandler> = {
   "file:check-metadata": handleFileMetadata,
   "file:add-metadata": handleFileMetadata,
   "keyof:check-keys": handleKeyOfCheck,
+  "router:check-route": handleRouteCheck,
   "image:upload-remote": handleRemoteFileUpload,
   "file:upload-remote": handleRemoteFileUpload,
   "image:download-remote": handleRemoteFileDownload,
