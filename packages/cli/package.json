@@ -25,6 +25,7 @@
     "@valbuild/core": "~0.88.0",
     "@valbuild/eslint-plugin": "~0.88.0",
     "@valbuild/server": "~0.88.0",
+    "@valbuild/shared": "~0.88.0",
     "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "fast-glob": "^3.3.1",
