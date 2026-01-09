@@ -18,6 +18,7 @@ export const schema = s.object({
    * Reference to other content:
    */
   author: s.keyOf(authorsVal),
+  link: s.route(),
   /**
    * Rich Text that is optional:
    */

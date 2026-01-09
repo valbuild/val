@@ -14,6 +14,7 @@ import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
+import { SerializedRouteSchema } from "./route";
 import {
   ValidationError,
   ValidationErrors,
@@ -39,6 +40,7 @@ export type SerializedSchema =
   | SerializedKeyOfSchema
   | SerializedFileSchema
   | SerializedDateSchema
+  | SerializedRouteSchema
   | SerializedImageSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
