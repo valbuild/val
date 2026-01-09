@@ -46,6 +46,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("file:upload-remote"),
   z.literal("file:download-remote"),
   z.literal("keyof:check-keys"),
+  z.literal("router:check-route"),
 ]);
 const ValidationError = z.object({
   message: z.string(),

@@ -14,6 +14,7 @@ import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
+import { RouteSchema } from "./route";
 import { StringSchema } from "./string";
 import { UnionSchema } from "./union";
 
@@ -101,6 +102,25 @@ export function deserializeSchema(
         serialized.path as SourcePath,
         serialized.opt,
       );
+    case "route": {
+      const routeOptions = serialized.options
+        ? {
+            include: serialized.options.include
+              ? new RegExp(
+                  serialized.options.include.source,
+                  serialized.options.include.flags,
+                )
+              : undefined,
+            exclude: serialized.options.exclude
+              ? new RegExp(
+                  serialized.options.exclude.source,
+                  serialized.options.exclude.flags,
+                )
+              : undefined,
+          }
+        : undefined;
+      return new RouteSchema(routeOptions, serialized.opt);
+    }
     case "file":
       return new FileSchema(serialized.options, serialized.opt);
     case "image":
