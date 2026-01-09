@@ -946,18 +946,28 @@ function ValMenu({
             }
             icon={<SquareDashedMousePointer size={16} />}
           />
-          <MenuButton
-            label="Disable preview mode"
-            disabled={draftModeLoading}
-            icon={
-              draftModeLoading ? (
-                <AnimatedClock size={16} />
-              ) : (
-                <EyeOff size={16} />
-              )
-            }
-            onClick={() => setDraftMode(false)}
-          />
+          <HoverCard>
+            <HoverCardTrigger>
+              <MenuButton
+                label="Disable preview mode"
+                disabled={draftModeLoading}
+                icon={
+                  draftModeLoading ? (
+                    <AnimatedClock size={16} />
+                  ) : (
+                    <EyeOff size={16} />
+                  )
+                }
+                onClick={() => setDraftMode(false)}
+              />
+            </HoverCardTrigger>
+            <HoverCardContent className="z-50">
+              <div className="p-2 rounded bg-bg-primary text-fg-primary">
+                Exit preview mode to see the currently published version of your
+                content
+              </div>
+            </HoverCardContent>
+          </HoverCard>
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
           <Popover>
             <PopoverTrigger
