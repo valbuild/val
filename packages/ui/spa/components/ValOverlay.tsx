@@ -937,18 +937,26 @@ function ValMenu({
             },
           )}
         >
-          <MenuButton
-            active={mode === "select"}
-            onClick={() =>
-              setMode((mode) => {
-                if (mode === "select") {
-                  return null;
+          <HoverCard>
+            <HoverCardTrigger className="inline-flex">
+              <MenuButton
+                active={mode === "select"}
+                onClick={() =>
+                  setMode((mode) => {
+                    if (mode === "select") {
+                      return null;
+                    }
+                    return "select";
+                  })
                 }
-                return "select";
-              })
-            }
-            icon={<SquareDashedMousePointer size={16} />}
-          />
+                icon={<SquareDashedMousePointer size={16} />}
+              />
+            </HoverCardTrigger>
+            <HoverCardContent side={publishPopoverSide} className="z-50">
+              Click on content in the page to select and edit it
+              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
+            </HoverCardContent>
+          </HoverCard>
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
               <MenuButton
@@ -973,14 +981,14 @@ function ValMenu({
           <Popover>
             <PopoverTrigger
               disabled={publishDisabled}
-              className={classNames(
+              className={cn(
                 buttonClassName,
                 buttonInactiveClassName,
-                "inline-flex",
+                "inline-flex p-0",
               )}
             >
               <HoverCard>
-                <HoverCardTrigger className="inline-flex">
+                <HoverCardTrigger className="inline-flex p-2">
                   <div className="relative">
                     {patchIds.length > 0 && (
                       <div className="absolute -top-3 -right-3">
