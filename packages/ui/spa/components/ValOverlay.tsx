@@ -261,6 +261,7 @@ export function ValOverlay(props: ValOverlayProps) {
       window.addEventListener("keydown", keyDownListener);
       return () => {
         window.removeEventListener("keydown", keyDownListener);
+        setBoundingBox(null);
       };
     }
   }, [mode, editMode]);
