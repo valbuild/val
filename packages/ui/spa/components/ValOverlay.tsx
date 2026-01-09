@@ -53,8 +53,11 @@ import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverClose, PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
 import { DraftChanges } from "./DraftChanges";
-import { HoverCard } from "./designSystem/hover-card";
-import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "./designSystem/hover-card";
 import { PublishButton } from "./PublishButton";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
@@ -934,7 +937,6 @@ function ValMenu({
           )}
         >
           <MenuButton
-            label="Pick content"
             active={mode === "select"}
             onClick={() =>
               setMode((mode) => {
@@ -949,7 +951,6 @@ function ValMenu({
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
               <MenuButton
-                label="Disable preview mode"
                 disabled={draftModeLoading}
                 icon={
                   draftModeLoading ? (
@@ -962,10 +963,8 @@ function ValMenu({
               />
             </HoverCardTrigger>
             <HoverCardContent side={publishPopoverSide} className="z-50">
-              <div className="p-2 rounded bg-bg-primary text-fg-primary">
-                Exit preview mode to see the currently published version of your
-                content
-              </div>
+              Exit preview mode to see the currently published version of your
+              content
             </HoverCardContent>
           </HoverCard>
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
@@ -1010,22 +1009,20 @@ function ValMenu({
                     <Upload size={16} />
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent>
-                  <div className="p-2 rounded bg-bg-primary text-fg-primary">
-                    {validationErrorCount > 0 && (
-                      <div className="text-fg-error-primary">
-                        Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
-                        {validationErrorCount} validation error
-                        {validationErrorCount > 1 && "s"}
-                      </div>
-                    )}
-                    {patchIds.length > 0 && validationErrorCount == 0 && (
-                      <div>
-                        {patchIds.length} patch
-                        {patchIds.length > 1 && "es"} ready to publish
-                      </div>
-                    )}
-                  </div>
+                <HoverCardContent side={publishPopoverSide}>
+                  {validationErrorCount > 0 && (
+                    <div className="text-fg-error-primary">
+                      Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
+                      {validationErrorCount} validation error
+                      {validationErrorCount > 1 && "s"}
+                    </div>
+                  )}
+                  {patchIds.length > 0 && validationErrorCount == 0 && (
+                    <div>
+                      {patchIds.length} patch
+                      {patchIds.length > 1 && "es"} ready to publish
+                    </div>
+                  )}
                 </HoverCardContent>
               </HoverCard>
             </PopoverTrigger>
@@ -1061,7 +1058,6 @@ function ValMenu({
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
               <MenuButton
-                label="Studio"
                 icon={
                   sourcePathResult.status === "success" &&
                   sourcePathResult.data ? (
@@ -1081,9 +1077,7 @@ function ValMenu({
               />
             </HoverCardTrigger>
             <HoverCardContent side={publishPopoverSide} className="z-50">
-              <div className="p-2 rounded bg-bg-primary text-fg-primary">
-                Open Val Studio to edit and manage your content
-              </div>
+              Open Val Studio to edit and manage your content
             </HoverCardContent>
           </HoverCard>
           <Popover>
