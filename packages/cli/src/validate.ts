@@ -6,6 +6,7 @@ import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
   uploadRemoteFile,
+  Service,
 } from "@valbuild/server";
 import {
   DEFAULT_CONTENT_HOST,
@@ -26,6 +27,474 @@ import { evalValConfigFile } from "./utils/evalValConfigFile";
 import { getFileExt } from "./utils/getFileExt";
 
 const textEncoder = new TextEncoder();
+
+// Types for handler system
+type ValModule = Awaited<ReturnType<Service["get"]>>;
+
+type ValidationError = {
+  message: string;
+  value?: unknown;
+  fixes?: ValidationFix[];
+};
+
+type FixHandlerContext = {
+  sourcePath: SourcePath;
+  validationError: ValidationError;
+  valModule: ValModule;
+  projectRoot: string;
+  fix: boolean;
+  service: Service;
+  valFiles: string[];
+  moduleFilePath: ModuleFilePath;
+  file: string;
+  // Shared state
+  remoteFiles: Record<
+    SourcePath,
+    { ref: string; metadata?: Record<string, unknown> }
+  >;
+  publicProjectId?: string;
+  remoteFileBuckets?: string[];
+  remoteFilesCounter: number;
+  valRemoteHost: string;
+  contentHostUrl: string;
+  valConfigFile?: { project?: string };
+};
+
+type FixHandlerResult = {
+  success: boolean;
+  errorMessage?: string;
+  shouldApplyPatch?: boolean;
+  // Updated shared state
+  publicProjectId?: string;
+  remoteFileBuckets?: string[];
+  remoteFilesCounter?: number;
+};
+
+type FixHandler = (ctx: FixHandlerContext) => Promise<FixHandlerResult>;
+
+// Handler functions
+async function handleFileMetadata(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const fileSource = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  let filePath: string | null = null;
+  try {
+    filePath = path.join(
+      ctx.projectRoot,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (fileSource.source as any)?.[FILE_REF_PROP],
+    );
+    await fs.access(filePath);
+  } catch {
+    if (filePath) {
+      return {
+        success: false,
+        errorMessage: `File ${filePath} does not exist`,
+      };
+    } else {
+      return {
+        success: false,
+        errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+      };
+    }
+  }
+
+  return { success: true, shouldApplyPatch: true };
+}
+
+async function handleKeyOfCheck(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (
+    !ctx.validationError.value ||
+    typeof ctx.validationError.value !== "object" ||
+    !("key" in ctx.validationError.value) ||
+    !("sourcePath" in ctx.validationError.value)
+  ) {
+    return {
+      success: false,
+      errorMessage: `Unexpected error in ${ctx.sourcePath}: ${ctx.validationError.message} (Expected value to be an object with 'key' and 'sourcePath' properties - this is likely a bug in Val)`,
+    };
+  }
+
+  const { key, sourcePath } = ctx.validationError.value as {
+    key: unknown;
+    sourcePath: unknown;
+  };
+
+  if (typeof key !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected error in ${sourcePath}: ${ctx.validationError.message} (Expected value property 'key' to be a string - this is likely a bug in Val)`,
+    };
+  }
+
+  if (typeof sourcePath !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected error in ${sourcePath}: ${ctx.validationError.message} (Expected value property 'sourcePath' to be a string - this is likely a bug in Val)`,
+    };
+  }
+
+  const res = await checkKeyIsValid(key, sourcePath, ctx.service);
+  if (res.error) {
+    return {
+      success: false,
+      errorMessage: res.message,
+    };
+  }
+
+  return { success: true };
+}
+
+async function handleRemoteFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  let filePath: string | null = null;
+  try {
+    filePath = path.join(
+      ctx.projectRoot,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (resolvedRemoteFileAtSourcePath.source as any)?.[FILE_REF_PROP],
+    );
+    await fs.access(filePath);
+  } catch {
+    if (filePath) {
+      return {
+        success: false,
+        errorMessage: `File ${filePath} does not exist`,
+      };
+    } else {
+      return {
+        success: false,
+        errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+      };
+    }
+  }
+
+  const patFile = getPersonalAccessTokenPath(ctx.projectRoot);
+  try {
+    await fs.access(patFile);
+  } catch {
+    return {
+      success: false,
+      errorMessage: `File: ${path.join(ctx.projectRoot, ctx.file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
+    };
+  }
+
+  const parsedPatFile = parsePersonalAccessTokenFile(
+    await fs.readFile(patFile, "utf-8"),
+  );
+  if (!parsedPatFile.success) {
+    return {
+      success: false,
+      errorMessage: `Error parsing personal access token file: ${parsedPatFile.error}. You need to login again.`,
+    };
+  }
+  const { pat } = parsedPatFile.data;
+
+  if (ctx.remoteFiles[ctx.sourcePath]) {
+    console.log(
+      picocolors.yellow("⚠"),
+      `Remote file ${filePath} already uploaded`,
+    );
+    return { success: true };
+  }
+
+  if (!resolvedRemoteFileAtSourcePath.schema) {
+    return {
+      success: false,
+      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
+    };
+  }
+
+  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
+  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
+    ? actualRemoteFileSource.metadata
+    : undefined;
+  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
+
+  if (!resolveRemoteFileSchema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve schema for remote file: ${ctx.sourcePath}`,
+    };
+  }
+
+  let publicProjectId = ctx.publicProjectId;
+  let remoteFileBuckets = ctx.remoteFileBuckets;
+  let remoteFilesCounter = ctx.remoteFilesCounter;
+
+  if (!publicProjectId || !remoteFileBuckets) {
+    let projectName = process.env.VAL_PROJECT;
+    if (!projectName) {
+      projectName = ctx.valConfigFile?.project;
+    }
+    if (!projectName) {
+      return {
+        success: false,
+        errorMessage:
+          "Project name not found. Set VAL_PROJECT environment variable or add project name to val.config",
+      };
+    }
+    const settingsRes = await getSettings(projectName, { pat });
+    if (!settingsRes.success) {
+      return {
+        success: false,
+        errorMessage: `Could not get public project id: ${settingsRes.message}.`,
+      };
+    }
+    publicProjectId = settingsRes.data.publicProjectId;
+    remoteFileBuckets = settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
+  }
+
+  if (!publicProjectId) {
+    return {
+      success: false,
+      errorMessage: "Could not get public project id",
+    };
+  }
+
+  if (!ctx.valConfigFile?.project) {
+    return {
+      success: false,
+      errorMessage: `Could not get project. Check that your val.config has the 'project' field set, or set it using the VAL_PROJECT environment variable`,
+    };
+  }
+
+  if (
+    resolveRemoteFileSchema.type !== "image" &&
+    resolveRemoteFileSchema.type !== "file"
+  ) {
+    return {
+      success: false,
+      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
+    };
+  }
+
+  remoteFilesCounter += 1;
+  const bucket =
+    remoteFileBuckets[remoteFilesCounter % remoteFileBuckets.length];
+
+  if (!bucket) {
+    return {
+      success: false,
+      errorMessage: `Internal error: could not allocate a bucket for the remote file located at ${ctx.sourcePath}`,
+    };
+  }
+
+  let fileBuffer: Buffer;
+  try {
+    fileBuffer = await fs.readFile(filePath);
+  } catch (e) {
+    return {
+      success: false,
+      errorMessage: `Error reading file: ${e}`,
+    };
+  }
+
+  const relativeFilePath = path
+    .relative(ctx.projectRoot, filePath)
+    .split(path.sep)
+    .join("/") as `public/val/${string}`;
+
+  if (!relativeFilePath.startsWith("public/val/")) {
+    return {
+      success: false,
+      errorMessage: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+    };
+  }
+
+  const fileHash = Internal.remote.getFileHash(fileBuffer);
+  const coreVersion = Internal.VERSION.core || "unknown";
+  const fileExt = getFileExt(filePath);
+  const schema = resolveRemoteFileSchema as
+    | SerializedImageSchema
+    | SerializedFileSchema;
+  const metadata = fileSourceMetadata;
+  const ref = Internal.remote.createRemoteRef(ctx.valRemoteHost, {
+    publicProjectId,
+    coreVersion,
+    bucket,
+    validationHash: Internal.remote.getValidationHash(
+      coreVersion,
+      schema,
+      fileExt,
+      metadata,
+      fileHash,
+      textEncoder,
+    ),
+    fileHash,
+    filePath: relativeFilePath,
+  });
+
+  console.log(picocolors.yellow("⚠"), `Uploading remote file: '${ref}'...`);
+
+  const remoteFileUpload = await uploadRemoteFile(
+    ctx.contentHostUrl,
+    ctx.valConfigFile.project,
+    bucket,
+    fileHash,
+    fileExt,
+    fileBuffer,
+    { pat },
+  );
+
+  if (!remoteFileUpload.success) {
+    return {
+      success: false,
+      errorMessage: `Could not upload remote file: '${ref}'. Error: ${remoteFileUpload.error}`,
+    };
+  }
+
+  console.log(
+    picocolors.green("✔"),
+    `Completed upload of remote file: '${ref}'`,
+  );
+
+  ctx.remoteFiles[ctx.sourcePath] = {
+    ref,
+    metadata: fileSourceMetadata,
+  };
+
+  return {
+    success: true,
+    shouldApplyPatch: true,
+    publicProjectId,
+    remoteFileBuckets,
+    remoteFilesCounter,
+  };
+}
+
+async function handleRemoteFileDownload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (ctx.fix) {
+    console.log(
+      picocolors.yellow("⚠"),
+      `Downloading remote file in ${ctx.sourcePath}...`,
+    );
+    return { success: true, shouldApplyPatch: true };
+  } else {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be downloaded (use --fix to download)`,
+    };
+  }
+}
+
+async function handleRemoteFileCheck(): Promise<FixHandlerResult> {
+  // Skip - no action needed
+  return { success: true, shouldApplyPatch: true };
+}
+
+// Helper function
+async function checkKeyIsValid(
+  key: string,
+  sourcePath: string,
+  service: Service,
+): Promise<{ error: false } | { error: true; message: string }> {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
+  const keyOfModule = await service.get(moduleFilePath, modulePath, {
+    source: true,
+    schema: false,
+    validate: false,
+  });
+
+  const keyOfModuleSource = keyOfModule.source;
+  const keyOfModuleSchema = keyOfModule.schema;
+  if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
+    return {
+      error: true,
+      message: `Expected key at ${sourcePath} to be of type 'record'`,
+    };
+  }
+  if (
+    keyOfModuleSource &&
+    typeof keyOfModuleSource === "object" &&
+    key in keyOfModuleSource
+  ) {
+    return { error: false };
+  }
+  if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
+    return {
+      error: true,
+      message: `Expected ${sourcePath} to be a truthy object`,
+    };
+  }
+  const alternatives = findSimilar(key, Object.keys(keyOfModuleSource));
+  return {
+    error: true,
+    message: `Key '${key}' does not exist in ${sourcePath}. Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
+      .slice(1, 4)
+      .map((a) => `'${a.target}'`)
+      .join(", ")}${alternatives.length > 4 ? ", ..." : ""}`,
+  };
+}
+
+// Fix handler registry
+const currentFixHandlers: Record<ValidationFix, FixHandler> = {
+  "image:check-metadata": handleFileMetadata,
+  "image:add-metadata": handleFileMetadata,
+  "file:check-metadata": handleFileMetadata,
+  "file:add-metadata": handleFileMetadata,
+  "keyof:check-keys": handleKeyOfCheck,
+  "image:upload-remote": handleRemoteFileUpload,
+  "file:upload-remote": handleRemoteFileUpload,
+  "image:download-remote": handleRemoteFileDownload,
+  "file:download-remote": handleRemoteFileDownload,
+  "image:check-remote": handleRemoteFileCheck,
+  "file:check-remote": handleRemoteFileCheck,
+};
+const deprecatedFixHandlers: Record<string, FixHandler> = {
+  "image:replace-metadata": handleFileMetadata,
+};
+const fixHandlers: Record<string, FixHandler> = {
+  ...deprecatedFixHandlers,
+  ...currentFixHandlers,
+};
+
 export async function validate({
   root,
   fix,
@@ -45,48 +514,6 @@ export async function validate({
     ),
   );
   const service = await createService(projectRoot, {});
-  const checkKeyIsValid = async (
-    key: string,
-    sourcePath: string,
-  ): Promise<{ error: false } | { error: true; message: string }> => {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-    const keyOfModule = await service.get(moduleFilePath, modulePath, {
-      source: true,
-      schema: false,
-      validate: false,
-    });
-
-    const keyOfModuleSource = keyOfModule.source;
-    const keyOfModuleSchema = keyOfModule.schema;
-    if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
-      return {
-        error: true,
-        message: `Expected key at ${sourcePath} to be of type 'record'`,
-      };
-    }
-    if (
-      keyOfModuleSource &&
-      typeof keyOfModuleSource === "object" &&
-      key in keyOfModuleSource
-    ) {
-      return { error: false };
-    }
-    if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
-      return {
-        error: true,
-        message: `Expected ${sourcePath} to be a truthy object`,
-      };
-    }
-    const alternatives = findSimilar(key, Object.keys(keyOfModuleSource));
-    return {
-      error: true,
-      message: `Key '${key}' does not exist in ${sourcePath}. Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
-        .slice(1, 4)
-        .map((a) => `'${a.target}'`)
-        .join(", ")}${alternatives.length > 4 ? ", ..." : ""}`,
-    };
-  };
   let prettier;
   try {
     prettier = (await import("prettier")).default;
@@ -102,7 +529,7 @@ export async function validate({
   let errors = 0;
   console.log(picocolors.greenBright(`Found ${valFiles.length} files...`));
   let publicProjectId: string | undefined;
-  let didFix = false; // TODO: ugly
+  let didFix = false;
   async function validateFile(file: string): Promise<number> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const start = Date.now();
@@ -115,7 +542,7 @@ export async function validate({
       SourcePath,
       { ref: string; metadata?: Record<string, unknown> }
     > = {};
-    let remoteFileBuckets: string[] | null = null;
+    let remoteFileBuckets: string[] | undefined = undefined;
     let remoteFilesCounter = 0;
     if (!valModule.errors) {
       console.log(
@@ -133,376 +560,73 @@ export async function validate({
             valModule.errors.validation,
           )) {
             for (const v of validationErrors) {
-              if (v.fixes && v.fixes.length > 0) {
-                if (
-                  v.fixes.includes(
-                    "image:replace-metadata" as ValidationFix, // TODO: we can remove this now - we needed before because we changed the name of the fix from replace-metadata to check-metadata
-                  ) ||
-                  v.fixes.includes("image:check-metadata") ||
-                  v.fixes.includes("image:add-metadata") ||
-                  v.fixes.includes("file:check-metadata") ||
-                  v.fixes.includes("file:add-metadata")
-                ) {
-                  const [, modulePath] =
-                    Internal.splitModuleFilePathAndModulePath(
-                      sourcePath as SourcePath,
-                    );
-                  if (valModule.source && valModule.schema) {
-                    const fileSource = Internal.resolvePath(
-                      modulePath,
-                      valModule.source,
-                      valModule.schema,
-                    );
-                    let filePath: string | null = null;
-                    try {
-                      filePath = path.join(
-                        projectRoot,
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (fileSource.source as any)?.[FILE_REF_PROP],
-                      );
-                      await fs.access(filePath);
-                    } catch {
-                      if (filePath) {
-                        console.log(
-                          picocolors.red("✘"),
-                          `File ${filePath} does not exist`,
-                        );
-                      } else {
-                        console.log(
-                          picocolors.red("✘"),
-                          `Expected file to be defined at: ${sourcePath} but no file was found`,
-                        );
-                      }
-                      errors += 1;
-                      continue;
-                    }
-                  }
-                } else if (v.fixes.includes("keyof:check-keys")) {
-                  if (
-                    v.value &&
-                    typeof v.value === "object" &&
-                    "key" in v.value &&
-                    "sourcePath" in v.value
-                  ) {
-                    const { key, sourcePath } = v.value;
-                    if (typeof key !== "string") {
-                      console.log(
-                        picocolors.red("✘"),
-                        "Unexpected error in",
-                        `${sourcePath}:`,
-                        v.message,
-                        " (Expected value property 'key' to be a string - this is likely a bug in Val)",
-                      );
-                      errors += 1;
-                    } else if (typeof sourcePath !== "string") {
-                      console.log(
-                        picocolors.red("✘"),
-                        "Unexpected error in",
-                        `${sourcePath}:`,
-                        v.message,
-                        " (Expected value property 'sourcePath' to be a string - this is likely a bug in Val)",
-                      );
-                      errors += 1;
-                    } else {
-                      const res = await checkKeyIsValid(key, sourcePath);
-                      if (res.error) {
-                        console.log(picocolors.red("✘"), res.message);
-                        errors += 1;
-                      }
-                    }
-                  } else {
-                    console.log(
-                      picocolors.red("✘"),
-                      "Unexpected error in",
-                      `${sourcePath}:`,
-                      v.message,
-                      " (Expected value to be an object with 'key' and 'sourcePath' properties - this is likely a bug in Val)",
-                    );
-                    errors += 1;
-                  }
-                } else if (
-                  v.fixes.includes("image:upload-remote") ||
-                  v.fixes.includes("file:upload-remote")
-                ) {
-                  if (!fix) {
-                    console.log(
-                      picocolors.red("✘"),
-                      `Remote file ${sourcePath} needs to be uploaded (use --fix to upload)`,
-                    );
-                    errors += 1;
-                    continue;
-                  }
-                  const [, modulePath] =
-                    Internal.splitModuleFilePathAndModulePath(
-                      sourcePath as SourcePath,
-                    );
-                  if (valModule.source && valModule.schema) {
-                    const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
-                      modulePath,
-                      valModule.source,
-                      valModule.schema,
-                    );
-                    let filePath: string | null = null;
-                    try {
-                      filePath = path.join(
-                        projectRoot,
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (resolvedRemoteFileAtSourcePath.source as any)?.[
-                          FILE_REF_PROP
-                        ],
-                      );
-                      await fs.access(filePath);
-                    } catch {
-                      if (filePath) {
-                        console.log(
-                          picocolors.red("✘"),
-                          `File ${filePath} does not exist`,
-                        );
-                      } else {
-                        console.log(
-                          picocolors.red("✘"),
-                          `Expected file to be defined at: ${sourcePath} but no file was found`,
-                        );
-                      }
-                      errors += 1;
-                      continue;
-                    }
-                    const patFile = getPersonalAccessTokenPath(projectRoot);
-                    try {
-                      await fs.access(patFile);
-                    } catch {
-                      // TODO: display this error only once:
-                      console.log(
-                        picocolors.red("✘"),
-                        `File: ${path.join(projectRoot, file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
+              if (!v.fixes || v.fixes.length === 0) {
+                // No fixes available - just report error
+                errors += 1;
+                console.log(
+                  picocolors.red("✘"),
+                  "Got error in",
+                  `${sourcePath}:`,
+                  v.message,
+                );
+                continue;
+              }
 
-                    const parsedPatFile = parsePersonalAccessTokenFile(
-                      await fs.readFile(patFile, "utf-8"),
-                    );
-                    if (!parsedPatFile.success) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Error parsing personal access token file: ${parsedPatFile.error}. You need to login again.`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    const { pat } = parsedPatFile.data;
+              // Find and execute appropriate handler
+              const fixType = v.fixes[0]; // Take first fix
+              const handler = fixHandlers[fixType];
 
-                    if (remoteFiles[sourcePath as SourcePath]) {
-                      console.log(
-                        picocolors.yellow("⚠"),
-                        `Remote file ${filePath} already uploaded`,
-                      );
-                      continue;
-                    }
-                    // TODO: parallelize uploading files
-                    if (!resolvedRemoteFileAtSourcePath.schema) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Cannot upload remote file: schema not found for ${sourcePath}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
+              if (!handler) {
+                console.log(
+                  picocolors.red("✘"),
+                  "Unknown fix",
+                  v.fixes,
+                  "for",
+                  sourcePath,
+                );
+                errors += 1;
+                continue;
+              }
 
-                    const actualRemoteFileSource =
-                      resolvedRemoteFileAtSourcePath.source;
-                    const fileSourceMetadata = Internal.isFile(
-                      actualRemoteFileSource,
-                    )
-                      ? actualRemoteFileSource.metadata
-                      : undefined;
-                    const resolveRemoteFileSchema =
-                      resolvedRemoteFileAtSourcePath.schema;
-                    if (!resolveRemoteFileSchema) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Could not resolve schema for remote file: ${sourcePath}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    if (!publicProjectId || !remoteFileBuckets) {
-                      let projectName = process.env.VAL_PROJECT;
-                      if (!projectName) {
-                        projectName = valConfigFile?.project;
-                      }
-                      if (!projectName) {
-                        console.log(
-                          picocolors.red("✘"),
-                          "Project name not found. Set VAL_PROJECT environment variable or add project name to val.config",
-                        );
-                        errors += 1;
-                        continue;
-                      }
-                      const settingsRes = await getSettings(projectName, {
-                        pat,
-                      });
-                      if (!settingsRes.success) {
-                        console.log(
-                          picocolors.red("✘"),
-                          `Could not get public project id: ${settingsRes.message}.`,
-                        );
-                        errors += 1;
-                        continue;
-                      }
-                      publicProjectId = settingsRes.data.publicProjectId;
-                      remoteFileBuckets =
-                        settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
-                    }
-                    if (!publicProjectId) {
-                      console.log(
-                        picocolors.red("✘"),
-                        "Could not get public project id",
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    if (!valConfigFile?.project) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Could not get project. Check that your val.config has the 'project' field set, or set it using the VAL_PROJECT environment variable`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    if (
-                      resolveRemoteFileSchema.type !== "image" &&
-                      resolveRemoteFileSchema.type !== "file"
-                    ) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `The schema is the remote is neither image nor file: ${sourcePath}`,
-                      );
-                    }
-                    remoteFilesCounter += 1;
-                    const bucket =
-                      remoteFileBuckets[
-                        remoteFilesCounter % remoteFileBuckets.length
-                      ];
-                    if (!bucket) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Internal error: could not allocate a bucket for the remote file located at ${sourcePath}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    let fileBuffer: Buffer;
-                    try {
-                      fileBuffer = await fs.readFile(filePath);
-                    } catch (e) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Error reading file: ${e}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    const relativeFilePath = path
-                      .relative(projectRoot, filePath)
-                      .split(path.sep)
-                      .join("/") as `public/val/${string}`;
-                    if (!relativeFilePath.startsWith("public/val/")) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
+              // Execute handler
+              const result = await handler({
+                sourcePath: sourcePath as SourcePath,
+                validationError: v,
+                valModule,
+                projectRoot,
+                fix: !!fix,
+                service,
+                valFiles,
+                moduleFilePath,
+                file,
+                remoteFiles,
+                publicProjectId,
+                remoteFileBuckets,
+                remoteFilesCounter,
+                valRemoteHost,
+                contentHostUrl,
+                valConfigFile: valConfigFile ?? undefined,
+              });
 
-                    const fileHash = Internal.remote.getFileHash(fileBuffer);
-                    const coreVersion = Internal.VERSION.core || "unknown";
-                    const fileExt = getFileExt(filePath);
-                    const schema = resolveRemoteFileSchema as
-                      | SerializedImageSchema
-                      | SerializedFileSchema;
-                    const metadata = fileSourceMetadata;
-                    const ref = Internal.remote.createRemoteRef(valRemoteHost, {
-                      publicProjectId,
-                      coreVersion,
-                      bucket,
-                      validationHash: Internal.remote.getValidationHash(
-                        coreVersion,
-                        schema,
-                        fileExt,
-                        metadata,
-                        fileHash,
-                        textEncoder,
-                      ),
-                      fileHash,
-                      filePath: relativeFilePath,
-                    });
-                    console.log(
-                      picocolors.yellow("⚠"),
-                      `Uploading remote file: '${ref}'...`,
-                    );
+              // Update shared state from handler result
+              if (result.publicProjectId !== undefined) {
+                publicProjectId = result.publicProjectId;
+              }
+              if (result.remoteFileBuckets !== undefined) {
+                remoteFileBuckets = result.remoteFileBuckets;
+              }
+              if (result.remoteFilesCounter !== undefined) {
+                remoteFilesCounter = result.remoteFilesCounter;
+              }
 
-                    const remoteFileUpload = await uploadRemoteFile(
-                      contentHostUrl,
-                      valConfigFile.project,
-                      bucket,
-                      fileHash,
-                      fileExt,
-                      fileBuffer,
-                      { pat },
-                    );
-                    if (!remoteFileUpload.success) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Could not upload remote file: '${ref}'. Error: ${remoteFileUpload.error}`,
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    console.log(
-                      picocolors.green("✔"),
-                      `Completed upload of remote file: '${ref}'`,
-                    );
-                    remoteFiles[sourcePath as SourcePath] = {
-                      ref,
-                      metadata: fileSourceMetadata,
-                    };
-                  }
-                } else if (
-                  v.fixes.includes("image:download-remote") ||
-                  v.fixes.includes("file:download-remote")
-                ) {
-                  if (fix) {
-                    console.log(
-                      picocolors.yellow("⚠"),
-                      `Downloading remote file in ${sourcePath}...`,
-                    );
-                  } else {
-                    console.log(
-                      picocolors.red("✘"),
-                      `Remote file ${sourcePath} needs to be downloaded (use --fix to download)`,
-                    );
-                    errors += 1;
-                    continue;
-                  }
-                } else if (
-                  v.fixes.includes("image:check-remote") ||
-                  v.fixes.includes("file:check-remote")
-                ) {
-                  // skip
-                } else {
-                  console.log(
-                    picocolors.red("✘"),
-                    "Unknown fix",
-                    v.fixes,
-                    "for",
-                    sourcePath,
-                  );
-                  errors += 1;
-                  continue;
-                }
+              if (!result.success) {
+                console.log(picocolors.red("✘"), result.errorMessage);
+                errors += 1;
+                continue;
+              }
+
+              // Apply patch if needed
+              if (result.shouldApplyPatch) {
                 const fixPatch = await createFixPatch(
                   { projectRoot, remoteHost: valRemoteHost },
                   !!fix,
@@ -512,6 +636,7 @@ export async function validate({
                   valModule.source,
                   valModule.schema,
                 );
+
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
                   didFix = true;
@@ -522,6 +647,7 @@ export async function validate({
                     sourcePath,
                   );
                 }
+
                 fixPatch?.remainingErrors?.forEach((e) => {
                   errors += 1;
                   console.log(
@@ -533,14 +659,6 @@ export async function validate({
                     e.message,
                   );
                 });
-              } else {
-                errors += 1;
-                console.log(
-                  picocolors.red("✘"),
-                  "Got error in",
-                  `${sourcePath}:`,
-                  v.message,
-                );
               }
             }
           }
