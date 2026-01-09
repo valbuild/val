@@ -39,7 +39,13 @@ import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
-import { ValCommit, ValDeployment } from "@valbuild/shared/internal";
+import {
+  ValCommit,
+  ValDeployment,
+  filterRoutesByPatterns,
+  validateRoutePatterns,
+  type SerializedRegExpPattern,
+} from "@valbuild/shared/internal";
 import { ReifiedRender } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
@@ -606,8 +612,8 @@ export abstract class ValOps {
 
     const checkRouteIsValid = async (
       route: string,
-      includePattern?: { source: string; flags: string },
-      excludePattern?: { source: string; flags: string },
+      includePattern?: SerializedRegExpPattern,
+      excludePattern?: SerializedRegExpPattern,
     ): Promise<{ error: false } | { error: true; message: string }> => {
       // Find all router modules (record schemas with router property)
       const routerModules: { path: ModuleFilePath; routes: string[] }[] = [];
@@ -637,35 +643,11 @@ export abstract class ValOps {
 
       if (!routeExists) {
         // Filter routes by include/exclude patterns for suggestions
-        const validRoutes = allRoutes.filter((r) => {
-          if (includePattern) {
-            try {
-              const regex = new RegExp(
-                includePattern.source,
-                includePattern.flags,
-              );
-              if (!regex.test(r)) {
-                return false;
-              }
-            } catch {
-              return false;
-            }
-          }
-          if (excludePattern) {
-            try {
-              const regex = new RegExp(
-                excludePattern.source,
-                excludePattern.flags,
-              );
-              if (regex.test(r)) {
-                return false;
-              }
-            } catch {
-              return false;
-            }
-          }
-          return true;
-        });
+        const validRoutes = filterRoutesByPatterns(
+          allRoutes,
+          includePattern,
+          excludePattern,
+        );
 
         return {
           error: true,
@@ -673,40 +655,17 @@ export abstract class ValOps {
         };
       }
 
-      // Validate include pattern
-      if (includePattern) {
-        try {
-          const regex = new RegExp(includePattern.source, includePattern.flags);
-          if (!regex.test(route)) {
-            return {
-              error: true,
-              message: `Route '${route}' does not match include pattern: /${includePattern.source}/${includePattern.flags}`,
-            };
-          }
-        } catch (e) {
-          return {
-            error: true,
-            message: `Invalid include pattern: ${e instanceof Error ? e.message : String(e)}`,
-          };
-        }
-      }
-
-      // Validate exclude pattern
-      if (excludePattern) {
-        try {
-          const regex = new RegExp(excludePattern.source, excludePattern.flags);
-          if (regex.test(route)) {
-            return {
-              error: true,
-              message: `Route '${route}' matches exclude pattern: /${excludePattern.source}/${excludePattern.flags}`,
-            };
-          }
-        } catch (e) {
-          return {
-            error: true,
-            message: `Invalid exclude pattern: ${e instanceof Error ? e.message : String(e)}`,
-          };
-        }
+      // Validate against include/exclude patterns
+      const patternValidation = validateRoutePatterns(
+        route,
+        includePattern,
+        excludePattern,
+      );
+      if (!patternValidation.valid) {
+        return {
+          error: true,
+          message: patternValidation.message,
+        };
       }
 
       return { error: false };
