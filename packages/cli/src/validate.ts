@@ -525,7 +525,7 @@ async function checkRouteIsValid(
 
   if (!foundInModule) {
     // Route not found in any router module
-    const allRoutes = Object.values(routerModules).flatMap((source) =>
+    let allRoutes = Object.values(routerModules).flatMap((source) =>
       Object.keys(source),
     );
 
@@ -535,6 +535,17 @@ async function checkRouteIsValid(
         message: `Route '${route}' could not be validated: No router modules found in the project. Use s.record(...).router(...) to define router modules.`,
       };
     }
+
+    // Filter routes by include/exclude patterns for suggestions
+    allRoutes = allRoutes.filter((r) => {
+      if (includePattern && !includePattern.test(r)) {
+        return false;
+      }
+      if (excludePattern && excludePattern.test(r)) {
+        return false;
+      }
+      return true;
+    });
 
     const alternatives = findSimilar(route, allRoutes);
 
