@@ -947,7 +947,7 @@ function ValMenu({
             icon={<SquareDashedMousePointer size={16} />}
           />
           <HoverCard>
-            <HoverCardTrigger>
+            <HoverCardTrigger className="inline-flex">
               <MenuButton
                 label="Disable preview mode"
                 disabled={draftModeLoading}
@@ -972,10 +972,14 @@ function ValMenu({
           <Popover>
             <PopoverTrigger
               disabled={publishDisabled}
-              className={classNames(buttonClassName, buttonInactiveClassName)}
+              className={classNames(
+                buttonClassName,
+                buttonInactiveClassName,
+                "inline-flex",
+              )}
             >
               <HoverCard>
-                <HoverCardTrigger>
+                <HoverCardTrigger className="inline-flex">
                   <div className="relative">
                     {patchIds.length > 0 && (
                       <div className="absolute -top-3 -right-3">
@@ -1055,7 +1059,7 @@ function ValMenu({
             </PopoverContent>
           </Popover>
           <HoverCard>
-            <HoverCardTrigger>
+            <HoverCardTrigger className="inline-flex">
               <MenuButton
                 label="Studio"
                 icon={
@@ -1260,9 +1264,10 @@ function MenuButton({
       href={href}
       disabled={disabled}
       className={classNames(buttonClassName, {
-        "inline-block bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+        "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
           active,
-        [classNames(buttonInactiveClassName, "inline-block")]: !active,
+        [classNames(buttonInactiveClassName, "inline-block leading-4")]:
+          !active,
       })}
       onClick={onClick}
       aria-label={label}
