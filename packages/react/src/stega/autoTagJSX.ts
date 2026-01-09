@@ -3,7 +3,7 @@ import jsxRuntime from "react/jsx-runtime";
 import jsxRuntimeDev from "react/jsx-dev-runtime";
 import React from "react";
 import { vercelStegaSplit, VERCEL_STEGA_REGEX } from "@vercel/stega";
-import { stegaDecodeString } from "./stegaDecodeString";
+import { stegaDecodeStrings } from "./stegaDecodeStrings";
 import { IS_AUTO_TAG_JSX_ENABLED, IS_RSC } from ".";
 
 const isIntrinsicElement = (type: any) => {
@@ -39,14 +39,17 @@ const addValPathIfFound = (type: any, props: any) => {
       );
       return;
     }
-    const valPath = stegaDecodeString(value);
-    if (valPath) {
+    const valPaths = stegaDecodeStrings(value);
+    if (valPaths) {
       // Found val path - this is a stega encoded string
       // The logic below is as follows:
       //   if this is an intrinsic element (a, div, etc.), add data attrs will be on the DOM element
       //   always add to sources (intrinsic or not)
       //   if this is not an intrinsic element, we pass the stega encoded value downwards until we hit an intrinsic element
-      valSources.add(valPath);
+      for (const valPath of valPaths) {
+        valSources.add(valPath);
+      }
+
       if (isIntrinsicElement(type)) {
         // clean values before adding them to the props
         // we cannot do this
@@ -68,7 +71,9 @@ const addValPathIfFound = (type: any, props: any) => {
           const cleanValue = vercelStegaSplit(value).cleaned;
           if (typeof key === "string" && !Array.isArray(container)) {
             container[key] = cleanValue;
-            valSources.add(valPath);
+            for (const valPath of valPaths) {
+              valSources.add(valPath);
+            }
           }
         }
       }

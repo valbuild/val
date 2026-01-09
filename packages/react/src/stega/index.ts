@@ -11,7 +11,7 @@ export {
   type Image,
   type RichText,
 } from "./stegaEncode";
-export { stegaDecodeString } from "./stegaDecodeString";
+export { stegaDecodeStrings } from "./stegaDecodeStrings";
 
 let isRSC = false;
 let autoTagJSXEnabled = false;
