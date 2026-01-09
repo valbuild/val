@@ -8,7 +8,7 @@ import {
 } from "@valbuild/core";
 import { raw } from "./raw";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
-import { decodeValPathOfString } from "./decodeValPathOfString";
+import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "./attrs";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
@@ -35,7 +35,7 @@ export const initVal = (
      */
     raw: typeof raw;
     /**
-     * Get the Val path attributes for any object.
+     * Get the Val paths of attributes for any object.
      *
      * This is typically used to manually set the data-val-path attribute for visual editing on any element.
      *
@@ -46,7 +46,7 @@ export const initVal = (
      * </a>
      */
     attrs: typeof attrs;
-    unstable_decodeValPathOfString: typeof decodeValPathOfString;
+    unstable_decodeValPathsOfString: typeof decodeValPathsOfString;
   };
   /**
    * The Next.js App Router for use on s.record().router(...)
@@ -74,7 +74,7 @@ export const initVal = (
     val: {
       ...val,
       attrs,
-      unstable_decodeValPathOfString: decodeValPathOfString,
+      unstable_decodeValPathsOfString: decodeValPathsOfString,
       raw,
       unstable_getUnpatchedUnencodedVal: getUnpatchedUnencodedVal,
     },

@@ -1,7 +1,7 @@
 import NextImage from "next/image";
 import { raw } from "./raw";
 import { ValEncodedString, Image } from "@valbuild/react/stega";
-import { decodeValPathOfString } from "./decodeValPathOfString";
+import { decodeValPathsOfString } from "./decodeValPathsOfString";
 
 // all NextImage component props
 export type ValImageProps = Omit<
@@ -21,11 +21,15 @@ export type ValImageProps = Omit<
 };
 export function ValImage(props: ValImageProps) {
   const { src, alt, style, width, disableHotspot, height, ...rest } = props;
-  const valPathOfUrl = src?.url && decodeValPathOfString(src.url);
-  const valPaths = [valPathOfUrl];
-  const maybeValPathOfAlt = decodeValPathOfString(alt as ValEncodedString);
+  const valPathsOfUrl = src?.url ? decodeValPathsOfString(src.url) : undefined;
+  const valPaths: string[] = valPathsOfUrl ? valPathsOfUrl : [];
+  const maybeValPathOfAlt = alt
+    ? decodeValPathsOfString(alt as ValEncodedString)
+    : undefined;
   if (maybeValPathOfAlt) {
-    valPaths.push(maybeValPathOfAlt);
+    for (const valPath of maybeValPathOfAlt) {
+      valPaths.push(valPath);
+    }
   }
   const hotspot = src?.metadata?.hotspot;
   const imageStyle =
@@ -51,10 +55,14 @@ export function ValImage(props: ValImageProps) {
         lazyBoundary: undefined,
         lazyRoot: undefined,
       }}
-      src={valPathOfUrl ? raw(src?.url) : src?.url}
+      src={valPathsOfUrl && valPathsOfUrl.length > 0 ? raw(src?.url) : src?.url}
       data-val-path={valPaths.join(",")}
       data-val-attr-alt={maybeValPathOfAlt}
-      data-val-attr-src={valPathOfUrl}
+      data-val-attr-src={
+        valPathsOfUrl && valPathsOfUrl.length > 0
+          ? valPathsOfUrl.join(",")
+          : undefined
+      }
       style={imageStyle}
       alt={
         alt
