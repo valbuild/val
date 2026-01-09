@@ -961,7 +961,7 @@ function ValMenu({
                 onClick={() => setDraftMode(false)}
               />
             </HoverCardTrigger>
-            <HoverCardContent side="left" className="z-50">
+            <HoverCardContent side={publishPopoverSide} className="z-50">
               <div className="p-2 rounded bg-bg-primary text-fg-primary">
                 Exit preview mode to see the currently published version of your
                 content
@@ -1076,7 +1076,7 @@ function ValMenu({
                 }
               />
             </HoverCardTrigger>
-            <HoverCardContent side="left" className="z-50">
+            <HoverCardContent side={publishPopoverSide} className="z-50">
               <div className="p-2 rounded bg-bg-primary text-fg-primary">
                 Open Val Studio to edit and manage your content
               </div>
