@@ -928,7 +928,7 @@ function ValMenu({
             "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2",
             {
               "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
+              "flex-row px-4 py-2 items-center": dir === "horizontal",
               "opacity-70": ghost,
             },
           )}
@@ -961,7 +961,7 @@ function ValMenu({
                 onClick={() => setDraftMode(false)}
               />
             </HoverCardTrigger>
-            <HoverCardContent className="z-50">
+            <HoverCardContent side="left" className="z-50">
               <div className="p-2 rounded bg-bg-primary text-fg-primary">
                 Exit preview mode to see the currently published version of your
                 content
@@ -1054,23 +1054,34 @@ function ValMenu({
               )}
             </PopoverContent>
           </Popover>
-          <MenuButton
-            label="Studio"
-            icon={
-              sourcePathResult.status === "success" && sourcePathResult.data ? (
-                <Globe size={16} />
-              ) : (
-                <PanelsTopLeft size={16} />
-              )
-            }
-            href={
-              window.origin +
-              "/val/~" +
-              (sourcePathResult.status === "success" && sourcePathResult.data
-                ? sourcePathResult.data
-                : "")
-            }
-          />
+          <HoverCard>
+            <HoverCardTrigger>
+              <MenuButton
+                label="Studio"
+                icon={
+                  sourcePathResult.status === "success" &&
+                  sourcePathResult.data ? (
+                    <Globe size={16} />
+                  ) : (
+                    <PanelsTopLeft size={16} />
+                  )
+                }
+                href={
+                  window.origin +
+                  "/val/~" +
+                  (sourcePathResult.status === "success" &&
+                  sourcePathResult.data
+                    ? sourcePathResult.data
+                    : "")
+                }
+              />
+            </HoverCardTrigger>
+            <HoverCardContent side="left" className="z-50">
+              <div className="p-2 rounded bg-bg-primary text-fg-primary">
+                Open Val Studio to edit and manage your content
+              </div>
+            </HoverCardContent>
+          </HoverCard>
           <Popover>
             <PopoverTrigger
               className={classNames(buttonClassName, buttonInactiveClassName)}
@@ -1249,9 +1260,9 @@ function MenuButton({
       href={href}
       disabled={disabled}
       className={classNames(buttonClassName, {
-        "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+        "inline-block bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
           active,
-        [buttonInactiveClassName]: !active,
+        [classNames(buttonInactiveClassName, "inline-block")]: !active,
       })}
       onClick={onClick}
       aria-label={label}
