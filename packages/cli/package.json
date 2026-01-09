@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.87.5",
+  "version": "0.88.0",
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
@@ -22,9 +22,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/core": "~0.87.5",
-    "@valbuild/eslint-plugin": "~0.87.5",
-    "@valbuild/server": "~0.87.5",
+    "@valbuild/core": "~0.88.0",
+    "@valbuild/eslint-plugin": "~0.88.0",
+    "@valbuild/server": "~0.88.0",
     "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "fast-glob": "^3.3.1",
