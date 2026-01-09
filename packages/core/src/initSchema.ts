@@ -13,6 +13,7 @@ import { record } from "./schema/record";
 import { file } from "./schema/file";
 import { date } from "./schema/date";
 import { route } from "./schema/route";
+import { router } from "./schema/router";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -170,6 +171,19 @@ export type InitSchema = {
    *
    */
   readonly route: typeof route;
+  /**
+   * Define a router record.
+   * This is a shorthand for `s.record(item).router(router)`.
+   *
+   * @example
+   * const schema = s.router(nextAppRouter, s.object({ title: s.string() }));
+   * export default c.define("/example.val.ts", schema, {
+   *   "/home": { title: "Home" },
+   *   "/about": { title: "About" }
+   * });
+   *
+   */
+  readonly router: typeof router;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -192,6 +206,7 @@ export function initSchema() {
     file,
     date,
     route,
+    router,
     // i18n: i18n(locales),
   };
 }
