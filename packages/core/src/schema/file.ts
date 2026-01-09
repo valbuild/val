@@ -135,7 +135,6 @@ export class FileSchema<
           {
             message: `File did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
             value: src,
-            fixes: ["file:change-extension", "file:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -151,7 +150,6 @@ export class FileSchema<
           {
             message: `Invalid mime type format. Got: ${mimeType}`,
             value: src,
-            fixes: ["file:change-extension", "file:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -178,7 +176,6 @@ export class FileSchema<
             {
               message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
               value: src,
-              fixes: ["file:change-extension", "file:check-metadata"],
             },
           ],
         } as ValidationErrors;
@@ -193,7 +190,6 @@ export class FileSchema<
           {
             message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
             value: src,
-            fixes: ["file:change-extension", "file:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -206,7 +202,6 @@ export class FileSchema<
           {
             message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
             value: src,
-            fixes: ["file:change-extension", "file:check-metadata"],
           },
         ],
       } as ValidationErrors;

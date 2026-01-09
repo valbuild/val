@@ -146,7 +146,6 @@ export class ImageSchema<
           {
             message: `Image did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
             value: src,
-            fixes: ["image:change-extension", "image:check-metadata"],
           },
         ],
       } as ValidationErrors;
