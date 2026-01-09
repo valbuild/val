@@ -20,6 +20,11 @@ import {
   SourcePath,
   ValidationFix,
 } from "@valbuild/core";
+import {
+  filterRoutesByPatterns,
+  validateRoutePatterns,
+  type SerializedRegExpPattern,
+} from "@valbuild/shared/internal";
 import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import fs from "fs/promises";
@@ -479,19 +484,11 @@ async function checkKeyIsValid(
  */
 async function checkRouteIsValid(
   route: string,
-  include: { source: string; flags: string } | undefined,
-  exclude: { source: string; flags: string } | undefined,
+  include: SerializedRegExpPattern | undefined,
+  exclude: SerializedRegExpPattern | undefined,
   service: Service,
   valFiles: string[],
 ): Promise<{ error: false } | { error: true; message: string }> {
-  // Reconstruct RegExp from serialized form
-  const includePattern = include
-    ? new RegExp(include.source, include.flags)
-    : undefined;
-  const excludePattern = exclude
-    ? new RegExp(exclude.source, exclude.flags)
-    : undefined;
-
   // 1. Scan all val files to find modules with routers
   const routerModules: Record<string, Record<string, unknown>> = {};
 
@@ -537,15 +534,7 @@ async function checkRouteIsValid(
     }
 
     // Filter routes by include/exclude patterns for suggestions
-    allRoutes = allRoutes.filter((r) => {
-      if (includePattern && !includePattern.test(r)) {
-        return false;
-      }
-      if (excludePattern && excludePattern.test(r)) {
-        return false;
-      }
-      return true;
-    });
+    allRoutes = filterRoutesByPatterns(allRoutes, include, exclude);
 
     const alternatives = findSimilar(route, allRoutes);
 
@@ -562,19 +551,12 @@ async function checkRouteIsValid(
     };
   }
 
-  // 3. Validate against include pattern if provided
-  if (includePattern && !includePattern.test(route)) {
+  // 3. Validate against include/exclude patterns
+  const patternValidation = validateRoutePatterns(route, include, exclude);
+  if (!patternValidation.valid) {
     return {
       error: true,
-      message: `Route '${route}' does not match include pattern: ${includePattern}`,
-    };
-  }
-
-  // 4. Validate against exclude pattern if provided
-  if (excludePattern && excludePattern.test(route)) {
-    return {
-      error: true,
-      message: `Route '${route}' matches exclude pattern: ${excludePattern}`,
+      message: patternValidation.message,
     };
   }
 
