@@ -1,6 +1,7 @@
 import classNames from "classnames";
 import {
   Ellipsis,
+  ExternalLink,
   Eye,
   EyeOff,
   Globe,
@@ -616,31 +617,19 @@ function Window({
           >
             {editMode && (
               <>
-                {/* Studio buttons - only show at top if multiple fields */}
-                {Internal.splitJoinedSourcePaths(editMode.joinedPaths).length >
-                  1 && (
-                  <div className="flex flex-wrap gap-2">
-                    {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
-                      (path, index) => {
-                        const studioUrl = window.origin + "/val/~" + path;
-                        return (
-                          <a
-                            key={path}
-                            href={studioUrl}
-                            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
-                          >
-                            <PanelsTopLeft size={16} />
-                            <span>Open Studio {index + 1}</span>
-                          </a>
-                        );
-                      },
-                    )}
-                  </div>
-                )}
                 {/* Fields */}
                 {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
                   (path) => {
-                    return <WindowField key={path} path={path} />;
+                    const hasMultipleFields =
+                      Internal.splitJoinedSourcePaths(editMode.joinedPaths)
+                        .length > 1;
+                    return (
+                      <WindowField
+                        key={path}
+                        path={path}
+                        showInlineStudioLink={hasMultipleFields}
+                      />
+                    );
                   },
                 )}
               </>
@@ -658,7 +647,7 @@ function Window({
                     }
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
                   >
-                    <PanelsTopLeft size={16} />
+                    <ExternalLink size={16} />
                     <span>Open Studio</span>
                   </a>
                 )}
@@ -722,13 +711,40 @@ const buttonClassName =
   "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
 const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
 
-function WindowField({ path: path }: { path: SourcePath }) {
+function WindowField({
+  path: path,
+  showInlineStudioLink,
+}: {
+  path: SourcePath;
+  showInlineStudioLink: boolean;
+}) {
   const schemaAtPath = useSchemaAtPath(path);
+  const studioUrl = window.origin + "/val/~" + path;
 
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     return (
       <div className="flex flex-col gap-4">
         <FieldLoading path={path} />
+      </div>
+    );
+  }
+
+  if (showInlineStudioLink) {
+    return (
+      <div className="flex flex-col gap-2 w-full">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
+          </div>
+          <a
+            href={studioUrl}
+            className="flex-shrink-0 p-2 rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-secondary hover:text-fg-primary transition-colors mt-1"
+            title="Open in Studio"
+            aria-label="Open in Studio"
+          >
+            <ExternalLink size={16} />
+          </a>
+        </div>
       </div>
     );
   }
