@@ -8,7 +8,7 @@ const genericPageSchema = s.object({
 
 export default c.define(
   "/app/generic/[[...path]]/page.val.ts",
-  s.record(genericPageSchema).router(nextAppRouter),
+  s.router(nextAppRouter, genericPageSchema),
   {
     "/generic": {
       title: "Generic",
