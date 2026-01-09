@@ -604,6 +604,114 @@ export abstract class ValOps {
       };
     };
 
+    const checkRouteIsValid = async (
+      route: string,
+      includePattern?: { source: string; flags: string },
+      excludePattern?: { source: string; flags: string },
+    ): Promise<{ error: false } | { error: true; message: string }> => {
+      // Find all router modules (record schemas with router property)
+      const routerModules: { path: ModuleFilePath; routes: string[] }[] = [];
+      for (const [moduleFilePath, schema] of Object.entries(schemas)) {
+        const serializedSchema = schema["executeSerialize"]();
+        if (serializedSchema.type === "record" && serializedSchema.router) {
+          const source = sources[moduleFilePath as ModuleFilePath];
+          if (source && typeof source === "object") {
+            routerModules.push({
+              path: moduleFilePath as ModuleFilePath,
+              routes: Object.keys(source),
+            });
+          }
+        }
+      }
+
+      if (routerModules.length === 0) {
+        return {
+          error: true,
+          message: `No router modules found. Route validation requires at least one s.record().router() module.`,
+        };
+      }
+
+      // Check if route exists in any router module
+      const allRoutes = routerModules.flatMap((m) => m.routes);
+      const routeExists = allRoutes.includes(route);
+
+      if (!routeExists) {
+        // Filter routes by include/exclude patterns for suggestions
+        const validRoutes = allRoutes.filter((r) => {
+          if (includePattern) {
+            try {
+              const regex = new RegExp(
+                includePattern.source,
+                includePattern.flags,
+              );
+              if (!regex.test(r)) {
+                return false;
+              }
+            } catch {
+              return false;
+            }
+          }
+          if (excludePattern) {
+            try {
+              const regex = new RegExp(
+                excludePattern.source,
+                excludePattern.flags,
+              );
+              if (regex.test(r)) {
+                return false;
+              }
+            } catch {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        return {
+          error: true,
+          message: `Route '${route}' does not exist in any router module. Available routes: ${validRoutes.slice(0, 10).join(", ")}${validRoutes.length > 10 ? "..." : ""}`,
+        };
+      }
+
+      // Validate include pattern
+      if (includePattern) {
+        try {
+          const regex = new RegExp(includePattern.source, includePattern.flags);
+          if (!regex.test(route)) {
+            return {
+              error: true,
+              message: `Route '${route}' does not match include pattern: /${includePattern.source}/${includePattern.flags}`,
+            };
+          }
+        } catch (e) {
+          return {
+            error: true,
+            message: `Invalid include pattern: ${e instanceof Error ? e.message : String(e)}`,
+          };
+        }
+      }
+
+      // Validate exclude pattern
+      if (excludePattern) {
+        try {
+          const regex = new RegExp(excludePattern.source, excludePattern.flags);
+          if (regex.test(route)) {
+            return {
+              error: true,
+              message: `Route '${route}' matches exclude pattern: /${excludePattern.source}/${excludePattern.flags}`,
+            };
+          }
+        } catch (e) {
+          return {
+            error: true,
+            message: `Invalid exclude pattern: ${e instanceof Error ? e.message : String(e)}`,
+          };
+        }
+      }
+
+      return { error: false };
+    };
+
     const errors: Record<
       ModuleFilePath,
       {
@@ -710,6 +818,65 @@ export abstract class ValOps {
                     const res = await checkKeyIsValid(
                       key,
                       validationErrorSourcePath,
+                    );
+                    if (res.error) {
+                      addError({
+                        message: res.message,
+                      });
+                    }
+                  }
+                }
+              }
+            } else if (validationError.fixes?.includes("router:check-route")) {
+              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
+              if (!validationError.value) {
+                addError({
+                  message: `Could not find a value for route at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
+                  typeError: true,
+                });
+              } else {
+                if (typeof validationError.value !== "object") {
+                  addError({
+                    message: `Expected route validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
+                    typeError: true,
+                  });
+                } else {
+                  const route =
+                    "route" in validationError.value &&
+                    validationError.value.route;
+                  const includePattern =
+                    "include" in validationError.value &&
+                    validationError.value.include;
+                  const excludePattern =
+                    "exclude" in validationError.value &&
+                    validationError.value.exclude;
+
+                  if (typeof route !== "string") {
+                    addError({
+                      message: `Expected route validation error 'value' to have property 'route' of type 'string'. Found: ${typeof route}. ${TYPE_ERROR_MESSAGE}`,
+                      typeError: true,
+                    });
+                  } else {
+                    const res = await checkRouteIsValid(
+                      route,
+                      includePattern &&
+                        typeof includePattern === "object" &&
+                        "source" in includePattern &&
+                        "flags" in includePattern
+                        ? (includePattern as {
+                            source: string;
+                            flags: string;
+                          })
+                        : undefined,
+                      excludePattern &&
+                        typeof excludePattern === "object" &&
+                        "source" in excludePattern &&
+                        "flags" in excludePattern
+                        ? (excludePattern as {
+                            source: string;
+                            flags: string;
+                          })
+                        : undefined,
                     );
                     if (res.error) {
                       addError({
