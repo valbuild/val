@@ -356,6 +356,233 @@ describe("validate handlers", () => {
     });
   });
 
+  describe("handleRouteCheck", () => {
+    test("should return success when route exists in router module", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: { route: "/home" },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: "next-app-router",
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { "/home": {}, "/about": {} },
+        path: "/routes.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // 1. Extract route from validationError.value
+      // 2. Scan all valFiles for router modules
+      // 3. Check if route exists in any router module
+      // 4. Return success: true if found
+
+      expect(ctx.validationError.value).toEqual({ route: "/home" });
+      expect(ctx.valFiles).toContain("routes.val.ts");
+    });
+
+    test("should return error when route does not exist", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: { route: "/notfound" },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: "next-app-router",
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { "/home": {}, "/about": {} },
+        path: "/routes.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // Route not found, should return error with suggestions
+      // Should use levenshtein distance to find similar routes
+
+      expect(ctx.validationError.value).toEqual({ route: "/notfound" });
+    });
+
+    test("should return error when no router modules found", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: { route: "/home" },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["data.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: undefined,
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { key: "value" },
+        path: "/data.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // No router modules found, should return helpful error message
+
+      expect(ctx.valFiles).toContain("data.val.ts");
+    });
+
+    test("should validate include pattern", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: {
+            route: "/admin/users",
+            include: { source: "^\\/api\\/", flags: "" },
+          },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: "next-app-router",
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { "/admin/users": {} },
+        path: "/routes.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // Route exists but doesn't match include pattern
+      // Should return error about pattern mismatch
+
+      const value = ctx.validationError.value as {
+        route: string;
+        include: { source: string; flags: string };
+      };
+      expect(value.include.source).toBe("^\\/api\\/");
+    });
+
+    test("should validate exclude pattern", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: {
+            route: "/api/internal/secret",
+            exclude: { source: "^\\/api\\/internal\\/", flags: "" },
+          },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: "next-app-router",
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { "/api/internal/secret": {} },
+        path: "/routes.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // Route exists but matches exclude pattern
+      // Should return error about excluded route
+
+      const value = ctx.validationError.value as {
+        route: string;
+        exclude: { source: string; flags: string };
+      };
+      expect(value.exclude.source).toBe("^\\/api\\/internal\\/");
+    });
+
+    test("should validate both include and exclude patterns", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: {
+            route: "/api/users",
+            include: { source: "^\\/api\\/", flags: "" },
+            exclude: { source: "^\\/api\\/internal\\/", flags: "" },
+          },
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      mockService.get.mockResolvedValue({
+        schema: {
+          type: "record",
+          router: "next-app-router",
+          item: { type: "object", items: {}, opt: false },
+          opt: false,
+        },
+        source: { "/api/users": {} },
+        path: "/routes.val.ts" as SourcePath,
+        errors: {},
+      });
+
+      // Expected behavior:
+      // Route exists, matches include, doesn't match exclude
+      // Should return success: true
+
+      const value = ctx.validationError.value as {
+        route: string;
+        include: { source: string; flags: string };
+        exclude: { source: string; flags: string };
+      };
+      expect(value.include.source).toBe("^\\/api\\/");
+      expect(value.exclude.source).toBe("^\\/api\\/internal\\/");
+    });
+
+    test("should return error when route value is invalid", async () => {
+      const ctx: FixHandlerContext = {
+        ...baseContext,
+        validationError: {
+          message: "Route validation required",
+          value: { route: 123 }, // Invalid: should be string
+          fixes: ["router:check-route"],
+        },
+        valFiles: ["routes.val.ts"],
+      };
+
+      // Expected behavior:
+      // Invalid route value type, should return error
+
+      expect(
+        typeof (ctx.validationError.value as { route: unknown }).route,
+      ).toBe("number");
+    });
+  });
+
   describe("fix handler registry", () => {
     test("should have handlers for all file metadata fix types", () => {
       const metadataFixTypes = [

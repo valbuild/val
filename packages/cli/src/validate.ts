@@ -474,14 +474,151 @@ async function checkKeyIsValid(
 }
 
 /**
- * Handler for router:check-route validation fix
- * TODO: Implement route validation logic
+ * Check if a route is valid by scanning all router modules
+ * and validating against include/exclude patterns
  */
-async function handleRouteCheck(): Promise<FixHandlerResult> {
-  return {
-    success: false,
-    errorMessage: "Route validation is not yet implemented",
-  };
+async function checkRouteIsValid(
+  route: string,
+  include: { source: string; flags: string } | undefined,
+  exclude: { source: string; flags: string } | undefined,
+  service: Service,
+  valFiles: string[],
+): Promise<{ error: false } | { error: true; message: string }> {
+  // Reconstruct RegExp from serialized form
+  const includePattern = include
+    ? new RegExp(include.source, include.flags)
+    : undefined;
+  const excludePattern = exclude
+    ? new RegExp(exclude.source, exclude.flags)
+    : undefined;
+
+  // 1. Scan all val files to find modules with routers
+  const routerModules: Record<string, Record<string, unknown>> = {};
+
+  for (const file of valFiles) {
+    const moduleFilePath = `/${file}` as ModuleFilePath;
+    const valModule = await service.get(moduleFilePath, "" as ModulePath, {
+      source: true,
+      schema: true,
+      validate: false,
+    });
+
+    // Check if this module has a router defined
+    if (valModule.schema?.type === "record" && valModule.schema.router) {
+      if (valModule.source && typeof valModule.source === "object") {
+        routerModules[moduleFilePath] = valModule.source as Record<
+          string,
+          unknown
+        >;
+      }
+    }
+  }
+
+  // 2. Check if route exists in any router module
+  let foundInModule: string | null = null;
+  for (const [moduleFilePath, source] of Object.entries(routerModules)) {
+    if (route in source) {
+      foundInModule = moduleFilePath;
+      break;
+    }
+  }
+
+  if (!foundInModule) {
+    // Route not found in any router module
+    const allRoutes = Object.values(routerModules).flatMap((source) =>
+      Object.keys(source),
+    );
+
+    if (allRoutes.length === 0) {
+      return {
+        error: true,
+        message: `Route '${route}' could not be validated: No router modules found in the project. Use s.record(...).router(...) to define router modules.`,
+      };
+    }
+
+    const alternatives = findSimilar(route, allRoutes);
+
+    return {
+      error: true,
+      message: `Route '${route}' does not exist in any router module. ${
+        alternatives.length > 0
+          ? `Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
+              .slice(1, 4)
+              .map((a) => `'${a.target}'`)
+              .join(", ")}${alternatives.length > 4 ? ", ..." : ""}`
+          : "No similar routes found."
+      }`,
+    };
+  }
+
+  // 3. Validate against include pattern if provided
+  if (includePattern && !includePattern.test(route)) {
+    return {
+      error: true,
+      message: `Route '${route}' does not match include pattern: ${includePattern}`,
+    };
+  }
+
+  // 4. Validate against exclude pattern if provided
+  if (excludePattern && excludePattern.test(route)) {
+    return {
+      error: true,
+      message: `Route '${route}' matches exclude pattern: ${excludePattern}`,
+    };
+  }
+
+  return { error: false };
+}
+
+/**
+ * Handler for router:check-route validation fix
+ */
+async function handleRouteCheck(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const { sourcePath, validationError, service, valFiles } = ctx;
+
+  // Extract route and patterns from validation error value
+  const value = validationError.value as
+    | {
+        route: unknown;
+        include?: { source: string; flags: string };
+        exclude?: { source: string; flags: string };
+      }
+    | undefined;
+
+  if (!value || typeof value.route !== "string") {
+    return {
+      success: false,
+      errorMessage: `Invalid route value in validation error: ${JSON.stringify(value)}`,
+    };
+  }
+
+  const route = value.route;
+
+  // Check if the route is valid
+  const result = await checkRouteIsValid(
+    route,
+    value.include,
+    value.exclude,
+    service,
+    valFiles,
+  );
+
+  if (result.error) {
+    return {
+      success: false,
+      errorMessage: `${sourcePath}: ${result.message}`,
+    };
+  }
+
+  // Route is valid - no fix needed
+  console.log(
+    picocolors.green("✓"),
+    `Route '${route}' is valid in`,
+    sourcePath,
+  );
+  return { success: true };
 }
 
 // Fix handler registry
