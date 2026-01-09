@@ -214,9 +214,6 @@ export function ValOverlay(props: ValOverlayProps) {
                 height: rect.height,
                 joinedPaths: path,
               };
-              if (path === '/app/page.val.ts?p="/"."video"."file"') {
-                console.log("video", el, boundingBox);
-              }
             }
           }
         }
