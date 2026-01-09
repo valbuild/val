@@ -16,7 +16,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import {
+import React, {
   Dispatch,
   SetStateAction,
   useEffect,
@@ -244,7 +244,11 @@ export function ValOverlay(props: ValOverlayProps) {
         window.removeEventListener("touchstart", touchListener);
         window.removeEventListener("mouseleave", mouseLeaveListener);
         window.removeEventListener("resize", resizeListener);
+        setBoundingBox(null);
       };
+    } else {
+      // Clear bounding box when not in select mode
+      setBoundingBox(null);
     }
   }, [editMode, mode]);
   useEffect(() => {
@@ -258,7 +262,6 @@ export function ValOverlay(props: ValOverlayProps) {
       window.addEventListener("keydown", keyDownListener);
       return () => {
         window.removeEventListener("keydown", keyDownListener);
-        setBoundingBox(null);
       };
     }
   }, [mode, editMode]);
@@ -1227,7 +1230,14 @@ function ValMenu({
             </PopoverContent>
           </Popover>
           <HoverCard>
-            <HoverCardTrigger className="inline-flex">
+            <HoverCardTrigger
+              className={cn(
+                buttonClassName,
+                buttonInactiveClassName,
+                "inline-flex p-2",
+              )}
+              asChild
+            >
               <MenuButton
                 icon={
                   sourcePathResult.status === "success" &&
@@ -1409,46 +1419,75 @@ function useValRouterSourcePathFromCurrentPathname() {
   return sourcePathResult;
 }
 
-function MenuButton({
-  icon,
-  onClick,
-  disabled,
-  active,
-  label,
-  href,
-  onMouseEnter,
-  onMouseLeave,
-}: {
-  icon: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  active?: boolean;
-  label?: string;
-  href?: string;
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
-}) {
-  const Comp = href ? "a" : "button";
-  return (
-    <Comp
-      href={href}
-      disabled={disabled}
-      className={classNames(buttonClassName, {
-        "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
-          active,
-        [classNames(buttonInactiveClassName, "inline-block leading-4")]:
-          !active,
-      })}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      aria-label={label}
-      title={label}
-    >
-      {icon}
-    </Comp>
-  );
-}
+const MenuButton = React.forwardRef<
+  HTMLButtonElement | HTMLAnchorElement,
+  {
+    icon: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    active?: boolean;
+    label?: string;
+    href?: string;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
+  } & React.HTMLAttributes<HTMLButtonElement | HTMLAnchorElement>
+>(
+  (
+    {
+      icon,
+      onClick,
+      disabled,
+      active,
+      label,
+      href,
+      onMouseEnter,
+      onMouseLeave,
+      ...rest
+    },
+    ref,
+  ) => {
+    const sharedClassName = classNames(buttonClassName, {
+      "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+        active,
+      [classNames(buttonInactiveClassName, "inline-block leading-4")]: !active,
+    });
+
+    if (href) {
+      return (
+        <a
+          ref={ref as React.Ref<HTMLAnchorElement>}
+          href={href}
+          className={sharedClassName}
+          onClick={onClick}
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
+          aria-label={label}
+          title={label}
+          {...rest}
+        >
+          {icon}
+        </a>
+      );
+    }
+
+    return (
+      <button
+        ref={ref as React.Ref<HTMLButtonElement>}
+        disabled={disabled}
+        className={sharedClassName}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        aria-label={label}
+        title={label}
+        {...rest}
+      >
+        {icon}
+      </button>
+    );
+  },
+);
+MenuButton.displayName = "MenuButton";
 
 function DraggableValMenu(props: ValMenuProps) {
   const [isDragging, setIsDragging] = useState(false);
