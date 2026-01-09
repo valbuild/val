@@ -61,6 +61,7 @@ export default c.define(
           mimeType: "video/webm",
         }),
       },
+      link: "/blogs/blog1",
       hero: {
         title: "Content as code",
         image: c.image("/public/val/logo_7adc7.png", {
