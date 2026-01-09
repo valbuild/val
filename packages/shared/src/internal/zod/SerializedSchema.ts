@@ -12,6 +12,7 @@ import {
   type SerializedRichTextOptions as SerializedRichTextOptionsT,
   type SerializedRecordSchema as SerializedRecordSchemaT,
   type SerializedKeyOfSchema as SerializedKeyOfSchemaT,
+  type SerializedRouteSchema as SerializedRouteSchemaT,
   type SerializedFileSchema as SerializedFileSchemaT,
   type SerializedDateSchema as SerializedDateSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
@@ -235,6 +236,33 @@ export const SerializedDateSchema: z.ZodType<
   opt: z.boolean(),
 });
 
+export const SerializedRouteSchema: z.ZodType<
+  SerializedRouteSchemaT,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  type: z.literal("route"),
+  options: z
+    .object({
+      include: z
+        .object({
+          source: z.string(),
+          flags: z.string(),
+        })
+        .optional(),
+      exclude: z
+        .object({
+          source: z.string(),
+          flags: z.string(),
+        })
+        .optional(),
+      customValidate: z.boolean().optional(),
+    })
+    .optional(),
+  opt: z.boolean(),
+  customValidate: z.boolean().optional(),
+});
+
 export const SerializedSchema: z.ZodType<
   SerializedSchemaT,
   z.ZodTypeDef,
@@ -250,6 +278,7 @@ export const SerializedSchema: z.ZodType<
   SerializedRichTextSchema,
   SerializedRecordSchema,
   SerializedKeyOfSchema,
+  SerializedRouteSchema,
   SerializedFileSchema,
   SerializedDateSchema,
   SerializedImageSchema,
