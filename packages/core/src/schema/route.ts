@@ -9,12 +9,17 @@ import {
 
 type RouteOptions = {
   include?: RegExp;
+  exclude?: RegExp;
 };
 
 export type SerializedRouteSchema = {
   type: "route";
   options?: {
     include?: {
+      source: string;
+      flags: string;
+    };
+    exclude?: {
       source: string;
       flags: string;
     };
@@ -38,12 +43,38 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
   /**
    * Specify a pattern for which routes are allowed.
    *
+   * Semantics:
+   * - If only include is set: route must match include pattern
+   * - If only exclude is set: route must NOT match exclude pattern
+   * - If both are set: route must match include AND must NOT match exclude
+   *
    * @example
-   * s.route().include(/^\/(home|about|contact)$/)
+   * s.route().include(/^\/(home|about|contact)$/)  // Only these specific routes
+   * s.route().include(/^\/api\//).exclude(/^\/api\/internal\//)  // API routes except internal
    */
   include(pattern: RegExp): RouteSchema<Src> {
     return new RouteSchema<Src>(
       { ...this.options, include: pattern },
+      this.opt,
+      this.customValidateFunctions,
+    );
+  }
+
+  /**
+   * Specify a pattern for which routes should be excluded.
+   *
+   * Semantics:
+   * - If only include is set: route must match include pattern
+   * - If only exclude is set: route must NOT match exclude pattern
+   * - If both are set: route must match include AND must NOT match exclude
+   *
+   * @example
+   * s.route().exclude(/^\/admin/)  // Exclude all admin routes
+   * s.route().include(/^\/api\//).exclude(/^\/api\/internal\//)  // API routes except internal
+   */
+  exclude(pattern: RegExp): RouteSchema<Src> {
+    return new RouteSchema<Src>(
+      { ...this.options, exclude: pattern },
       this.opt,
       this.customValidateFunctions,
     );
@@ -85,6 +116,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
             route: src,
             sourcePath: path,
             include: this.options?.include,
+            exclude: this.options?.exclude,
           },
         },
       ],
@@ -135,6 +167,10 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
         include: this.options?.include && {
           source: this.options.include.source,
           flags: this.options.include.flags,
+        },
+        exclude: this.options?.exclude && {
+          source: this.options.exclude.source,
+          flags: this.options.exclude.flags,
         },
         customValidate:
           this.customValidateFunctions &&

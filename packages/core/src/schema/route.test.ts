@@ -52,6 +52,7 @@ describe("RouteSchema", () => {
             route: src,
             sourcePath: "path",
             include: undefined,
+            exclude: undefined,
           },
         },
       ],
@@ -72,6 +73,7 @@ describe("RouteSchema", () => {
             route: src,
             sourcePath: "path",
             include: includePattern,
+            exclude: undefined,
           },
         },
       ],
@@ -85,6 +87,7 @@ describe("RouteSchema", () => {
       type: "route",
       options: {
         include: undefined,
+        exclude: undefined,
         customValidate: false,
       },
       opt: false,
@@ -100,6 +103,91 @@ describe("RouteSchema", () => {
       options: {
         include: {
           source: "^\\/(home|about)$",
+          flags: "",
+        },
+        exclude: undefined,
+        customValidate: false,
+      },
+      opt: false,
+      customValidate: false,
+    });
+  });
+
+  test("validate: should return validation error with exclude pattern", () => {
+    const excludePattern = /^\/admin/;
+    const schema = route().exclude(excludePattern);
+    const src = "/admin/users";
+    const res = schema["executeValidate"]("path" as SourcePath, src);
+    expect(res).toEqual({
+      path: [
+        {
+          fixes: ["router:check-route"],
+          message: `Did not validate route (router). This error (router:check-route) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+          value: {
+            route: src,
+            sourcePath: "path",
+            include: undefined,
+            exclude: excludePattern,
+          },
+        },
+      ],
+    });
+  });
+
+  test("validate: should return validation error with both include and exclude", () => {
+    const includePattern = /^\/api\//;
+    const excludePattern = /^\/api\/internal\//;
+    const schema = route().include(includePattern).exclude(excludePattern);
+    const src = "/api/internal/secret";
+    const res = schema["executeValidate"]("path" as SourcePath, src);
+    expect(res).toEqual({
+      path: [
+        {
+          fixes: ["router:check-route"],
+          message: `Did not validate route (router). This error (router:check-route) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+          value: {
+            route: src,
+            sourcePath: "path",
+            include: includePattern,
+            exclude: excludePattern,
+          },
+        },
+      ],
+    });
+  });
+
+  test("serialize: should serialize route schema with exclude pattern", () => {
+    const schema = route().exclude(/^\/admin/);
+    const res = schema["executeSerialize"]();
+    expect(res).toEqual({
+      type: "route",
+      options: {
+        include: undefined,
+        exclude: {
+          source: "^\\/admin",
+          flags: "",
+        },
+        customValidate: false,
+      },
+      opt: false,
+      customValidate: false,
+    });
+  });
+
+  test("serialize: should serialize route schema with both include and exclude", () => {
+    const schema = route()
+      .include(/^\/api\//)
+      .exclude(/^\/api\/internal\//);
+    const res = schema["executeSerialize"]();
+    expect(res).toEqual({
+      type: "route",
+      options: {
+        include: {
+          source: "^\\/api\\/",
+          flags: "",
+        },
+        exclude: {
+          source: "^\\/api\\/internal\\/",
           flags: "",
         },
         customValidate: false,
