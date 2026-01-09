@@ -85,6 +85,26 @@ type ValMenuProps = ValOverlayProps & {
   loading: boolean;
   setDropZone: (dropZone: DropZones | null) => void;
   dropZone: DropZones | null;
+  findAllValPathElements: () => Array<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    joinedPaths: string;
+  }>;
+  setAllBoundingBoxes: Dispatch<
+    SetStateAction<
+      Array<{
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+        joinedPaths: string;
+      }>
+    >
+  >;
+  setShowAllBoundingBoxes: Dispatch<SetStateAction<boolean>>;
+  setAllBoundingBoxesVisible: Dispatch<SetStateAction<boolean>>;
 };
 type DropZones =
   | "val-menu-left-top"
@@ -120,11 +140,25 @@ export function ValOverlay(props: ValOverlayProps) {
     height: number;
     joinedPaths: string;
   } | null>(null);
+  const [showAllBoundingBoxes, setShowAllBoundingBoxes] = useState(false);
+  const [allBoundingBoxesVisible, setAllBoundingBoxesVisible] = useState(false);
+  const [allBoundingBoxes, setAllBoundingBoxes] = useState<
+    Array<{
+      top: number;
+      left: number;
+      width: number;
+      height: number;
+      joinedPaths: string;
+    }>
+  >([]);
   useEffect(() => {
     if (!props.draftMode) {
       setMode(null);
       setEditMode(null);
       setBoundingBox(null);
+      setShowAllBoundingBoxes(false);
+      setAllBoundingBoxesVisible(false);
+      setAllBoundingBoxes([]);
     }
   }, [props.draftMode]);
   useEffect(() => {
@@ -160,11 +194,23 @@ export function ValOverlay(props: ValOverlayProps) {
               }
             }
             if (path) {
+              // If this is a <source> element, use its parent <video> or <picture> element instead
+              let targetElement = el;
+              if (el.tagName === "SOURCE") {
+                const parent = el.parentElement;
+                if (
+                  parent &&
+                  (parent.tagName === "VIDEO" || parent.tagName === "PICTURE")
+                ) {
+                  targetElement = parent;
+                }
+              }
+
               boundingBox = {
-                top: el.offsetTop,
-                left: el.offsetLeft,
-                width: el.offsetWidth,
-                height: el.offsetHeight,
+                top: targetElement.offsetTop,
+                left: targetElement.offsetLeft,
+                width: targetElement.offsetWidth,
+                height: targetElement.offsetHeight,
                 joinedPaths: path,
               };
             }
@@ -265,6 +311,46 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   };
 
+  const findAllValPathElements = () => {
+    const elements = document.querySelectorAll("[data-val-path]");
+    const boxes: Array<{
+      top: number;
+      left: number;
+      width: number;
+      height: number;
+      joinedPaths: string;
+    }> = [];
+
+    elements.forEach((el) => {
+      if (el instanceof HTMLElement) {
+        const path = el.getAttribute("data-val-path");
+        if (path) {
+          // If this is a <source> element, use its parent <video> or <picture> element instead
+          let targetElement = el;
+          if (el.tagName === "SOURCE") {
+            const parent = el.parentElement;
+            if (
+              parent &&
+              (parent.tagName === "VIDEO" || parent.tagName === "PICTURE")
+            ) {
+              targetElement = parent;
+            }
+          }
+
+          boxes.push({
+            top: targetElement.offsetTop,
+            left: targetElement.offsetLeft,
+            width: targetElement.offsetWidth,
+            height: targetElement.offsetHeight,
+            joinedPaths: path,
+          });
+        }
+      }
+    });
+
+    return boxes;
+  };
+
   return (
     <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
       <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
@@ -310,6 +396,34 @@ export function ValOverlay(props: ValOverlayProps) {
           }}
         ></div>
       )}
+      {showAllBoundingBoxes &&
+        allBoundingBoxes.map((box, index) => (
+          <div
+            key={`${box.joinedPaths}-${index}`}
+            className={cn(
+              "absolute z-[8997] pointer-events-none",
+              "rounded-sm",
+              "border-2 border-bg-brand-primary",
+              "transition-opacity duration-200 ease-out",
+              allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
+            )}
+            style={maxRect(
+              {
+                top: box.top,
+                left: box.left,
+                width: box.width,
+                height: box.height,
+              },
+              {
+                top: window.innerHeight,
+                left: window.innerWidth,
+                width: window.innerWidth,
+                height: window.innerHeight,
+              },
+              2,
+            )}
+          />
+        ))}
       {editMode === null && (
         <DraggableValMenu
           {...props}
@@ -318,6 +432,10 @@ export function ValOverlay(props: ValOverlayProps) {
           loading={theme === null}
           dropZone={dropZone}
           setDropZone={setDropZone}
+          findAllValPathElements={findAllValPathElements}
+          setAllBoundingBoxes={setAllBoundingBoxes}
+          setShowAllBoundingBoxes={setShowAllBoundingBoxes}
+          setAllBoundingBoxesVisible={setAllBoundingBoxesVisible}
         />
       )}
     </div>
@@ -834,6 +952,10 @@ function ValMenu({
   disableOverlay,
   loading,
   setDropZone,
+  findAllValPathElements,
+  setAllBoundingBoxes,
+  setShowAllBoundingBoxes,
+  setAllBoundingBoxesVisible,
 }: {
   dropZone: DropZones;
   ghost?: boolean;
@@ -844,6 +966,27 @@ function ValMenu({
       : "horizontal";
   const authenticationState = useAuthenticationState();
   const portalContainer = useValPortal();
+
+  const showAllBoundingBoxesWithFadeIn = () => {
+    const boxes = findAllValPathElements();
+    setAllBoundingBoxes(boxes);
+    setShowAllBoundingBoxes(true);
+    setAllBoundingBoxesVisible(false);
+
+    // Fade in after a brief moment
+    setTimeout(() => {
+      setAllBoundingBoxesVisible(true);
+    }, 50);
+  };
+
+  const hideAllBoundingBoxesWithFadeOut = () => {
+    setAllBoundingBoxesVisible(false);
+
+    // Remove from DOM after fade-out completes
+    setTimeout(() => {
+      setShowAllBoundingBoxes(false);
+    }, 200);
+  };
   const { theme, setTheme } = useTheme();
   const loadingStatus = useLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
@@ -941,14 +1084,28 @@ function ValMenu({
             <HoverCardTrigger className="inline-flex">
               <MenuButton
                 active={mode === "select"}
-                onClick={() =>
-                  setMode((mode) => {
-                    if (mode === "select") {
-                      return null;
-                    }
-                    return "select";
-                  })
-                }
+                onClick={() => {
+                  const newMode = mode === "select" ? null : "select";
+                  setMode(newMode);
+
+                  // Clean up if exiting select mode
+                  if (newMode !== "select") {
+                    setShowAllBoundingBoxes(false);
+                    setAllBoundingBoxesVisible(false);
+                  } else {
+                    showAllBoundingBoxesWithFadeIn();
+                  }
+                }}
+                onMouseEnter={() => {
+                  if (mode === "select") {
+                    showAllBoundingBoxesWithFadeIn();
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (mode === "select") {
+                    hideAllBoundingBoxesWithFadeOut();
+                  }
+                }}
                 icon={<SquareDashedMousePointer size={16} />}
               />
             </HoverCardTrigger>
@@ -1256,6 +1413,8 @@ function MenuButton({
   active,
   label,
   href,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   icon: React.ReactNode;
   onClick?: () => void;
@@ -1263,6 +1422,8 @@ function MenuButton({
   active?: boolean;
   label?: string;
   href?: string;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const Comp = href ? "a" : "button";
   return (
@@ -1276,6 +1437,8 @@ function MenuButton({
           !active,
       })}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       aria-label={label}
       title={label}
     >
