@@ -8,6 +8,7 @@ import { UnionPreview } from "./fields/UnionField";
 import { ObjectPreview } from "./fields/ObjectFields";
 import { ImagePreview } from "./fields/ImageField";
 import { KeyOfPreview } from "./fields/KeyOfField";
+import { RoutePreview } from "./fields/RouteField";
 import { DatePreview } from "./fields/DateField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
@@ -48,6 +49,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <ImagePreview path={path} />;
   } else if (type === "keyOf") {
     return <KeyOfPreview path={path} />;
+  } else if (type === "route") {
+    return <RoutePreview path={path} />;
   } else if (type === "date") {
     return <DatePreview path={path} />;
   } else if (type === "literal") {

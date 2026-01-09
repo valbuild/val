@@ -26,6 +26,8 @@ export function emptyOf(schema: SerializedSchema): Json {
     } else {
       return schema.values[0];
     }
+  } else if (schema.type === "route") {
+    return ""; // Empty string as default route value
   } else if (schema.type === "file" || schema.type === "image") {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {

@@ -1336,6 +1336,7 @@ export type ShallowSource = EnsureAllTypes<{
   union: string | Record<string, SourcePath>;
   boolean: boolean;
   keyOf: string;
+  route: string;
   number: number;
   string: string;
   date: string;
@@ -2172,6 +2173,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "keyOf") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "route") {
     if (typeof source !== "string") {
       return {
         status: "error",
