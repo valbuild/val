@@ -6,14 +6,12 @@ const blogSchema = s.object({
   title: s.string(),
   content: s.richtext(),
   author: s.keyOf(authorsVal),
-  get link() {
-    return linkSchema;
-  },
+  link: linkSchema,
 });
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s.record(blogSchema).router(nextAppRouter),
+  s.router(nextAppRouter, blogSchema),
   {
     "/blogs/blog2": {
       title: "Blog 2",
@@ -26,7 +24,6 @@ export default c.define(
       author: "freekh",
       link: {
         label: "Read more",
-        type: "blog",
         href: "/blogs/blog1",
       },
     },
@@ -41,7 +38,6 @@ export default c.define(
       author: "freekh",
       link: {
         label: "See more",
-        type: "generic",
         href: "/generic/test/foo",
       },
     },
