@@ -12,6 +12,7 @@ import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
 import { date } from "./schema/date";
+import { route } from "./schema/route";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -160,6 +161,15 @@ export type InitSchema = {
    *
    */
   readonly date: typeof date;
+  /**
+   * Define a route.
+   *
+   * @example
+   * const schema = s.route();
+   * export default c.define("/example.val.ts", schema, "/example");
+   *
+   */
+  readonly route: typeof route;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -181,6 +191,7 @@ export function initSchema() {
     record,
     file,
     date,
+    route,
     // i18n: i18n(locales),
   };
 }

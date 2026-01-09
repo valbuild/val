@@ -12,6 +12,7 @@ export const ValidationFix = [
   "file:download-remote",
   "file:check-remote",
   "keyof:check-keys",
+  "router:check-route",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];
