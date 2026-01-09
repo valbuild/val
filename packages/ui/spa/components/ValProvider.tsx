@@ -1591,6 +1591,7 @@ export function useGlobalTransientErrors() {
 
 export function useGlobalError():
   | { type: "network-error"; networkError: number }
+  | { type: "schema-error"; schemaError: number }
   | {
       type: "remote-files-error";
       error: string;
@@ -1611,10 +1612,21 @@ export function useGlobalError():
     () => syncEngine.getNetworkErrorSnapshot(),
     () => syncEngine.getNetworkErrorSnapshot(),
   );
+  const schemaError = useSyncExternalStore(
+    syncEngine.subscribe("schema-error"),
+    () => syncEngine.getSchemaErrorSnapshot(),
+    () => syncEngine.getSchemaErrorSnapshot(),
+  );
   if (networkError !== null) {
     return {
       type: "network-error" as const,
       networkError,
+    };
+  }
+  if (schemaError !== null) {
+    return {
+      type: "schema-error" as const,
+      schemaError,
     };
   }
   if (remoteFiles.status === "inactive") {
