@@ -1,7 +1,6 @@
 import { initSchema } from "../initSchema";
 import { router } from "./router";
 import { nextAppRouter, ValRouter } from "../router";
-import { SourcePath } from "../val";
 
 const s = initSchema();
 
@@ -72,11 +71,6 @@ describe("router", () => {
     });
 
     const routerSchema = s.router(mockRouter, schema);
-
-    const source = {
-      "/home": { title: "Home" },
-      "/about": { title: "About" },
-    };
 
     // Should create a valid router schema
     expect(routerSchema).toBeDefined();
