@@ -69,13 +69,36 @@ describe("routeValidation", () => {
       expect(result).toEqual(["/api/users", "/api/posts"]);
     });
 
-    it("should handle invalid regex gracefully", () => {
+    it("should handle invalid include regex gracefully and log warning", () => {
+      const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation();
       const invalidPattern: SerializedRegExpPattern = {
         source: "[invalid",
         flags: "",
       };
       const result = filterRoutesByPatterns(routes, invalidPattern);
       expect(result).toEqual([]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[Val] Invalid include pattern"),
+        expect.stringContaining("Error:"),
+        expect.stringContaining("All routes will be filtered out"),
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it("should handle invalid exclude regex gracefully and log warning", () => {
+      const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation();
+      const invalidPattern: SerializedRegExpPattern = {
+        source: "(unclosed",
+        flags: "",
+      };
+      const result = filterRoutesByPatterns(routes, undefined, invalidPattern);
+      expect(result).toEqual([]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[Val] Invalid exclude pattern"),
+        expect.stringContaining("Error:"),
+        expect.stringContaining("All routes will be filtered out"),
+      );
+      consoleWarnSpy.mockRestore();
     });
 
     it("should handle case-insensitive patterns", () => {
