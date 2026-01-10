@@ -217,7 +217,7 @@ export function ValProvider({
         return newSeenCommitShas;
       });
     }
-  }, ["data" in stat && stat.data?.commitSha]);
+  }, [stat]);
 
   const [remoteFiles, setRemoteFiles] = useState<
     ValContextValue["remoteFiles"]

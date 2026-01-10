@@ -17,7 +17,7 @@ export function useRoutesOf(): string[] {
       return getRoutesOf(schemas.data, allSources);
     }
     return [];
-  }, [loadingStatus, allSources, "data" in schemas && schemas.data]);
+  }, [loadingStatus, allSources, schemas]);
 
   return routes;
 }

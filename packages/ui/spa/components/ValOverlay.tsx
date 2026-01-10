@@ -1415,7 +1415,7 @@ function useValRouterSourcePathFromCurrentPathname() {
     return {
       status: "not-found",
     };
-  }, ["data" in schemas && schemas.data, maybeRecordSources, currentPathname]);
+  }, [schemas, maybeRecordSources, currentPathname]);
   return sourcePathResult;
 }
 
