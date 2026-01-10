@@ -55,10 +55,12 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
   - [Nullable](#nullable)
   - [Array](#array)
   - [Record](#record)
+  - [Router](#router)
   - [Object](#object)
   - [Rich text](#richtext)
   - [Image](#image)
   - [keyOf](#keyof)
+  - [Route](#route)
 
 ## Installation
 
@@ -355,6 +357,42 @@ It is similar to an array, in that editors can add and remove items in it, howev
 s.record(t.number()); // <- Schema<Record<string, number>>
 ```
 
+## Router
+
+The `router` schema is a convenient shorthand for creating a record with router configuration. It combines `s.record()` and `.router()` into a single call.
+
+```ts
+import { s, c, nextAppRouter } from "../val.config";
+
+const pageSchema = s.object({ title: s.string() });
+
+// Using s.router() - shorthand
+const pagesSchema = s.router(nextAppRouter, pageSchema);
+
+// Equivalent to:
+const pagesSchema = s.record(pageSchema).router(nextAppRouter);
+```
+
+### Example:
+
+```ts
+import { s, c, nextAppRouter } from "../val.config";
+
+const pageSchema = s.object({ title: s.string() });
+
+// NOTE: to use router(nextAppRouter) - the module must be a sibling of the page.tsx
+export default c.define(
+  "/app/[slug]/page.val.ts",
+  s.router(nextAppRouter, pageSchema),
+  {
+    "/test-page": {
+      // This is the full pathname of the page - it must match the pattern of the Next JS route
+      title: "Test page",
+    },
+  },
+);
+```
+
 ## Object
 
 ```ts
@@ -363,7 +401,7 @@ s.object({
 });
 ```
 
-#### Page router
+#### Page router (using .router() method)
 
 You can configure Val to track your page structure and display content as navigable web pages in the editor interface.
 
@@ -772,6 +810,57 @@ const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
 const authors = useVal(otherVal); // s.record(s.object({ name: s.string() }))
 
 const nameOfAuthor = authors[articleVal.author].name;
+```
+
+## Route
+
+The `route` schema represents a string that references a route path in your application. It can be used with `include` and `exclude` patterns to constrain which routes are valid.
+
+### Route Schema
+
+```ts
+s.route(); // <- Schema<string>
+```
+
+### Route with patterns
+
+You can use `include` and `exclude` to constrain valid routes using regular expressions:
+
+```ts
+// Only allow API routes
+s.route().include(/^\/api\//);
+
+// Exclude admin routes
+s.route().exclude(/^\/admin\//);
+
+// Combine both: API routes except internal ones
+s.route()
+  .include(/^\/api\//)
+  .exclude(/^\/api\/internal\//);
+```
+
+**Pattern semantics:**
+
+- If only `include` is set: route must match the include pattern
+- If only `exclude` is set: route must NOT match the exclude pattern
+- If both are set: route must match include AND must NOT match exclude
+
+### Using routes
+
+Routes are validated against router modules (records with `.router()` or `s.router()`). The route value must exist as a key in one of your router modules.
+
+```ts
+import { s, c } from "../val.config";
+
+const linkSchema = s.object({
+  label: s.string(),
+  href: s.route().include(/^\//), // Only allow routes starting with /
+});
+
+export default c.define("/components/link.val.ts", linkSchema, {
+  label: "Home",
+  href: "/", // This must exist in a router module
+});
 ```
 
 # Custom validation

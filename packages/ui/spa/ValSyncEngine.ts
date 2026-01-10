@@ -137,6 +137,10 @@ export class ValSyncEngine {
      * If hasNetworkErrorTimestamp is not null, we show a network error
      */
     hasNetworkErrorTimestamp: number | null;
+    /**
+     * If hasSchemaErrorTimestamp is not null, we show a schema error
+     */
+    hasSchemaErrorTimestamp: number | null;
     validationErrors: Record<SourcePath, ValidationError[] | undefined>;
     patchErrors: Record<
       ModuleFilePath,
@@ -354,6 +358,7 @@ export class ValSyncEngine {
     type: "global-transient-errors",
   ): (listener: () => void) => () => void;
   subscribe(type: "network-error"): (listener: () => void) => () => void;
+  subscribe(type: "schema-error"): (listener: () => void) => () => void;
   subscribe(
     type: "global-server-side-patch-ids",
   ): (listener: () => void) => () => void;
@@ -484,6 +489,11 @@ export class ValSyncEngine {
     // NOTE: normally we invalidate by setting to null, but network error can be null as well
     this.cachedNetworkErrorSnapshot = undefined;
     this.emit(this.listeners["network-error"]?.[globalNamespace]);
+  }
+  private invalidateSchemaError() {
+    // NOTE: normally we invalidate by setting to null, but schema error can be null as well
+    this.cachedSchemaErrorSnapshot = undefined;
+    this.emit(this.listeners["schema-error"]?.[globalNamespace]);
   }
   private invalidatePatchSets() {
     this.cachedSerializedPatchSetsSnapshot = null;
@@ -917,6 +927,15 @@ export class ValSyncEngine {
         this.errors.hasNetworkErrorTimestamp || null;
     }
     return this.cachedNetworkErrorSnapshot;
+  }
+
+  private cachedSchemaErrorSnapshot: number | null | undefined;
+  getSchemaErrorSnapshot() {
+    if (this.cachedSchemaErrorSnapshot === undefined) {
+      this.cachedSchemaErrorSnapshot =
+        this.errors.hasSchemaErrorTimestamp || null;
+    }
+    return this.cachedSchemaErrorSnapshot;
   }
 
   private cachedParentRef: ParentRef | null | undefined;
@@ -1591,6 +1610,7 @@ export class ValSyncEngine {
       }
 
       console.debug("Invalidating schema");
+      this.resetSchemaError();
       this.invalidateSchema();
       return {
         status: "done",
@@ -1601,6 +1621,8 @@ export class ValSyncEngine {
         reason: "error",
       };
     }
+    // Schema endpoint returned an error (e.g., 500)
+    this.addSchemaError(Date.now());
     return {
       status: "retry",
       reason: "error",
@@ -2302,6 +2324,16 @@ export class ValSyncEngine {
     this.invalidateNetworkError();
   }
 
+  resetSchemaError() {
+    this.errors.hasSchemaErrorTimestamp = null;
+    this.invalidateSchemaError();
+  }
+
+  addSchemaError(now: number) {
+    this.errors.hasSchemaErrorTimestamp = now;
+    this.invalidateSchemaError();
+  }
+
   addGlobalTransientError(message: string, now: number, details?: string) {
     if (!this.errors.globalTransientErrorQueue) {
       this.errors.globalTransientErrorQueue = [];
@@ -2383,6 +2415,7 @@ type SyncEngineListenerType =
   | "failed-patches"
   | "skipped-patches"
   | "network-error"
+  | "schema-error"
   | "global-server-side-patch-ids"
   | "pending-client-side-patch-ids"
   | "synced-server-side-patch-ids"

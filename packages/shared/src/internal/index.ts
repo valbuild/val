@@ -11,3 +11,4 @@ export * from "./zod/ValDeployment";
 export * from "./getSitemapTree";
 export * from "./parseRoutePattern";
 export * from "./getNextAppRouterSourceFolder";
+export * from "./routeValidation";

@@ -40,6 +40,12 @@ export function ContentArea() {
                   Network error - retrying...
                 </div>
               </>
+            ) : globalError.type === "schema-error" ? (
+              <>
+                <div className="absolute w-full h-16 top-0 p-4 text-center text-fg-error-primary bg-bg-error-primary z-[50]">
+                  Schema error - check your console for details
+                </div>
+              </>
             ) : globalError.type === "remote-files-error" ? (
               <RemoteFilesErrorDialog error={globalError} />
             ) : (
