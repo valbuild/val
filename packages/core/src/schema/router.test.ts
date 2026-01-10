@@ -17,7 +17,6 @@ describe("router", () => {
 
     const routerSchema = router(mockRouter, schema);
 
-    expect(routerSchema).toBeDefined();
     const serialized = routerSchema["executeSerialize"]();
     expect(serialized.type).toBe("record");
     expect(serialized.router).toBe("test-router");
