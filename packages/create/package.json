@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/create",
-  "version": "0.87.5",
+  "version": "0.88.0",
   "description": "Create a new Val project with Next.js",
   "repository": {
     "type": "git",
