@@ -15,27 +15,53 @@ export function filterRoutesByPatterns(
   includePattern?: SerializedRegExpPattern,
   excludePattern?: SerializedRegExpPattern,
 ): string[] {
+  // Validate patterns upfront and warn about issues
+  let includeRegex: RegExp | null = null;
+  let excludeRegex: RegExp | null = null;
+
+  if (includePattern) {
+    try {
+      includeRegex = new RegExp(includePattern.source, includePattern.flags);
+    } catch (e) {
+      console.warn(
+        `[Val] Invalid include pattern: /${includePattern.source}/${includePattern.flags}`,
+        `\nError: ${e instanceof Error ? e.message : String(e)}`,
+        `\nAll routes will be filtered out due to malformed include pattern.`,
+      );
+    }
+  }
+
+  if (excludePattern) {
+    try {
+      excludeRegex = new RegExp(excludePattern.source, excludePattern.flags);
+    } catch (e) {
+      console.warn(
+        `[Val] Invalid exclude pattern: /${excludePattern.source}/${excludePattern.flags}`,
+        `\nError: ${e instanceof Error ? e.message : String(e)}`,
+        `\nAll routes will be filtered out due to malformed exclude pattern.`,
+      );
+    }
+  }
+
   return routes.filter((route) => {
     // Check include pattern
     if (includePattern) {
-      try {
-        const regex = new RegExp(includePattern.source, includePattern.flags);
-        if (!regex.test(route)) {
-          return false;
-        }
-      } catch {
+      if (!includeRegex) {
+        // Pattern creation failed, filter out this route
+        return false;
+      }
+      if (!includeRegex.test(route)) {
         return false;
       }
     }
 
     // Check exclude pattern
     if (excludePattern) {
-      try {
-        const regex = new RegExp(excludePattern.source, excludePattern.flags);
-        if (regex.test(route)) {
-          return false;
-        }
-      } catch {
+      if (!excludeRegex) {
+        // Pattern creation failed, filter out this route
+        return false;
+      }
+      if (excludeRegex.test(route)) {
         return false;
       }
     }
