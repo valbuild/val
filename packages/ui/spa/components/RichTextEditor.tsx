@@ -426,7 +426,7 @@ export function LinkToolBar() {
         ? activeLink.href
         : undefined;
     setHref(href);
-  }, [activeLink?.href]);
+  }, [activeLink]);
 
   const isEnabled =
     //active.link() || // doesn't seem to work for the first char (of a link) of a line, so we could remove this since selectedHref does the trick?
