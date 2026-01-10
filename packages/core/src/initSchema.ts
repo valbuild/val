@@ -163,25 +163,40 @@ export type InitSchema = {
    */
   readonly date: typeof date;
   /**
-   * Define a route.
+   * Define a string that references a route path in your application.
+   *
+   * To create router pages you can use the s.router() function.
    *
    * @example
+   * ```typescript
    * const schema = s.route();
-   * export default c.define("/example.val.ts", schema, "/example");
-   *
+   * export default c.define("/example.val.ts", schema, "/a-page-slug");
+   * ```
    */
   readonly route: typeof route;
   /**
-   * Define a router record.
-   * This is a shorthand for `s.record(item).router(router)`.
+   * Create a page router.
+   * Each key is the path of the page.
    *
-   * @example
-   * const schema = s.router(nextAppRouter, s.object({ title: s.string() }));
-   * export default c.define("/example.val.ts", schema, {
-   *   "/home": { title: "Home" },
-   *   "/about": { title: "About" }
+   * The router will be used to validate the paths of the pages.
+   *
+   * If you need to link to these pages you can use the s.route() to reference page paths.
+   *
+   * @example Next.js App Router
+   * ```typescript
+   * import { s, c, nextAppRouter } from "../val.config";
+   * const schema = s.object({
+   *   title: s.string(),
    * });
+   * export default c.define("/app/[slug]/page.val.ts", s.router(nextAppRouter, schema), {
+   *   "/a-page-slug": { title: "First Page" },
+   *   "/another-page-slug": { title: "Second Page" },
+   * });
+   * ```
    *
+   * @param router - The router configuration (e.g., nextAppRouter)
+   * @param schema - The schema for each route item
+   * @returns A RecordSchema configured as a router
    */
   readonly router: typeof router;
 };
