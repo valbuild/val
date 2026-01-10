@@ -1336,6 +1336,7 @@ export type ShallowSource = EnsureAllTypes<{
   union: string | Record<string, SourcePath>;
   boolean: boolean;
   keyOf: string;
+  route: string;
   number: number;
   string: string;
   date: string;
@@ -1590,6 +1591,7 @@ export function useGlobalTransientErrors() {
 
 export function useGlobalError():
   | { type: "network-error"; networkError: number }
+  | { type: "schema-error"; schemaError: number }
   | {
       type: "remote-files-error";
       error: string;
@@ -1610,10 +1612,21 @@ export function useGlobalError():
     () => syncEngine.getNetworkErrorSnapshot(),
     () => syncEngine.getNetworkErrorSnapshot(),
   );
+  const schemaError = useSyncExternalStore(
+    syncEngine.subscribe("schema-error"),
+    () => syncEngine.getSchemaErrorSnapshot(),
+    () => syncEngine.getSchemaErrorSnapshot(),
+  );
   if (networkError !== null) {
     return {
       type: "network-error" as const,
       networkError,
+    };
+  }
+  if (schemaError !== null) {
+    return {
+      type: "schema-error" as const,
+      schemaError,
     };
   }
   if (remoteFiles.status === "inactive") {
@@ -2172,6 +2185,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "keyOf") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "route") {
     if (typeof source !== "string") {
       return {
         status: "error",

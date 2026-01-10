@@ -48,7 +48,8 @@ export function getDependentModuleFiles(
       schemaNode.type === "date" ||
       schemaNode.type === "file" ||
       schemaNode.type === "image" ||
-      schemaNode.type === "number"
+      schemaNode.type === "number" ||
+      schemaNode.type === "route"
     ) {
       // ignore
     } else {

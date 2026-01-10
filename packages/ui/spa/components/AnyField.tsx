@@ -7,6 +7,7 @@ import { NumberField } from "./fields/NumberField";
 import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
 import { RichTextField } from "./fields/RichTextField";
+import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
@@ -40,6 +41,8 @@ export function AnyField({
     return <UnionField key={path} path={path} />;
   } else if (schema.type === "keyOf") {
     return <KeyOfField key={path} path={path} />;
+  } else if (schema.type === "route") {
+    return <RouteField key={path} path={path} />;
   } else if (schema.type === "richtext") {
     return <RichTextField key={path} path={path} autoFocus={autoFocus} />;
   } else if (schema.type === "date") {

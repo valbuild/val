@@ -53,6 +53,7 @@ export function schemaTypesOfPath(
       current.type === "file" ||
       current.type === "image" ||
       current.type === "keyOf" ||
+      current.type === "route" ||
       current.type === "literal" ||
       current.type === "richtext"
     ) {

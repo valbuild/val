@@ -109,7 +109,8 @@ export function getKeysOf(
       schema.type === "date" ||
       schema.type === "image" ||
       schema.type === "file" ||
-      schema.type === "richtext"
+      schema.type === "richtext" ||
+      schema.type === "route"
     ) {
       // ignore these
     } else {

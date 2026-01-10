@@ -224,6 +224,10 @@ function rec(
     }
   } else if (schema.type === "boolean") {
     // ignore booleans
+  } else if (schema.type === "route") {
+    if (typeof source === "string") {
+      sourceIndex.add(path, source + " " + path);
+    }
   } else {
     const exhaustiveCheck: never = schema;
     throw new Error(
