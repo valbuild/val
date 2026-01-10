@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { ModuleFilePath, SourcePath } from "../val";
+import { SourcePath } from "../val";
 import { ReifiedRender } from "../render";
 import {
   ValidationError,
