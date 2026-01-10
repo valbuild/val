@@ -18,7 +18,7 @@ export function ProfileImage({
     } else {
       setImageUrl(null);
     }
-  }, [profile?.avatar?.url]);
+  }, [profile]);
 
   const [firstName, ...tail] = profile.fullName?.split(" ") || [""];
   const lastName = tail[tail.length - 1] || "";

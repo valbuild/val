@@ -300,7 +300,7 @@ export function ValOverlay(props: ValOverlayProps) {
       console.error("Error getting drop zone from local storage", e);
       setDropZoneRaw(defaultDropZone);
     }
-  }, [config?.project || "unknown"]);
+  }, [config]);
   const setDropZone = (dropZone: DropZones | null) => {
     setDropZoneRaw(dropZone);
     try {

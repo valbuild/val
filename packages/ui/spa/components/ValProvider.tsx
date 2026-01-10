@@ -1143,7 +1143,7 @@ export function usePublishSummary() {
         setPublishSummaryState(storedSummaryState);
       }
     }
-  }, [publishSummaryState, config?.project, setPublishSummaryState]);
+  }, [publishSummaryState, config, setPublishSummaryState]);
   const generateSummary = useCallback(async (): Promise<
     { type: "ai"; text: string } | { type: "error"; message: string }
   > => {
