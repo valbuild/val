@@ -165,6 +165,7 @@ function ContentAreaHeader() {
           size={16}
           className={classNames("transform", {
             "rotate-180": !navMenu.isOpen,
+            "hidden lg:block": navMenu.isOpen,
           })}
         />
       </button>
@@ -178,6 +179,7 @@ function ContentAreaHeader() {
           size={16}
           className={classNames("transform", {
             "rotate-180": toolsMenu.isOpen,
+            "hidden lg:block": toolsMenu.isOpen,
           })}
         />
       </button>
