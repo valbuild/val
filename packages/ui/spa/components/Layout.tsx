@@ -1,11 +1,16 @@
 import { NAV_MENU_MOBILE_BREAKPOINT, NavMenu } from "./NavMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
-import classNames from "classnames";
 import { useAuthenticationState, useTheme } from "./ValProvider";
 import React, { useContext, useEffect, useState } from "react";
 import { useNavigation } from "./ValRouter";
 import { LoginDialog } from "./LoginDialog";
+import {
+  SidebarProvider,
+  SidebarContent,
+  SidebarRail,
+  Sidebar,
+} from "./designSystem/sidebar";
 
 export function Layout() {
   const { theme } = useTheme();
@@ -42,46 +47,34 @@ export function Layout() {
         toolsMenu: { isOpen: isToolsMenuOpen, setOpen: setIsToolsMenuOpen },
       }}
     >
-      <main
-        style={{
-          visibility: "hidden",
-          minHeight: "100svh",
-          width: "100vw",
-        }}
-        id="val-app-container"
-        className={classNames(
-          "font-sans bg-bg-primary text-fg-primary grid grid-cols-1",
-          {
-            "xl:grid-cols-[320px,1fr,320px]": isNavMenuOpen && isToolsMenuOpen,
-            "xl:grid-cols-[320px,1fr]": isNavMenuOpen && !isToolsMenuOpen,
-            "xl:grid-cols-[1fr,320px]": !isNavMenuOpen && isToolsMenuOpen,
-          },
-        )}
-        {...(theme ? { "data-mode": theme } : {})}
-      >
-        <div
-          className={classNames({
-            hidden: !isNavMenuOpen,
-            "w-[min(320px,100vw)] border-r overflow-x-hidden border-border-primary fixed top-0 left-0 xl:relative xl:left-auto z-[41]":
-              isNavMenuOpen,
-          })}
+      <main className="flex">
+        <SidebarProvider
+          open={isNavMenuOpen}
+          onOpenChange={setIsNavMenuOpen}
+          className="hidden lg:block"
         >
-          <NavMenu />
-        </div>
-        <div>
+          <Sidebar className="border-r-0" side="left">
+            <SidebarContent>
+              <NavMenu />
+            </SidebarContent>
+            <SidebarRail />
+          </Sidebar>
+        </SidebarProvider>
+        <div className="grow w-full">
           <ContentArea />
         </div>
-        <div
-          className={classNames({
-            hidden: !isToolsMenuOpen,
-            "w-[min(320px,100vw)] border-l border-border-primary fixed top-0 right-0 xl:relative xl:right-auto z-[42]":
-              isToolsMenuOpen,
-          })}
+        <SidebarProvider
+          open={isToolsMenuOpen}
+          onOpenChange={setIsToolsMenuOpen}
+          className="hidden lg:block"
         >
-          <div className="min-h-[100svh] bg-bg-primary">
-            <ToolsMenu />
-          </div>
-        </div>
+          <Sidebar className="border-l-0" side="right">
+            <SidebarContent>
+              <ToolsMenu />
+            </SidebarContent>
+            <SidebarRail />
+          </Sidebar>
+        </SidebarProvider>
       </main>
     </LayoutContext.Provider>
   );

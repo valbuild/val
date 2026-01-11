@@ -52,6 +52,8 @@
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-toggle": "^1.0.3",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-separator": "^1.1.8",
     "@remirror/core": "^2.0.19",
     "@remirror/extension-bold": "^2.0.13",
     "@remirror/extension-drop-cursor": "^2.0.13",
@@ -156,9 +158,5 @@
   "files": [
     "dist",
     "server"
-  ],
-  "dependencies": {
-    "@radix-ui/react-collapsible": "^1.1.12",
-    "@radix-ui/react-separator": "^1.1.8"
-  }
+  ]
 }
