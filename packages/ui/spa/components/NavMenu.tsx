@@ -111,7 +111,6 @@ export function NavMenu() {
   const remoteSchemasByModuleFilePath = useSchemas();
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();
-  const { navMenu } = useLayout();
   const remoteSchemaTree = useTrees();
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
@@ -137,19 +136,6 @@ export function NavMenu() {
             <span className="truncate">{name}</span>
           )}
         </div>
-        <button
-          className="lg:hidden"
-          onClick={() => {
-            navMenu.setOpen(!navMenu.isOpen);
-          }}
-        >
-          <PanelRightOpen
-            size={16}
-            className={classNames("transform", {
-              "rotate-180": !navMenu.isOpen,
-            })}
-          />
-        </button>
       </div>
       {"data" in remoteSchemasByModuleFilePath && (
         <div className={classNames("py-4 pl-2", {})}>

@@ -245,25 +245,11 @@ export function ToolsMenuButtons() {
     modulePath,
     maybeRecordSource,
   ]);
-  const { navMenu, toolsMenu } = useLayout();
   const mode = useValMode();
   const { setAutoPublish, autoPublish } = useAutoPublish();
   return (
     <div className="flex flex-col">
       <div className="flex gap-2 justify-between items-center p-4 w-full">
-        <button
-          className="lg:hidden"
-          onClick={() => {
-            toolsMenu.setOpen(!toolsMenu.isOpen);
-          }}
-        >
-          <PanelRightOpen
-            size={16}
-            className={classNames("transform", {
-              "rotate-180": !navMenu.isOpen,
-            })}
-          />
-        </button>
         <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
