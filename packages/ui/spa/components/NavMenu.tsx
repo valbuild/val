@@ -283,7 +283,7 @@ function NavSection({
   return (
     <div className="py-2">
       <button
-        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
+        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary pr-4"
         onClick={() => {
           setIsOpen(!isOpen);
         }}
