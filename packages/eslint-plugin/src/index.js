@@ -10,7 +10,6 @@ import noIllegalModulePaths from "./rules/noIllegalModulePaths";
 import noIllegalImports from "./rules/noIllegalImports";
 import exportContentMustBeValid from "./rules/exportContentMustBeValid";
 import noDefineWithVariable from "./rules/noDefineWithVariable";
-import defaultExportValModule from "./rules/defaultExportValModule";
 import moduleInValModules from "./rules/moduleInValModules";
 
 /**
@@ -21,7 +20,6 @@ export const rules = {
   "no-illegal-imports": noIllegalImports,
   "export-content-must-be-valid": exportContentMustBeValid,
   "no-define-with-variable": noDefineWithVariable,
-  "default-export-val-module": defaultExportValModule,
   "module-in-val-modules": moduleInValModules,
 };
 
@@ -41,7 +39,6 @@ export const configs = {
       "@valbuild/no-illegal-imports": "error",
       "@valbuild/export-content-must-be-valid": "error",
       "@valbuild/no-define-with-variable": "error",
-      "@valbuild/default-export-val-module": "error",
       "@valbuild/module-in-val-modules": "error",
     },
   },
