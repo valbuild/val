@@ -116,7 +116,7 @@ export function DateField({ path }: { path: SourcePath }) {
         <PopoverContent className="w-auto p-0" container={portalContainer}>
           <Calendar
             mode="single"
-            captionLayout="dropdown-buttons"
+            captionLayout="dropdown"
             defaultMonth={currentValue ?? undefined}
             weekStartsOn={1}
             fromDate={
