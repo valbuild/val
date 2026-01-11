@@ -165,7 +165,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 {node.type === "leaf" || (node.type === "node" && node.page) ? (
                   <FileText size={14} />
                 ) : null}
-                <span className={cn({ underline: isCurrentRoute })}>
+                <span className={cn({ underline: isCurrentRoute }, "truncate")}>
                   {"/"}
                   {node.name !== "/" && node.name}
                 </span>
@@ -189,7 +189,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
         </div>
         <div
           className={cn(
-            "absolute right-0 top-0 items-center group-hover:flex h-10 bg-bg-primary",
+            "absolute right-4 top-0 items-center group-hover:flex h-10 bg-bg-primary",
             {
               hidden: !optionsOpen && !addRouteOpen,
               flex: optionsOpen || addRouteOpen,
