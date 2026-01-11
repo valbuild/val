@@ -1,4 +1,4 @@
-import { cn } from "spa/components/designSystem/cn"
+import { cn } from "./cn"
 
 function Skeleton({
   className,
