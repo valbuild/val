@@ -158,7 +158,6 @@ function ContentAreaHeader() {
       <button
         className={classNames({
           "ml-[calc(320px+0.5rem)] xl:ml-0": navMenu.isOpen,
-          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
         })}
         onClick={() => navMenu.setOpen(!navMenu.isOpen)}
       >
@@ -172,7 +171,6 @@ function ContentAreaHeader() {
       <button
         className={classNames({
           "mr-[calc(320px+0.5rem)] xl:mr-0": toolsMenu.isOpen,
-          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
         })}
         onClick={() => toolsMenu.setOpen(!toolsMenu.isOpen)}
       >

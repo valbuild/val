@@ -467,14 +467,25 @@ export function ValProvider({
         remoteFiles,
       }}
     >
-      <TooltipProvider>
-        <div
-          data-val-portal="true"
-          ref={portalRef}
-          {...(theme ? { "data-mode": theme } : {})}
-        ></div>
-        {children}
-      </TooltipProvider>
+      <div
+        {...(theme ? { "data-mode": theme } : {})}
+        className="bg-bg-primary font-sans text-fg-primary"
+        style={{
+          minHeight: "100svh",
+          width: "100vw",
+          visibility: "hidden",
+        }}
+        id="val-app-container"
+      >
+        <TooltipProvider>
+          <div
+            data-val-portal="true"
+            ref={portalRef}
+            {...(theme ? { "data-mode": theme } : {})}
+          ></div>
+          {children}
+        </TooltipProvider>
+      </div>
     </ValContext.Provider>
   );
 }

@@ -57,8 +57,9 @@ import { ProfileImage } from "./ProfileImage";
 import { urlOf } from "@valbuild/shared/internal";
 import { NextAppRouterSitemap } from "./Sitemap";
 import { useTrees } from "./useTrees";
+import { MOBILE_BREAKPOINT } from "./hooks/use-mobile";
 
-export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
+export const NAV_MENU_MOBILE_BREAKPOINT = MOBILE_BREAKPOINT; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
 export function NavMenu() {
   const config = useValConfig();
