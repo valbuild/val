@@ -203,7 +203,9 @@ export type StegaOfRichTextSource<T extends Source> = Json extends T
  **/
 export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
   RichTextSource<O>
->;
+> & {
+  readonly __brand?: "RichText";
+};
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
