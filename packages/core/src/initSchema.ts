@@ -170,7 +170,7 @@ export type InitSchema = {
    *
    * @example
    * ```typescript
-   * const schema = s.route();
+   * const schema = s.route(); // use .include() and .exclude() to constrain the route paths
    * export default c.define("/example.val.ts", schema, "/a-page-slug");
    * ```
    */
