@@ -37,9 +37,8 @@ export default async function Home({ params }: { params: unknown }) {
               ul: null,
               li: null,
             }}
-          >
-            {page.text}
-          </ValRichText>
+            content={page.text}
+          />
         )}
       </section>
       <section>

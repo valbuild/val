@@ -552,9 +552,8 @@ export default function Page() {
           },
           //
         }}
-      >
-        {content}
-      </ValRichText>
+        content={content}
+      />
     </main>
   );
 }
@@ -570,9 +569,8 @@ To add classes to `ValRichText` you can use the theme property:
     p: "font-sans",
     // etc
   }}
->
-  {content}
-</ValRichText>
+  content={content}
+/>
 ```
 
 **NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ style: { bold: true } })` requires that you add a `bold` theme.
@@ -584,9 +582,8 @@ To add classes to `ValRichText` you can use the theme property:
     bold: "font-bold",
     img: null, // either a string or null is required
   }}
->
-  {content}
-</ValRichText>
+  content={content}
+/>
 ```
 
 **NOTE**: the reason you must define themes for every tag that the RichText is that this will force you to revisit the themes that are used if the schema changes. The alternative would be to accept changes to the schema.
@@ -609,9 +606,8 @@ If you want to customize / override the type of elements which are rendered, you
     }
     // if transform returns undefined the default render will be used
   }}
->
-  {content}
-</ValRichText>
+  content={content}
+/>
 ```
 
 ### The RichText type
@@ -654,9 +650,9 @@ NOTE: before writing your own, make sure you check out the `theme` and `transfor
 
 ```tsx
 export function ValRichText({
-  children: root,
+  content,
 }: {
-  children: RichText<MyRichTextOptions>;
+  content: RichText<MyRichTextOptions>;
 }) {
   function build(
     node: RichTextNode<MyRichTextOptions>,
@@ -682,7 +678,7 @@ export function ValRichText({
       "children" in node ? node.children.map(build) : null,
     );
   }
-  return <div {...val.attrs(root)}>{root.children.map(build)}</div>;
+  return <div {...val.attrs(content)}>{content.map(build)}</div>;
 }
 type MyRichTextOptions = AnyRichTextOptions; // you can reduce the surface of what you need to render, by restricting the `options` in `s.richtext(options)`
 ```
