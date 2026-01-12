@@ -64,7 +64,7 @@ type RichTextNode = StegaOfRichTextSource<
  *
  * @example
  * const content = useVal(contentVal);
- * return <ValRichText>{content.myRichText}</ValRichText>
+ * return <ValRichText content={content.myRichText} />
  *
  * @example
  * const content = useVal(contentVal);
@@ -72,9 +72,9 @@ type RichTextNode = StegaOfRichTextSource<
  *   <ValRichText
  *     theme={{
  *       h1: 'text-4xl font-bold',
- *     }}>
- *    {content.myRichText}
- *   </ValRichText>
+ *     }}
+ *     content={content.myRichText}
+ *   />
  * );
  *
  *
@@ -82,6 +82,7 @@ type RichTextNode = StegaOfRichTextSource<
  * const content = useVal(contentVal);
  * return (
  *   <ValRichText
+ *     content={content.myRichText}
  *     theme={{
  *        block: {
  *          h1: 'text-4xl font-bold',
@@ -94,22 +95,18 @@ type RichTextNode = StegaOfRichTextSource<
  *        if (node.tag === 'img') {
  *          return <Image className={className} src={node.src} alt={node.alt || ""} width={node.metadata?.width} height={node.metadata?.height} />
  *        }
- *     }}>
- *    {content.myRichText}
- *   </ValRichText>
+ *     }} />
  * );
  *
- * @param
  * @returns
  */
 export function ValRichText<O extends RichTextOptions>({
-  children,
   className,
   style,
   theme,
   transform,
+  ...props
 }: {
-  children: RichText<O>;
   className?: string;
   style?: CSSProperties;
   theme?: ThemeOptions<O>;
@@ -118,8 +115,20 @@ export function ValRichText<O extends RichTextOptions>({
     children: ReactNode | ReactNode[],
     className?: string,
   ) => JSX.Element | string | undefined;
-}) {
-  const root = children as RichText<AllRichTextOptions> | undefined;
+} & (
+  | {
+      /**
+       * When using `children` - use the `content` prop instead.
+       */
+      children: RichText<O>;
+    }
+  | {
+      content: RichText<O>;
+    }
+)) {
+  const root = ("content" in props ? props.content : props.children) as
+    | RichText<AllRichTextOptions>
+    | undefined;
   function build(child: RichTextNode, key?: number): JSX.Element | string {
     if (typeof child === "string") {
       const transformed = transform && transform(child, []);

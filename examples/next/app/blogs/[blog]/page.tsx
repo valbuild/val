@@ -21,7 +21,7 @@ export default async function BlogPage({
     <div>
       <h1>{blog.title}</h1>
       <aside>Author: {author.name}</aside>
-      <ValRichText>{blog.content}</ValRichText>
+      <ValRichText content={blog.content} />
       <Link href={blog.link.href}>{blog.link.label}</Link>
     </div>
   );
