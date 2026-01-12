@@ -11,8 +11,7 @@ import {
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { Globe, Loader2, PanelRightOpen, PanelsTopLeft } from "lucide-react";
-import { useLayout } from "./Layout";
+import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
 import {

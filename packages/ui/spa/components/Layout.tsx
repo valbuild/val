@@ -1,7 +1,7 @@
 import { NAV_MENU_MOBILE_BREAKPOINT, NavMenu } from "./NavMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
-import { useAuthenticationState, useTheme } from "./ValProvider";
+import { useAuthenticationState } from "./ValProvider";
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import { useNavigation } from "./ValRouter";
 import { LoginDialog } from "./LoginDialog";

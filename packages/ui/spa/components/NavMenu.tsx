@@ -7,7 +7,6 @@ import {
 import classNames from "classnames";
 import {
   ChevronRight,
-  PanelRightOpen,
   Ellipsis,
   Loader2,
   Type,
