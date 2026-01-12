@@ -315,12 +315,13 @@ export function stegaEncode(
         });
       }
       if (Array.isArray(sourceOrSelector)) {
-        const a = sourceOrSelector.map((el) =>
+        const arraySelector = sourceOrSelector.map((el) =>
           rec(el, {
             path: recOpts.path,
             schema: recOpts.schema,
           }),
         );
+        return arraySelector;
       } else if (typeof sourceOrSelector === "object") {
         if (!sourceOrSelector) {
           return null;
