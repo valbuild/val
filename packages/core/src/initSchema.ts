@@ -128,7 +128,8 @@ export type InitSchema = {
    * Define a key of.
    *
    * @example
-   * const schema = s.keyOf(s.string());
+   * import otherVal from "./other.val"; // this must be a record
+   * const schema = s.keyOf(otherVal);
    * export default c.define("/example.val.ts", schema, "test");
    *
    */
