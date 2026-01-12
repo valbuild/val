@@ -11,8 +11,7 @@ import {
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { Globe, Loader2, PanelRightOpen, PanelsTopLeft } from "lucide-react";
-import { useLayout } from "./Layout";
+import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
 import {
@@ -245,25 +244,11 @@ export function ToolsMenuButtons() {
     modulePath,
     maybeRecordSource,
   ]);
-  const { navMenu, toolsMenu } = useLayout();
   const mode = useValMode();
   const { setAutoPublish, autoPublish } = useAutoPublish();
   return (
     <div className="flex flex-col">
       <div className="flex gap-2 justify-between items-center p-4 w-full">
-        <button
-          className="lg:hidden"
-          onClick={() => {
-            toolsMenu.setOpen(!toolsMenu.isOpen);
-          }}
-        >
-          <PanelRightOpen
-            size={16}
-            className={classNames("transform", {
-              "rotate-180": !navMenu.isOpen,
-            })}
-          />
-        </button>
         <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">

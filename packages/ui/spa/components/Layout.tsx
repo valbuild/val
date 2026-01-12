@@ -1,33 +1,60 @@
 import { NAV_MENU_MOBILE_BREAKPOINT, NavMenu } from "./NavMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
-import classNames from "classnames";
-import { useAuthenticationState, useTheme } from "./ValProvider";
-import React, { useContext, useEffect, useState } from "react";
+import { useAuthenticationState } from "./ValProvider";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { useNavigation } from "./ValRouter";
 import { LoginDialog } from "./LoginDialog";
+import {
+  SidebarProvider,
+  SidebarContent,
+  SidebarRail,
+  Sidebar,
+} from "./designSystem/sidebar";
+import { useIsMobile } from "./hooks/use-mobile";
 
 export function Layout() {
-  const { theme } = useTheme();
+  const isMobile = useIsMobile();
   const [didInitialize, setDidInitialize] = useState(false);
-  const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
-  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const [isNavMenuOpen, setIsNavMenuOpenState] = useState(false);
+  const [isToolsMenuOpen, setIsToolsMenuOpenState] = useState(false);
   const { currentSourcePath, ready: navigationReady } = useNavigation();
   useEffect(() => {
     if (!didInitialize && navigationReady) {
       if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
         if (!currentSourcePath) {
-          setIsNavMenuOpen(true);
+          setIsNavMenuOpenState(true);
         }
         setDidInitialize(true);
       } else {
-        setIsToolsMenuOpen(true);
-        setIsNavMenuOpen(true);
+        setIsToolsMenuOpenState(true);
+        setIsNavMenuOpenState(true);
         setDidInitialize(true);
       }
     }
   }, [didInitialize, navigationReady, currentSourcePath]);
   const authenticationState = useAuthenticationState();
+  const setNavMenuOpen = useCallback(() => {
+    setIsNavMenuOpenState((prev) => {
+      if (isMobile) {
+        setIsToolsMenuOpenState(false);
+      }
+      return !prev;
+    });
+  }, [isMobile, isToolsMenuOpen]);
+  const setToolsMenuOpen = useCallback(() => {
+    setIsToolsMenuOpenState((prev) => {
+      if (isMobile) {
+        setIsNavMenuOpenState(false);
+      }
+      return !prev;
+    });
+  }, [isMobile, isNavMenuOpen]);
+  useEffect(() => {
+    if (isMobile && isNavMenuOpen && isToolsMenuOpen) {
+      setIsNavMenuOpenState(false);
+    }
+  }, [isMobile, isNavMenuOpen, isToolsMenuOpen]);
   if (authenticationState === "login-required") {
     return (
       <div className="min-h-[100svh] bg-bg-primary">
@@ -38,50 +65,44 @@ export function Layout() {
   return (
     <LayoutContext.Provider
       value={{
-        navMenu: { isOpen: isNavMenuOpen, setOpen: setIsNavMenuOpen },
-        toolsMenu: { isOpen: isToolsMenuOpen, setOpen: setIsToolsMenuOpen },
+        navMenu: {
+          isOpen: isNavMenuOpen,
+          setOpen: setNavMenuOpen,
+        },
+        toolsMenu: {
+          isOpen: isToolsMenuOpen,
+          setOpen: setToolsMenuOpen,
+        },
       }}
     >
-      <main
-        style={{
-          visibility: "hidden",
-          minHeight: "100svh",
-          width: "100vw",
-        }}
-        id="val-app-container"
-        className={classNames(
-          "font-sans bg-bg-primary text-fg-primary grid grid-cols-1",
-          {
-            "xl:grid-cols-[320px,1fr,320px]": isNavMenuOpen && isToolsMenuOpen,
-            "xl:grid-cols-[320px,1fr]": isNavMenuOpen && !isToolsMenuOpen,
-            "xl:grid-cols-[1fr,320px]": !isNavMenuOpen && isToolsMenuOpen,
-          },
-        )}
-        {...(theme ? { "data-mode": theme } : {})}
-      >
-        <div
-          className={classNames({
-            hidden: !isNavMenuOpen,
-            "w-[min(320px,100vw)] border-r overflow-x-hidden border-border-primary fixed top-0 left-0 xl:relative xl:left-auto z-[41]":
-              isNavMenuOpen,
-          })}
+      <main className="flex">
+        <SidebarProvider
+          open={isNavMenuOpen}
+          onOpenChange={setNavMenuOpen}
+          className="hidden xl:block"
         >
-          <NavMenu />
-        </div>
-        <div>
+          <Sidebar className="border-r-0" side="left">
+            <SidebarContent>
+              <NavMenu />
+            </SidebarContent>
+            <SidebarRail />
+          </Sidebar>
+        </SidebarProvider>
+        <div className="grow w-full">
           <ContentArea />
         </div>
-        <div
-          className={classNames({
-            hidden: !isToolsMenuOpen,
-            "w-[min(320px,100vw)] border-l border-border-primary fixed top-0 right-0 xl:relative xl:right-auto z-[42]":
-              isToolsMenuOpen,
-          })}
+        <SidebarProvider
+          open={isToolsMenuOpen}
+          onOpenChange={setToolsMenuOpen}
+          className="hidden xl:block"
         >
-          <div className="min-h-[100svh] bg-bg-primary">
-            <ToolsMenu />
-          </div>
-        </div>
+          <Sidebar className="border-l-0" side="right">
+            <SidebarContent>
+              <ToolsMenu />
+            </SidebarContent>
+            <SidebarRail />
+          </Sidebar>
+        </SidebarProvider>
       </main>
     </LayoutContext.Provider>
   );
