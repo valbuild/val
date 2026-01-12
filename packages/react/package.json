@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/react",
-  "version": "0.89.0",
+  "version": "0.90.0",
   "private": false,
   "description": "Val - React internal helpers",
   "repository": {
@@ -13,9 +13,9 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.89.0",
-    "@valbuild/shared": "~0.89.0",
-    "@valbuild/ui": "~0.89.0",
+    "@valbuild/core": "~0.90.0",
+    "@valbuild/shared": "~0.90.0",
+    "@valbuild/ui": "~0.90.0",
     "@vercel/stega": "^0.1.0",
     "base64-arraybuffer": "^1.0.2"
   },
