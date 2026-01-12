@@ -321,9 +321,11 @@ export function stegaEncode(
             schema: recOpts.schema,
           }),
         );
-        return a;
       } else if (typeof sourceOrSelector === "object") {
-        const a = Object.fromEntries(
+        if (!sourceOrSelector) {
+          return null;
+        }
+        const richtextSelector = Object.fromEntries(
           Object.entries(sourceOrSelector).map(([key, value]) => [
             key,
             key === "tag" || key === "styles"
@@ -334,7 +336,7 @@ export function stegaEncode(
                 }),
           ]),
         );
-        return a;
+        return richtextSelector;
       }
       return sourceOrSelector;
     }
