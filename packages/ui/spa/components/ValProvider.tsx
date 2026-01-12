@@ -32,7 +32,6 @@ import {
   VAL_THEME_SESSION_STORAGE_KEY,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
-import { DayPickerProvider } from "react-day-picker";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
@@ -468,20 +467,25 @@ export function ValProvider({
         remoteFiles,
       }}
     >
-      <TooltipProvider>
-        <DayPickerProvider
-          initialProps={{
-            mode: "default",
-          }}
-        >
+      <div
+        {...(theme ? { "data-mode": theme } : {})}
+        className="bg-bg-primary font-sans text-fg-primary"
+        style={{
+          minHeight: "100svh",
+          width: "100vw",
+          visibility: "hidden",
+        }}
+        id="val-app-container"
+      >
+        <TooltipProvider>
           <div
             data-val-portal="true"
             ref={portalRef}
             {...(theme ? { "data-mode": theme } : {})}
           ></div>
           {children}
-        </DayPickerProvider>
-      </TooltipProvider>
+        </TooltipProvider>
+      </div>
     </ValContext.Provider>
   );
 }

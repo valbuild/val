@@ -157,29 +157,27 @@ function ContentAreaHeader() {
     <div className="flex justify-between items-center px-4 w-full h-16 border-b border-border-primary">
       <button
         className={classNames({
-          "ml-[calc(320px+0.5rem)] xl:ml-0": navMenu.isOpen,
-          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
+          "ml-[calc(320px+0.5rem)] xl:ml-0 hidden xl:block": navMenu.isOpen,
         })}
         onClick={() => navMenu.setOpen(!navMenu.isOpen)}
       >
         <PanelRightOpen
-          size={16}
-          className={classNames("transform", {
-            "rotate-180": !navMenu.isOpen,
+          size={24}
+          className={classNames("transform duration-100 ease-linear", {
+            "-rotate-180": !navMenu.isOpen,
           })}
         />
       </button>
       <button
         className={classNames({
-          "mr-[calc(320px+0.5rem)] xl:mr-0": toolsMenu.isOpen,
-          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
+          "mr-[calc(320px+0.5rem)] xl:mr-0 hidden xl:block": toolsMenu.isOpen,
         })}
         onClick={() => toolsMenu.setOpen(!toolsMenu.isOpen)}
       >
         <PanelRightOpen
-          size={16}
-          className={classNames("transform", {
-            "rotate-180": toolsMenu.isOpen,
+          size={24}
+          className={classNames("transform duration-100 ease-linear", {
+            "-rotate-180": toolsMenu.isOpen,
           })}
         />
       </button>

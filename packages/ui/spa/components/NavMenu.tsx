@@ -7,7 +7,6 @@ import {
 import classNames from "classnames";
 import {
   ChevronRight,
-  PanelRightOpen,
   Ellipsis,
   Loader2,
   Type,
@@ -57,8 +56,9 @@ import { ProfileImage } from "./ProfileImage";
 import { urlOf } from "@valbuild/shared/internal";
 import { NextAppRouterSitemap } from "./Sitemap";
 import { useTrees } from "./useTrees";
+import { MOBILE_BREAKPOINT } from "./hooks/use-mobile";
 
-export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
+export const NAV_MENU_MOBILE_BREAKPOINT = MOBILE_BREAKPOINT; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
 export function NavMenu() {
   const config = useValConfig();
@@ -110,7 +110,6 @@ export function NavMenu() {
   const remoteSchemasByModuleFilePath = useSchemas();
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();
-  const { navMenu } = useLayout();
   const remoteSchemaTree = useTrees();
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
@@ -136,19 +135,6 @@ export function NavMenu() {
             <span className="truncate">{name}</span>
           )}
         </div>
-        <button
-          className="lg:hidden"
-          onClick={() => {
-            navMenu.setOpen(!navMenu.isOpen);
-          }}
-        >
-          <PanelRightOpen
-            size={16}
-            className={classNames("transform", {
-              "rotate-180": !navMenu.isOpen,
-            })}
-          />
-        </button>
       </div>
       {"data" in remoteSchemasByModuleFilePath && (
         <div className={classNames("py-4 pl-2", {})}>
@@ -296,7 +282,7 @@ function NavSection({
   return (
     <div className="py-2">
       <button
-        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
+        className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary pr-4"
         onClick={() => {
           setIsOpen(!isOpen);
         }}
