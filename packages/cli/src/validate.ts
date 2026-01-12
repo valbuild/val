@@ -42,6 +42,16 @@ type ValidationError = {
   fixes?: ValidationFix[];
 };
 
+// Cache types for avoiding redundant service.get() calls
+type KeyOfCache = Map<
+  string, // moduleFilePath + modulePath key
+  { source: unknown; schema: { type: string } | undefined }
+>;
+type RouterModulesCache = {
+  loaded: boolean;
+  modules: Record<string, Record<string, unknown>>;
+};
+
 type FixHandlerContext = {
   sourcePath: SourcePath;
   validationError: ValidationError;
@@ -63,6 +73,9 @@ type FixHandlerContext = {
   valRemoteHost: string;
   contentHostUrl: string;
   valConfigFile?: { project?: string };
+  // Caches for validation
+  keyOfCache: KeyOfCache;
+  routerModulesCache: RouterModulesCache;
 };
 
 type FixHandlerResult = {
@@ -157,7 +170,12 @@ async function handleKeyOfCheck(
     };
   }
 
-  const res = await checkKeyIsValid(key, sourcePath, ctx.service);
+  const res = await checkKeyIsValid(
+    key,
+    sourcePath,
+    ctx.service,
+    ctx.keyOfCache,
+  );
   if (res.error) {
     return {
       success: false,
@@ -438,17 +456,33 @@ async function checkKeyIsValid(
   key: string,
   sourcePath: string,
   service: Service,
+  cache: KeyOfCache,
 ): Promise<{ error: false } | { error: true; message: string }> {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-  const keyOfModule = await service.get(moduleFilePath, modulePath, {
-    source: true,
-    schema: false,
-    validate: false,
-  });
 
-  const keyOfModuleSource = keyOfModule.source;
-  const keyOfModuleSchema = keyOfModule.schema;
+  const cacheKey = `${moduleFilePath}::${modulePath}`;
+  let keyOfModuleSource: unknown;
+  let keyOfModuleSchema: { type: string } | undefined;
+
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    keyOfModuleSource = cached.source;
+    keyOfModuleSchema = cached.schema;
+  } else {
+    const keyOfModule = await service.get(moduleFilePath, modulePath, {
+      source: true,
+      schema: true,
+      validate: false,
+    });
+    keyOfModuleSource = keyOfModule.source;
+    keyOfModuleSchema = keyOfModule.schema as { type: string } | undefined;
+    cache.set(cacheKey, {
+      source: keyOfModuleSource,
+      schema: keyOfModuleSchema,
+    });
+  }
+
   if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
     return {
       error: true,
@@ -488,28 +522,32 @@ async function checkRouteIsValid(
   exclude: SerializedRegExpPattern | undefined,
   service: Service,
   valFiles: string[],
+  cache: RouterModulesCache,
 ): Promise<{ error: false } | { error: true; message: string }> {
-  // 1. Scan all val files to find modules with routers
-  const routerModules: Record<string, Record<string, unknown>> = {};
+  // 1. Scan all val files to find modules with routers (use cache if available)
+  if (!cache.loaded) {
+    for (const file of valFiles) {
+      const moduleFilePath = `/${file}` as ModuleFilePath;
+      const valModule = await service.get(moduleFilePath, "" as ModulePath, {
+        source: true,
+        schema: true,
+        validate: false,
+      });
 
-  for (const file of valFiles) {
-    const moduleFilePath = `/${file}` as ModuleFilePath;
-    const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
-      validate: false,
-    });
-
-    // Check if this module has a router defined
-    if (valModule.schema?.type === "record" && valModule.schema.router) {
-      if (valModule.source && typeof valModule.source === "object") {
-        routerModules[moduleFilePath] = valModule.source as Record<
-          string,
-          unknown
-        >;
+      // Check if this module has a router defined
+      if (valModule.schema?.type === "record" && valModule.schema.router) {
+        if (valModule.source && typeof valModule.source === "object") {
+          cache.modules[moduleFilePath] = valModule.source as Record<
+            string,
+            unknown
+          >;
+        }
       }
     }
+    cache.loaded = true;
   }
+
+  const routerModules = cache.modules;
 
   // 2. Check if route exists in any router module
   let foundInModule: string | null = null;
@@ -569,7 +607,8 @@ async function checkRouteIsValid(
 async function handleRouteCheck(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  const { sourcePath, validationError, service, valFiles } = ctx;
+  const { sourcePath, validationError, service, valFiles, routerModulesCache } =
+    ctx;
 
   // Extract route and patterns from validation error value
   const value = validationError.value as
@@ -596,6 +635,7 @@ async function handleRouteCheck(
     value.exclude,
     service,
     valFiles,
+    routerModulesCache,
   );
 
   if (result.error) {
@@ -605,12 +645,6 @@ async function handleRouteCheck(
     };
   }
 
-  // Route is valid - no fix needed
-  console.log(
-    picocolors.green("✓"),
-    `Route '${route}' is valid in`,
-    sourcePath,
-  );
   return { success: true };
 }
 
@@ -672,6 +706,11 @@ export async function validate({
   console.log(picocolors.greenBright(`Found ${valFiles.length} files...`));
   let publicProjectId: string | undefined;
   let didFix = false;
+
+  // Create caches that persist across all file validations
+  const keyOfCache: KeyOfCache = new Map();
+  const routerModulesCache: RouterModulesCache = { loaded: false, modules: {} };
+
   async function validateFile(file: string): Promise<number> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const start = Date.now();
@@ -748,6 +787,8 @@ export async function validate({
                 valRemoteHost,
                 contentHostUrl,
                 valConfigFile: valConfigFile ?? undefined,
+                keyOfCache,
+                routerModulesCache,
               });
 
               // Update shared state from handler result
