@@ -144,7 +144,7 @@ export function ArrayAndRecordTools({
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
-              existingKeys={refs}
+              existingKeys={allRefs}
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
