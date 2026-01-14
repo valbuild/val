@@ -181,21 +181,6 @@ export function KeyOfField({ path }: { path: SourcePath }) {
           </button>
         )}
       </div>
-      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
-        <div className="flex gap-2 p-2 py-3 mt-2 rounded-md bg-bg-error-primary text-fg-error-primary">
-          <span className="line-clamp-1">
-            Value must be one of: {keys.join(", ")} {keys.join(", ")}
-            {keys.join(", ")}
-            {keys.join(", ")}
-            {keys.join(", ")}
-            {keys.join(", ")}
-            {keys.join(", ")}
-          </span>
-          <span className="flex-shrink-0">
-            <TriangleAlert size={16} />
-          </span>
-        </div>
-      )}
     </div>
   );
 }
