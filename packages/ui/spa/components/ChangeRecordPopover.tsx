@@ -1,7 +1,7 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import { useAddPatch, useValPortal } from "./ValProvider";
+import { useAddPatch, useShallowSourceAtPath, useValPortal } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,
@@ -58,6 +58,15 @@ export function ChangeRecordPopover({
   const [moduleFilePath, parentModulePath] =
     Internal.splitModuleFilePathAndModulePath(parentPath);
   const parentPatchPath = Internal.createPatchPath(parentModulePath);
+
+  // Get actual record keys from parent source for duplicate validation
+  const parentSource = useShallowSourceAtPath(parentPath, "record");
+  const recordKeys = useMemo(() => {
+    if ("data" in parentSource && parentSource.data) {
+      return Object.keys(parentSource.data);
+    }
+    return [];
+  }, [parentSource]);
   const onSubmit = useCallback(
     (key: string) => {
       const patchOps: Patch = [
@@ -127,7 +136,7 @@ export function ChangeRecordPopover({
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}
-            existingKeys={existingKeys}
+            existingKeys={recordKeys}
             defaultValue={defaultValue}
             onSubmit={(key) => {
               onSubmit(key);
@@ -142,7 +151,7 @@ export function ChangeRecordPopover({
           <RenameRecordKeyForm
             parentPath={parentPath}
             defaultValue={defaultValue}
-            existingKeys={existingKeys}
+            existingKeys={recordKeys}
             onSubmit={(key) => {
               onSubmit(key);
               setOpen(false);

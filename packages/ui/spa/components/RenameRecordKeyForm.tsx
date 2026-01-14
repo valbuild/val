@@ -4,19 +4,19 @@ import { Input } from "./designSystem/input";
 import { useState } from "react";
 
 export function RenameRecordKeyForm({
-  existingKeys: refs,
+  existingKeys,
   defaultValue,
   onCancel,
   onSubmit,
 }: {
   parentPath: SourcePath | ModuleFilePath;
   defaultValue: string;
-  existingKeys: SourcePath[];
+  existingKeys: string[];
   onSubmit: (key: string) => void;
   onCancel: () => void;
 }) {
-  const [key, setKey] = useState(defaultValue); // cannot change - right?
-  const disabled = key === defaultValue || key === "" || key in refs;
+  const [key, setKey] = useState(defaultValue);
+  const disabled = key === defaultValue || key === "" || existingKeys.includes(key);
 
   return (
     <form
