@@ -158,18 +158,6 @@ export function RouteField({ path }: { path: SourcePath }) {
           </button>
         )}
       </div>
-      {filteredRoutes.length > 0 &&
-        source !== null &&
-        !filteredRouteStrings.includes(source) && (
-          <div className="flex gap-2 p-2 py-3 mt-2 rounded-md bg-bg-error-primary text-fg-error-primary">
-            <span className="line-clamp-1">
-              Value must be one of: {filteredRouteStrings.join(", ")}
-            </span>
-            <span className="flex-shrink-0">
-              <TriangleAlert size={16} />
-            </span>
-          </div>
-        )}
     </div>
   );
 }
