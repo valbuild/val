@@ -58,9 +58,8 @@ export function DeleteRecordPopover({
               {refs.length > 1 ? "s" : ""} that must be updated first.
             </p>
             <p className="text-sm text-muted-foreground">
-              Click the{" "}
-              <Workflow size={12} className="inline align-middle" /> icon to see
-              and update the references.
+              Click the <Workflow size={12} className="inline align-middle" />{" "}
+              icon to see and update the references.
             </p>
           </>
         ) : (

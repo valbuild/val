@@ -130,7 +130,10 @@ export function ValRichText<O extends RichTextOptions>({
   const root = ("content" in props ? props.content : props.children) as
     | RichText<AllRichTextOptions>
     | undefined;
-  function build(child: RichTextNode, key?: number): JSX.Element | (string | JSX.Element)[] | string | undefined {
+  function build(
+    child: RichTextNode,
+    key?: number,
+  ): JSX.Element | (string | JSX.Element)[] | string | undefined {
     if (typeof child === "string") {
       const transformed = transform && transform(child, [], undefined, key);
       if (transformed !== undefined) {

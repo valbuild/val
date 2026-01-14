@@ -97,8 +97,7 @@ export function Module({ path }: { path: SourcePath }) {
     Boolean(parentSchema?.router);
 
   // Check if the current schema is a router record
-  const isCurrentRouter =
-    schema.type === "record" && Boolean(schema.router);
+  const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -134,7 +133,9 @@ export function Module({ path }: { path: SourcePath }) {
                 )}
               </div>
             )}
-            {showNumber && <span className="shrink-0">#{Number(last.text)}</span>}
+            {showNumber && (
+              <span className="shrink-0">#{Number(last.text)}</span>
+            )}
             <div className="shrink-0">
               <ArrayAndRecordTools path={path} variant={"module"} />
             </div>
@@ -201,10 +202,7 @@ function ModuleBreadcrumb({
                 <DropdownMenuTrigger className="flex items-center gap-1">
                   <BreadcrumbEllipsis className="h-4 w-4" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  container={portalContainer}
-                >
+                <DropdownMenuContent align="start" container={portalContainer}>
                   {collapsed.map((part, i) => (
                     <DropdownMenuItem
                       key={i}
