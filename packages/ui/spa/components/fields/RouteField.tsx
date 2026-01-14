@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Internal, ModulePath, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -11,20 +12,29 @@ import {
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-  SelectTrigger,
-} from "../designSystem/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../designSystem/command";
+import { Button } from "../designSystem/button";
+import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { Link } from "lucide-react";
+import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 
 export function RouteField({ path }: { path: SourcePath }) {
   const type = "route";
+  const [open, setOpen] = React.useState(false);
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -101,44 +111,72 @@ export function RouteField({ path }: { path: SourcePath }) {
     ? routesWithModulePaths.find((r) => r.route === source)
     : undefined;
 
+  const isLoading = schemaAtPath.status === "loading";
+
   return (
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
-        <Select
-          value={source ?? ""}
-          onValueChange={(value) => {
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: value,
-                },
-              ],
-              type,
-            );
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue>{source}</SelectValue>
-          </SelectTrigger>
-          <SelectContent className="w-32" container={portalContainer}>
-            {schemaAtPath.status === "loading" ? (
-              <LoadingSelectContent />
-            ) : filteredRoutes.length === 0 ? (
-              <span className="p-2 text-sm text-muted-foreground">
-                No routes found
-              </span>
-            ) : (
-              filteredRoutes.map((routeInfo) => (
-                <SelectItem key={routeInfo.route} value={routeInfo.route}>
-                  {routeInfo.route}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              role="combobox"
+              aria-expanded={open}
+              className="w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover"
+            >
+              <span className="truncate">{source || "Select route..."}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0"
+            container={portalContainer}
+          >
+            <Command>
+              <CommandInput placeholder="Search route..." />
+              <CommandList>
+                {isLoading ? (
+                  <div className="py-6 text-center text-sm">Loading...</div>
+                ) : filteredRoutes.length === 0 ? (
+                  <CommandEmpty>No routes found.</CommandEmpty>
+                ) : (
+                  <CommandGroup>
+                    {filteredRoutes.map((routeInfo) => (
+                      <CommandItem
+                        key={routeInfo.route}
+                        value={routeInfo.route}
+                        onSelect={(currentValue) => {
+                          addPatch(
+                            [
+                              {
+                                op: "replace",
+                                path: patchPath,
+                                value: currentValue,
+                              },
+                            ],
+                            type,
+                          );
+                          setOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            source === routeInfo.route
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
+                        />
+                        {routeInfo.route}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
         {source && selectedRouteInfo && (
           <button
             title="Go to reference"
@@ -160,10 +198,6 @@ export function RouteField({ path }: { path: SourcePath }) {
   );
 }
 
-function LoadingSelectContent() {
-  return <span>Loading...</span>;
-}
-
 export function RoutePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "route");
   if (sourceAtPath.status === "error") {
@@ -175,5 +209,5 @@ export function RoutePreview({ path }: { path: SourcePath }) {
   if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
   }
-  return <div className="truncate">{sourceAtPath.data}</div>;
+  return <div className="truncate">{sourceAtPath.data as string}</div>;
 }
