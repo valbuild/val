@@ -52,7 +52,7 @@ autoTagJSX();
 
 // Convenience types
 export type * as t from "./ValTypes";
-export type { DecodeVal } from "./raw";
+export type { DecodeVal } from "@valbuild/react/stega";
 
 export const Internal = {
   ...InternalCore,

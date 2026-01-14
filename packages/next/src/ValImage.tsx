@@ -1,6 +1,5 @@
 import NextImage from "next/image";
-import { raw } from "./raw";
-import { ValEncodedString, Image } from "@valbuild/react/stega";
+import { raw, ValEncodedString, Image } from "@valbuild/react/stega";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
 
 // all NextImage component props

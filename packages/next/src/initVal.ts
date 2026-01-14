@@ -6,10 +6,10 @@ import {
   Internal,
   ValRouter,
 } from "@valbuild/core";
-import { raw } from "./raw";
+import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
-import { attrs } from "./attrs";
+import { attrs } from "@valbuild/react/stega";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 

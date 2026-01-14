@@ -12,6 +12,8 @@ export {
   type RichText,
 } from "./stegaEncode";
 export { stegaDecodeStrings } from "./stegaDecodeStrings";
+export { attrs } from "./attrs";
+export { raw, type DecodeVal } from "./raw";
 
 let isRSC = false;
 let autoTagJSXEnabled = false;
