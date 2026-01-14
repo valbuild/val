@@ -5,7 +5,7 @@ import {
   ModuleFilePath,
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
-import { Plus, Trash, Edit, Workflow, Loader2 } from "lucide-react";
+import { Plus, Trash, Edit, Workflow } from "lucide-react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -30,10 +30,7 @@ import {
 } from "../hooks/useParent";
 import { ValPath } from "./ValPath";
 import { useKeysOf } from "./useKeysOf";
-import {
-  useRouteReferences,
-  useEagerRouteReferences,
-} from "./useRouteReferences";
+import { useEagerRouteReferences } from "./useRouteReferences";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -44,7 +41,6 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
-import { useEffect, useState } from "react";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -127,15 +123,7 @@ export function ArrayAndRecordTools({
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
-          {isParentRouter ? (
-            <RouterReferencesPopover
-              keyOfRefs={refs}
-              routeKey={currentRouteKey}
-              variant={variant}
-            />
-          ) : (
-            <ReferencesPopover refs={refs} variant={variant} />
-          )}
+          <ReferencesPopover refs={allRefs} variant={variant} />
           {canParentChange && (
             <ChangeRecordPopover
               defaultValue={last.text}
@@ -241,123 +229,6 @@ function ReferencesPopover({
               );
             })}
           </ul>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/**
- * References popover for router record items.
- * Shows both keyOf references (immediately) and route references (loaded lazily when popover opens).
- */
-function RouterReferencesPopover({
-  keyOfRefs,
-  routeKey,
-  variant,
-}: {
-  keyOfRefs: SourcePath[];
-  routeKey: string | undefined;
-  variant: Variant;
-}) {
-  const portalContainer = useValPortal();
-  const [routeRefs, loadRouteRefs] = useRouteReferences(routeKey);
-  const [isOpen, setIsOpen] = useState(false);
-  const [hasLoadedRouteRefs, setHasLoadedRouteRefs] = useState(false);
-
-  // Load route references lazily when popover opens
-  useEffect(() => {
-    if (isOpen && !hasLoadedRouteRefs) {
-      loadRouteRefs();
-      setHasLoadedRouteRefs(true);
-    }
-  }, [isOpen, hasLoadedRouteRefs, loadRouteRefs]);
-
-  // Combine keyOf refs and route refs, removing duplicates
-  const allRefs = [
-    ...keyOfRefs,
-    ...routeRefs.filter((ref) => !keyOfRefs.includes(ref)),
-  ];
-
-  // Show nothing if no keyOf refs and we haven't loaded route refs yet
-  if (keyOfRefs.length === 0 && !hasLoadedRouteRefs) {
-    // Still show the button so user can click to load route refs
-    return (
-      <Popover open={isOpen} onOpenChange={setIsOpen}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              asChild
-              size={getButtonSize(variant)}
-              variant={getButtonVariant(variant)}
-            >
-              <PopoverTrigger>
-                <Workflow size={getIconSize(variant)} />
-              </PopoverTrigger>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            References to this route (click to load)
-          </TooltipContent>
-        </Tooltip>
-        <PopoverContent container={portalContainer}>
-          <div className="text-sm flex items-center gap-2">
-            <Loader2 size={14} className="animate-spin" />
-            <span>Loading references...</span>
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  // Show nothing if we've loaded and there are no refs at all
-  if (hasLoadedRouteRefs && allRefs.length === 0) {
-    return null;
-  }
-
-  return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            size={getButtonSize(variant)}
-            variant={getButtonVariant(variant)}
-          >
-            <PopoverTrigger>
-              <Workflow size={getIconSize(variant)} />
-            </PopoverTrigger>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="top">References to this route</TooltipContent>
-      </Tooltip>
-      <PopoverContent container={portalContainer}>
-        <div className="text-sm">
-          {!hasLoadedRouteRefs ? (
-            <div className="flex items-center gap-2 mb-2">
-              <Loader2 size={14} className="animate-spin" />
-              <span>Loading route references...</span>
-            </div>
-          ) : null}
-          {allRefs.length === 0 && hasLoadedRouteRefs ? (
-            <span className="text-muted-foreground">No references found</span>
-          ) : (
-            <ul>
-              {allRefs.map((ref) => {
-                const [moduleFilePath, modulePath] =
-                  Internal.splitModuleFilePathAndModulePath(ref);
-                const patchPath = Internal.createPatchPath(modulePath);
-                return (
-                  <li key={ref}>
-                    <ValPath
-                      moduleFilePath={moduleFilePath}
-                      patchPath={patchPath}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-          )}
         </div>
       </PopoverContent>
     </Popover>
