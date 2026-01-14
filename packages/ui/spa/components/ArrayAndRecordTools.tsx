@@ -30,7 +30,10 @@ import {
 } from "../hooks/useParent";
 import { ValPath } from "./ValPath";
 import { useKeysOf } from "./useKeysOf";
-import { useRouteReferences } from "./useRouteReferences";
+import {
+  useRouteReferences,
+  useEagerRouteReferences,
+} from "./useRouteReferences";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -112,6 +115,14 @@ export function ArrayAndRecordTools({
   // Get the current route key (the last part of the path for router items)
   const currentRouteKey = isParentRouter ? last?.part : undefined;
 
+  // Get route references eagerly for the delete check (only for router items)
+  const routeRefs = useEagerRouteReferences(currentRouteKey);
+
+  // Combine keyOf refs and route refs for delete protection
+  const allRefs = isParentRouter
+    ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
+    : refs;
+
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
@@ -144,7 +155,7 @@ export function ArrayAndRecordTools({
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              refs={refs}
+              refs={allRefs}
               confirmationMessage={`This will delete the ${last.text} record.`}
             >
               <Trash size={getIconSize(variant)} />
