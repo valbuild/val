@@ -114,6 +114,7 @@ export function ValRichText<O extends RichTextOptions>({
     node: RichTextNode,
     children: ReactNode | ReactNode[],
     className?: string,
+    key?: number,
   ) => JSX.Element | string | undefined;
 } & (
   | {
@@ -131,7 +132,7 @@ export function ValRichText<O extends RichTextOptions>({
     | undefined;
   function build(child: RichTextNode, key?: number): JSX.Element | string {
     if (typeof child === "string") {
-      const transformed = transform && transform(child, []);
+      const transformed = transform && transform(child, [], undefined, key);
       if (transformed !== undefined) {
         return transformed;
       }
@@ -143,7 +144,7 @@ export function ValRichText<O extends RichTextOptions>({
       theme,
     );
     if (child.tag === "img") {
-      const transformed = transform && transform(child, []);
+      const transformed = transform && transform(child, [], undefined, key);
       if (transformed !== undefined) {
         return transformed;
       }
@@ -162,7 +163,7 @@ export function ValRichText<O extends RichTextOptions>({
           // Error: Cannot access Image.prototype on the server. You cannot dot into a client module from a server component. You can only pass the imported name through.
           // https://github.com/vercel/next.js/issues/52415
           child.children.length === 1
-          ? build(child.children[0])
+          ? build(child.children[0], key)
           : child.children.map(build)
         : null;
     if (transform) {
@@ -170,6 +171,7 @@ export function ValRichText<O extends RichTextOptions>({
         child as RichTextNode,
         children ?? [],
         className,
+        key,
       );
       if (transformed !== undefined) {
         return transformed;
