@@ -92,7 +92,6 @@ export function Module({ path }: { path: SourcePath }) {
   // Check if the parent is a router record - only then should we display as URL path
   // Note: We check maybeParentPath !== path to ensure we're not at the root of the module
   const isParentRouter =
-
     maybeParentPath !== path &&
     parentSchema?.type === "record" &&
     Boolean(parentSchema?.router);
