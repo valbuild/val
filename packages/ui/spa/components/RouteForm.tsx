@@ -68,7 +68,7 @@ export function RouteForm({
     });
   }, [routePattern, params, errors]);
 
-  const disabled = !isComplete || fullPath in existingKeys;
+  const disabled = !isComplete || existingKeys.includes(fullPath);
   return (
     <form
       className="p-4 space-y-3"
