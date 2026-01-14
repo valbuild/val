@@ -1,10 +1,10 @@
 import { type RichTextSource, type RawString } from "@valbuild/core";
 import {
-  type RichText,
-  type StegaOfRichTextSource,
-  type ValEncodedString,
+  RichText,
   stegaClean,
-} from "@valbuild/react/stega";
+  StegaOfRichTextSource,
+  ValEncodedString,
+} from ".";
 
 export type DecodeVal<T> = T extends ValEncodedString | RawString
   ? string
