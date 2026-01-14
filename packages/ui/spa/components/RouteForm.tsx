@@ -68,7 +68,11 @@ export function RouteForm({
     });
   }, [routePattern, params, errors]);
 
-  const disabled = !isComplete || existingKeys.includes(fullPath);
+  const isUnchanged = fullPath === defaultValue;
+  const alreadyExists =
+    existingKeys.includes(fullPath) && fullPath !== defaultValue;
+  const disabled = !isComplete || isUnchanged || alreadyExists;
+
   return (
     <form
       className="p-4 space-y-3"
@@ -126,6 +130,11 @@ export function RouteForm({
           </span>
         ))}
       </div>
+      {alreadyExists && (
+        <p className="text-sm text-fg-error-secondary">
+          A route with this path already exists
+        </p>
+      )}
       <div className="flex gap-4">
         <Button disabled={disabled}>{submitText}</Button>
         <Button variant={"ghost"} type="reset" onClick={onCancel}>
