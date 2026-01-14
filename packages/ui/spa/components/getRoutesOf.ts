@@ -1,16 +1,21 @@
 import { Json, ModuleFilePath, SerializedSchema } from "@valbuild/core";
 
+export type RouteInfo = {
+  route: string;
+  moduleFilePath: ModuleFilePath;
+};
+
 /**
- * Get all routes from router modules
+ * Get all routes from router modules with their module paths
  *
  * Scans all modules to find those with routers (s.record().router())
- * and returns all route keys from those modules
+ * and returns all route keys with their corresponding module paths
  */
-export function getRoutesOf(
+export function getRoutesWithModulePaths(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, Json>,
-): string[] {
-  const routes: string[] = [];
+): RouteInfo[] {
+  const routeMap = new Map<string, ModuleFilePath>();
 
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -28,12 +33,33 @@ export function getRoutesOf(
     ) {
       // Add all keys from this router module
       for (const key in source) {
-        if (!routes.includes(key)) {
-          routes.push(key);
+        if (!routeMap.has(key)) {
+          routeMap.set(key, moduleFilePath);
         }
       }
     }
   }
 
-  return routes.sort(); // Sort alphabetically for better UX
+  // Convert to array and sort alphabetically
+  const routes: RouteInfo[] = Array.from(routeMap.entries()).map(
+    ([route, moduleFilePath]) => ({
+      route,
+      moduleFilePath,
+    }),
+  );
+
+  return routes.sort((a, b) => a.route.localeCompare(b.route));
+}
+
+/**
+ * Get all routes from router modules
+ *
+ * Scans all modules to find those with routers (s.record().router())
+ * and returns all route keys from those modules
+ */
+export function getRoutesOf(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  sources: Record<ModuleFilePath, Json>,
+): string[] {
+  return getRoutesWithModulePaths(schemas, sources).map((r) => r.route);
 }

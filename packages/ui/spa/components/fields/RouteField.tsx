@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Internal, ModulePath, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -18,17 +18,19 @@ import {
   SelectTrigger,
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { TriangleAlert } from "lucide-react";
+import { useNavigation } from "../../components/ValRouter";
+import { Link, TriangleAlert } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
-import { useRoutesOf } from "../useRoutesOf";
+import { useRoutesWithModulePaths } from "../useRoutesOf";
 
 export function RouteField({ path }: { path: SourcePath }) {
   const type = "route";
+  const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const portalContainer = useValPortal();
-  const routes = useRoutesOf();
+  const routesWithModulePaths = useRoutesWithModulePaths();
 
   if (schemaAtPath.status === "error") {
     return (
@@ -82,17 +84,24 @@ export function RouteField({ path }: { path: SourcePath }) {
     ? new RegExp(schema.options.exclude.source, schema.options.exclude.flags)
     : undefined;
 
-  const filteredRoutes = routes.filter((route) => {
+  const filteredRoutes = routesWithModulePaths.filter((routeInfo) => {
     // If include pattern exists, route must match it
-    if (includePattern && !includePattern.test(route)) {
+    if (includePattern && !includePattern.test(routeInfo.route)) {
       return false;
     }
     // If exclude pattern exists, route must NOT match it
-    if (excludePattern && excludePattern.test(route)) {
+    if (excludePattern && excludePattern.test(routeInfo.route)) {
       return false;
     }
     return true;
   });
+
+  // Find the module path for the currently selected route
+  const selectedRouteInfo = source
+    ? routesWithModulePaths.find((r) => r.route === source)
+    : undefined;
+
+  const filteredRouteStrings = filteredRoutes.map((r) => r.route);
 
   return (
     <div id={path}>
@@ -124,21 +133,37 @@ export function RouteField({ path }: { path: SourcePath }) {
                 No routes found
               </span>
             ) : (
-              filteredRoutes.map((route) => (
-                <SelectItem key={route} value={route}>
-                  {route}
+              filteredRoutes.map((routeInfo) => (
+                <SelectItem key={routeInfo.route} value={routeInfo.route}>
+                  {routeInfo.route}
                 </SelectItem>
               ))
             )}
           </SelectContent>
         </Select>
+        {source && selectedRouteInfo && (
+          <button
+            title="Go to reference"
+            className="px-2"
+            onClick={() => {
+              navigate(
+                Internal.joinModuleFilePathAndModulePath(
+                  selectedRouteInfo.moduleFilePath,
+                  JSON.stringify(source) as ModulePath,
+                ),
+              );
+            }}
+          >
+            <Link size={16} />
+          </button>
+        )}
       </div>
       {filteredRoutes.length > 0 &&
         source !== null &&
-        !filteredRoutes.includes(source) && (
+        !filteredRouteStrings.includes(source) && (
           <div className="flex gap-2 p-2 py-3 mt-2 rounded-md bg-bg-error-primary text-fg-error-primary">
             <span className="line-clamp-1">
-              Value must be one of: {filteredRoutes.join(", ")}
+              Value must be one of: {filteredRouteStrings.join(", ")}
             </span>
             <span className="flex-shrink-0">
               <TriangleAlert size={16} />
