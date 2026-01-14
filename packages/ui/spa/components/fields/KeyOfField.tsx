@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -11,19 +12,28 @@ import {
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-  SelectTrigger,
-} from "../designSystem/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../designSystem/command";
+import { Button } from "../designSystem/button";
+import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { Link } from "lucide-react";
+import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
   const type = "keyOf";
+  const [open, setOpen] = React.useState(false);
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const keyOf =
@@ -130,43 +140,74 @@ export function KeyOfField({ path }: { path: SourcePath }) {
     "data" in referencedSource && referencedSource.data
       ? Object.keys(referencedSource.data)
       : undefined;
-  const source = sourceAtPath.data;
+  const source = sourceAtPath.data as string | null;
+  const isLoading =
+    schemaAtPath.status === "loading" ||
+    keyOf === undefined ||
+    keys === undefined;
+
   return (
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
-        <Select
-          value={source ?? ""}
-          onValueChange={(value) => {
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: value,
-                },
-              ],
-              type,
-            );
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue>{source}</SelectValue>
-          </SelectTrigger>
-          <SelectContent className="w-32" container={portalContainer}>
-            {schemaAtPath.status === "loading" ||
-            keyOf == undefined ||
-            keys === undefined ? (
-              <LoadingSelectContent />
-            ) : (
-              keys.map((index) => (
-                <SelectItem key={index} value={index}>
-                  {index}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              role="combobox"
+              aria-expanded={open}
+              className="w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover"
+            >
+              <span className="truncate">{source || "Select key..."}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0"
+            container={portalContainer}
+          >
+            <Command>
+              <CommandInput placeholder="Search key..." />
+              <CommandList>
+                {isLoading ? (
+                  <div className="py-6 text-center text-sm">Loading...</div>
+                ) : keys.length === 0 ? (
+                  <CommandEmpty>No keys found.</CommandEmpty>
+                ) : (
+                  <CommandGroup>
+                    {keys.map((key) => (
+                      <CommandItem
+                        key={key}
+                        value={key}
+                        onSelect={(currentValue) => {
+                          addPatch(
+                            [
+                              {
+                                op: "replace",
+                                path: patchPath,
+                                value: currentValue,
+                              },
+                            ],
+                            type,
+                          );
+                          setOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            source === key ? "opacity-100" : "opacity-0",
+                          )}
+                        />
+                        {key}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
         {source && keyOf?.path && (
           <button
             title="Go to reference"
@@ -185,10 +226,6 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   );
 }
 
-function LoadingSelectContent() {
-  return <span>Loading...</span>;
-}
-
 export function KeyOfPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "keyOf");
   if (sourceAtPath.status === "error") {
@@ -200,5 +237,5 @@ export function KeyOfPreview({ path }: { path: SourcePath }) {
   if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
   }
-  return <div className="truncate">{sourceAtPath.data}</div>;
+  return <div className="truncate">{sourceAtPath.data as string}</div>;
 }
