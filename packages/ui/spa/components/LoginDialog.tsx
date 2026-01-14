@@ -5,10 +5,10 @@ import {
   DialogHeader,
   DialogPortal,
   DialogOverlay,
+  DialogTitle,
 } from "./designSystem/dialog";
 import { urlOf } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
-import { DialogTitle } from "@radix-ui/react-dialog";
 import { useValPortal } from "./ValProvider";
 
 export function LoginDialog() {
