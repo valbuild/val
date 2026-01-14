@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import { useAllSources, useLoadingStatus, useSchemas } from "./ValProvider";
-import { getRoutesOf } from "./getRoutesOf";
+import {
+  getRoutesOf,
+  getRoutesWithModulePaths,
+  RouteInfo,
+} from "./getRoutesOf";
 
 /**
  * Hook to get all available routes from router modules
@@ -15,6 +19,26 @@ export function useRoutesOf(): string[] {
   const routes = useMemo(() => {
     if ("data" in schemas && schemas.data !== undefined) {
       return getRoutesOf(schemas.data, allSources);
+    }
+    return [];
+  }, [loadingStatus, allSources, schemas]);
+
+  return routes;
+}
+
+/**
+ * Hook to get all available routes with their module paths from router modules
+ *
+ * Returns an array of RouteInfo objects containing both the route and its module path
+ */
+export function useRoutesWithModulePaths(): RouteInfo[] {
+  const schemas = useSchemas();
+  const loadingStatus = useLoadingStatus();
+  const allSources = useAllSources();
+
+  const routes = useMemo(() => {
+    if ("data" in schemas && schemas.data !== undefined) {
+      return getRoutesWithModulePaths(schemas.data, allSources);
     }
     return [];
   }, [loadingStatus, allSources, schemas]);
