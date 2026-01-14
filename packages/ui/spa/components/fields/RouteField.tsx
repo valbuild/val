@@ -19,7 +19,7 @@ import {
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { Link, TriangleAlert } from "lucide-react";
+import { Link } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 
@@ -100,8 +100,6 @@ export function RouteField({ path }: { path: SourcePath }) {
   const selectedRouteInfo = source
     ? routesWithModulePaths.find((r) => r.route === source)
     : undefined;
-
-  const filteredRouteStrings = filteredRoutes.map((r) => r.route);
 
   return (
     <div id={path}>
