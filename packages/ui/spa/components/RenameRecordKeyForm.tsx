@@ -16,7 +16,8 @@ export function RenameRecordKeyForm({
   onCancel: () => void;
 }) {
   const [key, setKey] = useState(defaultValue);
-  const disabled = key === defaultValue || key === "" || existingKeys.includes(key);
+  const alreadyExists = existingKeys.includes(key) && key !== defaultValue;
+  const disabled = key === defaultValue || key === "" || alreadyExists;
 
   return (
     <form
@@ -33,6 +34,11 @@ export function RenameRecordKeyForm({
           setKey(ev.target.value);
         }}
       />
+      {alreadyExists && (
+        <p className="text-sm text-fg-error-secondary">
+          A record with this key already exists
+        </p>
+      )}
       <div className="flex gap-2 items-center">
         <Button disabled={disabled} variant="outline" type="submit">
           Update
