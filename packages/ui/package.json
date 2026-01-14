@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.91.1",
+  "version": "0.91.2",
   "sideEffects": false,
   "repository": {
     "type": "git",
@@ -99,8 +99,8 @@
     "@types/react-resizable": "^3.0.5",
     "@uiw/codemirror-themes": "^4.25.4",
     "@uiw/react-codemirror": "^4.25.4",
-    "@valbuild/core": "~0.91.1",
-    "@valbuild/shared": "~0.91.1",
+    "@valbuild/core": "~0.91.2",
+    "@valbuild/shared": "~0.91.2",
     "autoprefixer": "^10.4.13",
     "class-variance-authority": "^0.7.1",
     "classnames": "^2.3.2",
