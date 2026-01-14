@@ -49,6 +49,7 @@ export function Module({ path }: { path: SourcePath }) {
   const sources = useAllSources();
   const schemasRes = useSchemas();
   const validationErrors = useValidationErrors(path);
+  const portalContainer = useValPortal();
   const onNavigate = useCallback(
     (path: SourcePath) => {
       if ("data" in schemasRes) {
@@ -87,11 +88,11 @@ export function Module({ path }: { path: SourcePath }) {
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
-  const portalContainer = useValPortal();
 
   // Check if the parent is a router record - only then should we display as URL path
   // Note: We check maybeParentPath !== path to ensure we're not at the root of the module
   const isParentRouter =
+
     maybeParentPath !== path &&
     parentSchema?.type === "record" &&
     Boolean(parentSchema?.router);
