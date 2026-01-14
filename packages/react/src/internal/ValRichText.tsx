@@ -8,7 +8,7 @@ import {
   Schema,
 } from "@valbuild/core";
 import React, { CSSProperties, ReactNode } from "react";
-import { RichText, StegaOfRichTextSource } from "../stega";
+import { attrs, raw, RichText, StegaOfRichTextSource } from "../stega";
 
 type DefaultThemes = Partial<{
   br: string | null;
@@ -115,7 +115,7 @@ export function ValRichText<O extends RichTextOptions>({
     children: ReactNode | ReactNode[],
     className?: string,
     key?: number,
-  ) => JSX.Element | string | undefined;
+  ) => JSX.Element | (string | JSX.Element)[] | string | undefined;
 } & (
   | {
       /**
@@ -130,7 +130,7 @@ export function ValRichText<O extends RichTextOptions>({
   const root = ("content" in props ? props.content : props.children) as
     | RichText<AllRichTextOptions>
     | undefined;
-  function build(child: RichTextNode, key?: number): JSX.Element | string {
+  function build(child: RichTextNode, key?: number): JSX.Element | (string | JSX.Element)[] | string | undefined {
     if (typeof child === "string") {
       const transformed = transform && transform(child, [], undefined, key);
       if (transformed !== undefined) {
@@ -186,8 +186,8 @@ export function ValRichText<O extends RichTextOptions>({
     });
   }
   return (
-    <div className={className} style={style}>
-      {root?.map(build)}
+    <div className={className} style={style} {...attrs(root)}>
+      {raw(root)?.map(build)}
     </div>
   );
 }
