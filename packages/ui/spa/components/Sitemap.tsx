@@ -116,6 +116,9 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
   const isCurrentRoute = useMemo(() => {
     return node.sourcePath === currentSourcePath;
   }, [currentSourcePath, node.sourcePath]);
+  const sortedChildren = useMemo(() => {
+    return [...node.children].sort((a, b) => a.name.localeCompare(b.name));
+  }, [node.children]);
   const routePatternWithParams = useMemo(() => {
     if (!node.pattern) {
       return undefined;
@@ -237,7 +240,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
         </div>
       </div>
       <AnimateHeight isOpen={isOpen} className="pl-3">
-        {node.children.map((child, i) => (
+        {sortedChildren.map((child, i) => (
           <SiteMapNode node={child} key={i} />
         ))}
       </AnimateHeight>
