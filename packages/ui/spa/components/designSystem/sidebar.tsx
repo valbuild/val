@@ -193,7 +193,9 @@ const Sidebar = React.forwardRef<
     if (isMobile) {
       return (
         <Sheet open={open} onOpenChange={setOpen} {...props}>
+           {/* hideOverlay because it makes the scrolling not work in container (because we use dialog overlay and that uses react-remove-scroll?). It looks OK either way so not a big loss **/}
           <SheetContent
+            hideOverlay
             container={container}
             data-sidebar="sidebar"
             data-mobile="true"
