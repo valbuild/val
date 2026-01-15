@@ -14,7 +14,11 @@ interface ValFullscreenProps {
   cssLoaded: boolean;
 }
 
-export const ValStudio: FC<ValFullscreenProps> = ({ client, config, cssLoaded  }) => {
+export const ValStudio: FC<ValFullscreenProps> = ({
+  client,
+  config,
+  cssLoaded,
+}) => {
   // Theme is initialized by ValNextProvider in session storage
   // We just read it once on init and then rely on React state
   const [theme, setTheme] = useState<Themes | null>(() => {
@@ -25,7 +29,13 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, config, cssLoaded  }
     return null;
   });
   return (
-    <ValProvider client={client} dispatchValEvents={false} config={config} theme={theme} setTheme={setTheme}>
+    <ValProvider
+      client={client}
+      dispatchValEvents={false}
+      config={config}
+      theme={theme}
+      setTheme={setTheme}
+    >
       <div
         {...(theme ? { "data-mode": theme } : {})}
         className="bg-bg-primary font-sans text-fg-primary"
@@ -36,9 +46,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, config, cssLoaded  }
         }}
         id="val-app-container"
       >
-        <ValRouter>
-         {cssLoaded && <Layout />}
-        </ValRouter>
+        <ValRouter>{cssLoaded && <Layout />}</ValRouter>
       </div>
     </ValProvider>
   );

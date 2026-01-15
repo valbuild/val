@@ -1,6 +1,9 @@
 "use client";
 import { ErrorBoundary } from "react-error-boundary";
-import { createValClient, VAL_THEME_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import {
+  createValClient,
+  VAL_THEME_SESSION_STORAGE_KEY,
+} from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
@@ -15,7 +18,7 @@ import { VERSION } from "../src";
 
 function Overlay() {
   const config = useConfig();
-   // Theme is initialized by ValNextProvider in session storage
+  // Theme is initialized by ValNextProvider in session storage
   // We just read it once on init and then rely on React state
   const [theme, setTheme] = useState<Themes | null>(() => {
     const storedTheme = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);

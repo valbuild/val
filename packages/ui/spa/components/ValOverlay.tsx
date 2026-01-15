@@ -1115,7 +1115,11 @@ function ValMenu({
                 icon={<SquareDashedMousePointer size={16} />}
               />
             </HoverCardTrigger>
-            <HoverCardContent side={publishPopoverSide} className="z-50" container={portalContainer}>
+            <HoverCardContent
+              side={publishPopoverSide}
+              className="z-50"
+              container={portalContainer}
+            >
               Click on content in the page to select and edit it
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
@@ -1134,7 +1138,11 @@ function ValMenu({
                 onClick={() => setDraftMode(false)}
               />
             </HoverCardTrigger>
-            <HoverCardContent side={publishPopoverSide} className="z-50" container={portalContainer}>
+            <HoverCardContent
+              side={publishPopoverSide}
+              className="z-50"
+              container={portalContainer}
+            >
               Exit preview mode to see the currently published version of your
               content
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
@@ -1182,7 +1190,11 @@ function ValMenu({
                     <Upload size={16} />
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent side={publishPopoverSide} className="z-50" container={portalContainer}>
+                <HoverCardContent
+                  side={publishPopoverSide}
+                  className="z-50"
+                  container={portalContainer}
+                >
                   {validationErrorCount > 0 && (
                     <div className="text-fg-error-primary">
                       Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
@@ -1257,7 +1269,11 @@ function ValMenu({
                 }
               />
             </HoverCardTrigger>
-            <HoverCardContent side={publishPopoverSide} className="z-50" container={portalContainer}>
+            <HoverCardContent
+              side={publishPopoverSide}
+              className="z-50"
+              container={portalContainer}
+            >
               Open Val Studio to edit and manage your content
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>

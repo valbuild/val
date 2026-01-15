@@ -162,7 +162,7 @@ export function ValProvider({
     }
   }, [serviceUnavailable, showServiceUnavailable]);
 
-    const portalRef = useRef<HTMLDivElement>(null);
+  const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
