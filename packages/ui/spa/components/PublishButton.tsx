@@ -22,11 +22,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
+import { deepEqual } from "@valbuild/core/patch";
 
 export function PublishButton() {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const { publish, publishDisabled, isPublishing, summary } =
-    usePublishSummary();
+  const {
+    publish,
+    publishDisabled,
+    isPublishing,
+    summary,
+    generateSummary,
+    setSummary,
+    canGenerate,
+  } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const hasValidationErrors =
     allValidationErrors !== undefined &&
@@ -105,6 +113,34 @@ export function PublishButton() {
             }
             onClick={() => {
               setSummaryOpen(true);
+              // Auto-generate summary if:
+              // 1. No summary exists, OR
+              // 2. Summary is AI-generated and patches have changed
+              // Manual summaries are preserved
+              const isStaleAiSummary =
+                summary.type === "ai" &&
+                !deepEqual(summary.patchIds, pendingServerSidePatchIds);
+
+              if (canGenerate && (summary.type === "not-asked" || isStaleAiSummary)) {
+                const timeoutPromise = new Promise<{ type: "timeout" }>(
+                  (resolve) => setTimeout(() => resolve({ type: "timeout" }), 20000),
+                );
+
+                Promise.race([generateSummary(), timeoutPromise]).then(
+                  (result) => {
+                    if (result.type === "timeout") {
+                      console.warn("Val: Summary generation timed out after 20s");
+                    } else if (result.type === "ai") {
+                      setSummary({ type: "ai", text: result.text.trim() });
+                    } else if (result.type === "error") {
+                      console.warn(
+                        "Val: Summary generation failed:",
+                        result.message,
+                      );
+                    }
+                  },
+                );
+              }
             }}
           >
             {!isPublishing && (
