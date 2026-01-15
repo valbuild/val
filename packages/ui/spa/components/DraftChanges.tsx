@@ -384,7 +384,9 @@ export function DraftChanges({
                   }
                 }}
               >
-                <span>{summary.isGenerating ? "Generating..." : "Summary"}</span>
+                <span>
+                  {summary.isGenerating ? "Generating..." : "Summary"}
+                </span>
                 {canGenerate && !summary.isGenerating && <Sparkles size={14} />}
                 {summary.isGenerating && (
                   <Loader2 size={14} className="animate-spin" />

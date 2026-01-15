@@ -115,13 +115,16 @@ export function PublishButton() {
               // Always generate a new summary when opening
               if (canGenerate) {
                 const timeoutPromise = new Promise<{ type: "timeout" }>(
-                  (resolve) => setTimeout(() => resolve({ type: "timeout" }), 20000),
+                  (resolve) =>
+                    setTimeout(() => resolve({ type: "timeout" }), 20000),
                 );
 
                 Promise.race([generateSummary(), timeoutPromise]).then(
                   (result) => {
                     if (result.type === "timeout") {
-                      console.warn("Val: Summary generation timed out after 20s");
+                      console.warn(
+                        "Val: Summary generation timed out after 20s",
+                      );
                     } else if (result.type === "ai") {
                       setSummary({ type: "ai", text: result.text.trim() });
                     } else if (result.type === "error") {
