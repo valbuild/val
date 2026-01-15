@@ -54,7 +54,26 @@ export function PublishSummary({
         />
       </div>
       <div className="flex items-center justify-end gap-2">
-        <Button variant="outline" onClick={onClose}>
+        {summary.isGenerating && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSummary({ type: "manual", text: "" });
+            }}
+          >
+            Cancel
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          onClick={() => {
+            // Reset to "not-asked" if text is empty so it will regenerate on next open
+            if (text.trim() === "") {
+              setSummary({ type: "not-asked" });
+            }
+            onClose();
+          }}
+        >
           Close
         </Button>
         {onPublish && (

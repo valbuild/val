@@ -162,7 +162,7 @@ function ContentAreaHeader() {
         onClick={() => navMenu.setOpen(!navMenu.isOpen)}
       >
         <PanelRightOpen
-          size={24}
+          size={16}
           className={classNames("transform duration-100 ease-linear", {
             "-rotate-180": !navMenu.isOpen,
           })}
@@ -175,7 +175,7 @@ function ContentAreaHeader() {
         onClick={() => toolsMenu.setOpen(!toolsMenu.isOpen)}
       >
         <PanelRightOpen
-          size={24}
+          size={16}
           className={classNames("transform duration-100 ease-linear", {
             "-rotate-180": toolsMenu.isOpen,
           })}
