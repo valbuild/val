@@ -22,7 +22,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import { deepEqual } from "@valbuild/core/patch";
 
 export function PublishButton() {
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -113,15 +112,8 @@ export function PublishButton() {
             }
             onClick={() => {
               setSummaryOpen(true);
-              // Auto-generate summary if:
-              // 1. No summary exists, OR
-              // 2. Summary is AI-generated and patches have changed
-              // Manual summaries are preserved
-              const isStaleAiSummary =
-                summary.type === "ai" &&
-                !deepEqual(summary.patchIds, pendingServerSidePatchIds);
-
-              if (canGenerate && (summary.type === "not-asked" || isStaleAiSummary)) {
+              // Always generate a new summary when opening
+              if (canGenerate) {
                 const timeoutPromise = new Promise<{ type: "timeout" }>(
                   (resolve) => setTimeout(() => resolve({ type: "timeout" }), 20000),
                 );
