@@ -11,9 +11,10 @@ import { ValRouter } from "./ValRouter";
 interface ValFullscreenProps {
   client: ValClient;
   config: SharedValConfig | null;
+  cssLoaded: boolean;
 }
 
-export const ValStudio: FC<ValFullscreenProps> = ({ client, config }) => {
+export const ValStudio: FC<ValFullscreenProps> = ({ client, config, cssLoaded  }) => {
   // Theme is initialized by ValNextProvider in session storage
   // We just read it once on init and then rely on React state
   const [theme, setTheme] = useState<Themes | null>(() => {
@@ -36,7 +37,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, config }) => {
         id="val-app-container"
       >
         <ValRouter>
-          <Layout />
+         {cssLoaded && <Layout />}
         </ValRouter>
       </div>
     </ValProvider>
