@@ -2,7 +2,7 @@
 import { ValStudio } from "./components/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
 import { fallbackRender } from "./fallbackRender";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { createValClient } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH, VERSION } from "../src";
@@ -20,6 +20,7 @@ function App() {
     });
     return { client };
   }, [host, config]);
+  const [cssLoaded, setCssLoaded] = useState(false);
   return (
     <>
       <Fonts />
@@ -36,10 +37,11 @@ function App() {
                 },
               }),
             );
+            setCssLoaded(true);
           }}
         />
         <ErrorBoundary fallbackRender={fallbackRender}>
-          <ValStudio client={client} config={config} />
+          <ValStudio client={client} config={config} cssLoaded={cssLoaded} />
         </ErrorBoundary>
       </ShadowRoot>
     </>
