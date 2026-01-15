@@ -105,11 +105,15 @@ export function ValProvider({
   children,
   client,
   dispatchValEvents,
+  theme,
+  setTheme,
 }: {
   children: React.ReactNode;
   client: ValClient;
   config: SharedValConfig | null;
   dispatchValEvents: boolean;
+  theme: Themes | null;
+  setTheme: (theme: Themes | null) => void;
 }) {
   const [
     stat,
@@ -158,17 +162,7 @@ export function ValProvider({
     }
   }, [serviceUnavailable, showServiceUnavailable]);
 
-  // Theme is initialized by ValNextProvider in session storage
-  // We just read it once on init and then rely on React state
-  const [theme, setTheme] = useState<Themes | null>(() => {
-    const storedTheme = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);
-    if (storedTheme === "light" || storedTheme === "dark") {
-      return storedTheme;
-    }
-    return null;
-  });
-
-  const portalRef = useRef<HTMLDivElement>(null);
+    const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
@@ -467,25 +461,14 @@ export function ValProvider({
         remoteFiles,
       }}
     >
-      <div
-        {...(theme ? { "data-mode": theme } : {})}
-        className="bg-bg-primary font-sans text-fg-primary"
-        style={{
-          minHeight: "100svh",
-          width: "100vw",
-          visibility: "hidden",
-        }}
-        id="val-app-container"
-      >
-        <TooltipProvider>
-          <div
-            data-val-portal="true"
-            ref={portalRef}
-            {...(theme ? { "data-mode": theme } : {})}
-          ></div>
-          {children}
-        </TooltipProvider>
-      </div>
+      <TooltipProvider>
+        <div
+          data-val-portal="true"
+          ref={portalRef}
+          {...(theme ? { "data-mode": theme } : {})}
+        ></div>
+        {children}
+      </TooltipProvider>
     </ValContext.Provider>
   );
 }
