@@ -1,13 +1,13 @@
 "use client";
 import { ErrorBoundary } from "react-error-boundary";
-import { createValClient } from "@valbuild/shared/internal";
+import { createValClient, VAL_THEME_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
 import { ValOverlay } from "./components/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
-import { ValProvider } from "./components/ValProvider";
+import { Themes, ValProvider } from "./components/ValProvider";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
@@ -15,6 +15,15 @@ import { VERSION } from "../src";
 
 function Overlay() {
   const config = useConfig();
+   // Theme is initialized by ValNextProvider in session storage
+  // We just read it once on init and then rely on React state
+  const [theme, setTheme] = useState<Themes | null>(() => {
+    const storedTheme = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      return storedTheme;
+    }
+    return null;
+  });
   const host = "/api/val";
   const client = createValClient("/api/val", {
     ...config,
@@ -76,6 +85,8 @@ function Overlay() {
             client={client}
             dispatchValEvents={draftMode}
             config={config}
+            theme={theme}
+            setTheme={setTheme}
           >
             <ValRouter overlay>
               <ValOverlay
