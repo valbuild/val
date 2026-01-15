@@ -40,7 +40,7 @@ import {
 import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
-import { Operation } from "@valbuild/core/patch";
+import { Operation, deepEqual } from "@valbuild/core/patch";
 import { Button } from "./designSystem/button";
 import {
   Popover,
@@ -79,7 +79,8 @@ export function DraftChanges({
   const serializedPatchSets = usePatchSets();
   const portalContainer = useValPortal();
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const { canGenerate } = usePublishSummary();
+  const { canGenerate, generateSummary, setSummary, summary } =
+    usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const { autoPublish } = useAutoPublish();
   const validationErrorsCount = useMemo(() => {
@@ -347,9 +348,47 @@ export function DraftChanges({
               <Button
                 variant="secondary"
                 className="flex gap-2 items-center text-sm"
+                onClick={() => {
+                  // Auto-generate summary if:
+                  // 1. No summary exists, OR
+                  // 2. Summary is AI-generated and patches have changed
+                  const isStaleAiSummary =
+                    summary.type === "ai" &&
+                    !deepEqual(summary.patchIds, currentPatchIds);
+
+                  if (
+                    canGenerate &&
+                    (summary.type === "not-asked" || isStaleAiSummary)
+                  ) {
+                    const timeoutPromise = new Promise<{ type: "timeout" }>(
+                      (resolve) =>
+                        setTimeout(() => resolve({ type: "timeout" }), 20000),
+                    );
+
+                    Promise.race([generateSummary(), timeoutPromise]).then(
+                      (result) => {
+                        if (result.type === "timeout") {
+                          console.warn(
+                            "Val: Summary generation timed out after 20s",
+                          );
+                        } else if (result.type === "ai") {
+                          setSummary({ type: "ai", text: result.text.trim() });
+                        } else if (result.type === "error") {
+                          console.warn(
+                            "Val: Summary generation failed:",
+                            result.message,
+                          );
+                        }
+                      },
+                    );
+                  }
+                }}
               >
-                <span>Summary</span>
-                {canGenerate && <Sparkles size={14} />}
+                <span>{summary.isGenerating ? "Generating..." : "Summary"}</span>
+                {canGenerate && !summary.isGenerating && <Sparkles size={14} />}
+                {summary.isGenerating && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}
               </Button>
             </PopoverTrigger>
             <PopoverContent
