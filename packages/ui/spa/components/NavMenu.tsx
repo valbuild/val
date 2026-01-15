@@ -193,23 +193,23 @@ export function NavMenu() {
                 </>
               )}
               <div className="flex gap-2 items-center px-4 w-full">
+              {theme === "dark" ? (
+                <Sun size={"1rem"} />
+              ) : (
+                <Moon size={"1rem"} />
+              )}
+              <button
+                className=""
+                onClick={() => {
+                  setTheme(theme === "dark" ? "light" : "dark");
+                }}
+              >
                 {theme === "dark" ? (
-                  <Moon size={"1rem"} />
+                  <span className="text-sm">Light mode</span>
                 ) : (
-                  <Sun size={"1rem"} />
+                  <span className="text-sm">Dark mode</span>
                 )}
-                <button
-                  className=""
-                  onClick={() => {
-                    setTheme(theme === "dark" ? "light" : "dark");
-                  }}
-                >
-                  {theme === "dark" ? (
-                    <span className="text-sm">Dark mode</span>
-                  ) : (
-                    <span className="text-sm">Light mode</span>
-                  )}
-                </button>
+              </button>
               </div>
               {profile && (
                 <div className="flex gap-2 items-center px-4 w-full">
