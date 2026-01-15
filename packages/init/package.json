@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/init",
-  "version": "0.91.2",
+  "version": "0.91.3",
   "description": "Initialize a new val.build project",
   "repository": {
     "type": "git",
