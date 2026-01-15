@@ -1293,7 +1293,7 @@ function ValMenu({
                     ))}
                   </SelectContent>
                 </Select>
-                <span>Dark mode</span>
+                <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
                 <Switch
                   checked={theme === "dark"}
                   onCheckedChange={(checked) => {
