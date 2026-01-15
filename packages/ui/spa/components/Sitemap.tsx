@@ -1,41 +1,21 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import {
-  ChevronRight,
-  Ellipsis,
-  Plus,
-  Edit2,
-  Trash2,
-  Loader2,
-  Link,
-  FileText,
-  Folder,
-} from "lucide-react";
+import { Internal, ModuleFilePath } from "@valbuild/core";
+import { ChevronRight, Plus, Loader2, FileText, Folder } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
 import {
   useNextAppRouterSrcFolder,
   useShallowModulesAtPaths,
-  useValPortal,
 } from "./ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
 import { useNavigation } from "./ValRouter";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "./designSystem/popover";
 import {
   PageNode,
   SitemapNode,
   getNextAppRouterSitemapTree,
 } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
-import { useKeysOf } from "./useKeysOf";
-import { DeleteRecordPopover } from "./DeleteRecordPopover";
-import { Button } from "./designSystem/button";
-import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
+import { parseRoutePattern } from "@valbuild/shared/internal";
 import { AddRecordPopover } from "./AddRecordPopover";
-import { ChangeRecordPopover } from "./ChangeRecordPopover";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
 export function NextAppRouterSitemap({
@@ -107,11 +87,9 @@ export function NextAppRouterSitemap({
 }
 
 function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
-  const portalContainer = useValPortal();
   const { currentSourcePath } = useNavigation();
   const [isOpen, setIsOpen] = useState(true);
   const { navigate } = useNavigation();
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
   const isCurrentRoute = useMemo(() => {
     return node.sourcePath === currentSourcePath;
@@ -142,9 +120,18 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
     }
   }, [navigate, node]);
   const moduleFilePath = node.moduleFilePath;
+  const [showOptions, setShowOptions] = useState(false);
   return (
     <div>
-      <div className="relative flex items-center justify-between w-full h-10 group">
+      <div
+        className="relative flex items-center justify-between w-full h-10"
+        onMouseEnter={() => {
+          setShowOptions(true);
+        }}
+        onMouseLeave={() => {
+          setShowOptions(false);
+        }}
+      >
         <div className="flex items-center my-1">
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -168,7 +155,15 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 {node.type === "leaf" || (node.type === "node" && node.page) ? (
                   <FileText size={14} />
                 ) : null}
-                <span className={cn({ underline: isCurrentRoute }, "truncate")}>
+                <span
+                  className={cn(
+                    {
+                      underline: isCurrentRoute,
+                      "hover:underline": node.sourcePath !== undefined,
+                    },
+                    "truncate",
+                  )}
+                >
                   {"/"}
                   {node.name !== "/" && node.name}
                 </span>
@@ -192,39 +187,12 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
         </div>
         <div
           className={cn(
-            "absolute right-4 top-0 items-center group-hover:flex h-10 bg-bg-primary",
+            "absolute hidden right-4 top-0 items-center h-10 bg-bg-primary",
             {
-              hidden: !optionsOpen && !addRouteOpen,
-              flex: optionsOpen || addRouteOpen,
+              flex: showOptions,
             },
           )}
         >
-          {node.sourcePath && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onClick}
-              className="flex items-center gap-2"
-            >
-              <Link size={12} />
-            </Button>
-          )}
-          {(node.sourcePath || node.type === "leaf" || node.page) && (
-            <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
-              <PopoverTrigger asChild>
-                <Button size="sm" variant="ghost">
-                  <Ellipsis size={12} />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent container={portalContainer}>
-                <SiteMapNodeOptions
-                  node={node}
-                  routePatternWithParams={routePatternWithParams}
-                  onClose={() => setOptionsOpen(false)}
-                />
-              </PopoverContent>
-            </Popover>
-          )}
           {routePatternWithParams && moduleFilePath && (
             <AddRecordPopover
               path={moduleFilePath}
@@ -244,65 +212,6 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
           <SiteMapNode node={child} key={i} />
         ))}
       </AnimateHeight>
-    </div>
-  );
-}
-
-function SiteMapNodeOptions({
-  node,
-  onClose,
-  routePatternWithParams,
-}: {
-  node: SitemapNode | PageNode;
-  onClose: () => void;
-  routePatternWithParams?: RoutePattern[] | null;
-}) {
-  const currentKey = useMemo(() => {
-    return node.type === "leaf" ? node.fullPath : node.page?.fullPath;
-  }, [node]);
-  const parentPath = useMemo(
-    () =>
-      node.sourcePath
-        ? Internal.splitModuleFilePathAndModulePath(node.sourcePath)[0]
-        : undefined,
-    [node?.sourcePath],
-  );
-  const refs = useKeysOf(parentPath, currentKey);
-  return (
-    <div className="flex flex-col items-start justify-center gap-2">
-      {parentPath && node.sourcePath && (
-        <DeleteRecordPopover
-          path={node.sourcePath as SourcePath}
-          parentPath={parentPath}
-          refs={refs}
-          size="sm"
-          variant="ghost"
-          onComplete={onClose}
-          confirmationMessage={`This will delete the ${currentKey} page.`}
-        >
-          <div className="flex items-center gap-2">
-            <Trash2 size={14} />
-            <span>Delete</span>
-          </div>
-        </DeleteRecordPopover>
-      )}
-      {currentKey !== undefined && node.sourcePath && parentPath && (
-        <ChangeRecordPopover
-          variant="ghost"
-          size="sm"
-          existingKeys={refs}
-          path={node.sourcePath as SourcePath}
-          defaultValue={currentKey}
-          routePattern={routePatternWithParams}
-          parentPath={parentPath}
-          onComplete={onClose}
-        >
-          <div className="flex items-center gap-2">
-            <Edit2 size={12} />
-            <span>Rename</span>
-          </div>
-        </ChangeRecordPopover>
-      )}
     </div>
   );
 }

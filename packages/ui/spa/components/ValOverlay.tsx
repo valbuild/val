@@ -68,7 +68,6 @@ import {
   SelectValue,
 } from "./designSystem/select";
 import { AnimatedClock } from "./AnimatedClock";
-import { VERCEL_STEGA_REGEX, vercelStegaDecode } from "@vercel/stega";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
 
@@ -174,25 +173,7 @@ export function ValOverlay(props: ValOverlayProps) {
         } | null = null;
         for (const el of elements) {
           if (el instanceof HTMLElement) {
-            let path = el.getAttribute("data-val-path");
-            if (
-              !path &&
-              el.textContent &&
-              el.textContent.match(VERCEL_STEGA_REGEX)
-            ) {
-              const cleanText = vercelStegaDecode(el.textContent);
-              if (
-                cleanText &&
-                typeof cleanText === "object" &&
-                "data" in cleanText &&
-                typeof cleanText.data === "object" &&
-                cleanText.data &&
-                "valPath" in cleanText.data &&
-                typeof cleanText.data.valPath === "string"
-              ) {
-                path = cleanText.data.valPath;
-              }
-            }
+            const path = el.getAttribute("data-val-path");
             if (path) {
               // If this is a <source> element, use its parent <video> or <picture> element instead
               let targetElement = el;
