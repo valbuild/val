@@ -135,7 +135,7 @@ import {
 /**
  * This is the schema for the content. It defines the structure of the content and the types of each field.
  *
- * @docs https://val.build/docs/api-reference
+ * @docs https://val.build/docs/api/schema
  */
 export const testSchema = s.object({
   /**
@@ -157,7 +157,7 @@ export const testSchema = s.object({
   /**
    * Rich text can be used for multiline text, but also for more complex text editing capabilities like links, images, lists, etc.
    *
-   * @docs https://val.build/docs/api-reference/schema-types/richtext
+   * @docs https://val.build/docs/richtext
    *
    * @see ValRichText will render rich text
    */
@@ -190,7 +190,7 @@ export const testSchema = s.object({
   /**
    * Images in Val are stored as files in the public folder.
    *
-   * @docs https://val.build/docs/api-reference/schema-types/image
+   * @docs https://val.build/docs/images
    *
    * When defining content use the following syntax:
    * @example c.image('/public/myimage.png') // path to the image file, use the VS Code plugin or the \`@valbuild/cli validate --fix\` command to add metadata
@@ -213,7 +213,7 @@ export const testSchema = s.object({
   /**
    * Object unions: presents as a dropdown in the UI and the different fields
    *
-   * @docs https://val.build/docs/api-reference/schema-types/union
+   * @docs https://val.build/docs/api/schema/union
    */
   objectUnions: s.union(
     "type",
