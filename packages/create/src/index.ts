@@ -292,6 +292,8 @@ async function main() {
 
       // Show final success message
       displaySuccessMessage(projectName);
+      process.stdout.write("\n");
+      process.exit(0);
     } catch (error) {
       renderTimeline(currentStep, currentStep);
       console.error(
