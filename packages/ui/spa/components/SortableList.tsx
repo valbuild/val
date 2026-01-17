@@ -324,7 +324,7 @@ function ListPreviewItem({
       className={cn("flex w-full items-center justify-between pl-4 flex-grow")}
     >
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
-        <div className="text-lg font-medium">{title}</div>
+        <div className="font-medium">{title}</div>
         {subtitle && (
           <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
             {subtitle}
