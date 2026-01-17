@@ -1659,11 +1659,9 @@ export class ValSyncEngine {
         },
       });
       if (res.status !== 200) {
-        this.addGlobalTransientError(
-          "Failed to get changes (full sync)",
-          now,
-          `Did not get ok status (got: ${res.status}): ${res.json.message}`,
-        );
+        console.debug("Val: SyncEngine: Failed to get changes (full sync)", {
+          res,
+        });
         return {
           status: "retry",
         };
@@ -1724,11 +1722,9 @@ export class ValSyncEngine {
             },
           });
           if (res.status !== 200) {
-            this.addGlobalTransientError(
-              "Failed to get changes (batch)",
-              now,
-              `Did not get ok status (got: ${res.status}): ${res.json.message}`,
-            );
+            console.log("Failed to get changes (batch) - null status", {
+              res,
+            });
             return {
               status: "retry",
             };
