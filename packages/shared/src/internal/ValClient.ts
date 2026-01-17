@@ -1,5 +1,5 @@
 import { Api, ApiEndpoint, ClientOf, ClientFetchErrors } from "./ApiRoutes";
-import { fromZodError } from "zod-validation-error";
+import { fromError } from "zod-validation-error";
 import { SharedValConfig } from "./SharedValConfig";
 
 export type ValClient = ClientOf<Api>;
@@ -10,7 +10,7 @@ export const createValClient = (
 ): ValClient => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyApi = Api as any;
-  return async (path, method, req) => {
+  return (async (path, method, req) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyReq = req as any;
     let fullPath: string = path;
@@ -77,7 +77,7 @@ export const createValClient = (
             "There was an issue validating your data. This is most likely a Val bug.",
           type: "client_side_validation_error",
           details: {
-            validationError: fromZodError(reqBodyResult.error).toString(),
+            validationError: fromError(reqBodyResult.error).toString(),
             data: anyReq.body,
           },
         },
@@ -144,7 +144,7 @@ export const createValClient = (
                 "Response could not be validated. This could also be a result of mismatched Val versions.",
               type: "client_side_validation_error",
               details: {
-                validationError: fromZodError(responseResult.error).toString(),
+                validationError: fromError(responseResult.error).toString(),
                 data: valClientResult,
               },
             },
@@ -167,7 +167,7 @@ export const createValClient = (
         },
       } satisfies ClientFetchErrors;
     }
-  };
+  }) as ValClient;
 };
 
 function isRetryable(error: unknown) {

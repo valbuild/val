@@ -17,7 +17,7 @@ const JSONValue: z.ZodType<JSONValueT> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(JSONValue),
-    z.record(JSONValue),
+    z.record(z.string(), JSONValue),
   ]),
 );
 
@@ -26,7 +26,7 @@ const FileOperation = <PathType extends z.ZodType>(path: PathType) =>
     op: z.literal("file"),
     path,
     filePath: z.string(),
-    value: z.string(),
+    value: JSONValue,
     remote: z.boolean(),
     nestedFilePath: z.array(z.string()).optional(),
     metadata: JSONValue.optional(), // TODO: remove optional
@@ -89,10 +89,11 @@ const OperationJSON: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
 export const PatchJSON: z.ZodType<PatchJSONT> = z.array(OperationJSON);
 export type PatchJSON = PatchJSONT;
 
+const nonEmptyArray = z.tuple([z.string()], z.string());
 /**
  * Raw JSON patch operation.
  */
-const Operation: z.ZodType<OperationT> = z.discriminatedUnion("op", [
+const Operation = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("add"),
@@ -103,7 +104,7 @@ const Operation: z.ZodType<OperationT> = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("remove"),
-      path: z.array(z.string()).nonempty(),
+      path: nonEmptyArray,
     })
     .strict(),
   z
@@ -116,7 +117,7 @@ const Operation: z.ZodType<OperationT> = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("move"),
-      from: z.array(z.string()).nonempty(),
+      from: nonEmptyArray,
       path: z.array(z.string()),
     })
     .strict(),
@@ -137,8 +138,8 @@ const Operation: z.ZodType<OperationT> = z.discriminatedUnion("op", [
   FileOperation(z.array(z.string())).strict(),
 ]);
 
-export const Patch: z.ZodType<PatchT> = z.array(Operation);
-export type Patch = PatchT;
+export const Patch = z.array(Operation);
+export type Patch = z.infer<typeof Patch>;
 
 export const PatchId = z.string().refine(
   (_id): _id is PatchIdT => true, // TODO: validation
@@ -153,24 +154,16 @@ type ParentRefInput =
       type: "patch";
       patchId: string;
     };
-export const ParentRef: z.ZodType<ParentRefT, z.ZodTypeDef, ParentRefInput> =
-  z.union([
-    z.object({ type: z.literal("head"), headBaseSha: z.string() }),
-    z.object({
-      type: z.literal("patch"),
-      patchId: PatchId,
-    }),
-  ]);
+export const ParentRef: z.ZodType<ParentRefT, ParentRefInput> = z.union([
+  z.object({ type: z.literal("head"), headBaseSha: z.string() }),
+  z.object({
+    type: z.literal("patch"),
+    patchId: PatchId,
+  }),
+]);
 export type ParentRef = ParentRefT;
 
-export const PatchBlock: z.ZodType<
-  PatchBlockT,
-  z.ZodTypeDef,
-  {
-    patch: Patch;
-    parentRef: ParentRefInput;
-  }
-> = z.object({
+export const PatchBlock = z.object({
   patch: Patch,
   parentRef: ParentRef,
 });

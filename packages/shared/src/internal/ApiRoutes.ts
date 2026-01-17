@@ -840,8 +840,8 @@ export const Api = {
             modules: z.record(
               ModuleFilePath,
               z.object({
-                render: z.any(), // TODO: improve this type
-                source: z.any(), //.optional(), // TODO: Json zod type
+                render: z.any().optional(), // TODO: improve this type
+                source: z.any().optional(), //.optional(), // TODO: Json zod type
                 patches: z
                   .object({
                     applied: z.array(PatchId),
@@ -953,7 +953,7 @@ export const Api = {
                       ModuleFilePath,
                       z.array(GenericError),
                     ),
-                    binaryFilePatchErrors: z.record(GenericError),
+                    binaryFilePatchErrors: z.record(z.string(), GenericError),
                   }),
                   z.array(GenericError),
                 ])
@@ -1032,7 +1032,7 @@ export type ApiEndpoint = {
     body?: z.ZodTypeAny;
     query?: Record<
       string,
-      z.ZodSchema<ValidQueryParamTypes, z.ZodTypeDef, string[] | undefined>
+      z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
   };

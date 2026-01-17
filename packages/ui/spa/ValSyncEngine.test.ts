@@ -483,19 +483,18 @@ class SyncEngineTester {
           | {
               applied: PatchId[];
               errors?:
-                | Partial<
-                    Record<
-                      PatchId,
-                      {
-                        message: string;
-                      }
-                    >
+                | Record<
+                    PatchId,
+                    {
+                      message: string;
+                    }
                   >
                 | undefined;
               skipped?: PatchId[] | undefined;
             }
           | undefined;
         source?: any;
+        render?: any;
         validationErrors?: Record<SourcePath, ValidationError[]> | undefined;
       }
     > = {};

@@ -23,21 +23,21 @@
     "test:watch": "jest --watch"
   },
   "devDependencies": {
-    "@prettier/sync": "^0.5.2",
-    "@types/jest": "^29.2.5"
+    "@prettier/sync": "^0.6.1",
+    "@types/jest": "^30.0.0"
   },
   "dependencies": {
     "@valbuild/core": "~0.91.4",
     "@valbuild/shared": "~0.91.4",
     "@valbuild/ui": "~0.91.4",
-    "chokidar": "^4.0.1",
-    "image-size": "^1.0.2",
-    "minimatch": "^3.0.4",
-    "quickjs-emscripten": "^0.21.1",
-    "sucrase": "^3.34.0",
-    "typescript": "^5.1.3",
-    "zod": "^3.20.6",
-    "zod-validation-error": "^3.3.0"
+    "chokidar": "^5.0.0",
+    "image-size": "^2.0.2",
+    "minimatch": "^10.1.1",
+    "quickjs-emscripten": "^0.31.0",
+    "sucrase": "^3.35.1",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.5",
+    "zod-validation-error": "^5.0.0"
   },
   "engines": {
     "node": ">=18.17.0"

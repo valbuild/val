@@ -14,10 +14,9 @@ import {
   deepEqual,
   JSONOps,
   JSONValue,
-  Patch,
   ReadonlyJSONValue,
 } from "@valbuild/core/patch";
-import { ParentRef, ValClient } from "@valbuild/shared/internal";
+import { ParentRef, ValClient, Patch } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";

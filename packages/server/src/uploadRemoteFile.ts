@@ -40,7 +40,7 @@ export async function uploadRemoteFile(
     {
       method: "PUT",
       headers: { ...authHeader, "Content-Type": "application/octet-stream" },
-      body: fileBuffer,
+      body: new Uint8Array(fileBuffer),
     },
   );
   if (!res.ok) {
