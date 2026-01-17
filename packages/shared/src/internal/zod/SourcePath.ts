@@ -1,6 +1,6 @@
 import { SourcePath as SourcePathT } from "@valbuild/core";
 import { z } from "zod";
 
-export const SourcePath: z.ZodType<SourcePathT, z.ZodTypeDef, unknown> = z
+export const SourcePath: z.ZodType<SourcePathT> = z
   .string()
   .transform((path) => path as SourcePathT);

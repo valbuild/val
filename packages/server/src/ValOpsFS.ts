@@ -721,7 +721,7 @@ export class ValOpsFS extends ValOps {
     }
     const metadataParseRes = this.parseJsonFile(
       metadataFilePath,
-      z.record(z.union([z.string(), z.number()])),
+      z.record(z.string(), z.union([z.string(), z.number()])),
     );
     if (metadataParseRes.error) {
       return { errors: [metadataParseRes.error] };

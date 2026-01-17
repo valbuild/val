@@ -8,8 +8,8 @@ import {
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
-import { fromZodError } from "zod-validation-error";
-import { z } from "zod";
+import { fromError, fromZodError } from "zod-validation-error";
+import { z, ZodError } from "zod";
 
 type Versions = {
   versions?: {
@@ -433,10 +433,7 @@ export function createValApiRouter<Res>(
       try {
         bodyRes = reqDefinition.body
           ? reqDefinition.body.safeParse(await req.json())
-          : ({ success: true, data: {} } as z.SafeParseReturnType<
-              unknown,
-              unknown
-            >);
+          : ({ success: true, data: {} } as z.ZodSafeParseSuccess<unknown>);
         if (!bodyRes.success) {
           return zodErrorResult(bodyRes.error, "invalid body data");
         }
@@ -454,8 +451,7 @@ export function createValApiRouter<Res>(
 
       const cookiesRes = reqDefinition.cookies
         ? getCookies(req, reqDefinition.cookies)
-        : ({ success: true, data: {} } as z.SafeParseReturnType<
-            Record<string, string>,
+        : ({ success: true, data: {} } as z.ZodSafeParseSuccess<
             Record<string, string>
           >);
       if (!cookiesRes.success) {
@@ -521,13 +517,13 @@ export function createValApiRouter<Res>(
   };
 }
 
-function formatZodErrorString(error: z.ZodError): string {
-  const errors = fromZodError(error).toString();
+function formatZodErrorString(error: ZodError): string {
+  const errors = fromError(error).toString();
   return errors.length > 640 ? `${errors.slice(0, 640)}...` : errors;
 }
 
 function zodErrorResult(
-  error: z.ZodError,
+  error: ZodError,
   message: string,
 ): ValServerGenericResult {
   return {
@@ -551,14 +547,13 @@ function getCookies<
 >(
   req: Request,
   cookiesDef: Cookies,
-): z.SafeParseReturnType<
-  Record<string, string>,
-  {
-    [K in keyof Cookies]: Cookies[K] extends z.ZodType
-      ? z.infer<Cookies[K]>
-      : never;
-  }
-> {
+):
+  | z.ZodSafeParseSuccess<{
+      [K in keyof Cookies]: Cookies[K] extends z.ZodType
+        ? z.infer<Cookies[K]>
+        : never;
+    }>
+  | z.ZodSafeParseError<Record<string, string>> {
   const input: Record<string, string> = {};
   const cookieParts = req.headers?.get("Cookie")?.split("; ");
   for (const name of Object.keys(cookiesDef)) {
@@ -570,12 +565,11 @@ function getCookies<
       input[name.trim()] = value;
     }
   }
-  return z.object(cookiesDef).safeParse(input) as z.SafeParseReturnType<
-    Record<string, string>,
-    {
-      [K in keyof Cookies]: Cookies[K] extends z.ZodType
-        ? z.infer<Cookies[K]>
-        : never;
-    }
-  >;
+  return z.object(cookiesDef).safeParse(input) as
+    | z.ZodSafeParseSuccess<{
+        [K in keyof Cookies]: Cookies[K] extends z.ZodType
+          ? z.infer<Cookies[K]>
+          : never;
+      }>
+    | z.ZodSafeParseError<Record<string, string>>;
 }

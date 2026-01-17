@@ -1143,7 +1143,10 @@ export const ValServer = (
         patches.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         return {
           status: 200,
-          json: { patches, baseSha: await serverOps.getBaseSha() },
+          json: {
+            patches: patches,
+            baseSha: await serverOps.getBaseSha(),
+          },
         };
       },
       DELETE: async (req) => {
@@ -1372,7 +1375,7 @@ export const ValServer = (
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
-              errors?: Partial<Record<PatchId, { message: string }>>;
+              errors?: Record<PatchId, { message: string }>;
             };
             validationErrors?: Record<SourcePath, ValidationError[]>;
           }
@@ -1532,7 +1535,7 @@ export const ValServer = (
             status: 400,
             json: {
               message: "Invalid body: " + fromError(bodyRes.error).toString(),
-              details: bodyRes.error.errors,
+              details: bodyRes.error.issues,
             },
           };
         }
@@ -1627,7 +1630,7 @@ export const ValServer = (
           }
           return {
             status: 200,
-            json: {}, // TODO:
+            json: {} as Record<string, never>, // TODO:
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
@@ -1668,7 +1671,7 @@ export const ValServer = (
             // TODO: serverOps.markApplied(patchIds);
             return {
               status: 200,
-              json: {}, // TODO:
+              json: {} as Record<string, never>, // TODO:
             };
           }
           return {
