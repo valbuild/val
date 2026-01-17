@@ -37,7 +37,7 @@
     "recast": "^0.23.4",
     "semver": "^7.5.4",
     "simple-git": "^3.22.0",
-    "typescript": "^5.3.3",
+    "typescript": "^5.9.3",
     "zod": "^4.3.5"
   },
   "preconstruct": {
