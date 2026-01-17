@@ -21,11 +21,6 @@ import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import {
   SourcePath,
   SerializedArraySchema,
-  ImageSource,
-  Internal,
-  ImageMetadata,
-  RemoteSource,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import type { ListArrayRender } from "@valbuild/core";
 import { Preview as AutoPreview } from "./Preview";
