@@ -152,7 +152,7 @@ export const testSchema = s.object({
   /**
    * Records are objects where entries can be added. Useful for array-like structures where you would use a key to uniquely identify each entry.
    */
-  records: s.record(s.string()),
+  records: s.record(s.string(), s.string()),
 
   /**
    * Rich text can be used for multiline text, but also for more complex text editing capabilities like links, images, lists, etc.
