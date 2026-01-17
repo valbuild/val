@@ -18,10 +18,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
-import {
-  SourcePath,
-  SerializedArraySchema,
-} from "@valbuild/core";
+import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import type { ListArrayRender } from "@valbuild/core";
 import { Preview as AutoPreview } from "./Preview";
 import { StringField } from "./fields/StringField";
