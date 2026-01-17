@@ -1,11 +1,6 @@
 import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
   ListRecordRender as ListRecordRender,
-  RemoteSource,
   SourcePath,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import {
   useAllValidationErrors,
@@ -24,9 +19,9 @@ import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
-import { useState } from "react";
 import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
+import { ListPreviewItem } from "../ListPreviewItem";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -118,30 +113,6 @@ export function RecordFields({ path }: { path: SourcePath }) {
   );
 }
 
-function ListPreviewItem({
-  title,
-  image,
-  subtitle,
-}: ListRecordRender["items"][number][1]) {
-  return (
-    <div
-      className={classNames(
-        "flex w-full items-start justify-between pl-4 flex-grow text-left",
-      )}
-    >
-      <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
-        <div className="font-medium">{title}</div>
-        {subtitle && (
-          <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
-            {subtitle}
-          </div>
-        )}
-      </div>
-      {image && <ImageOrPlaceholder src={image} alt={title} />}
-    </div>
-  );
-}
-
 function ListRecordRenderComponent({
   path,
   items,
@@ -161,51 +132,13 @@ function ListRecordRenderComponent({
             "border rounded-lg cursor-pointer border-border-primary",
           )}
         >
-          <ListPreviewItem title={title} subtitle={subtitle} image={image} />
+          <ListPreviewItem
+            title={title}
+            image={image ?? null}
+            subtitle={subtitle ?? null}
+          />
         </button>
       ))}
-    </div>
-  );
-}
-
-function ImageOrPlaceholder({
-  src,
-  alt,
-}: {
-  src: ImageSource | RemoteSource<ImageMetadata> | null | undefined;
-  alt: string;
-}) {
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  if (src === null || src === undefined) {
-    return (
-      <div className="flex-shrink-0 ml-4 w-20 h-20 opacity-25 bg-bg-brand-secondary"></div>
-    );
-  }
-
-  const imageUrl =
-    src[VAL_EXTENSION] === "file"
-      ? Internal.convertFileSource(src).url
-      : Internal.convertRemoteSource(src).url;
-
-  return (
-    <div className="relative flex-shrink-0 ml-4 w-20 h-20">
-      {!isLoaded && (
-        <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
-      )}
-      <img
-        src={imageUrl}
-        alt={alt}
-        onLoad={() => setIsLoaded(true)}
-        onError={() => setIsLoaded(false)}
-        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${isLoaded ? "opacity-100" : "opacity-0"}`}
-        style={{
-          objectPosition: src.metadata?.hotspot
-            ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`
-            : "",
-          transition: "opacity 0.2s ease-in-out",
-        }}
-      />
     </div>
   );
 }
