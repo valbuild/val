@@ -1,5 +1,24 @@
 import { ModuleFilePath } from "./val";
 
+export const externalUrlPage: ValRouter = {
+  getRouterId: () => "external-url-router",
+  validate: (_moduleFilePath, urlPaths): RouteValidationError[] => {
+    const errors: RouteValidationError[] = [];
+    for (const urlPath of urlPaths) {
+      if (!(urlPath.startsWith("https://") || urlPath.startsWith("http://"))) {
+        errors.push({
+          error: {
+            message: `URL path "${urlPath}" does not start with "https://" or "http://"`,
+            expectedPath: null,
+            urlPath,
+          },
+        });
+      }
+    }
+    return [];
+  },
+};
+
 export type RouteValidationError = {
   error: {
     message: string;

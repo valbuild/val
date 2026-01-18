@@ -12,6 +12,7 @@ import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "@valbuild/react/stega";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
+const externalUrlPage: ValRouter = Internal.externalUrlPage;
 
 export const initVal = (
   config?: ValConfig,
@@ -61,6 +62,7 @@ export const initVal = (
    * });
    */
   nextAppRouter: ValRouter;
+  externalUrlPage: ValRouter;
 } => {
   const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {
@@ -71,6 +73,7 @@ export const initVal = (
     s,
     c,
     nextAppRouter,
+    externalUrlPage,
     val: {
       ...val,
       attrs,
