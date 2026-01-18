@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { nextAppRouter } from "../router";
+import { nextAppRouter, externalUrlPage } from "../router";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { number } from "./number";
@@ -89,6 +89,15 @@ describe("RecordSchema", () => {
     expect(
       schema["executeValidate"]("/app/blogs/[blog]/page.val.ts" as SourcePath, {
         "/blogs/test": { title: "Test" },
+      }),
+    ).toBe(false); // No validation errors for valid path
+  });
+
+  test("record: externalUrlPage router", () => {
+    const schema = record(object({ title: string() })).router(externalUrlPage);
+    expect(
+      schema["executeValidate"]("/external.val.ts" as SourcePath, {
+        "https://www.google.com": { title: "Test" },
       }),
     ).toBe(false); // No validation errors for valid path
   });

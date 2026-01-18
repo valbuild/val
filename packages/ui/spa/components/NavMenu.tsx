@@ -142,10 +142,15 @@ export function NavMenu() {
             <div className="max-h-[calc(100svh-32px-64px-32px-16px)] max-w-[320px] px-2">
               {"data" in remoteSchemaTree ? (
                 <>
-                  <SiteMapExplorer
+                  <NextAppRouterSiteMapExplorer
                     title="Site map"
                     defaultOpen={true}
-                    sitemap={remoteSchemaTree.data.sitemap}
+                    sitemap={remoteSchemaTree.data.routers["next-app-router"]}
+                  />
+                  <ExternalUrlExplorer
+                    title="External"
+                    defaultOpen={false}
+                    sitemap={remoteSchemaTree.data.routers["external-url-router"]}
                   />
                   <NavContentExplorer
                     title="Explorer"
@@ -305,24 +310,55 @@ function NavSection({
   );
 }
 
-function SiteMapExplorer({
+function ExternalUrlExplorer({
   title,
   defaultOpen,
   sitemap,
 }: {
   title: string;
   defaultOpen?: boolean;
-  sitemap: { [routerId: string]: ModuleFilePath[] };
+  sitemap?: ModuleFilePath[];
 }) {
-  const nextAppRouterSitemap = sitemap["next-app-router"];
-  if (nextAppRouterSitemap) {
+  if (!sitemap) {
+    return null;
+  }
+  return (
+    <NavSection
+        title={title}
+        defaultOpen={defaultOpen}
+        icon={<FileText size={16} />}
+      >
+      {sitemap.map((moduleFilePath, i) => (
+        <ExplorerNode
+          key={i}
+          name={moduleFilePath}
+          fullPath={moduleFilePath}
+          isDirectory={false}
+          children={[]}
+        />
+      ))}
+    </NavSection>
+  );
+
+}
+
+function NextAppRouterSiteMapExplorer({
+  title,
+  defaultOpen,
+  sitemap,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  sitemap?: ModuleFilePath[];
+}) {
+  if (sitemap) {
     return (
       <NavSection
         title={title}
         defaultOpen={defaultOpen}
         icon={<Globe size={16} />}
       >
-        <NextAppRouterSitemap moduleFilePaths={nextAppRouterSitemap} />
+        <NextAppRouterSitemap moduleFilePaths={sitemap} />
       </NavSection>
     );
   }

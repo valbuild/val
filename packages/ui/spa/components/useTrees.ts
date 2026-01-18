@@ -6,7 +6,7 @@ import { useSchemas } from "./ValProvider";
 
 export function useTrees(): Remote<{
   root: PathNode;
-  sitemap: { [routerId: string]: ModuleFilePath[] };
+  routers: { [routerId: string]: ModuleFilePath[] };
 }> {
   const remoteSchemasByModuleFilePath = useSchemas();
   return useMemo(() => {
@@ -27,7 +27,7 @@ export function useTrees(): Remote<{
         status: remoteSchemasByModuleFilePath.status,
         data: {
           root: pathTree(moduleFilePaths),
-          sitemap: routerPaths,
+          routers: routerPaths,
         },
       };
     }

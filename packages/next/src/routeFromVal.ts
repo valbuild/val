@@ -53,10 +53,12 @@ export function getValRouteUrlFromVal(
     );
   } else if (
     schema["currentRouter"].getRouterId() !==
-    Internal.nextAppRouter.getRouterId()
+      Internal.nextAppRouter.getRouterId() &&
+    schema["currentRouter"].getRouterId() !==
+      Internal.externalUrlPage.getRouterId()
   ) {
     console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not the Next.js App Router).`,
+      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not the Next.js App Router or External URL Page Router).`,
     );
     return null;
   }
