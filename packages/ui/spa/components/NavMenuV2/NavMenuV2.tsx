@@ -145,7 +145,7 @@ export function NavMenuV2({
 
       {/* Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {isLoading || schema.status === "loading" ? (
+        {isLoading ? (
           <div className="flex items-center justify-center p-8">
             <Loader2 size={20} className="animate-spin text-fg-secondary" />
           </div>

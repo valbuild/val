@@ -455,6 +455,15 @@ export function safeResolvePath<
           message: `Schema type error: expected source to be type of array, but got ${typeof resolvedSource}`,
         };
       }
+      if (resolvedSource[part] === undefined) {
+        return {
+          status: "source-undefined",
+          path: origParts
+            .slice(0, origParts.length - parts.length - 1)
+            .map((p) => JSON.stringify(p))
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        };
+      }
       resolvedSource = resolvedSource[part];
       resolvedSchema =
         resolvedSchema instanceof ArraySchema
@@ -485,10 +494,13 @@ export function safeResolvePath<
           message: `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
         };
       }
-      if (!resolvedSource[part]) {
+      if (resolvedSource[part] === undefined) {
         return {
-          status: "error",
-          message: `Invalid path: record source did not have key ${part} from path: ${path}`,
+          status: "source-undefined",
+          path: origParts
+            .slice(0, origParts.length - parts.length - 1)
+            .map((p) => JSON.stringify(p))
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
         };
       }
       resolvedSource = resolvedSource[part];
