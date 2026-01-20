@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { DEFAULT_APP_HOST, SourcePath, ModuleFilePath } from "@valbuild/core";
 import { Ellipsis, Loader2, Moon, Sun, LogOut, User } from "lucide-react";
 import {
@@ -53,6 +53,10 @@ export function NavMenuV2({
 
   // Track if external is selected (not an accordion, just a button)
   const [isExternalSelected, setIsExternalSelected] = useState(false);
+  // Track accordion open state (controlled)
+  const [accordionValue, setAccordionValue] = useState<string | undefined>(
+    undefined,
+  );
 
   // Check if current path is external
   const isExternalPath = useMemo(() => {
@@ -70,6 +74,17 @@ export function NavMenuV2({
   const isSitemapSection = useMemo(() => {
     return data.sitemap && checkSitemapActive(data.sitemap, currentSourcePath);
   }, [data.sitemap, currentSourcePath]);
+
+  // Update accordion value based on current path
+  useEffect(() => {
+    if (isExternalPath) {
+      setAccordionValue("external");
+    } else if (isSitemapSection) {
+      setAccordionValue("sitemap");
+    } else if (isExplorerSection) {
+      setAccordionValue("explorer");
+    }
+  }, [isExternalPath, isSitemapSection, isExplorerSection]);
 
   const handleNavigate = useCallback(
     (sourcePath: string, isExternal = false) => {
@@ -153,15 +168,8 @@ export function NavMenuV2({
           <Accordion
             type="single"
             collapsible
-            defaultValue={
-              isExternalPath
-                ? "external"
-                : isSitemapSection
-                  ? "sitemap"
-                  : isExplorerSection
-                    ? "explorer"
-                    : undefined
-            }
+            value={accordionValue}
+            onValueChange={setAccordionValue}
             className="shrink-0"
           >
             {/* Site Map Section */}

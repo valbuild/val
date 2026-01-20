@@ -231,6 +231,118 @@ export type StegaOfSource<T extends Source> = Json extends T
                   ? T
                   : never;
 
+/**
+ * Resolves the matching sub-schema for a tagged union based on the discriminator key.
+ * Returns the matching schema or null if no match is found.
+ */
+function resolveTaggedUnionSchema(
+  source: any,
+  schema: SerializedUnionSchema,
+): SerializedSchema | null {
+  const schemaKey = schema.key;
+  if (typeof schemaKey !== "string") {
+    return null;
+  }
+
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return null;
+  }
+
+  const key = source[schemaKey];
+  if (!key || typeof key !== "string") {
+    return null;
+  }
+
+  const matchingSchema = (schema.items as any[]).find((s: any) => {
+    if (isObjectSchema(s) && s.items && s.items[schemaKey]) {
+      const keySchema = s.items[schemaKey];
+      if (isLiteralSchema(keySchema)) {
+        return keySchema.value === key;
+      } else {
+        console.warn(
+          "Expected literal schema at key in union, but found: ",
+          keySchema,
+          { key, schema: s },
+        );
+      }
+    } else {
+      console.warn("Expected union containing object schema, but found: ", s);
+    }
+    return false;
+  });
+
+  return matchingSchema || null;
+}
+
+/**
+ * Resolves the matching sub-schema for a literal union (string-based).
+ * Returns the matching schema or null if no match is found.
+ */
+function resolveLiteralUnionSchema(
+  source: string,
+  schema: SerializedUnionSchema,
+): SerializedSchema | null {
+  if (typeof schema.key === "string") {
+    return null; // Not a literal union
+  }
+
+  const matchingSchema = [schema.key]
+    .concat(...(schema.items as SerializedLiteralSchema[]))
+    .find((s) => {
+      if (isLiteralSchema(s)) {
+        return s.value === source;
+      }
+      return false;
+    });
+
+  return matchingSchema || null;
+}
+
+/**
+ * Handles richtext schema traversal with callback support.
+ * Processes richtext structures (string, array, or object format).
+ */
+function handleRichTextSchema(
+  sourceOrSelector: any,
+  recOpts: { path: any; schema: any },
+  rec: (sourceOrSelector: any, recOpts?: { path: any; schema: any }) => any,
+): any {
+  if (typeof sourceOrSelector === "string") {
+    return rec(sourceOrSelector, {
+      path: recOpts.path,
+      schema: {
+        type: "string",
+      },
+    });
+  }
+  if (Array.isArray(sourceOrSelector)) {
+    const arraySelector = sourceOrSelector.map((el) =>
+      rec(el, {
+        path: recOpts.path,
+        schema: recOpts.schema,
+      }),
+    );
+    return arraySelector;
+  } else if (typeof sourceOrSelector === "object") {
+    if (!sourceOrSelector) {
+      return null;
+    }
+    const richtextSelector = Object.fromEntries(
+      Object.entries(sourceOrSelector).map(([key, value]) => [
+        key,
+        key === "tag" || key === "styles"
+          ? value
+          : rec(value, {
+              path: recOpts.path,
+              schema: recOpts.schema,
+            }),
+      ]),
+    );
+    return richtextSelector;
+  }
+  return sourceOrSelector;
+}
+
 export function stegaEncode(
   input: any,
   opts: {
@@ -252,95 +364,35 @@ export function stegaEncode(
       return sourceOrSelector;
     }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
-      if (
-        sourceOrSelector &&
-        typeof sourceOrSelector === "object" &&
-        recOpts.schema.key &&
-        typeof recOpts.schema.key === "string"
-      ) {
-        const key = sourceOrSelector[recOpts.schema.key];
-        if (key) {
-          const schema = (recOpts.schema.items as any).find((s: any) => {
-            if (isObjectSchema(s) && s.items && s.items[recOpts.schema.key]) {
-              const keySchema = s.items[recOpts.schema.key];
-              if (isLiteralSchema(keySchema)) {
-                return keySchema.value === key;
-              } else {
-                console.warn(
-                  "Expected literal schema at key in , but found: ",
-                  keySchema,
-                  { key, schema: s },
-                );
-              }
-            } else {
-              console.warn(
-                "Expected union containing object schema, but found: ",
-                s,
-              );
-            }
-          });
-          if (schema) {
-            return rec(sourceOrSelector, {
-              path: recOpts.path,
-              schema: schema,
-            });
-          }
-        }
-        // illegal value, return as is
-        return sourceOrSelector;
-      }
-      if (
-        typeof sourceOrSelector === "string" &&
-        recOpts.schema.key &&
-        typeof recOpts.schema.key !== "string"
-      ) {
+      // Handle tagged union
+      const taggedSchema = resolveTaggedUnionSchema(
+        sourceOrSelector,
+        recOpts.schema,
+      );
+      if (taggedSchema) {
         return rec(sourceOrSelector, {
           path: recOpts.path,
-          schema: [recOpts.schema.key]
-            .concat(...(recOpts.schema.items as SerializedLiteralSchema[]))
-            .find((s) => {
-              if (isLiteralSchema(s)) {
-                return s.value === sourceOrSelector;
-              }
-            }),
+          schema: taggedSchema,
         });
       }
+      // Handle literal union
+      if (typeof sourceOrSelector === "string") {
+        const literalSchema = resolveLiteralUnionSchema(
+          sourceOrSelector,
+          recOpts.schema,
+        );
+        if (literalSchema) {
+          return rec(sourceOrSelector, {
+            path: recOpts.path,
+            schema: literalSchema,
+          });
+        }
+      }
+      // No match found, return as is
+      return sourceOrSelector;
     }
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
-      if (typeof sourceOrSelector === "string") {
-        return rec(sourceOrSelector, {
-          path: recOpts.path,
-          schema: {
-            type: "string",
-          },
-        });
-      }
-      if (Array.isArray(sourceOrSelector)) {
-        const arraySelector = sourceOrSelector.map((el) =>
-          rec(el, {
-            path: recOpts.path,
-            schema: recOpts.schema,
-          }),
-        );
-        return arraySelector;
-      } else if (typeof sourceOrSelector === "object") {
-        if (!sourceOrSelector) {
-          return null;
-        }
-        const richtextSelector = Object.fromEntries(
-          Object.entries(sourceOrSelector).map(([key, value]) => [
-            key,
-            key === "tag" || key === "styles"
-              ? value
-              : rec(value, {
-                  path: recOpts.path,
-                  schema: recOpts.schema,
-                }),
-          ]),
-        );
-        return richtextSelector;
-      }
-      return sourceOrSelector;
+      return handleRichTextSchema(sourceOrSelector, recOpts, rec);
     }
 
     if (typeof sourceOrSelector === "object") {
