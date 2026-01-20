@@ -271,6 +271,34 @@ function UrlPathBreadcrumb({
     return { segments, isFullUrl, protocol, host };
   }, [path]);
 
+  // Handle external URLs with no path segments (e.g., "https://www.google.com")
+  if (segments.length === 0 && isFullUrl) {
+    return (
+      <HoverCard openDelay={200}>
+        <HoverCardTrigger asChild>
+          <div className="cursor-default">
+            <Breadcrumb>
+              <BreadcrumbList className="flex-nowrap text-xl font-normal">
+                <BreadcrumbItem className="shrink-0">
+                  <span className="text-fg-tertiary">{protocol}//</span>
+                  <span>{host}</span>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+        </HoverCardTrigger>
+        <HoverCardContent
+          className="w-auto max-w-[400px] break-all"
+          container={portalContainer}
+          side="bottom"
+          align="start"
+        >
+          <p className="font-mono text-sm">{path}</p>
+        </HoverCardContent>
+      </HoverCard>
+    );
+  }
+
   if (segments.length === 0) {
     return <span className="text-fg-secondary">/</span>;
   }

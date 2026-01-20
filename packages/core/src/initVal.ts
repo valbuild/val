@@ -83,7 +83,7 @@ InitVal => {
   // }
   return {
     val: {
-      getPath,
+      unstable_getPath: getPath,
     },
     c: {
       define,

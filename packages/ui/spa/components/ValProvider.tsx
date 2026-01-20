@@ -925,6 +925,25 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   };
 }
 
+/**
+ * Hook to add a patch to any module file path.
+ * Use this when you need to add a patch dynamically to different modules.
+ */
+export function useAddModuleFilePatch() {
+  const { syncEngine } = useContext(ValContext);
+  const addModuleFilePatch = useCallback(
+    (
+      moduleFilePath: ModuleFilePath,
+      patch: Patch,
+      type: SerializedSchema["type"],
+    ) => {
+      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+    },
+    [syncEngine],
+  );
+  return { addModuleFilePatch };
+}
+
 export function useDeletePatches() {
   const { syncEngine } = useContext(ValContext);
   const deletePatches = useCallback(

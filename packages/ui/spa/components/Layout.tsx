@@ -1,4 +1,4 @@
-import { NAV_MENU_MOBILE_BREAKPOINT, NavMenu } from "./NavMenu";
+import { NAV_MENU_V2_MOBILE_BREAKPOINT, NavMenuV2Wrapper } from "./NavMenuV2";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
 import { useAuthenticationState } from "./ValProvider";
@@ -21,7 +21,7 @@ export function Layout() {
   const { currentSourcePath, ready: navigationReady } = useNavigation();
   useEffect(() => {
     if (!didInitialize && navigationReady) {
-      if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
+      if (window.innerWidth < NAV_MENU_V2_MOBILE_BREAKPOINT) {
         if (!currentSourcePath) {
           setIsNavMenuOpenState(true);
         }
@@ -83,7 +83,7 @@ export function Layout() {
         >
           <Sidebar className="border-r-0" side="left">
             <SidebarContent>
-              <NavMenu />
+              <NavMenuV2Wrapper />
             </SidebarContent>
             <SidebarRail />
           </Sidebar>
@@ -112,16 +112,14 @@ type LayoutContextValue = {
   navMenu: { isOpen: boolean; setOpen: (open: boolean) => void };
   toolsMenu: { isOpen: boolean; setOpen: (open: boolean) => void };
 };
-const LayoutContext = React.createContext<LayoutContextValue>(
-  new Proxy(
-    {},
-    {
-      get() {
-        throw new Error("LayoutContext not provided");
-      },
-    },
-  ) as LayoutContextValue,
-);
+
+// No-op default value for when context is used outside of provider (e.g., Storybook)
+const defaultLayoutValue: LayoutContextValue = {
+  navMenu: { isOpen: false, setOpen: () => {} },
+  toolsMenu: { isOpen: false, setOpen: () => {} },
+};
+
+const LayoutContext = React.createContext<LayoutContextValue>(defaultLayoutValue);
 
 export function useLayout() {
   return useContext(LayoutContext);

@@ -139,18 +139,13 @@ export function NavMenu() {
       {"data" in remoteSchemasByModuleFilePath && (
         <div className={classNames("py-4 pl-2", {})}>
           <ScrollArea>
-            <div className="max-h-[calc(100svh-32px-64px-32px-16px)] max-w-[320px] px-2">
+            <div className="max-h-[calc(100svh-32px-64px-32px-16px-56px-56px)] max-w-[320px] px-2">
               {"data" in remoteSchemaTree ? (
                 <>
                   <NextAppRouterSiteMapExplorer
                     title="Site map"
                     defaultOpen={true}
                     sitemap={remoteSchemaTree.data.routers["next-app-router"]}
-                  />
-                  <ExternalUrlExplorer
-                    title="External"
-                    defaultOpen={false}
-                    sitemap={remoteSchemaTree.data.routers["external-url-router"]}
                   />
                   <NavContentExplorer
                     title="Explorer"
@@ -168,6 +163,14 @@ export function NavMenu() {
       )}
       <div className="p-4 h-6" />
       <div className="absolute bottom-0 left-0 w-full">
+        {"data" in remoteSchemaTree &&
+          remoteSchemaTree.data.routers["external-url-router"] && (
+            <ExternalUrlsButton
+              moduleFilePath={
+                remoteSchemaTree.data.routers["external-url-router"][0]
+              }
+            />
+          )}
         <Popover>
           <PopoverTrigger className="flex items-center justify-between w-full p-4 border-t border-border-primary hover:bg-bg-secondary data-[state=open]:bg-bg-secondary">
             <span>
@@ -310,36 +313,35 @@ function NavSection({
   );
 }
 
-function ExternalUrlExplorer({
-  title,
-  defaultOpen,
-  sitemap,
+function ExternalUrlsButton({
+  moduleFilePath,
 }: {
-  title: string;
-  defaultOpen?: boolean;
-  sitemap?: ModuleFilePath[];
+  moduleFilePath: ModuleFilePath;
 }) {
-  if (!sitemap) {
-    return null;
-  }
-  return (
-    <NavSection
-        title={title}
-        defaultOpen={defaultOpen}
-        icon={<FileText size={16} />}
-      >
-      {sitemap.map((moduleFilePath, i) => (
-        <ExplorerNode
-          key={i}
-          name={moduleFilePath}
-          fullPath={moduleFilePath}
-          isDirectory={false}
-          children={[]}
-        />
-      ))}
-    </NavSection>
-  );
+  const { navigate, currentSourcePath } = useNavigation();
+  const { navMenu } = useLayout();
+  const path = moduleFilePath as unknown as SourcePath;
+  const isActive = currentSourcePath.startsWith(path);
 
+  return (
+    <button
+      className={classNames(
+        "flex items-center gap-2 w-full p-4 border-t border-border-primary hover:bg-bg-secondary text-sm",
+        {
+          "bg-bg-secondary": isActive,
+        },
+      )}
+      onClick={() => {
+        if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
+          navMenu.setOpen(false);
+        }
+        navigate(path);
+      }}
+    >
+      <Globe size={16} />
+      <span>External URLs</span>
+    </button>
+  );
 }
 
 function NextAppRouterSiteMapExplorer({
