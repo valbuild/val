@@ -64,13 +64,13 @@ export function NavMenuV2Wrapper() {
     [addModuleFilePatch, schemas, navigate],
   );
 
-  if (navMenuData.status === "loading" || navMenuData.status === "not-asked") {
-    return <NavMenuV2 data={{}} isLoading={true} />;
-  }
-
   if (navMenuData.status === "error") {
     // Fallback to empty state on error
     return <NavMenuV2 data={{}} isLoading={false} />;
+  }
+
+  if (!("data" in navMenuData)) {
+    return <NavMenuV2 data={{}} isLoading={true} />;
   }
 
   return (

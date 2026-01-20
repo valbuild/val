@@ -1505,6 +1505,9 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
     if (resolvedSchemaAtPathRes.status === "resolved-schema-not-found") {
       return { status: "not-found" };
     }
+    if (resolvedSchemaAtPathRes.status === "source-not-found") {
+      return { status: "not-found" };
+    }
     if (resolvedSchemaAtPathRes.status === "no-schemas") {
       return { status: "error", error: "No schemas" };
     }
