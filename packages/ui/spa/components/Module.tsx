@@ -41,6 +41,7 @@ import {
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { Globe } from "lucide-react";
+import { Search } from "./Search";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -68,6 +69,7 @@ export function Module({ path }: { path: SourcePath }) {
     },
     [schemasRes, sources, navigate],
   );
+
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
@@ -75,6 +77,9 @@ export function Module({ path }: { path: SourcePath }) {
   }
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type="module" />;
+  }
+  if ((path?.length || 0) === 0) {
+    return <Home />;
   }
   if (schemaAtPath.status === "not-found") {
     return <FieldNotFound path={path} type="module" />;
@@ -157,6 +162,22 @@ export function Module({ path }: { path: SourcePath }) {
         >
           <AnyField key={path} path={path} schema={schema} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Home() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-16 px-4">
+      <div className="flex flex-col items-center gap-6 w-full max-w-md text-center">
+        <div className="w-full">
+          <Search />
+        </div>
+
+        <p className="text-sm text-fg-tertiary">
+          Use the menu on the left to browse and edit your content.
+        </p>
       </div>
     </div>
   );
