@@ -221,7 +221,7 @@ async function getFileBufferFromRemote(
     try {
       await fs.promises.mkdir(remoteFileCacheDir, { recursive: true });
       await downloadFileFromRemote(ref, remoteFilePath);
-    } catch {
+    } catch (err) {
       try {
         // try to delete in case of partial download
         await fs.promises.unlink(remoteFilePath);
