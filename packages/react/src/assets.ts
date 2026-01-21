@@ -2,7 +2,7 @@ import * as base64 from "base64-arraybuffer";
 
 function dataUrl(mimeType: string, data: string): string {
   return `data:${mimeType};base64,${base64.encode(
-    new TextEncoder().encode(data),
+    new TextEncoder().encode(data).buffer,
   )}`;
 }
 
