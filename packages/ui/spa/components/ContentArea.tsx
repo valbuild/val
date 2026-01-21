@@ -1,7 +1,8 @@
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
-import { CopyIcon, PanelRightOpen, Search } from "lucide-react";
+import { CopyIcon, PanelRightOpen, Search as SearchIcon } from "lucide-react";
 import { useNavigation } from "./ValRouter";
+import { Search } from "./Search";
 import {
   useConnectionStatus,
   useGlobalError,
@@ -153,8 +154,11 @@ function CopyableCodeBlock({ code }: { code: string }) {
 
 function ContentAreaHeader() {
   const { navMenu, toolsMenu } = useLayout();
+  const { currentSourcePath } = useNavigation();
+  const isHome = (currentSourcePath?.length || 0) === 0;
+  
   return (
-    <div className="flex justify-between items-center px-4 w-full h-16 border-b border-border-primary">
+    <div className="flex justify-between items-center px-4 w-full h-16 border-b border-border-primary overflow-visible relative z-10">
       <button
         className={classNames({
           "ml-[calc(320px+0.5rem)] xl:ml-0 hidden xl:block": navMenu.isOpen,
@@ -168,6 +172,11 @@ function ContentAreaHeader() {
           })}
         />
       </button>
+      {!isHome && (
+        <div className="flex-1 max-w-md mx-4 overflow-visible">
+          <Search />
+        </div>
+      )}
       <button
         className={classNames({
           "mr-[calc(320px+0.5rem)] xl:mr-0 hidden xl:block": toolsMenu.isOpen,
@@ -189,7 +198,7 @@ export function SearchBar() {
   return (
     <div className="sticky top-0 text-fg-primary z-[2] pt-4 hidden xl:block">
       <div className="grid grid-cols-[min-content,1fr,min-content] items-center xl:w-[calc(100%-16px)] ml-2 h-16 p-4 bg-bg-tertiary rounded-3xl">
-        <Search size={22} />
+        <SearchIcon size={22} />
         <input
           className="px-4 w-full h-full text-lg bg-transparent text-fg-primary focus:outline-none"
           onClick={() => {

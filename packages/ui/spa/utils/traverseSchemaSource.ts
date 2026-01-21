@@ -129,7 +129,6 @@ export function traverseSchemaSource(
     if (typeof source !== "object" || source === null || isJsonArray(source)) {
       return;
     }
-    const isRoot = path.endsWith("?p=");
     for (const key in source) {
       const subSchema =
         schema.type === "object" ? schema.items?.[key] : schema.item;
