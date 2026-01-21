@@ -1,5 +1,3 @@
- 
- 
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";

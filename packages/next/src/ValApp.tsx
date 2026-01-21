@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 
- 
 export const ValApp = ({ config }: { config: ValConfig }) => {
   const route = "/api/val"; // TODO: make configurable
   const [inMessageMode, setInMessageMode] = useState<boolean>();

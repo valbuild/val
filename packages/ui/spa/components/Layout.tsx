@@ -119,7 +119,8 @@ const defaultLayoutValue: LayoutContextValue = {
   toolsMenu: { isOpen: false, setOpen: () => {} },
 };
 
-const LayoutContext = React.createContext<LayoutContextValue>(defaultLayoutValue);
+const LayoutContext =
+  React.createContext<LayoutContextValue>(defaultLayoutValue);
 
 export function useLayout() {
   return useContext(LayoutContext);

@@ -47,7 +47,6 @@ export type SelectorSource =
     }
   | FileSource
   | RemoteSource
-   
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

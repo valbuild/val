@@ -1,6 +1,6 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
- 
+
 import {
   CustomValidateFunction,
   Schema,

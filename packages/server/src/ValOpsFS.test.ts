@@ -32,7 +32,7 @@ describe("ValOpsFS", () => {
         }).code,
       ).runInNewContext({
         exports: {},
-         
+
         require: (path: string) => {
           if (path === "val.config") {
             return { s, c, config };
