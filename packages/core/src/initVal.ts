@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-types */
-/* eslint-disable @typescript-eslint/no-unnecessary-type-constraint */
+ 
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";

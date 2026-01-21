@@ -267,7 +267,7 @@ type ValNextRscConfig = {
   cookies: typeof cookies;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function initValRsc(
   config: ValConfig,
   valModules: ValModules,

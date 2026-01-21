@@ -106,7 +106,7 @@ type ValServerNextConfig = {
   formatter?: (code: string, filePath: string) => Promise<string> | string;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function initValServer(
   valModules: ValModules,
   config: ValConfig & {

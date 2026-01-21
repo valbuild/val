@@ -28,18 +28,21 @@
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
     "@changesets/cli": "^2.29.8",
+    "@eslint/eslintrc": "^3.3.3",
+    "@eslint/js": "^9.39.2",
     "@preconstruct/cli": "^2.8.12",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.0.9",
     "@typescript-eslint/eslint-plugin": "^8.53.0",
     "@typescript-eslint/parser": "^8.53.0",
     "babel-jest": "^30.2.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
+    "globals": "^17.0.0",
     "jest": "30.2",
-    "prettier": "^3.8.0",
-    "concurrently": "^9.2.1"
+    "prettier": "^3.8.0"
   },
   "preconstruct": {
     "packages": [

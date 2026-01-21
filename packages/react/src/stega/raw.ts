@@ -8,7 +8,7 @@ import {
 
 export type DecodeVal<T> = T extends ValEncodedString | RawString
   ? string
-  : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  :  
     T extends RichText<infer Options>
     ? StegaOfRichTextSource<RichTextSource<Options>>
     : // Avoid using (...args: DecodeVal<P>) => DecodeVal<R> since this means that the function signature is harder to read

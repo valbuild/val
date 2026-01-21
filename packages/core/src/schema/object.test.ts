@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { SourcePath } from "../val";
 import { number } from "./number";
 import { object } from "./object";
