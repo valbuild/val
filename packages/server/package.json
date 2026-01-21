@@ -27,9 +27,9 @@
     "@types/jest": "^30.0.0"
   },
   "dependencies": {
-    "@valbuild/core": "~0.91.4",
-    "@valbuild/shared": "~0.91.4",
-    "@valbuild/ui": "~0.91.4",
+    "@valbuild/core": "workspace:*",
+    "@valbuild/shared": "workspace:*",
+    "@valbuild/ui": "workspace:*",
     "chokidar": "^5.0.0",
     "image-size": "^2.0.2",
     "minimatch": "^10.1.1",

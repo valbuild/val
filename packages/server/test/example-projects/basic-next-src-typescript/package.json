@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@valbuild/next": "*",
+    "@valbuild/next": "workspace:*",
     "@next/font": "13.1.2",
     "@types/node": "20.10.0",
     "@types/react": "18.0.27",

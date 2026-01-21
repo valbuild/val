@@ -33,7 +33,7 @@
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.91.4",
+    "@valbuild/core": "workspace:*",
     "zod": "^4.3.5",
     "zod-validation-error": "^5.0.0"
   },

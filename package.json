@@ -2,24 +2,20 @@
   "name": "@valbuild/root",
   "version": "0.0.1",
   "private": false,
-  "workspaces": [
-    "packages/*",
-    "examples/*"
-  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/valbuild/val.git"
   },
   "scripts": {
-    "build": "preconstruct build && npm run build -w packages/ui",
+    "build": "preconstruct build && pnpm run build --filter packages/ui",
     "postinstall": "preconstruct dev",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "lint": "eslint .",
     "test": "jest",
-    "version-packages": "changeset version && npm i --package-lock-only",
-    "release": "npm run build && changeset publish",
-    "dev:example-next": "concurrently -k \"cd  packages/ui; npm run dev\" \"cd examples/next; npm run dev\""
+    "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
+    "release": "pnpm run build && changeset publish",
+    "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\""
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",
