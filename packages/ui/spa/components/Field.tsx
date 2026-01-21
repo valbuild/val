@@ -63,7 +63,7 @@ export function Field({
   const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
   return (
     <div
-      className={classNames("px-4 pt-6 pb-0 border rounded-lg", {
+      className={classNames("px-4 pt-6 pb-4 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
         "border-bg-error-secondary": validationErrors.length > 0,
       })}
