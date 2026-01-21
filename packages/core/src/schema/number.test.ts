@@ -5,10 +5,6 @@ import { number } from "./number";
 describe("NumberSchema", () => {
   test("assert: should return success if src is a number", () => {
     const schema = number().nullable();
-    const test = schema["executeAssert"]("foo" as SourcePath, 1);
-    if (test.success) {
-      test.data;
-    }
     expect(schema["executeAssert"]("foo" as SourcePath, 1)).toEqual({
       success: true,
       data: 1,

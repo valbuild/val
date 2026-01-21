@@ -22,10 +22,12 @@ describe("ValOpsFS", () => {
         }).code,
       ).runInNewContext({
         exports: {},
+         
         require: (path: string) => {
           if (path === "../val.config") {
             return { s, c, config };
           } else {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
             return require(path);
           }
         },

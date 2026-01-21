@@ -2,8 +2,6 @@ import type {
   JSONValue as JSONValueT,
   OperationJSON as OperationJSONT,
   PatchJSON as PatchJSONT,
-  Operation as OperationT,
-  Patch as PatchT,
   PatchBlock as PatchBlockT,
   ParentRef as ParentRefT,
 } from "@valbuild/core/patch";

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/ban-types */
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 import { Source } from "../source";
 import { FileMetadata } from "../source/file";
 import { Selector as UnknownSelector, GenericSelector } from "./index";

@@ -24,6 +24,7 @@ export type FileSource<
 };
 
 export const initFile = (config?: ValConfig) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const fileDirectory = config?.files?.directory ?? "/public/val";
 
   type FileDirectory = typeof fileDirectory;

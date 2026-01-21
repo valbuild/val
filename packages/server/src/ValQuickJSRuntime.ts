@@ -120,7 +120,7 @@ export default new Proxy({}, {
           };
         }
         return { value: moduleLoader.getModule(modulePath) };
-      } catch (e) {
+      } catch {
         return {
           error: Error(`Could not resolve module: '${modulePath}'`),
         };

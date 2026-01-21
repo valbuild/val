@@ -62,7 +62,7 @@ export type SchemaAssertResult<Src extends SelectorSource> =
       // It would be more elegant if we derived this in the individual schema classes, however we must support the case when the abstract class is the only thing available (Schema<string[]> does not dispatch on type-level to ArraySchema)
       data: Src extends RawString
         ? string
-        : // eslint-disable-next-line @typescript-eslint/ban-types
+        : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
           Src extends RichTextSource<{}>
           ? GenericRichTextSourceNode[]
           : Src extends Primitives

@@ -1,4 +1,4 @@
-import { FC, useState } from "react";
+import { FC } from "react";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 import { Themes, ValProvider } from "./ValProvider";
 import { Layout } from "./Layout";

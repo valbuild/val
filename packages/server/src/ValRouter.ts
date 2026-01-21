@@ -8,7 +8,7 @@ import {
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
-import { fromError, fromZodError } from "zod-validation-error";
+import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 
 type Versions = {
@@ -264,7 +264,7 @@ export async function safeReadGit(
           branch: undefined,
         };
       }
-    } catch (error) {
+    } catch {
       const parentDir = path.dirname(currentDir);
 
       // We've reached the root directory
@@ -300,7 +300,7 @@ async function readCommit(
         "utf-8",
       )
     ).trim();
-  } catch (err) {
+  } catch {
     return undefined;
   }
 }

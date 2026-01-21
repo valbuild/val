@@ -47,7 +47,7 @@ export type SelectorSource =
     }
   | FileSource
   | RemoteSource
-  // eslint-disable-next-line @typescript-eslint/ban-types
+   
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

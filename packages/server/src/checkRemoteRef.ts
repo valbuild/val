@@ -217,11 +217,11 @@ async function getFileBufferFromRemote(
         `Cached file hash does not match the expected hash: ${computedFileHash} !== ${currentFileHash}`,
       );
     }
-  } catch (err) {
+  } catch {
     try {
       await fs.promises.mkdir(remoteFileCacheDir, { recursive: true });
       await downloadFileFromRemote(ref, remoteFilePath);
-    } catch (err) {
+    } catch {
       try {
         // try to delete in case of partial download
         await fs.promises.unlink(remoteFilePath);

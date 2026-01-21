@@ -150,7 +150,7 @@ const Internal = {
   VERSION: {
     core: ((): string | null => {
       try {
-         
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require("../package.json").version;
       } catch {
         return null;
@@ -260,7 +260,7 @@ const Internal = {
 function tryJsonParse(str: string) {
   try {
     return JSON.parse(str);
-  } catch (err) {
+  } catch {
     return str;
   }
 }

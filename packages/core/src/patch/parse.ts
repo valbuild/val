@@ -16,7 +16,7 @@ function parseJSONPointerReferenceToken(value: string): string | undefined {
       }
       throw new Error();
     });
-  } catch (e) {
+  } catch {
     return undefined;
   }
 }

@@ -40,7 +40,7 @@ export function DateField({ path }: { path: SourcePath }) {
         try {
           const date = new Date(sourceAtPath.data);
           setCurrentValue(date);
-        } catch (e) {
+        } catch {
           console.error("Cannot parse invalid date:", sourceAtPath.data);
         }
       }
