@@ -22,10 +22,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/core": "~0.91.4",
-    "@valbuild/eslint-plugin": "~0.91.4",
-    "@valbuild/server": "~0.91.4",
-    "@valbuild/shared": "~0.91.4",
+    "@valbuild/core": "workspace:*",
+    "@valbuild/eslint-plugin": "workspace:*",
+    "@valbuild/server": "workspace:*",
+    "@valbuild/shared": "workspace:*",
     "chalk": "^5.6.2",
     "cors": "^2.8.5",
     "fast-glob": "^3.3.3",

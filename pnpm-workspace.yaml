@@ -1,0 +1,15 @@
+packages:
+  - packages/core
+  - packages/ui
+  - packages/shared
+  - packages/server
+  - packages/next
+  - packages/react
+  - packages/cli
+  - packages/create
+  - packages/init
+  - packages/eslint-plugin
+  - examples/next
+
+minimumReleaseAgeExclude:
+  - "@valbuild/*"

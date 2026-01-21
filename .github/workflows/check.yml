@@ -11,9 +11,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
   format:
     name: Check format
     runs-on: ubuntu-latest
@@ -24,9 +26,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm run format
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -37,10 +41,12 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npx jest packages/server/src/readValFile.test.ts
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm exec jest packages/server/src/readValFile.test.ts
   build-next:
     name: Build Next.js example
     runs-on: ubuntu-latest
@@ -51,9 +57,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
         working-directory: examples/next
   typecheck:
     name: Typecheck
@@ -65,9 +73,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm run -ws typecheck
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run -r typecheck
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -78,6 +88,8 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version-file: ".nvmrc"
-          cache: npm
-      - run: npm ci
-      - run: npm test
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
