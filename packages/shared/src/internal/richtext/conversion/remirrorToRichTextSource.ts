@@ -9,6 +9,7 @@ import {
   ConfigDirectory,
   SerializedImageSchema,
 } from "@valbuild/core";
+import { base64DataUrlToUint8Array } from "../../../utils";
 import {
   RemirrorBr,
   RemirrorBulletList,
@@ -31,7 +32,6 @@ import {
   SpanNode,
   UnorderedListNode,
 } from "@valbuild/core";
-import { Buffer } from "buffer";
 
 export type RemoteRichTextOptions = {
   publicProjectId: string;
@@ -368,8 +368,8 @@ function convertImageNode(
   remoteOptions: RemoteRichTextOptions | null,
 ): ImageNode<AllRichTextOptions> {
   if (node.attrs && node.attrs.src.startsWith("data:")) {
-    const binaryData = Buffer.from(node.attrs.src.split(",")[1], "base64");
-    const fullFileHash = Internal.getSHA256Hash(new Uint8Array(binaryData));
+    const binaryData = base64DataUrlToUint8Array(node.attrs.src);
+    const fullFileHash = Internal.getSHA256Hash(binaryData);
     const mimeType = Internal.getMimeType(node.attrs.src);
     if (mimeType === undefined) {
       throw new Error(

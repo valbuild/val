@@ -6,4 +6,5 @@
  *
  * @packageDocumentation
  */
+export * from "./utils";
 export default {};
