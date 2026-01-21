@@ -64,7 +64,7 @@ export function NavMenuV2Wrapper() {
     [addModuleFilePatch, schemas, navigate],
   );
 
-  if (navMenuData.status === "loading") {
+  if (navMenuData.status === "loading" || navMenuData.status === "not-asked") {
     return <NavMenuV2 data={{}} isLoading={true} />;
   }
 
