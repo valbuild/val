@@ -8,8 +8,7 @@ import {
 
 export type DecodeVal<T> = T extends ValEncodedString | RawString
   ? string
-  :  
-    T extends RichText<infer Options>
+  : T extends RichText<infer Options>
     ? StegaOfRichTextSource<RichTextSource<Options>>
     : // Avoid using (...args: DecodeVal<P>) => DecodeVal<R> since this means that the function signature is harder to read
       // for at least 5 arguments, then we fallback to the generic case

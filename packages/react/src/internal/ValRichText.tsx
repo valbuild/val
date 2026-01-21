@@ -1,4 +1,3 @@
- 
 import {
   RichTextNode as RichTextSourceNode,
   AllRichTextOptions,

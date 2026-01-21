@@ -267,7 +267,6 @@ type ValNextRscConfig = {
   cookies: typeof cookies;
 };
 
- 
 export function initValRsc(
   config: ValConfig,
   valModules: ValModules,

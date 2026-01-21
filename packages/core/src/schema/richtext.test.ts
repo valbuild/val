@@ -5,7 +5,6 @@ import { richtext } from "./richtext";
 import { ValidationErrors } from "./validation/ValidationError";
 
 describe("RichTextSchema", () => {
-   
   const testValidateInput: RichTextSource<AllRichTextOptions> = [
     { tag: "h1", children: ["What is Val?"] },
     { tag: "p", children: ["Val is a CMS, which is useful because:"] },

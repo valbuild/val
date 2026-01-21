@@ -106,7 +106,6 @@ type ValServerNextConfig = {
   formatter?: (code: string, filePath: string) => Promise<string> | string;
 };
 
- 
 export function initValServer(
   valModules: ValModules,
   config: ValConfig & {

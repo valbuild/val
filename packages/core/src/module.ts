@@ -54,11 +54,10 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
             : T;
 
 export function define<T extends Schema<SelectorSource>>(
-   
   id: string, // TODO: `/${string}`
-   
+
   schema: T,
-   
+
   source: ReplaceRawStringWithString<SelectorOfSchema<T>>,
 ): ValModule<SelectorOfSchema<T>> {
   return {
@@ -172,7 +171,6 @@ function isUnionSchema(
   );
 }
 
- 
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
