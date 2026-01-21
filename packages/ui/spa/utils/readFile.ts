@@ -1,6 +1,6 @@
 import { Internal } from "@valbuild/core";
+import { base64DataUrlToUint8Array } from "@valbuild/shared";
 import { ChangeEvent } from "react";
-import { Buffer } from "buffer";
 
 export function readFile(ev: ChangeEvent<HTMLInputElement>) {
   return new Promise<{
@@ -15,7 +15,7 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
     reader.addEventListener("load", () => {
       const result = reader.result;
       if (typeof result === "string") {
-        const binaryData = Buffer.from(result.split(",")[1], "base64");
+        const binaryData = base64DataUrlToUint8Array(result);
         const fileHash = Internal.getSHA256Hash(binaryData);
         const mimeType = Internal.getMimeType(result);
         resolve({
