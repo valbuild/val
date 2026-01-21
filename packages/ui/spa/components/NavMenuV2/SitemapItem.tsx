@@ -164,9 +164,9 @@ export function SitemapItemNode({
       {hasChildren && (
         <AnimateHeight isOpen={isOpen}>
           <div>
-            {sortedChildren.map((child) => (
+            {sortedChildren.map((child, index) => (
               <SitemapItemNode
-                key={child.urlPath}
+                key={child.sourcePath || `${child.urlPath}-${index}`}
                 item={child}
                 currentPath={currentPath}
                 onNavigate={onNavigate}

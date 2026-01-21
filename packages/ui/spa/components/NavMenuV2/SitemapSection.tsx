@@ -48,9 +48,9 @@ export function SitemapSection({
       </AccordionTrigger>
       <AccordionContent className="pb-0">
         <div className="overflow-y-auto p-2" style={{ maxHeight }}>
-          {sitemap.children.map((child) => (
+          {sitemap.children.map((child, index) => (
             <SitemapItemNode
-              key={child.urlPath}
+              key={child.sourcePath || `${child.urlPath}-${index}`}
               item={child}
               currentPath={currentPath}
               onNavigate={onNavigate}
