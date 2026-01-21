@@ -6,7 +6,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import FlexSearch from "flexsearch";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useAllSources, useSchemas } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -24,7 +24,7 @@ import {
 import { getNavPathFromAll } from "./getNavPath";
 import { SearchItem } from "./SearchItem";
 import { Internal, ModulePath } from "@valbuild/core";
-import { Globe } from "lucide-react";
+import { Globe, Search as SearchIcon } from "lucide-react";
 
 type SearchResult = {
   path: SourcePath;
@@ -32,15 +32,84 @@ type SearchResult = {
 };
 
 export function Search() {
+  const [isActive, setIsActive] = useState(false);
+
+  // Handle Cmd+K (Mac) or Ctrl+K (other platforms) to activate search
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Cmd+K (Mac) or Ctrl+K (other platforms)
+      if (
+        event.key === "k" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        // Don't activate if user is typing in an input/textarea
+        const target = event.target as HTMLElement;
+        if (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+        setIsActive(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  if (!isActive) {
+    return <SearchTrigger onActivate={() => setIsActive(true)} />;
+  }
+
+  return <SearchActive onDeactivate={() => setIsActive(false)} />;
+}
+
+function SearchTrigger({ onActivate }: { onActivate: () => void }) {
+  return (
+    <div className="relative w-full overflow-visible">
+      <div
+        className="rounded-lg border border-border-primary shadow-sm overflow-visible cursor-text"
+        onClick={onActivate}
+        onFocus={onActivate}
+        tabIndex={0}
+      >
+        <div className="flex items-center px-3 h-11">
+          <SearchIcon className="w-4 h-4 mr-2 opacity-50 shrink-0" />
+          <input
+            className="flex h-full w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary cursor-text"
+            placeholder="Search content..."
+            readOnly
+            onFocus={onActivate}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
   const [query, setQuery] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
+  const [index, setIndex] = useState<FlexSearch.Index | null>(null);
+  const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
+    new Map(),
+  );
   const sources = useAllSources();
   const schemasRes = useSchemas();
   const { navigate } = useNavigation();
 
-  const { index, pathToLabel } = useMemo(() => {
-    if (schemasRes.status !== "success") {
-      return { index: null, pathToLabel: new Map<string, string>() };
+  // Only build index when search input is focused
+  useEffect(() => {
+    if (!isFocused || schemasRes.status !== "success" || index !== null) {
+      return;
     }
+
     const schemas = schemasRes.data;
     const modules: Record<
       ModuleFilePath,
@@ -55,8 +124,10 @@ export function Search() {
       }
     }
 
-    return buildIndex(modules);
-  }, [sources, schemasRes]);
+    const result = buildIndex(modules);
+    setIndex(result.index);
+    setPathToLabel(result.pathToLabel);
+  }, [isFocused, schemasRes, sources, index]);
 
   const results = useMemo((): SearchResult[] => {
     if (!index || !query.trim()) {
@@ -73,9 +144,21 @@ export function Search() {
     (path: SourcePath | ModuleFilePath) => {
       navigate(path);
       setQuery("");
+      onDeactivate();
     },
-    [navigate],
+    [navigate, onDeactivate],
   );
+
+  // Handle Escape key to close search
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onDeactivate();
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onDeactivate]);
 
   const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
 
@@ -98,70 +181,79 @@ export function Search() {
   }, [results, sources, schemas]);
 
   return (
-    <Command
-      className="rounded-lg border border-border-primary shadow-sm"
-      shouldFilter={false}
-    >
-      <CommandInput
-        placeholder="Search content..."
-        value={query}
-        onValueChange={setQuery}
-      />
-      <CommandList className="max-h-[400px] overflow-y-auto p-2">
-        {query.trim() && results.length === 0 && (
-          <CommandEmpty className="py-6 text-center text-fg-tertiary">
-            No results found.
-          </CommandEmpty>
-        )}
-        {pages.length > 0 && (
-          <CommandGroup heading="Pages" className="gap-1">
-            {pages.map((result, index) => {
-              const navPath =
-                getNavPathFromAll(result.path, sources, schemas) || result.path;
-              const url = getRouterPageUrl(navPath as SourcePath);
-              return (
-                <CommandItem
-                  key={result.path}
-                  value={`page-${index}`}
-                  onSelect={() => handleSelect(navPath)}
-                  className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    <Globe className="h-4 w-4 text-fg-tertiary shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      {url && (
-                        <div className="text-sm font-mono text-fg-secondary mb-1">
-                          {url}
+    <div className="relative w-full overflow-visible">
+      <Command
+        className="rounded-lg border border-border-primary shadow-sm overflow-visible"
+        shouldFilter={false}
+      >
+        <CommandInput
+          placeholder="Search content..."
+          value={query}
+          onValueChange={setQuery}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          autoFocus
+        />
+        {query.trim() && (
+          <CommandList className="absolute top-full left-0 right-0 mt-1 max-h-[400px] overflow-y-auto p-2 z-[100] bg-bg-primary border border-border-primary rounded-lg shadow-lg">
+            {results.length === 0 && (
+              <CommandEmpty className="py-6 text-center text-fg-tertiary">
+                No results found.
+              </CommandEmpty>
+            )}
+            {pages.length > 0 && (
+              <CommandGroup heading="Pages" className="gap-1">
+                {pages.map((result, index) => {
+                  const navPath =
+                    getNavPathFromAll(result.path, sources, schemas) ||
+                    result.path;
+                  const url = getRouterPageUrl(navPath as SourcePath);
+                  return (
+                    <CommandItem
+                      key={result.path}
+                      value={`page-${index}`}
+                      onSelect={() => handleSelect(navPath)}
+                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <Globe className="h-4 w-4 text-fg-tertiary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          {url && (
+                            <div className="text-sm font-mono text-fg-secondary mb-1">
+                              {url}
+                            </div>
+                          )}
+                          <SearchItem path={navPath as SourcePath} />
                         </div>
-                      )}
+                      </div>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+            {otherResults.length > 0 && (
+              <CommandGroup heading="Results" className="gap-1">
+                {otherResults.map((result, index) => {
+                  const navPath =
+                    getNavPathFromAll(result.path, sources, schemas) ||
+                    result.path;
+                  return (
+                    <CommandItem
+                      key={result.path}
+                      value={`result-${index}`}
+                      onSelect={() => handleSelect(navPath)}
+                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                    >
                       <SearchItem path={navPath as SourcePath} />
-                    </div>
-                  </div>
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+          </CommandList>
         )}
-        {otherResults.length > 0 && (
-          <CommandGroup heading="Results" className="gap-1">
-            {otherResults.map((result, index) => {
-              const navPath =
-                getNavPathFromAll(result.path, sources, schemas) || result.path;
-              return (
-                <CommandItem
-                  key={result.path}
-                  value={`result-${index}`}
-                  onSelect={() => handleSelect(navPath)}
-                  className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                >
-                  <SearchItem path={navPath as SourcePath} />
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-        )}
-      </CommandList>
-    </Command>
+      </Command>
+    </div>
   );
 }
 
@@ -216,6 +308,7 @@ function getRouterPageUrl(path: SourcePath): string | null {
 function buildIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
 ): { index: FlexSearch.Index; pathToLabel: Map<string, string> } {
+  console.log("building index");
   const index = new FlexSearch.Index({
     tokenize: "forward",
   });
@@ -261,7 +354,7 @@ function buildIndex(
           // Extract just the filename from the path
           const filenameOnly = filename.split("/").pop() || filename;
           searchText = filenameOnly;
-          label = filenameOnly;
+          label = filenameOnly; // TODO: source?.metadata?.alt
         }
       }
       // Handle date
@@ -293,7 +386,7 @@ function buildIndex(
 
       // Add to index if we have search text
       if (searchText) {
-        index.add(path, searchText);
+        index.add(path, searchText + " " + path);
         pathToLabel.set(path, label);
       }
     });
