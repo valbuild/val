@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/ban-types */
+ 
  
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";

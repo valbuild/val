@@ -228,6 +228,7 @@ describe("stega transform", () => {
     const schema1 = c.define("/test1.val.ts", s.object({ test: s.string() }), {
       test: "one",
     });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const schema2 = s.keyOf(schema1);
     const test: SchemaOf<typeof schema2> = "test";
     if (test === "test") {
@@ -242,6 +243,7 @@ describe("stega transform", () => {
     const schema1 = c.define("/test1.val.ts", s.record(s.string()), {
       test: "one",
     });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const schema2 = s.keyOf(schema1);
     const test: SchemaOf<typeof schema2> = "test" as RawString;
     const check: RawString = test; // if const test: SchemaOf<typeof schema2> is a string not a RawString, this line will fail on type check

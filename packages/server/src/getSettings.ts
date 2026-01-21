@@ -59,7 +59,7 @@ export async function getSettings(
       success: true,
       data: parseRes.data,
     };
-  } catch (err) {
+  } catch {
     return {
       success: false,
       message: `Failed to get project id. Check network connection and try again.`,

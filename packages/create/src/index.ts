@@ -140,7 +140,7 @@ function processTemplateFiles(projectPath: string, projectName: string) {
         content = content.replace(/\{\{PROJECT_NAME\}\}/g, projectName);
         content = content.replace(/\{\{projectName\}\}/g, projectName);
         writeFileSync(filePath, content, "utf-8");
-      } catch (error) {
+      } catch {
         // Silently continue if file can't be processed
         console.log(chalk.dim(`Note: Could not process ${filename}`));
       }

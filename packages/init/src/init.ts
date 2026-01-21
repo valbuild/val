@@ -149,7 +149,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
         analysis.nextVersion = packageJson.dependencies["next"];
         analysis.valCoreVersion = packageJson.dependencies["@valbuild/core"];
         analysis.valNextVersion = packageJson.dependencies["@valbuild/next"];
-      } catch (err) {
+      } catch {
         throw new Error(
           `Failed to parse package.json in file: ${packageJsonPath}`,
         );
@@ -271,8 +271,8 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
         repo,
       };
     }
-  } catch (err) {
-    // console.error(err);
+  } catch {
+    // ignored
   }
   const gitIgnorePath = path.join(root, ".gitignore");
   analysis.gitIgnorePath = gitIgnorePath;

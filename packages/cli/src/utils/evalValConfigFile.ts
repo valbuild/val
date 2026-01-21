@@ -41,7 +41,7 @@ export async function evalValConfigFile(
   let code: string | null = null;
   try {
     code = await fs.readFile(valConfigPath, "utf-8");
-  } catch (err) {
+  } catch {
     //
   }
   if (!code) {

@@ -138,7 +138,7 @@ export abstract class ValOps {
         collector.push("[");
         for (let i = 0; i < item.length; i++) {
           this.collectObjectRecursive(item[i], collector);
-          i !== item.length - 1 && collector.push(",");
+          if (i !== item.length - 1) collector.push(",");
         }
         collector.push("]");
       } else {
@@ -150,7 +150,7 @@ export abstract class ValOps {
             (item as Record<string, string | number | object>)[key],
             collector,
           );
-          i !== keys.length - 1 && collector.push(",");
+          if (i !== keys.length - 1) collector.push(",");
         });
         collector.push("}");
       }

@@ -143,10 +143,16 @@ export function autoTagJSX() {
    * include both, so one of them will be set with `undefined` values.
    */
   React.createElement = WrapJsx(React.createElement);
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxDev.jsx && /*   */ (JsxDev.jsx = WrapJsx(JsxDev.jsx));
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxPro.jsx && /*   */ (JsxPro.jsx = WrapJsx(JsxPro.jsx));
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxDev.jsxs && /*  */ (JsxDev.jsxs = WrapJsx(JsxDev.jsxs));
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxPro.jsxs && /*  */ (JsxPro.jsxs = WrapJsx(JsxPro.jsxs));
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxDev.jsxDEV && /**/ (JsxDev.jsxDEV = WrapJsx(JsxDev.jsxDEV));
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxPro.jsxDEV && /**/ (JsxPro.jsxDEV = WrapJsx(JsxPro.jsxDEV));
 }

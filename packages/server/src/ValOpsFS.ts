@@ -1228,7 +1228,7 @@ class FSOpsHost {
       // Make the parent dir separately. This is because we need mkdir to throw
       // if the directory already exists. If we use recursive: true, it doesn't
       fs.mkdirSync(fsPath.dirname(path), { recursive: false });
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {

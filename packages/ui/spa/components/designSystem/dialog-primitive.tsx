@@ -126,6 +126,7 @@ type DialogTriggerElement = React.ComponentRef<typeof Primitive.button>;
 type PrimitiveButtonProps = React.ComponentPropsWithoutRef<
   typeof Primitive.button
 >;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogTriggerProps extends PrimitiveButtonProps {}
 
 const DialogTrigger = React.forwardRef<
@@ -230,6 +231,7 @@ DialogOverlay.displayName = OVERLAY_NAME;
 
 type DialogOverlayImplElement = React.ComponentRef<typeof Primitive.div>;
 type PrimitiveDivProps = React.ComponentPropsWithoutRef<typeof Primitive.div>;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogOverlayImplProps extends PrimitiveDivProps {}
 
 const Slot = createSlot("DialogOverlay.RemoveScroll");
@@ -293,6 +295,7 @@ DialogContent.displayName = CONTENT_NAME;
 /* -----------------------------------------------------------------------------------------------*/
 
 type DialogContentTypeElement = DialogContentImplElement;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogContentTypeProps extends Omit<
   DialogContentImplProps,
   "trapFocus" | "disableOutsidePointerEvents"
@@ -504,6 +507,7 @@ type DialogTitleElement = React.ComponentRef<typeof Primitive.h2>;
 type PrimitiveHeading2Props = React.ComponentPropsWithoutRef<
   typeof Primitive.h2
 >;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogTitleProps extends PrimitiveHeading2Props {}
 
 const DialogTitle = React.forwardRef<DialogTitleElement, DialogTitleProps>(
@@ -528,6 +532,7 @@ type DialogDescriptionElement = React.ComponentRef<typeof Primitive.p>;
 type PrimitiveParagraphProps = React.ComponentPropsWithoutRef<
   typeof Primitive.p
 >;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogDescriptionProps extends PrimitiveParagraphProps {}
 
 const DialogDescription = React.forwardRef<
@@ -554,6 +559,7 @@ DialogDescription.displayName = DESCRIPTION_NAME;
 const CLOSE_NAME = "DialogClose";
 
 type DialogCloseElement = React.ComponentRef<typeof Primitive.button>;
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogCloseProps extends PrimitiveButtonProps {}
 
 const DialogClose = React.forwardRef<DialogCloseElement, DialogCloseProps>(

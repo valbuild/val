@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/ban-types */
+ 
 import {
   RichTextNode as RichTextSourceNode,
   AllRichTextOptions,

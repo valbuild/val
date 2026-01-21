@@ -213,7 +213,7 @@ export class ValSyncEngine {
     this.autoPublish = autoPublish;
     try {
       localStorage.setItem("val-auto-publish", autoPublish.toString());
-    } catch (err) {
+    } catch {
       // ignore
     }
     this.invalidateAutoPublish();
@@ -224,7 +224,7 @@ export class ValSyncEngine {
     try {
       this.autoPublish = localStorage.getItem("val-auto-publish") === "true";
       this.invalidateAutoPublish();
-    } catch (err) {
+    } catch {
       // ignore
     }
   }
@@ -1958,7 +1958,7 @@ export class ValSyncEngine {
             if (res.status !== "done") {
               return res;
             }
-          } catch (err) {
+          } catch {
             return {
               status: "retry",
               reason: "error",
@@ -1974,7 +1974,7 @@ export class ValSyncEngine {
                 changedModules = "all";
               }
             }
-          } catch (err) {
+          } catch {
             return {
               status: "retry",
               reason: "error",
