@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { nextAppRouter, externalUrlPage } from "../router";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";

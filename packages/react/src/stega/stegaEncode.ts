@@ -260,7 +260,7 @@ export function stegaEncode(
       ) {
         const key = sourceOrSelector[recOpts.schema.key];
         if (key) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           const schema = (recOpts.schema.items as any).find((s: any) => {
             if (isObjectSchema(s) && s.items && s.items[recOpts.schema.key]) {
               const keySchema = s.items[recOpts.schema.key];

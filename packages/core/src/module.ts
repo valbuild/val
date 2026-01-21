@@ -54,11 +54,11 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
             : T;
 
 export function define<T extends Schema<SelectorSource>>(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   id: string, // TODO: `/${string}`
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   schema: T,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   source: ReplaceRawStringWithString<SelectorOfSchema<T>>,
 ): ValModule<SelectorOfSchema<T>> {
   return {
@@ -172,7 +172,7 @@ function isUnionSchema(
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
