@@ -28,7 +28,7 @@ export function ExternalButton({
       onClick={onClick}
     >
       <Earth size={16} />
-      <span>External</span>
+      <span>External Pages</span>
     </button>
   );
 }
