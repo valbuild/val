@@ -13,7 +13,7 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
   format:
@@ -28,7 +28,7 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format
   build:
@@ -43,7 +43,7 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm exec jest packages/server/src/readValFile.test.ts
@@ -59,7 +59,7 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
         working-directory: examples/next
@@ -75,7 +75,7 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run -r typecheck
   test:
@@ -90,6 +90,6 @@ jobs:
           node-version-file: ".nvmrc"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
