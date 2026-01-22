@@ -43,7 +43,7 @@ export function SitemapSection({
       >
         <div className="flex items-center gap-2">
           <Globe size={16} />
-          <span>Site Map</span>
+          <span>Pages</span>
         </div>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
