@@ -167,14 +167,19 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
     const pagesList: SearchResult[] = [];
     const otherList: SearchResult[] = [];
 
+    const addedPaths = new Set<string>();
     for (const result of results) {
       const navPath =
         getNavPathFromAll(result.path, sources, schemas) || result.path;
+      if (addedPaths.has(navPath)) {
+        continue;
+      }
       if (navPath && isRouterPage(navPath as SourcePath, schemas)) {
         pagesList.push(result);
       } else {
         otherList.push(result);
       }
+      addedPaths.add(navPath);
     }
 
     return { pages: pagesList, otherResults: otherList };
@@ -260,16 +265,14 @@ function isRouterPage(
   const pathSegments = Internal.splitModulePath(modulePath);
   if (pathSegments.length === 0) return false;
 
-  // If there's only one segment, check if the module itself is a router
-  if (pathSegments.length === 1) {
-    const moduleSchema = schemas[moduleFilePath];
-    return moduleSchema?.type === "record" && Boolean(moduleSchema.router);
-  }
-
   // For nested paths, check if parent is a router
   // The parent would be the module with one less segment
   const moduleSchema = schemas[moduleFilePath];
-  if (moduleSchema?.type === "record" && Boolean(moduleSchema.router)) {
+  if (
+    moduleSchema?.type === "record" &&
+    Boolean(moduleSchema.router) &&
+    moduleSchema.router !== "external"
+  ) {
     // If the module is a router and we have a path segment, it's a router page
     return true;
   }
@@ -342,9 +345,15 @@ function buildIndex(
         ) {
           const filename = source[FILE_REF_PROP] as string;
           // Extract just the filename from the path
-          const filenameOnly = filename.split("/").pop() || filename;
-          searchText = filenameOnly;
-          label = filenameOnly; // TODO: source?.metadata?.alt
+          const filenameOnly = filename.replace("/public/val/", "");
+          const alt =
+            source?.metadata &&
+            typeof source?.metadata === "object" &&
+            "alt" in source?.metadata
+              ? source?.metadata?.alt
+              : "";
+          searchText = filenameOnly + " " + alt;
+          label = filenameOnly;
         }
       }
       // Handle date
