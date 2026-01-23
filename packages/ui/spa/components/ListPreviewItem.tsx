@@ -12,15 +12,18 @@ export function ListPreviewItem({
   title,
   image,
   subtitle,
+  className,
 }: {
   title: string;
   image: ImageSource | RemoteSource<ImageMetadata> | null;
   subtitle: string | null;
+  className?: string;
 }) {
   return (
     <div
       className={cn(
         "flex w-full items-start justify-between pl-4 flex-grow text-left",
+        className,
       )}
     >
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
