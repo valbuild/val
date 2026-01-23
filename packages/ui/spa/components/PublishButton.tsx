@@ -1,14 +1,14 @@
 import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "./designSystem/button";
 import {
-  useAllValidationErrors,
   useAutoPublish,
   usePendingClientSidePatchIds,
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
-  useValPortal,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import {
   Popover,
   PopoverContent,

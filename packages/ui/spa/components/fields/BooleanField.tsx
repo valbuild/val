@@ -9,7 +9,7 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
   ShallowSource,
-} from "../ValProvider";
+} from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { Check } from "lucide-react";

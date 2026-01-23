@@ -8,7 +8,8 @@ import {
 import { JSONValue } from "@valbuild/core/patch";
 import { NavMenuV2 } from "./NavMenuV2";
 import { useNavMenuData } from "./useNavMenuData";
-import { useAddModuleFilePatch, useSchemas } from "../ValProvider";
+import { useSchemas } from "../ValFieldProvider";
+import { useAddModuleFilePatch } from "../ValProvider";
 import { useNavigation } from "../ValRouter";
 import { emptyOf } from "../fields/emptyOf";
 

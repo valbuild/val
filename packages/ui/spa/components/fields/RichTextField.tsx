@@ -21,12 +21,14 @@ import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
-  useCurrentRemoteFileBucket,
-  useRemoteFiles,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useValConfig,
-} from "../ValProvider";
+} from "../ValFieldProvider";
+import {
+  useCurrentRemoteFileBucket,
+  useRemoteFiles,
+} from "../ValRemoteProvider";
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorState } from "@remirror/core";

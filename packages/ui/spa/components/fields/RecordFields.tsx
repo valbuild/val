@@ -3,11 +3,11 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import {
-  useAllValidationErrors,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
-} from "../ValProvider";
+} from "../ValFieldProvider";
+import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";

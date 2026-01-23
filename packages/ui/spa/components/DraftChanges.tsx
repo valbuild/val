@@ -16,15 +16,15 @@ import {
   useErrors,
   useProfilesByAuthorId,
   useValMode,
-  useValPortal,
   usePatchSets,
   usePublishSummary,
-  useAllValidationErrors,
   useAutoPublish,
   useGlobalTransientErrors,
   useAllPatchErrors,
   useClient,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {

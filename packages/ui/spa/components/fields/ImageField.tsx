@@ -13,9 +13,11 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
   useValConfig,
+} from "../ValFieldProvider";
+import {
   useCurrentRemoteFileBucket,
   useRemoteFiles,
-} from "../ValProvider";
+} from "../ValRemoteProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { readImage } from "../../utils/readImage";

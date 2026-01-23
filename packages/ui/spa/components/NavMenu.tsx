@@ -33,14 +33,12 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { PathNode } from "../utils/pathTree";
 import {
-  useAllValidationErrors,
   useCurrentProfile,
-  useSchemaAtPath,
-  useSchemas,
-  useTheme,
-  useValConfig,
-  useValPortal,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useSchemas, useSchemaAtPath, useValConfig } from "./ValFieldProvider";
+import { useTheme } from "./ValThemeProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";

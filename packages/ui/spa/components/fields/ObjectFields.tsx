@@ -4,7 +4,7 @@ import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { AnyField } from "../../components/AnyField";
 import { Preview } from "../../components/Preview";

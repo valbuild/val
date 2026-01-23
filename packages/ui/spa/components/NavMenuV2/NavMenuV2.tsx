@@ -3,12 +3,11 @@ import { DEFAULT_APP_HOST, SourcePath, ModuleFilePath } from "@valbuild/core";
 import { Ellipsis, Loader2, Moon, Sun, LogOut, User } from "lucide-react";
 import {
   useCurrentProfile,
-  useSchemaAtPath,
-  useTheme,
-  useValConfig,
   useValMode,
-  useValPortal,
 } from "../ValProvider";
+import { useSchemaAtPath, useValConfig } from "../ValFieldProvider";
+import { useTheme } from "../ValThemeProvider";
+import { useValPortal } from "../ValPortalProvider";
 import {
   Popover,
   PopoverTrigger,

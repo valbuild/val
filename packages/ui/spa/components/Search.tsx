@@ -7,7 +7,7 @@ import {
 } from "@valbuild/core";
 import FlexSearch from "flexsearch";
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { useAllSources, useSchemas } from "./ValProvider";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Command,

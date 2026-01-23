@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { useShallowSourceAtPath } from "../ValProvider";
+import { useShallowSourceAtPath } from "../ValFieldProvider";
 import { FieldSourceError } from "../../components/FieldSourceError";
 
 // NB: Cannot update Literal so no LiteralField.tsx

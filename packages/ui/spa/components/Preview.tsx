@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import { StringPreview } from "./fields/StringField";
-import { useSchemaAtPath, useShallowSourceAtPath } from "./ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ArrayPreview } from "./fields/ArrayFields";
 import { BooleanPreview } from "./fields/BooleanField";
 import { NumberPreview } from "./fields/NumberField";

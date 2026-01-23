@@ -11,7 +11,7 @@ import {
 import { ListPreviewItem } from "./ListPreviewItem";
 import { Preview } from "./Preview";
 import { useParent } from "../hooks/useParent";
-import { useRenderOverrideAtPath } from "./ValProvider";
+import { useRenderOverrideAtPath } from "./ValFieldProvider";
 
 export function PreviewWithRender({
   path,

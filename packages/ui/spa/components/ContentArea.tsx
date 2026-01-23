@@ -6,8 +6,8 @@ import { Search } from "./Search";
 import {
   useConnectionStatus,
   useGlobalError,
-  useValPortal,
 } from "./ValProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useLayout } from "./Layout";
 import classNames from "classnames";
 import ExhaustiveCheck from "./ExhaustiveCheck";
