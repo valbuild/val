@@ -472,7 +472,11 @@ export function ValProvider({
     >
       <TooltipProvider>
         {theme !== undefined && setTheme ? (
-          <ValThemeProvider theme={theme} setTheme={setTheme} config={runtimeConfig}>
+          <ValThemeProvider
+            theme={theme}
+            setTheme={setTheme}
+            config={runtimeConfig}
+          >
             <ValErrorProvider syncEngine={syncEngine}>
               <ValPortalProvider>
                 <ValRemoteProvider remoteFiles={remoteFiles}>
@@ -557,8 +561,6 @@ function useProfilesData(
 
   return profilesData;
 }
-
-
 
 export function useAuthenticationState() {
   const { authenticationState } = useContext(ValContext);
@@ -755,7 +757,7 @@ export function usePublishSummary() {
     client,
     publishSummaryState,
     setPublishSummaryState,
-        config: runtimeConfig,
+    config: runtimeConfig,
   } = useContext(ValContext);
   const globalServerSidePatchIds = useCurrentPatchIds();
   const publishDisabled = useSyncExternalStore(
@@ -878,7 +880,12 @@ export function usePublishSummary() {
           setIsPublishing(false);
         });
     },
-    [globalServerSidePatchIds, isPublishing, runtimeConfig?.project, syncEngine],
+    [
+      globalServerSidePatchIds,
+      isPublishing,
+      runtimeConfig?.project,
+      syncEngine,
+    ],
   );
   const setSummary = useCallback(
     (
@@ -1034,9 +1041,6 @@ export function useAutoPublish() {
     },
   };
 }
-
-
-
 
 export function useGlobalTransientErrors() {
   const { syncEngine } = useContext(ValContext);
@@ -1336,8 +1340,6 @@ export function useNextAppRouterSrcFolder():
     return schemas;
   }, [schemas]);
 }
-
-
 
 function walkSourcePath(
   modulePath: ModulePath,
