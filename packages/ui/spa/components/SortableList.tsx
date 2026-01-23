@@ -24,7 +24,8 @@ import { PreviewWithRender } from "./PreviewWithRender";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
-import { useAllValidationErrors, useValPortal } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import {
   Popover,
   PopoverContent,

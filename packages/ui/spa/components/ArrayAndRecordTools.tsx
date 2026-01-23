@@ -12,11 +12,11 @@ import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
-  useNextAppRouterSrcFolder,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useNextAppRouterSrcFolder } from "./ValProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,

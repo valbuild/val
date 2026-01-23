@@ -5,8 +5,8 @@ import { Button } from "./designSystem/button";
 import {
   useAddPatch,
   useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,

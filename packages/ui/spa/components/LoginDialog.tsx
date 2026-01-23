@@ -9,7 +9,7 @@ import {
 } from "./designSystem/dialog";
 import { urlOf } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
-import { useValPortal } from "./ValProvider";
+import { useValPortal } from "./ValPortalProvider";
 
 export function LoginDialog() {
   const portalContainer = useValPortal();

@@ -8,7 +8,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-} from "../ValProvider";
+} from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";

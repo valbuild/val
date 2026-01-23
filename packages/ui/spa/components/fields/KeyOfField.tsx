@@ -8,8 +8,8 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useValPortal,
-} from "../ValProvider";
+} from "../ValFieldProvider";
+import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import {
   Popover,

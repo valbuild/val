@@ -48,8 +48,6 @@ function SearchItemWithProviders({
       client={client}
       dispatchValEvents={false}
       config={null}
-      theme={theme}
-      setTheme={setTheme}
     >
       <ValRouter>
         <div className="w-full max-w-md p-4">

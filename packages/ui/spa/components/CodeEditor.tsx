@@ -20,7 +20,7 @@ import { angular } from "@codemirror/lang-angular";
 import { createTheme, Settings } from "@uiw/codemirror-themes";
 import { tags as t } from "@lezer/highlight";
 import { cn } from "./designSystem/cn";
-import { useTheme } from "./ValProvider";
+import { useTheme } from "./ValThemeProvider";
 import { TagStyle } from "@codemirror/language";
 
 export function CodeEditor({

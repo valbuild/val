@@ -12,7 +12,7 @@ import { VAL_CSS_PATH, VERSION } from "../src";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
-import { Themes } from "./components/ValProvider";
+import { Themes } from "./components/ValThemeProvider";
 
 function App() {
   const config = useConfig();

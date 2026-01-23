@@ -3,9 +3,9 @@ import {
   useAllSources,
   useSchemaAtPath,
   useSchemas,
-  useValidationErrors,
-  useValPortal,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";

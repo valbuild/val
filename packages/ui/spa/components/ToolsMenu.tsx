@@ -1,13 +1,12 @@
 import {
-  useAllValidationErrors,
   useAutoPublish,
   useErrors,
   useLoadingStatus,
   usePublishSummary,
-  useSchemas,
-  useShallowSourceAtPath,
   useValMode,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
