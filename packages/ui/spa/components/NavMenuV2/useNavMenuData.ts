@@ -87,7 +87,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
         for (const shallowSource of shallowModules.data || []) {
           for (const path in shallowSource) {
             const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-              shallowSource[path]
+              shallowSource[path],
             );
             paths.push({
               urlPath: path,

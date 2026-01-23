@@ -18,20 +18,20 @@ describe("getKeysOf", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
           name: "mod1",
         },
-      }
+      },
     );
     const modules = [mod1, c.define("/path2.val.ts", s.keyOf(mod1), "test1")];
     const { schemas, sources } = getTestData(modules);
     const result = getKeysOf(
       schemas,
       sources,
-      "/path1.val.ts" as ModuleFilePath
+      "/path1.val.ts" as ModuleFilePath,
     );
     expect(result).toEqual(["/path2.val.ts"]);
   });
@@ -42,13 +42,13 @@ describe("getKeysOf", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
           name: "mod1",
         },
-      }
+      },
     );
     const modules = [mod1, c.define("/path2.val.ts", s.keyOf(mod1), "test1")];
     const { schemas, sources } = getTestData(modules);
@@ -56,7 +56,7 @@ describe("getKeysOf", () => {
       schemas,
       sources,
       "/path1.val.ts" as ModuleFilePath,
-      "test1"
+      "test1",
     );
     expect(result).toEqual(["/path2.val.ts"]);
   });
@@ -67,26 +67,26 @@ describe("getKeysOf", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
           name: "mod1",
         },
-      }
+      },
     );
     const mod3 = c.define(
       "/path3.val.ts",
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
           name: "mod1",
         },
-      }
+      },
     );
     const modules = [
       mod1,
@@ -97,7 +97,7 @@ describe("getKeysOf", () => {
     const result = getKeysOf(
       schemas,
       sources,
-      "/path3.val.ts" as ModuleFilePath
+      "/path3.val.ts" as ModuleFilePath,
     );
     expect(result).toEqual([]);
   });
@@ -108,7 +108,7 @@ describe("getKeysOf", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
@@ -117,7 +117,7 @@ describe("getKeysOf", () => {
         test2: {
           name: "mod1",
         },
-      }
+      },
     );
     const modules = [mod1, c.define("/path2.val.ts", s.keyOf(mod1), "test1")];
     const { schemas, sources } = getTestData(modules);
@@ -125,7 +125,7 @@ describe("getKeysOf", () => {
       schemas,
       sources,
       "/path1.val.ts" as ModuleFilePath,
-      "test2"
+      "test2",
     );
     expect(result).toEqual([]);
   });
@@ -136,7 +136,7 @@ describe("getKeysOf", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: {
@@ -145,7 +145,7 @@ describe("getKeysOf", () => {
         test2: {
           name: "mod1",
         },
-      }
+      },
     );
     const modules = [
       mod1,
@@ -164,10 +164,10 @@ describe("getKeysOf", () => {
                   s.object({
                     type: s.literal("two"),
                     doNotBreakHere: s.string(),
-                  })
-                )
+                  }),
+                ),
               ),
-            })
+            }),
           ),
         }),
         {
@@ -181,7 +181,7 @@ describe("getKeysOf", () => {
               ],
             },
           },
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -189,7 +189,7 @@ describe("getKeysOf", () => {
       schemas,
       sources,
       "/path1.val.ts" as ModuleFilePath,
-      "test1"
+      "test1",
     );
     expect(resultWithChild).toEqual([
       '/path2.val.ts?p="level1"."record1"."level2".0."findThis"',
@@ -197,7 +197,7 @@ describe("getKeysOf", () => {
     const resultWithParent = getKeysOf(
       schemas,
       sources,
-      "/path1.val.ts" as ModuleFilePath
+      "/path1.val.ts" as ModuleFilePath,
     );
     expect(resultWithParent).toEqual([
       '/path2.val.ts?p="level1"."record1"."level2".0."findThis"',
@@ -217,7 +217,7 @@ function getTestData(valModules: ValModule<SelectorSource>[]) {
 }
 
 function getModuleFilePath(
-  valModule: ValModule<SelectorSource>
+  valModule: ValModule<SelectorSource>,
 ): ModuleFilePath {
   return Internal.getValPath(valModule) as unknown as ModuleFilePath;
 }

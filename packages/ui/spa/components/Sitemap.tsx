@@ -58,7 +58,7 @@ export function NextAppRouterSitemap({
     for (const shallowSource of shallowModules.data || []) {
       for (const path in shallowSource) {
         const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-          shallowSource[path]
+          shallowSource[path],
         );
         paths.push({
           urlPath: path,
@@ -104,7 +104,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
     const routePattern = parseRoutePattern(node.pattern);
     if (
       routePattern.some(
-        (part) => part.type === "string-param" || part.type === "array-param"
+        (part) => part.type === "string-param" || part.type === "array-param",
       )
     ) {
       return routePattern;
@@ -161,7 +161,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                       underline: isCurrentRoute,
                       "hover:underline": node.sourcePath !== undefined,
                     },
-                    "truncate"
+                    "truncate",
                   )}
                 >
                   {"/"}
@@ -190,7 +190,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             "absolute hidden right-4 top-0 items-center h-10 bg-bg-primary",
             {
               flex: showOptions,
-            }
+            },
           )}
         >
           {routePatternWithParams && moduleFilePath && (

@@ -23,7 +23,7 @@ export function ListPreviewItem({
     <div
       className={cn(
         "flex w-full items-start justify-between pl-4 flex-grow text-left",
-        className
+        className,
       )}
     >
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">

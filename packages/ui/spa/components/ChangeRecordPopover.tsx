@@ -74,7 +74,7 @@ export function ChangeRecordPopover({
         {
           op: "move",
           from: parentPatchPath.concat(
-            defaultValue
+            defaultValue,
           ) as array.NonEmptyArray<string>,
           path: parentPatchPath.concat(key) as array.NonEmptyArray<string>,
         },
@@ -93,12 +93,12 @@ export function ChangeRecordPopover({
               value: key,
             },
           ],
-          "record"
+          "record",
         );
       }
       const newSourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        Internal.patchPathToModulePath(parentPatchPath.concat(key))
+        Internal.patchPathToModulePath(parentPatchPath.concat(key)),
       );
       navigate(newSourcePath, {
         replace: true,
@@ -114,7 +114,7 @@ export function ChangeRecordPopover({
       parentPatchPath,
       navigate,
       onComplete,
-    ]
+    ],
   );
 
   return (

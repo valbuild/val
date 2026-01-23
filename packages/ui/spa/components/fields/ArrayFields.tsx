@@ -98,11 +98,11 @@ export function ArrayFields({ path }: { path: SourcePath }) {
               {
                 op: "remove",
                 path: patchPath.concat(
-                  item.toString()
+                  item.toString(),
                 ) as array.NonEmptyArray<string>,
               },
             ],
-            schema.type
+            schema.type,
           );
         }}
         onDuplicate={async (item) => {
@@ -119,7 +119,7 @@ export function ArrayFields({ path }: { path: SourcePath }) {
                   value: sourceAtPath.data?.[item] ?? null,
                 },
               ],
-              schema.type
+              schema.type,
             );
           }
         }}
@@ -129,12 +129,12 @@ export function ArrayFields({ path }: { path: SourcePath }) {
               {
                 op: "move",
                 from: patchPath.concat(
-                  from.toString()
+                  from.toString(),
                 ) as array.NonEmptyArray<string>,
                 path: patchPath.concat(to.toString()),
               },
             ],
-            schema.type
+            schema.type,
           );
         }}
         schema={schema}

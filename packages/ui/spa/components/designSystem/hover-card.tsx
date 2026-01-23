@@ -14,7 +14,7 @@ const HoverCardContent = React.forwardRef<
 >(
   (
     { className, align = "center", sideOffset = 4, container, ...props },
-    ref
+    ref,
   ) => (
     <HoverCardPrimitive.Portal container={container}>
       <HoverCardPrimitive.Content
@@ -31,12 +31,12 @@ const HoverCardContent = React.forwardRef<
           "data-[side=bottom]:slide-in-from-top-2",
           "data-[side=left]:slide-in-from-right-2",
           "data-[side=right]:slide-in-from-left-2",
-          className
+          className,
         )}
         {...props}
       />
     </HoverCardPrimitive.Portal>
-  )
+  ),
 );
 HoverCardContent.displayName = HoverCardPrimitive.Content.displayName;
 

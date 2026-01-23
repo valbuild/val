@@ -34,11 +34,11 @@ const ValRemoteContext = React.createContext<ValRemoteContextValue>(
     {
       get: () => {
         throw new Error(
-          "Cannot use ValRemoteContext outside of ValRemoteProvider"
+          "Cannot use ValRemoteContext outside of ValRemoteProvider",
         );
       },
-    }
-  ) as ValRemoteContextValue
+    },
+  ) as ValRemoteContextValue,
 );
 
 export function ValRemoteProvider({
@@ -79,7 +79,7 @@ export function useCurrentRemoteFileBucket() {
       currentBucket === null
     ) {
       setCurrentBucket(
-        remoteFiles.buckets[getRandomInt(remoteFiles.buckets.length)]
+        remoteFiles.buckets[getRandomInt(remoteFiles.buckets.length)],
       );
     }
   }, [remoteFiles, currentBucket]);

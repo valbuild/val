@@ -122,7 +122,7 @@ function DeleteRecordButton({
               path: patchPath as array.NonEmptyArray<string>,
             },
           ],
-          "record"
+          "record",
         );
         navigate(parentPath);
         if (onComplete) {

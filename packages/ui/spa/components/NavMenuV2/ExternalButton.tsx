@@ -23,7 +23,7 @@ export function ExternalButton({
         "hover:bg-bg-secondary transition-colors",
         {
           "bg-bg-secondary text-fg-primary": isActive,
-        }
+        },
       )}
       onClick={onClick}
     >

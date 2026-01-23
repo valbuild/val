@@ -15,7 +15,7 @@ function rec(
   schema: SerializedSchema,
   path: SourcePath,
   sourceIndex: FlexSearch.Index,
-  sourcePathIndex: FlexSearch.Index
+  sourcePathIndex: FlexSearch.Index,
 ): void {
   const isRoot = path.endsWith("?p="); // skip root module
   if (
@@ -33,14 +33,14 @@ function rec(
   } else if (schema.type === "array") {
     if (!Array.isArray(source)) {
       throw new Error(
-        "Expected array, got " + typeof source + " for " + path + ": " + source
+        "Expected array, got " + typeof source + " for " + path + ": " + source,
       );
     } else {
       for (let i = 0; i < source.length; i++) {
         const subPath = path + (isRoot ? "" : ".") + i;
         if (!schema?.item) {
           throw new Error(
-            "Schema (" + schema.type + ") item not found for " + subPath
+            "Schema (" + schema.type + ") item not found for " + subPath,
           );
         } else {
           rec(
@@ -48,7 +48,7 @@ function rec(
             schema?.item,
             subPath as SourcePath,
             sourceIndex,
-            sourcePathIndex
+            sourcePathIndex,
           );
         }
       }
@@ -56,7 +56,12 @@ function rec(
   } else if (schema.type === "object" || schema.type === "record") {
     if (typeof source !== "object") {
       throw new Error(
-        "Expected object, got " + typeof source + " for " + path + ": " + source
+        "Expected object, got " +
+          typeof source +
+          " for " +
+          path +
+          ": " +
+          source,
       );
     } else {
       for (const key in source) {
@@ -71,23 +76,23 @@ function rec(
             "Object schema  (" +
               schema.type +
               ") item(s) not found for " +
-              subPath
+              subPath,
           );
         } else if (source && typeof source === "object") {
           if (isJsonArray(source)) {
             throw new Error(
-              `Object schema does not have source of correct type: array, key: ${key} for ${path}`
+              `Object schema does not have source of correct type: array, key: ${key} for ${path}`,
             );
           } else if (!(key in source)) {
             throw new Error(
-              `Object schema does is missing required key: ${key} in ${path}`
+              `Object schema does is missing required key: ${key} in ${path}`,
             );
           } else {
             rec(source[key], subSchema, subPath, sourceIndex, sourcePathIndex);
           }
         } else {
           throw new Error(
-            `Object schema does not have source of correct type: ${typeof source}, key: ${key} for ${path}`
+            `Object schema does not have source of correct type: ${typeof source}, key: ${key} for ${path}`,
           );
         }
       }
@@ -95,20 +100,19 @@ function rec(
   } else if (schema.type === "union") {
     if (typeof schema.key === "string") {
       const schemaKey = schema.key;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const subSchema = (schema.items as any[]).find((item) => {
+      const subSchema = (schema.items as SerializedSchema[]).find((item) => {
         if (item.type !== "object") {
           throw new Error(
-            `Union schema must have sub object of object but has: (${item.type}) for ${path}`
+            `Union schema must have sub object of object but has: (${item.type}) for ${path}`,
           );
         } else {
           const schemaAtKey = item.items[schemaKey];
           if (schemaAtKey.type !== "literal") {
             throw new Error(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               `Union schema must have sub object with literal key but has: ${
-                (item.items as any)?.[schemaKey]?.type
-              } for ${path}`
+                (item.items as Record<string, SerializedSchema>)?.[schemaKey]
+                  ?.type
+              } for ${path}`,
             );
           } else if (
             source &&
@@ -119,14 +123,14 @@ function rec(
             return schemaAtKey.value === source[schemaKey];
           } else {
             throw new Error(
-              `Union schema must have sub object with literal key but has: ${item.items[schemaKey]} for ${path}`
+              `Union schema must have sub object with literal key but has: ${item.items[schemaKey]} for ${path}`,
             );
           }
         }
       });
       if (!subSchema) {
         throw new Error(
-          "Union schema  (" + schema.type + ") item(s) not found for " + path
+          "Union schema  (" + schema.type + ") item(s) not found for " + path,
         );
       } else {
         rec(source, subSchema, path, sourceIndex, sourcePathIndex);
@@ -139,7 +143,7 @@ function rec(
             " for " +
             path +
             ": " +
-            source
+            source,
         );
       } else {
         sourceIndex.add(path, source + " " + path);
@@ -150,7 +154,12 @@ function rec(
       sourceIndex.add(path, source + " " + path);
     } else {
       throw new Error(
-        "Expected string, got " + typeof source + " for " + path + ": " + source
+        "Expected string, got " +
+          typeof source +
+          " for " +
+          path +
+          ": " +
+          source,
       );
     }
   } else if (schema.type === "date") {
@@ -163,7 +172,7 @@ function rec(
           " for " +
           path +
           ": " +
-          source
+          source,
       );
     }
   } else if (schema.type === "keyOf") {
@@ -178,7 +187,7 @@ function rec(
           " for " +
           path +
           ": " +
-          source
+          source,
       );
     }
   } else if (schema.type === "number") {
@@ -186,7 +195,12 @@ function rec(
       sourceIndex.add(path, source.toString() + " " + path);
     } else {
       throw new Error(
-        "Expected number, got " + typeof source + " for " + path + ": " + source
+        "Expected number, got " +
+          typeof source +
+          " for " +
+          path +
+          ": " +
+          source,
       );
     }
   } else if (schema.type === "literal") {
@@ -206,7 +220,7 @@ function rec(
           " for " +
           path +
           ": " +
-          source
+          source,
       );
     }
   } else if (schema.type === "boolean") {
@@ -218,7 +232,7 @@ function rec(
   } else {
     const exhaustiveCheck: never = schema;
     throw new Error(
-      "Unsupported schema type: " + JSON.stringify(exhaustiveCheck)
+      "Unsupported schema type: " + JSON.stringify(exhaustiveCheck),
     );
   }
 }
@@ -278,12 +292,12 @@ function tokenizeSourcePath(sourcePath: SourcePath | ModuleFilePath) {
   const moduleFilePathIndex = sourcePath.indexOf("?p=");
   const moduleFilePath = sourcePath.slice(
     0,
-    moduleFilePathIndex === -1 ? sourcePath.length : moduleFilePathIndex
+    moduleFilePathIndex === -1 ? sourcePath.length : moduleFilePathIndex,
   ) as ModuleFilePath;
   const parts = moduleFilePath.split("/").slice(1); // skip first empty part
   const lastPart = sourcePath.slice(
     moduleFilePathIndex + 1,
-    sourcePath.length + 1
+    sourcePath.length + 1,
   );
   for (const part of parts) {
     if (existingTokens.has(part)) {
@@ -304,7 +318,7 @@ function tokenizeSourcePath(sourcePath: SourcePath | ModuleFilePath) {
     !(moduleFilePath.endsWith(".val.ts") || moduleFilePath.endsWith(".val.js"))
   ) {
     throw new Error(
-      "Unsupported file extension: " + moduleFilePath + " for " + sourcePath
+      "Unsupported file extension: " + moduleFilePath + " for " + sourcePath,
     );
   }
   const filenameWithoutExt = moduleFilePath.slice(0, -fileExtLength);
@@ -333,13 +347,13 @@ function tokenizeSourcePath(sourcePath: SourcePath | ModuleFilePath) {
 
 function addTokenizedSourcePath(
   sourcePathIndex: FlexSearch.Index,
-  sourcePath: SourcePath | ModuleFilePath
+  sourcePath: SourcePath | ModuleFilePath,
 ) {
   sourcePathIndex.add(sourcePath, tokenizeSourcePath(sourcePath).join(" "));
 }
 const debugPerf = true;
 export function createSearchIndex(
-  modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>
+  modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
 ): FlexSearch.Index {
   if (debugPerf) {
     console.time("indexing");

@@ -118,12 +118,12 @@ export function ValPath({
     const resolvedSourcePath = resolvePatchPath(
       patchPath,
       schemas[moduleFilePath],
-      allSources[moduleFilePath]
+      allSources[moduleFilePath],
     );
     if (resolvedSourcePath.success) {
       const sourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        resolvedSourcePath.modulePath
+        resolvedSourcePath.modulePath,
       );
       const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
       if (navPath) {
@@ -134,15 +134,15 @@ export function ValPath({
       } else {
         console.debug(
           `Failed to resolve nav path for ${moduleFilePath} and ${patchPath.join(
-            "."
-          )}: ${navPath}`
+            ".",
+          )}: ${navPath}`,
         );
       }
     } else {
       console.debug(
         `Failed to resolve source path for ${moduleFilePath} and ${patchPath.join(
-          "."
-        )}: ${resolvedSourcePath.error}`
+          ".",
+        )}: ${resolvedSourcePath.error}`,
       );
     }
     return null;
@@ -164,7 +164,7 @@ export function ValPath({
             {
               "cursor-pointer hover:underline": link,
             },
-            className
+            className,
           )}
           onClick={(e) => {
             if (

@@ -48,7 +48,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
 
   const referencedSource = useShallowSourceAtPath(
     keyOf?.path,
-    keyOf?.type as "record" | "object"
+    keyOf?.type as "record" | "object",
   );
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
@@ -188,7 +188,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
                                 value: currentValue,
                               },
                             ],
-                            type
+                            type,
                           );
                           setOpen(false);
                         }}
@@ -196,7 +196,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
                         <Check
                           className={cn(
                             "mr-2 h-4 w-4",
-                            source === key ? "opacity-100" : "opacity-0"
+                            source === key ? "opacity-100" : "opacity-0",
                           )}
                         />
                         {key}
@@ -214,7 +214,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
             className="px-2"
             onClick={() => {
               navigate(
-                Internal.createValPathOfItem(keyOf.path, source) as SourcePath
+                Internal.createValPathOfItem(keyOf.path, source) as SourcePath,
               );
             }}
           >

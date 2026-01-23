@@ -94,7 +94,7 @@ export function Field({
                           }) as JSONValue,
                         },
                       ],
-                      schemaAtPath.data.type
+                      schemaAtPath.data.type,
                     );
                   } else {
                     addPatch(
@@ -105,7 +105,7 @@ export function Field({
                           value: null,
                         },
                       ],
-                      schemaAtPath.data.type
+                      schemaAtPath.data.type,
                     );
                   }
                 }

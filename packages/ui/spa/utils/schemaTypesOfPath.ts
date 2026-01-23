@@ -5,7 +5,7 @@ import { SerializedSchema } from "@valbuild/core";
  */
 export function schemaTypesOfPath(
   schema: SerializedSchema,
-  patchPath?: string[]
+  patchPath?: string[],
 ): Set<SerializedSchema["type"]> {
   if (!patchPath || patchPath.length === 0) {
     return new Set([schema.type]);
@@ -40,7 +40,7 @@ export function schemaTypesOfPath(
             "Found string union (primitive), but path has more parts: " +
               patchPath.join("/") +
               " at " +
-              pathPart
+              pathPart,
           );
         }
         break;
@@ -71,7 +71,7 @@ export function schemaTypesOfPath(
             " (primitive), but path has more parts: " +
             patchPath.join("/") +
             " at " +
-            pathPart
+            pathPart,
         );
       }
       break;
@@ -80,8 +80,8 @@ export function schemaTypesOfPath(
       const unknownType = (_unreachable as { type: string }).type;
       console.error(
         `Unexecpted resolved schema type: ${unknownType} in ${patchPath.join(
-          "/"
-        )} at ${pathPart}`
+          "/",
+        )} at ${pathPart}`,
       );
       return new Set([unknownType as SerializedSchema["type"]]);
     }

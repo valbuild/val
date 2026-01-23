@@ -105,7 +105,7 @@ const Dialog: React.FC<DialogProps> = (props: ScopedProps<DialogProps>) => {
       onOpenChange={setOpen}
       onOpenToggle={React.useCallback(
         () => setOpen((prevOpen) => !prevOpen),
-        [setOpen]
+        [setOpen],
       )}
       modal={modal}
     >
@@ -179,7 +179,7 @@ interface DialogPortalProps {
 }
 
 const DialogPortal: React.FC<DialogPortalProps> = (
-  props: ScopedProps<DialogPortalProps>
+  props: ScopedProps<DialogPortalProps>,
 ) => {
   const { __scopeDialog, forceMount, children, container } = props;
   const context = useDialogContext(PORTAL_NAME, __scopeDialog);
@@ -296,11 +296,10 @@ DialogContent.displayName = CONTENT_NAME;
 
 type DialogContentTypeElement = DialogContentImplElement;
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-interface DialogContentTypeProps
-  extends Omit<
-    DialogContentImplProps,
-    "trapFocus" | "disableOutsidePointerEvents"
-  > {}
+interface DialogContentTypeProps extends Omit<
+  DialogContentImplProps,
+  "trapFocus" | "disableOutsidePointerEvents"
+> {}
 
 const DialogContentModal = React.forwardRef<
   DialogContentTypeElement,
@@ -311,7 +310,7 @@ const DialogContentModal = React.forwardRef<
   const composedRefs = useComposedRefs(
     forwardedRef,
     context.contentRef,
-    contentRef
+    contentRef,
   );
 
   // aria-hide everything except the content (better supported equivalent to setting aria-modal)
@@ -333,7 +332,7 @@ const DialogContentModal = React.forwardRef<
         (event) => {
           event.preventDefault();
           context.triggerRef.current?.focus();
-        }
+        },
       )}
       onPointerDownOutside={composeEventHandlers(
         props.onPointerDownOutside,
@@ -346,12 +345,12 @@ const DialogContentModal = React.forwardRef<
           // If the event is a right-click, we shouldn't close because
           // it is effectively as if we right-clicked the `Overlay`.
           if (isRightClick) event.preventDefault();
-        }
+        },
       )}
       // When focus is trapped, a `focusout` event may still happen.
       // We make sure we don't trigger our `onDismiss` in such case.
       onFocusOutside={composeEventHandlers(props.onFocusOutside, (event) =>
-        event.preventDefault()
+        event.preventDefault(),
       )}
     />
   );
@@ -425,8 +424,10 @@ type DismissableLayerProps = React.ComponentPropsWithoutRef<
   typeof DismissableLayer
 >;
 type FocusScopeProps = React.ComponentPropsWithoutRef<typeof FocusScope>;
-interface DialogContentImplProps
-  extends Omit<DismissableLayerProps, "onDismiss"> {
+interface DialogContentImplProps extends Omit<
+  DismissableLayerProps,
+  "onDismiss"
+> {
   /**
    * When `true`, focus cannot escape the `Content` via keyboard,
    * pointer, or a programmatic focus.
@@ -516,7 +517,7 @@ const DialogTitle = React.forwardRef<DialogTitleElement, DialogTitleProps>(
     return (
       <Primitive.h2 id={context.titleId} {...titleProps} ref={forwardedRef} />
     );
-  }
+  },
 );
 
 DialogTitle.displayName = TITLE_NAME;
@@ -571,11 +572,11 @@ const DialogClose = React.forwardRef<DialogCloseElement, DialogCloseProps>(
         {...closeProps}
         ref={forwardedRef}
         onClick={composeEventHandlers(props.onClick, () =>
-          context.onOpenChange(false)
+          context.onOpenChange(false),
         )}
       />
     );
-  }
+  },
 );
 
 DialogClose.displayName = CLOSE_NAME;

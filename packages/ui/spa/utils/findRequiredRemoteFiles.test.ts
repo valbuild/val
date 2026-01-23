@@ -188,7 +188,7 @@ describe("findRequiredRemoteFiles", () => {
     expect(findRequiredRemoteFiles(schema)).toBe(null);
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("unexpected schema type"),
-      schema
+      schema,
     );
   });
 });

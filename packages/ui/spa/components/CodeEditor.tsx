@@ -103,7 +103,7 @@ export function CodeEditor({
         "m-1 p-2 bg-bg-primary rounded-md border border-border-primary",
         {
           "ring-2 ring-offset-2": focused,
-        }
+        },
       )}
     >
       <CodeMirror

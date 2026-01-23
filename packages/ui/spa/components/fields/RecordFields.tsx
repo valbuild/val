@@ -15,7 +15,7 @@ import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
-import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
+import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewWithRender } from "../../components/PreviewWithRender";
 import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
@@ -92,14 +92,14 @@ export function RecordFields({ path }: { path: SourcePath }) {
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
                   "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                  "hover:bg-bg-secondary-hover"
+                  "hover:bg-bg-secondary-hover",
                 )}
               >
                 <div className="flex justify-between items-start">
                   <div className="pb-4 font-semibold text-md">{key}</div>
                   {isParentError(
                     sourcePathOfItem(path, key),
-                    validationErrors
+                    validationErrors,
                   ) && <ErrorIndicator />}
                 </div>
                 <div>
@@ -123,13 +123,13 @@ function ListRecordRenderComponent({
   const { navigate } = useNavigation();
   return (
     <div className="flex flex-col space-y-4 w-full">
-      {items.map(([key, { title, subtitle, image }]) => (
+      {items.map(([key]) => (
         <button
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
           className={classNames(
             "hover:bg-bg-secondary-hover",
-            "border rounded-lg cursor-pointer border-border-primary"
+            "border rounded-lg cursor-pointer border-border-primary",
           )}
         >
           <PreviewWithRender path={sourcePathOfItem(path, key)} />

@@ -63,7 +63,7 @@ export function Module({ path }: { path: SourcePath }) {
         navigate(path);
       }
     },
-    [schemasRes, sources, navigate]
+    [schemasRes, sources, navigate],
   );
 
   if (schemaAtPath.status === "error") {

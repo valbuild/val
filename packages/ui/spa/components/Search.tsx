@@ -23,8 +23,8 @@ import {
 } from "../utils/traverseSchemaSource";
 import { getNavPathFromAll } from "./getNavPath";
 import { SearchItem } from "./SearchItem";
-import { Internal, ModulePath } from "@valbuild/core";
-import { Globe, Search as SearchIcon } from "lucide-react";
+import { Internal } from "@valbuild/core";
+import { Search as SearchIcon } from "lucide-react";
 
 type SearchResult = {
   path: SourcePath;
@@ -105,7 +105,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
       navigate(path);
       onDeactivate();
     },
-    [navigate, onDeactivate]
+    [navigate, onDeactivate],
   );
 
   return (
@@ -133,7 +133,7 @@ function SearchField({
   const [isFocused, setIsFocused] = useState(false);
   const [index, setIndex] = useState<FlexSearch.Index | null>(null);
   const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
-    new Map()
+    new Map(),
   );
 
   // Only build index when search input is focused
@@ -177,7 +177,7 @@ function SearchField({
       setQuery("");
       onDeactivate?.();
     },
-    [onSelect, onDeactivate]
+    [onSelect, onDeactivate],
   );
 
   // Handle Escape key to close search
@@ -284,7 +284,7 @@ function SearchField({
 
 function isRouterPage(
   path: SourcePath,
-  schemas: Record<ModuleFilePath, SerializedSchema> | undefined
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
 ): boolean {
   if (!schemas) return false;
   const [moduleFilePath, modulePath] =
@@ -329,7 +329,7 @@ function getRouterPageUrl(path: SourcePath): string | null {
 }
 
 function buildIndex(
-  modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>
+  modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
 ): { index: FlexSearch.Index; pathToLabel: Map<string, string> } {
   console.log("building index");
   const index = new FlexSearch.Index({
@@ -376,11 +376,10 @@ function buildIndex(
           const filename = source[FILE_REF_PROP] as string;
           // Extract just the filename from the path
           const filenameOnly = filename.replace("/public/val/", "");
+          const metadata = source?.metadata;
           const alt =
-            source?.metadata &&
-            typeof source?.metadata === "object" &&
-            "alt" in source?.metadata
-              ? source?.metadata?.alt
+            metadata && typeof metadata === "object" && "alt" in metadata
+              ? metadata.alt
               : "";
           searchText = filenameOnly + " " + alt;
           label = filenameOnly;

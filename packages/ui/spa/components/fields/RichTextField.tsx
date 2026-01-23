@@ -51,7 +51,7 @@ export function RichTextField({
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
   const { manager } = useRichTextEditor(
-    currentSourceData && richTextToRemirror(currentSourceData)
+    currentSourceData && richTextToRemirror(currentSourceData),
   );
   const disabledRef = useRef(false);
   const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
@@ -61,7 +61,7 @@ export function RichTextField({
       content: currentSourceData
         ? richTextToRemirror(currentSourceData)
         : undefined,
-    })
+    }),
   );
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
@@ -73,7 +73,7 @@ export function RichTextField({
         try {
           const newContent = maybeSourceData
             ? richTextToRemirror(
-                maybeSourceData as RichTextSource<AllRichTextOptions>
+                maybeSourceData as RichTextSource<AllRichTextOptions>,
               )
             : undefined;
           const newState = manager.createState({
@@ -88,12 +88,12 @@ export function RichTextField({
         } catch (e) {
           console.error(
             "Error (re)creating editor state with selection, retrying without...",
-            e
+            e,
           );
           return manager.createState({
             content: maybeSourceData
               ? richTextToRemirror(
-                  maybeSourceData as RichTextSource<AllRichTextOptions>
+                  maybeSourceData as RichTextSource<AllRichTextOptions>,
                 )
               : undefined,
           });
@@ -160,7 +160,7 @@ export function RichTextField({
   const schema = schemaAtPath.data;
   if (!config?.remoteHost) {
     console.warn(
-      "RichTextField: config.remoteHost is not set. Remote images will not work."
+      "RichTextField: config.remoteHost is not set. Remote images will not work.",
     );
   }
   return (
@@ -183,7 +183,7 @@ export function RichTextField({
               patchPath,
               config?.files?.directory ?? "/public/val",
               event.state.doc.toJSON(),
-              remoteOptions
+              remoteOptions,
             );
             if (patch.some((op) => op.op === "file")) {
               disabledRef.current = true;
@@ -198,9 +198,9 @@ export function RichTextField({
                 (bytesUploaded, totalBytes, currentFile, totalFiles) => {
                   // TODO: we need to do something here
                   console.log(
-                    `Uploading ${bytesUploaded}/${totalBytes} (${currentFile}/${totalFiles})`
+                    `Uploading ${bytesUploaded}/${totalBytes} (${currentFile}/${totalFiles})`,
                   );
-                }
+                },
               ).finally(() => {
                 disabledRef.current = false;
               });
@@ -218,7 +218,7 @@ function createRichTextPatch(
   path: string[],
   configDirectory: ConfigDirectory,
   content: RemirrorJSON | undefined,
-  remoteOptions: RemoteRichTextOptions | null
+  remoteOptions: RemoteRichTextOptions | null,
 ): Patch {
   const { blocks, files } = content
     ? remirrorToRichTextSource(content, configDirectory, remoteOptions)
@@ -245,7 +245,7 @@ function createRichTextPatch(
             remote: !!remoteOptions,
           };
         });
-      }
+      },
     ),
   ];
 }

@@ -35,7 +35,7 @@ export function StringField({
   useEffect(() => {
     if (maybeClientSideOnly === false) {
       setCurrentValue(
-        typeof maybeSourceData === "string" ? maybeSourceData : null
+        typeof maybeSourceData === "string" ? maybeSourceData : null,
       );
     }
   }, [maybeSourceData, maybeClientSideOnly]);
@@ -110,7 +110,7 @@ export function StringField({
                   value: ev.target.value,
                 },
               ],
-              type
+              type,
             );
           }}
         />
@@ -135,7 +135,7 @@ export function StringField({
                   value: value,
                 },
               ],
-              type
+              type,
             );
           }}
         />
@@ -159,7 +159,7 @@ export function StringField({
                 value: ev.target.value,
               },
             ],
-            type
+            type,
           );
         }}
       />

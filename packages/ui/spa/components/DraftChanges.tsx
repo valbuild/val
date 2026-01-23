@@ -111,7 +111,7 @@ export function DraftChanges({
   const downloadReport = async (
     moduleFilePath: ModuleFilePath | string,
     patchId: PatchId | string,
-    error: string
+    error: string,
   ) => {
     const patchRes = await client("/patches", "GET", {
       query: {
@@ -134,12 +134,12 @@ export function DraftChanges({
               patch: json,
             },
             null,
-            2
+            2,
           ),
         ],
         {
           type: "application/json",
-        }
+        },
       );
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -209,7 +209,7 @@ export function DraftChanges({
                                     downloadReport(
                                       moduleFilePath,
                                       patchId,
-                                      error.message
+                                      error.message,
                                     );
                                   }}
                                 >
@@ -235,7 +235,7 @@ export function DraftChanges({
                         ))}
                     </ScrollArea>
                   </div>
-                )
+                ),
               )}
             </div>
           </div>
@@ -275,7 +275,7 @@ export function DraftChanges({
                             </ScrollArea>
                           </div>
                         </div>
-                      )
+                      ),
                     )}
                   </div>
                 </AccordionContent>
@@ -309,7 +309,7 @@ export function DraftChanges({
                           <div className="text-[10px] font-thin">
                             {relativeLocalDate(
                               now,
-                              new Date(error.timestamp).toISOString()
+                              new Date(error.timestamp).toISOString(),
                             )}
                           </div>
                         </div>
@@ -364,24 +364,24 @@ export function DraftChanges({
                   ) {
                     const timeoutPromise = new Promise<{ type: "timeout" }>(
                       (resolve) =>
-                        setTimeout(() => resolve({ type: "timeout" }), 20000)
+                        setTimeout(() => resolve({ type: "timeout" }), 20000),
                     );
 
                     Promise.race([generateSummary(), timeoutPromise]).then(
                       (result) => {
                         if (result.type === "timeout") {
                           console.warn(
-                            "Val: Summary generation timed out after 20s"
+                            "Val: Summary generation timed out after 20s",
                           );
                         } else if (result.type === "ai") {
                           setSummary({ type: "ai", text: result.text.trim() });
                         } else if (result.type === "error") {
                           console.warn(
                             "Val: Summary generation failed:",
-                            result.message
+                            result.message,
                           );
                         }
-                      }
+                      },
                     );
                   }
                 }}
@@ -640,14 +640,14 @@ function PatchCard({
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
     patchMetadata.createdAt,
-    committedPatchIds.has(patchMetadata.patchId)
+    committedPatchIds.has(patchMetadata.patchId),
   );
   const profilesById = useProfilesByAuthorId();
   const { skippedPatches } = useErrors();
   const errors = undefined; // TODO
   const [skipped] = useMemo(
     () => [!!skippedPatches[patchMetadata.patchId]] as const,
-    [patchMetadata.patchId, skippedPatches[patchMetadata.patchId]]
+    [patchMetadata.patchId, skippedPatches[patchMetadata.patchId]],
   );
   const mode = useValMode();
   let authors: {
@@ -689,7 +689,7 @@ function PatchCard({
 function useChangeDescription(
   opTypes: string[],
   lastUpdated: string,
-  isCommitted: boolean
+  isCommitted: boolean,
 ) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -748,7 +748,7 @@ function PatchSetCard({
           setHasBeenSeen(true);
         }
       },
-      { threshold: 0 }
+      { threshold: 0 },
     );
     if (ref.current) {
       observer.observe(ref.current);
@@ -763,7 +763,7 @@ function PatchSetCard({
     () => patchSet.patches.map((p) => p.patchId),
     [
       patchSet.patches.map((p) => p.patchId).join(","), // ugly
-    ]
+    ],
   );
   const errors = useMemo(() => {
     const errors: string[] = [];
@@ -778,12 +778,12 @@ function PatchSetCard({
   const changeDescription = useChangeDescription(
     patchSet.opTypes,
     patchSet.lastUpdated,
-    false
+    false,
   );
   const profilesById = useProfilesByAuthorId();
 
   const isApplied = patchSet.patches.every((patch) =>
-    committedPatchIds.has(patch.patchId)
+    committedPatchIds.has(patch.patchId),
   );
   if (!hasBeenSeen) {
     return <PatchOrPatchSetCard ref={ref} isApplied={isApplied} />;
@@ -820,7 +820,7 @@ function PatchSetCard({
         errors={errors}
         onDelete={() => {
           deletePatches(
-            patchIds.filter((patchId) => !committedPatchIds.has(patchId))
+            patchIds.filter((patchId) => !committedPatchIds.has(patchId)),
           );
         }}
         amount={new Set(patchIds).size}
@@ -879,7 +879,7 @@ const PatchOrPatchSetCard = forwardRef<
       amount,
       isApplied,
     },
-    ref
+    ref,
   ) => {
     const portalContainer = useValPortal();
     return (
@@ -1011,7 +1011,7 @@ const PatchOrPatchSetCard = forwardRef<
                       >
                         <span
                           className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary"
+                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary",
                           )}
                           aria-label={"Initials for: " + author.fullName}
                         >
@@ -1093,7 +1093,7 @@ const PatchOrPatchSetCard = forwardRef<
         </div>
       </div>
     );
-  }
+  },
 );
 
 // Thanks ChatGPT
@@ -1115,7 +1115,7 @@ function getInitials(fullName: string): string {
     // Special handling for CJK (first character of each part)
     if (
       /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
-        part
+        part,
       )
     ) {
       return part[0];

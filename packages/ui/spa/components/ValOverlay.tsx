@@ -254,7 +254,7 @@ export function ValOverlay(props: ValOverlayProps) {
       const storedDropZone =
         (config &&
           localStorage.getItem(
-            "val-menu-drop-zone-" + (config?.project || "unknown")
+            "val-menu-drop-zone-" + (config?.project || "unknown"),
           )) ||
         localStorage.getItem("val-menu-drop-zone-default");
       if (storedDropZone) {
@@ -286,7 +286,7 @@ export function ValOverlay(props: ValOverlayProps) {
       if (dropZone) {
         localStorage.setItem(
           "val-menu-drop-zone-" + (config?.project || "unknown"),
-          dropZone
+          dropZone,
         );
         localStorage.setItem("val-menu-drop-zone-default", dropZone);
       }
@@ -346,7 +346,7 @@ export function ValOverlay(props: ValOverlayProps) {
             "cursor-pointer",
             "rounded-sm",
             "transition-all duration-150 ease-in-out",
-            "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover"
+            "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
           )}
           style={maxRect(
             {
@@ -361,7 +361,7 @@ export function ValOverlay(props: ValOverlayProps) {
               width: window.innerWidth,
               height: window.innerHeight,
             },
-            2
+            2,
           )}
           onClick={(ev) => {
             ev.preventDefault();
@@ -390,7 +390,7 @@ export function ValOverlay(props: ValOverlayProps) {
               "rounded-sm",
               "border-2 border-bg-brand-primary",
               "transition-opacity duration-200 ease-out",
-              allBoundingBoxesVisible ? "opacity-50" : "opacity-0"
+              allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
             )}
             style={maxRect(
               {
@@ -405,7 +405,7 @@ export function ValOverlay(props: ValOverlayProps) {
                 width: window.innerWidth,
                 height: window.innerHeight,
               },
-              2
+              2,
             )}
           />
         ))}
@@ -575,7 +575,10 @@ function Window({
           setWindowSize((size) => {
             const newWidth = Math.max(
               minWidth,
-              Math.min(innerWidth - windowPos.x - 20, size.width + ev.movementX)
+              Math.min(
+                innerWidth - windowPos.x - 20,
+                size.width + ev.movementX,
+              ),
             );
             return { ...size, width: newWidth };
           });
@@ -586,8 +589,8 @@ function Window({
               minHeight,
               Math.min(
                 innerHeight - windowPos.y - 20,
-                size.height + ev.movementY
-              )
+                size.height + ev.movementY,
+              ),
             );
             return { ...size, height: newHeight };
           });
@@ -651,7 +654,7 @@ function Window({
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
               isMobile,
-          }
+          },
         )}
         ref={ref}
         style={{
@@ -663,8 +666,8 @@ function Window({
                 height: windowSize.height,
               }
             : !isMobile
-            ? { maxWidth: "640px" }
-            : {}),
+              ? { maxWidth: "640px" }
+              : {}),
         }}
       >
         {/* Header bar - for dragging on desktop, shows close button on mobile */}
@@ -674,7 +677,7 @@ function Window({
             "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
             {
               "cursor-grab active:cursor-grabbing": !isMobile,
-            }
+            },
           )}
           onMouseDown={(ev) => {
             if (!isMobile) {
@@ -734,7 +737,7 @@ function Window({
                         showInlineStudioLink={hasMultipleFields}
                       />
                     );
-                  }
+                  },
                 )}
               </>
             )}
@@ -997,20 +1000,20 @@ function ValMenu({
     dropZone === "val-menu-center-bottom"
       ? "top"
       : dropZone === "val-menu-center-top"
-      ? "bottom"
-      : dropZone === "val-menu-right-center"
-      ? "left"
-      : dropZone === "val-menu-left-center"
-      ? "right"
-      : dropZone === "val-menu-left-bottom"
-      ? "top"
-      : dropZone === "val-menu-right-bottom"
-      ? "top"
-      : dropZone === "val-menu-right-top"
-      ? "bottom"
-      : dropZone === "val-menu-left-top"
-      ? "bottom"
-      : "top";
+        ? "bottom"
+        : dropZone === "val-menu-right-center"
+          ? "left"
+          : dropZone === "val-menu-left-center"
+            ? "right"
+            : dropZone === "val-menu-left-bottom"
+              ? "top"
+              : dropZone === "val-menu-right-bottom"
+                ? "top"
+                : dropZone === "val-menu-right-top"
+                  ? "bottom"
+                  : dropZone === "val-menu-left-top"
+                    ? "bottom"
+                    : "top";
   const allDropZones: DropZones[] = [
     "val-menu-left-top",
     "val-menu-left-center",
@@ -1059,7 +1062,7 @@ function ValMenu({
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2 items-center": dir === "horizontal",
               "opacity-70": ghost,
-            }
+            },
           )}
         >
           <HoverCard>
@@ -1131,7 +1134,7 @@ function ValMenu({
               className={cn(
                 buttonClassName,
                 buttonInactiveClassName,
-                "inline-flex p-0"
+                "inline-flex p-0",
               )}
             >
               <HoverCard>
@@ -1146,7 +1149,7 @@ function ValMenu({
                               "bg-bg-brand-primary": validationErrorCount === 0,
                               "bg-bg-error-primary text-fg-error-primary":
                                 validationErrorCount > 0,
-                            }
+                            },
                           )}
                         >
                           {validationErrorCount === 0 &&
@@ -1222,7 +1225,7 @@ function ValMenu({
               className={cn(
                 buttonClassName,
                 buttonInactiveClassName,
-                "inline-flex p-2"
+                "inline-flex p-2",
               )}
               asChild
             >
@@ -1315,7 +1318,7 @@ function ValMenu({
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
               "opacity-70": ghost,
-            }
+            },
           )}
         >
           <MenuButton
@@ -1364,7 +1367,7 @@ function useValRouterSourcePathFromCurrentPathname() {
       : [];
   const maybeRecordSources = useShallowModulesAtPaths(
     allModuleFilePaths,
-    "record"
+    "record",
   );
   const [currentPathname, setCurrentPathname] = useState<string | null>(null);
   useEffect(() => {
@@ -1381,7 +1384,7 @@ function useValRouterSourcePathFromCurrentPathname() {
     if (currentPathname) {
       for (const shallowModuleSource of maybeRecordSources.data || []) {
         for (const [fullPath, sourcePath] of Object.entries(
-          shallowModuleSource
+          shallowModuleSource,
         )) {
           if (fullPath === currentPathname) {
             const [moduleFilePath] =
@@ -1396,7 +1399,7 @@ function useValRouterSourcePathFromCurrentPathname() {
                 status: "success",
                 data: Internal.joinModuleFilePathAndModulePath(
                   moduleFilePath,
-                  JSON.stringify(fullPath) as ModulePath
+                  JSON.stringify(fullPath) as ModulePath,
                 ),
               };
             }
@@ -1436,7 +1439,7 @@ const MenuButton = React.forwardRef<
       onMouseLeave,
       ...rest
     },
-    ref
+    ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
       "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
@@ -1477,7 +1480,7 @@ const MenuButton = React.forwardRef<
         {icon}
       </button>
     );
-  }
+  },
 );
 MenuButton.displayName = "MenuButton";
 
@@ -1485,7 +1488,7 @@ function DraggableValMenu(props: ValMenuProps) {
   const [isDragging, setIsDragging] = useState(false);
   const { dropZone, setDropZone } = props;
   const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
-    null
+    null,
   );
   const onDrop = (id: DropZones) => (event: React.DragEvent) => {
     event.preventDefault();
@@ -1501,7 +1504,7 @@ function DraggableValMenu(props: ValMenuProps) {
         <div
           className={classNames(
             "z-[8999] cursor-grab",
-            getPositionClassName(dropZone)
+            getPositionClassName(dropZone),
           )}
           draggable
           onDragStart={() => {
@@ -1520,7 +1523,7 @@ function DraggableValMenu(props: ValMenuProps) {
             <div
               className={classNames(
                 "z-[3]",
-                getPositionClassName(dragOverDropZone)
+                getPositionClassName(dragOverDropZone),
               )}
               onDrop={onDrop(dragOverDropZone)}
               onDragOver={onDragOver(dragOverDropZone)}
@@ -1635,7 +1638,7 @@ const DropZone = ({
 function maxRect(
   rect: { top: number; left: number; width: number; height: number },
   viewport: { top: number; left: number; width: number; height: number },
-  strokeWidth: number
+  strokeWidth: number,
 ) {
   // Calculate the rect with stroke
   const rectTop = rect.top - strokeWidth;
@@ -1648,11 +1651,11 @@ function maxRect(
   const clippedLeft = Math.max(viewport.left, rectLeft);
   const clippedRight = Math.min(
     viewport.left + viewport.width,
-    rectLeft + rectWidth
+    rectLeft + rectWidth,
   );
   const clippedBottom = Math.min(
     viewport.top + viewport.height,
-    rectTop + rectHeight
+    rectTop + rectHeight,
   );
 
   return {

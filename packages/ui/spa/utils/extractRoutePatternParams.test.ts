@@ -84,7 +84,7 @@ describe("extractRoutePatternParams", () => {
       const pattern = parseRoutePattern("/api/users/[userId]/profile");
       const result = extractRoutePatternParams(
         pattern,
-        "/api/users/123/profile"
+        "/api/users/123/profile",
       );
 
       expect(result).toEqual({ status: "success", params: { userId: "123" } });
@@ -96,7 +96,7 @@ describe("extractRoutePatternParams", () => {
       const pattern = parseRoutePattern("/docs/[...slug]");
       const result = extractRoutePatternParams(
         pattern,
-        "/docs/getting-started/installation"
+        "/docs/getting-started/installation",
       );
 
       expect(result).toEqual({
@@ -128,7 +128,7 @@ describe("extractRoutePatternParams", () => {
       const pattern = parseRoutePattern("/search/[[...query]]");
       const result = extractRoutePatternParams(
         pattern,
-        "/search/advanced/filters"
+        "/search/advanced/filters",
       );
 
       expect(result).toEqual({
@@ -148,7 +148,7 @@ describe("extractRoutePatternParams", () => {
       const pattern = parseRoutePattern("/users/[userId]/posts/[...postIds]");
       const result = extractRoutePatternParams(
         pattern,
-        "/users/123/posts/456/789/101"
+        "/users/123/posts/456/789/101",
       );
 
       expect(result).toEqual({
@@ -251,7 +251,7 @@ describe("extractRoutePatternParams", () => {
       const pattern = parseRoutePattern("/shop/[...slug]");
       const result = extractRoutePatternParams(
         pattern,
-        "/shop/electronics/phones/iphone"
+        "/shop/electronics/phones/iphone",
       );
 
       expect(result).toEqual({
@@ -269,11 +269,11 @@ describe("extractRoutePatternParams", () => {
 
     it("should handle complex nested routes", () => {
       const pattern = parseRoutePattern(
-        "/admin/users/[userId]/settings/[[...section]]"
+        "/admin/users/[userId]/settings/[[...section]]",
       );
       const result = extractRoutePatternParams(
         pattern,
-        "/admin/users/123/settings/profile/security"
+        "/admin/users/123/settings/profile/security",
       );
 
       expect(result).toEqual({

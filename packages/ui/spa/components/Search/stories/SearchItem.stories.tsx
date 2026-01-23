@@ -1,11 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import React, { useMemo, useState } from "react";
-import {
-  Json,
-  ModuleFilePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { useMemo, useState } from "react";
+import { ModuleFilePath, SerializedSchema, SourcePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { ValRouter } from "../../ValRouter";
 import { SearchItem } from "../../SearchItem";
@@ -21,7 +16,7 @@ import { ValClient } from "@valbuild/shared/internal";
 // Create a minimal mock ValClient for Storybook
 function createMockClient(): ValClient {
   // Return a minimal client that satisfies the interface
-  return (async (path, method, req) => {
+  return (async () => {
     // Mock client that returns basic responses
     return {
       status: 200,
@@ -30,7 +25,7 @@ function createMockClient(): ValClient {
         sources: mockSources,
         config: { project: "storybook-test" },
       }),
-    } as any;
+    } as unknown as Awaited<ReturnType<ValClient>>;
   }) as ValClient;
 }
 
@@ -70,7 +65,7 @@ function SearchItemWithProviders({
         },
       };
     },
-    []
+    [],
   );
 
   // Mock remoteFiles
@@ -80,7 +75,7 @@ function SearchItemWithProviders({
       message: "Remote files not available in Storybook",
       reason: "project-not-configured" as const,
     }),
-    []
+    [],
   );
 
   console.log("SearchItemWithProviders", sources);
