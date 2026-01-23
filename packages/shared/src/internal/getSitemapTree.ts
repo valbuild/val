@@ -58,7 +58,7 @@ export function getNextAppRouterSitemapTree(
       };
       root.sourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        fullPath as ModulePath,
+        `"${fullPath}"` as ModulePath,
       );
       root.moduleFilePath = moduleFilePath;
       continue;
