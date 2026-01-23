@@ -34,12 +34,14 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       );
       throw err;
     });
+    const headersObj: Record<string, string> = {};
+    res.headers.forEach((value, key) => {
+      headersObj[key] = value;
+    });
 
     return {
       status: res.status,
-      headers: res.headers
-        ? Object.fromEntries(Array.from(res.headers.entries()))
-        : {},
+      headers: headersObj,
       body: res.body,
     } as Awaited<ReturnType<ValUIRequestHandler>>;
   };
