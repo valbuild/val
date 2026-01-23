@@ -34,7 +34,6 @@ type SearchResult = {
 export function Search() {
   const [isActive, setIsActive] = useState(false);
 
-  console.log("Search");
   // Handle Cmd+K (Mac) or Ctrl+K (other platforms) to activate search
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -99,8 +98,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
   const schemasRes = useSchemas();
   const { navigate } = useNavigation();
 
-  const schemas =
-    schemasRes.status === "success" ? schemasRes.data : undefined;
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
 
   const handleSelect = useCallback(
     (path: SourcePath | ModuleFilePath) => {
@@ -120,7 +118,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
   );
 }
 
-export function SearchField({
+function SearchField({
   sources,
   schemas,
   onSelect,
