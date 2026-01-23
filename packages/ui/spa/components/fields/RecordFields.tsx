@@ -16,12 +16,12 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
+import { PreviewWithRender } from "../../components/PreviewWithRender";
 import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
-import { ListPreviewItem } from "../ListPreviewItem";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -103,7 +103,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
                   ) && <ErrorIndicator />}
                 </div>
                 <div>
-                  <Preview path={sourcePathOfItem(path, key)} />
+                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
                 </div>
               </div>
             ))}
@@ -132,11 +132,7 @@ function ListRecordRenderComponent({
             "border rounded-lg cursor-pointer border-border-primary",
           )}
         >
-          <ListPreviewItem
-            title={title}
-            image={image ?? null}
-            subtitle={subtitle ?? null}
-          />
+          <PreviewWithRender path={sourcePathOfItem(path, key)} />
         </button>
       ))}
     </div>

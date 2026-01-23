@@ -20,7 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import type { ListArrayRender } from "@valbuild/core";
-import { Preview as AutoPreview } from "./Preview";
+import { PreviewWithRender } from "./PreviewWithRender";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
@@ -242,18 +242,7 @@ export function SortableItem({
             onClick(path);
           }}
         >
-          {render && (
-            <ListPreviewItem
-              title={render.title}
-              image={render.image ?? null}
-              subtitle={render.subtitle ?? null}
-            />
-          )}
-          {!render && (
-            <div className="flex-grow p-4 w-full">
-              <AutoPreview path={path} />
-            </div>
-          )}
+          <PreviewWithRender path={path} className="flex-grow p-4 w-full" />
           {isTruncated && (
             <div
               className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
