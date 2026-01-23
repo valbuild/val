@@ -157,7 +157,7 @@ export class ValSyncEngine {
     private readonly client: ValClient,
     private readonly overlayEmitter:
       | typeof defaultOverlayEmitter
-      | undefined = undefined
+      | undefined = undefined,
   ) {
     this.initializedAt = null;
     this.forceSyncAllModules = true;
@@ -237,7 +237,7 @@ export class ValSyncEngine {
     patchIds: PatchId[],
     authorId: string | null,
     commitSha: string | null,
-    now: number
+    now: number,
   ) {
     this.mode = mode;
     this.baseSha = baseSha;
@@ -258,7 +258,7 @@ export class ValSyncEngine {
       patchIds,
       authorId,
       commitSha,
-      now
+      now,
     );
     if (res.status === "done") {
       await this.syncPatches(true, now);
@@ -327,15 +327,15 @@ export class ValSyncEngine {
   >;
   subscribe(
     type: "source",
-    path: ModuleFilePath
+    path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(
     type: "sources",
-    paths: ModuleFilePath[]
+    paths: ModuleFilePath[],
   ): (listener: () => void) => () => void;
   subscribe(
     type: "render",
-    path: ModuleFilePath
+    path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
   subscribe(type: "auto-publish"): (listener: () => void) => () => void;
@@ -343,32 +343,32 @@ export class ValSyncEngine {
   subscribe(type: "pending-ops-count"): (listener: () => void) => () => void;
   subscribe(
     type: "validation-error",
-    path: SourcePath
+    path: SourcePath,
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "all-validation-errors"
+    type: "all-validation-errors",
   ): (listener: () => void) => () => void;
   subscribe(type: "initialized-at"): (listener: () => void) => () => void;
   subscribe(
     type: "sync-status",
-    path: SourcePath
+    path: SourcePath,
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "global-transient-errors"
+    type: "global-transient-errors",
   ): (listener: () => void) => () => void;
   subscribe(type: "network-error"): (listener: () => void) => () => void;
   subscribe(type: "schema-error"): (listener: () => void) => () => void;
   subscribe(
-    type: "global-server-side-patch-ids"
+    type: "global-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "pending-client-side-patch-ids"
+    type: "pending-client-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "synced-server-side-patch-ids"
+    type: "synced-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "saved-server-side-patch-ids"
+    type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
@@ -376,11 +376,11 @@ export class ValSyncEngine {
   subscribe(type: "all-patches"): (listener: () => void) => () => void;
   subscribe(
     type: "patch-errors",
-    path: ModuleFilePath[]
+    path: ModuleFilePath[],
   ): (listener: () => void) => () => void;
   subscribe(
     type: SyncEngineListenerType,
-    path?: string | string[]
+    path?: string | string[],
   ): (listener: () => void) => () => void {
     const p = path || globalNamespace;
     return (listener: () => void) => {
@@ -529,21 +529,21 @@ export class ValSyncEngine {
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
     this.invalidateParentRef();
     this.emit(
-      this.listeners["global-server-side-patch-ids"]?.[globalNamespace]
+      this.listeners["global-server-side-patch-ids"]?.[globalNamespace],
     );
   }
 
   private invalidatePendingClientSidePatchIds() {
     this.cachedPendingClientSidePatchIdsSnapshot = null;
     this.emit(
-      this.listeners["pending-client-side-patch-ids"]?.[globalNamespace]
+      this.listeners["pending-client-side-patch-ids"]?.[globalNamespace],
     );
   }
 
   private invalidateSyncedServerSidePatchIds() {
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
     this.emit(
-      this.listeners["synced-server-side-patch-ids"]?.[globalNamespace]
+      this.listeners["synced-server-side-patch-ids"]?.[globalNamespace],
     );
   }
 
@@ -795,7 +795,7 @@ export class ValSyncEngine {
     Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
   > | null;
   getPatchErrorsSnapshot(
-    moduleFilePaths: ModuleFilePath[]
+    moduleFilePaths: ModuleFilePath[],
   ):
     | Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
     | undefined {
@@ -949,7 +949,7 @@ export class ValSyncEngine {
   private addPatchOnClientOnly(
     sourcePath: SourcePath | ModuleFilePath,
     patch: Patch,
-    now: number
+    now: number,
   ):
     | {
         status: "optimistic-client-sources-updated";
@@ -963,7 +963,7 @@ export class ValSyncEngine {
         moduleFilePath: ModuleFilePath;
       } {
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-      sourcePath as SourcePath
+      sourcePath as SourcePath,
     );
     if (
       this.serverSources === null ||
@@ -973,7 +973,7 @@ export class ValSyncEngine {
       // so this should not happen
       this.addGlobalTransientError(
         `Content at '${moduleFilePath}' is not yet initialized`,
-        now
+        now,
       );
       return {
         status: "patch-error",
@@ -989,13 +989,13 @@ export class ValSyncEngine {
     const patchRes = applyPatch(
       deepClone(this.optimisticClientSources[moduleFilePath] as JSONValue),
       ops,
-      patchableOps
+      patchableOps,
     );
     if (result.isErr(patchRes)) {
       console.error("Could not apply patch:", patchRes.error);
       this.addGlobalTransientError(
         `Could apply patch: ${patchRes.error.message}`,
-        now
+        now,
       );
       return {
         status: "patch-error",
@@ -1005,7 +1005,7 @@ export class ValSyncEngine {
     } else {
       const newSource = patchRes.value;
       const prevSource = deepClone(
-        this.optimisticClientSources[moduleFilePath] as JSONValue
+        this.optimisticClientSources[moduleFilePath] as JSONValue,
       );
       this.optimisticClientSources[moduleFilePath] = newSource;
       return {
@@ -1028,7 +1028,7 @@ export class ValSyncEngine {
     type: SerializedSchema["type"],
     patch: Patch,
     patchId: PatchId,
-    now: number
+    now: number,
   ): Promise<
     | {
         status: "patch-synced";
@@ -1101,7 +1101,7 @@ export class ValSyncEngine {
     sourcePath: SourcePath | ModuleFilePath,
     type: SerializedSchema["type"],
     patch: Patch,
-    now: number
+    now: number,
   ):
     | {
         status: "patch-merged";
@@ -1228,7 +1228,7 @@ export class ValSyncEngine {
     moduleFilePath: ModuleFilePath,
     patchId: PatchId,
     patch: Patch,
-    now: number
+    now: number,
   ) {
     const createdAt = new Date(now).toISOString();
     for (const op of patch) {
@@ -1238,7 +1238,7 @@ export class ValSyncEngine {
         op,
         patchId,
         createdAt,
-        this.authorId
+        this.authorId,
       );
     }
     this.invalidatePatchSets();
@@ -1263,7 +1263,7 @@ export class ValSyncEngine {
 
   private markAllSyncStatusIn(
     moduleFilePath: ModuleFilePath,
-    syncStatus: SyncStatus
+    syncStatus: SyncStatus,
   ) {
     for (const path in this.syncStatus) {
       if (path.startsWith(moduleFilePath)) {
@@ -1309,7 +1309,7 @@ export class ValSyncEngine {
     patchIds: PatchId[],
     authorId: string | null,
     commitSha: string | null,
-    now: number
+    now: number,
   ): Promise<
     | {
         status: "done";
@@ -1338,7 +1338,7 @@ export class ValSyncEngine {
         patchIds,
         authorId,
         commitSha,
-        now
+        now,
       );
     }
     const patchIdsDidChange =
@@ -1372,7 +1372,7 @@ export class ValSyncEngine {
   async executeAddPatches(
     op: AddPatchOp,
     changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>,
-    now: number
+    now: number,
   ): Promise<
     | {
         status: "done";
@@ -1408,7 +1408,7 @@ export class ValSyncEngine {
     if (parentRef === null) {
       this.addGlobalTransientError(
         `Tried to update content with changes, but could not since Val is not yet initialized`,
-        now
+        now,
       );
       return {
         status: "retry",
@@ -1450,7 +1450,7 @@ export class ValSyncEngine {
       this.addGlobalTransientError(
         `Failed to save changes`,
         now,
-        addPatchesRes.json.message
+        addPatchesRes.json.message,
       );
       // We failed to add these patches so we must clean up after ourselves
       // NOTE: These patches will be removed, in the future we might want to retry or something
@@ -1464,7 +1464,7 @@ export class ValSyncEngine {
       }
       const newPatchIdsSet = new Set(newPatchIds);
       this.pendingClientPatchIds = this.pendingClientPatchIds.filter(
-        (id) => !newPatchIdsSet.has(id)
+        (id) => !newPatchIdsSet.has(id),
       );
     } else {
       // Success
@@ -1521,7 +1521,7 @@ export class ValSyncEngine {
   async executeDeletePatches(
     op: DeletePatchesOp,
     changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>,
-    now: number
+    now: number,
   ): Promise<
     | {
         status: "done";
@@ -1571,11 +1571,11 @@ export class ValSyncEngine {
         }
       }
       this.pendingClientPatchIds = this.pendingClientPatchIds.filter(
-        (id) => !deletePatchIdsSet.has(id)
+        (id) => !deletePatchIdsSet.has(id),
       );
       this.globalServerSidePatchIds =
         this.globalServerSidePatchIds?.filter(
-          (id) => !deletePatchIdsSet.has(id)
+          (id) => !deletePatchIdsSet.has(id),
         ) ?? null;
     }
     return {
@@ -1597,7 +1597,7 @@ export class ValSyncEngine {
     if (schemaRes.status === 200) {
       this.schemas = {};
       for (const [moduleFilePathS, schema] of Object.entries(
-        schemaRes.json.schemas
+        schemaRes.json.schemas,
       )) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
         if (schema) {
@@ -1630,7 +1630,7 @@ export class ValSyncEngine {
 
   private async syncPatches(
     reset: boolean,
-    now: number
+    now: number,
   ): Promise<
     | {
         status: "done";
@@ -1686,7 +1686,7 @@ export class ValSyncEngine {
         this.addGlobalTransientError(
           "Some changes has errors",
           now,
-          res.json.error.message
+          res.json.error.message,
         );
       }
       for (const error of Object.values(res.json.errors || {})) {
@@ -1694,7 +1694,7 @@ export class ValSyncEngine {
           this.addGlobalTransientError(
             "A change has an error",
             now,
-            error.message
+            error.message,
           );
         }
       }
@@ -1779,7 +1779,7 @@ export class ValSyncEngine {
               op,
               patchId,
               patchData.createdAt,
-              patchData.authorId
+              patchData.authorId,
             );
           }
         } else {
@@ -1805,7 +1805,7 @@ export class ValSyncEngine {
           this.addGlobalTransientError(
             "Failed to get changes",
             now,
-            `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`
+            `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
           );
         }
       }
@@ -1820,7 +1820,7 @@ export class ValSyncEngine {
   }
 
   private getChangedModules(
-    changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>
+    changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>,
   ): "all" | ModuleFilePath[] {
     // This is currently a pretty basic implementation to that figures out, based on a set of changes,
     // which modules needs to be synced.
@@ -1933,12 +1933,12 @@ export class ValSyncEngine {
         // Less than N seconds ago since last op was updated - we should wait...
         lessThanNSecondsSince(
           this.MIN_WAIT_SECONDS,
-          this.pendingOps[this.pendingOps.length - 1].updatedAt!
+          this.pendingOps[this.pendingOps.length - 1].updatedAt!,
         ) &&
         // ... unless if we have already waited more than N seconds - we still sync
         !moreThanNSecondsSince(
           this.MAX_WAIT_SECONDS,
-          this.pendingOps[this.pendingOps.length - 1].createdAt
+          this.pendingOps[this.pendingOps.length - 1].createdAt,
         )
       ) {
         return {
@@ -2043,7 +2043,7 @@ export class ValSyncEngine {
           this.addGlobalTransientError(
             "Could not sync content with server. Please wait or reload the application.",
             now,
-            sourcesRes.json.message
+            sourcesRes.json.message,
           );
         } else {
           // Clean up validation errors
@@ -2061,7 +2061,7 @@ export class ValSyncEngine {
             }
           }
           for (const [moduleFilePathS, valModule] of Object.entries(
-            sourcesRes.json.modules
+            sourcesRes.json.modules,
           )) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
             if (valModule) {
@@ -2084,7 +2084,7 @@ export class ValSyncEngine {
                   this.serverSources[moduleFilePath] as ReadonlyJSONValue,
                   this.optimisticClientSources[
                     moduleFilePath
-                  ] as ReadonlyJSONValue
+                  ] as ReadonlyJSONValue,
                 ) ||
                 // We check for pendingOps, because the check above will fail for files since they inject a patchId...
                 this.pendingOps.length === 0
@@ -2127,7 +2127,7 @@ export class ValSyncEngine {
               this.addGlobalTransientError(
                 `Could not find '${moduleFilePath}' in server reply`,
                 now,
-                "This is most likely a bug"
+                "This is most likely a bug",
               );
             }
             this.markAllSyncStatusIn(moduleFilePath, "done");
@@ -2167,16 +2167,16 @@ export class ValSyncEngine {
         if (!hasValidationError) {
           await this.publish(
             this.globalServerSidePatchIds.concat(
-              ...Array.from(this.syncedServerSidePatchIds)
+              ...Array.from(this.syncedServerSidePatchIds),
             ),
             undefined,
-            now
+            now,
           );
           didWrite = true;
         } else {
           console.debug(
             "Skip auto-publish since there's validation errors",
-            this.errors.validationErrors
+            this.errors.validationErrors,
           );
         }
       }
@@ -2209,7 +2209,7 @@ export class ValSyncEngine {
       if (this.publishDisabled) {
         console.debug(
           "Could not publish changes, since the publish is disabled",
-          now
+          now,
         );
         return {
           status: "retry",
@@ -2221,16 +2221,16 @@ export class ValSyncEngine {
 
       const hasValidationError =
         Object.values(this.errors.validationErrors || {}).flatMap(
-          (errors) => errors || []
+          (errors) => errors || [],
         ).length > 0;
       if (hasValidationError) {
         console.debug(
           "Skipping publish since there's validation errors",
-          this.errors.validationErrors
+          this.errors.validationErrors,
         );
         this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",
-          now
+          now,
         );
         return {
           status: "retry",
@@ -2240,7 +2240,7 @@ export class ValSyncEngine {
       if (patchIds.length === 0) {
         this.addGlobalTransientError(
           "Could not publish changes, since there are no changes to publish",
-          Date.now()
+          Date.now(),
         );
         return {
           status: "done",
@@ -2255,7 +2255,7 @@ export class ValSyncEngine {
       if (res.status === null) {
         this.addGlobalTransientError(
           "Network error: could not publish",
-          Date.now()
+          Date.now(),
         );
         return {
           status: "retry",
@@ -2264,7 +2264,7 @@ export class ValSyncEngine {
         this.addGlobalTransientError(
           "Failed to publish changes",
           Date.now(),
-          res.json.message
+          res.json.message,
         );
         return {
           status: "retry",
@@ -2296,7 +2296,7 @@ export class ValSyncEngine {
       this.addGlobalTransientError(
         "Failed to publish changes",
         Date.now(),
-        (err as Error).message
+        (err as Error).message,
       );
       return {
         status: "retry",
@@ -2348,7 +2348,7 @@ export class ValSyncEngine {
       const idsSet = new Set(ids);
       this.errors.globalTransientErrorQueue =
         this.errors.globalTransientErrorQueue.filter(
-          (error) => !idsSet.has(error.id)
+          (error) => !idsSet.has(error.id),
         );
       this.invalidateGlobalTransientErrors();
     }
@@ -2359,7 +2359,7 @@ export class ValSyncEngine {
    * Sets schemas directly and invalidates related caches.
    */
   setSchemas(
-    schemas: Record<ModuleFilePath, SerializedSchema | undefined>
+    schemas: Record<ModuleFilePath, SerializedSchema | undefined>,
   ): void {
     this.schemas = schemas;
     this.cachedSchemaSnapshots = null;
@@ -2431,7 +2431,7 @@ const nonInterDependentTypes = [
 ];
 export const defaultOverlayEmitter = (
   moduleFilePath: ModuleFilePath,
-  newSource: JSONValue
+  newSource: JSONValue,
 ) => {
   window.dispatchEvent(
     new CustomEvent("val-event", {
@@ -2440,7 +2440,7 @@ export const defaultOverlayEmitter = (
         moduleFilePath,
         source: newSource,
       },
-    })
+    }),
   );
 };
 

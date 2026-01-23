@@ -12,11 +12,11 @@ const ValErrorContext = React.createContext<ValErrorContextValue>(
     {
       get: () => {
         throw new Error(
-          "Cannot use ValErrorContext outside of ValErrorProvider"
+          "Cannot use ValErrorContext outside of ValErrorProvider",
         );
       },
-    }
-  ) as ValErrorContextValue
+    },
+  ) as ValErrorContextValue,
 );
 
 export function ValErrorProvider({
@@ -42,7 +42,7 @@ export function useValidationErrors(sourcePath: SourcePath) {
   const data = useSyncExternalStore(
     syncEngine.subscribe("validation-error", sourcePath),
     () => syncEngine.getValidationErrorSnapshot(sourcePath),
-    () => syncEngine.getValidationErrorSnapshot(sourcePath)
+    () => syncEngine.getValidationErrorSnapshot(sourcePath),
   );
   return data || [];
 }
@@ -52,6 +52,6 @@ export function useAllValidationErrors() {
   return useSyncExternalStore(
     syncEngine.subscribe("all-validation-errors"),
     () => syncEngine.getAllValidationErrorsSnapshot(),
-    () => syncEngine.getAllValidationErrorsSnapshot()
+    () => syncEngine.getAllValidationErrorsSnapshot(),
   );
 }

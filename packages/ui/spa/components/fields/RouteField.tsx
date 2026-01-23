@@ -155,7 +155,7 @@ export function RouteField({ path }: { path: SourcePath }) {
                                 value: currentValue,
                               },
                             ],
-                            type
+                            type,
                           );
                           setOpen(false);
                         }}
@@ -165,7 +165,7 @@ export function RouteField({ path }: { path: SourcePath }) {
                             "mr-2 h-4 w-4",
                             source === routeInfo.route
                               ? "opacity-100"
-                              : "opacity-0"
+                              : "opacity-0",
                           )}
                         />
                         {routeInfo.route}
@@ -185,8 +185,8 @@ export function RouteField({ path }: { path: SourcePath }) {
               navigate(
                 Internal.joinModuleFilePathAndModulePath(
                   selectedRouteInfo.moduleFilePath,
-                  JSON.stringify(source) as ModulePath
-                )
+                  JSON.stringify(source) as ModulePath,
+                ),
               );
             }}
           >

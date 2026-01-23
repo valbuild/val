@@ -16,7 +16,7 @@ export type ValEnrichedDeployment = {
 export function mergeCommitsAndDeployments(
   prev: ValEnrichedDeployment[],
   commits: ValCommit[],
-  deployments: ValDeployment[]
+  deployments: ValDeployment[],
 ): ValEnrichedDeployment[] {
   const deploymentsByCommitSha: Record<string, ValEnrichedDeployment> = {};
 

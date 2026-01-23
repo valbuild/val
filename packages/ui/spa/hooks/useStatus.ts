@@ -135,7 +135,7 @@ export function useStatus(client: ValClient) {
           stat.status,
           stat.status === "error" ? stat.error : "no error",
           "Now:",
-          Date.now()
+          Date.now(),
         );
         execStat(
           client,
@@ -145,7 +145,7 @@ export function useStatus(client: ValClient) {
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
           setIsAuthenticated,
-          setServiceUnavailable
+          setServiceUnavailable,
         );
       } else {
         console.debug(
@@ -154,7 +154,7 @@ export function useStatus(client: ValClient) {
           " status: ",
           stat.status,
           "Now:",
-          Date.now()
+          Date.now(),
         );
         const timeout = setTimeout(() => {
           execStat(
@@ -165,7 +165,7 @@ export function useStatus(client: ValClient) {
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
             setIsAuthenticated,
-            setServiceUnavailable
+            setServiceUnavailable,
           );
         }, stat.wait);
         return () => clearTimeout(timeout);
@@ -187,7 +187,7 @@ export function useStatus(client: ValClient) {
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
         setIsAuthenticated,
-        setServiceUnavailable
+        setServiceUnavailable,
       );
     }
   }, [client, stat.status]);
@@ -211,7 +211,7 @@ async function execStat(
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
-  setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>
+  setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -281,18 +281,18 @@ async function execStat(
           const nonce = res.json.nonce;
           webSocketRef.current.onopen = () => {
             webSocketRef.current?.send(
-              JSON.stringify({ nonce, type: "subscribe" })
+              JSON.stringify({ nonce, type: "subscribe" }),
             );
           };
           webSocketRef.current.onmessage = (event) => {
             try {
               const messageRes = WebSocketServerMessage.safeParse(
-                JSON.parse(event.data)
+                JSON.parse(event.data),
               );
               if (!messageRes.success) {
                 console.error(
                   "Could not parse WebSocket message",
-                  messageRes.error
+                  messageRes.error,
                 );
                 return;
               }
@@ -330,7 +330,7 @@ async function execStat(
                       data: {
                         ...prev.data,
                         commits: (prev.data.commits || []).concat(
-                          message.commit
+                          message.commit,
                         ),
                       },
                       waitStart:
@@ -389,8 +389,8 @@ async function execStat(
             setStat((prev) =>
               createError(
                 prev,
-                `Got an error while syncing with Val (reason: WebSocket error)`
-              )
+                `Got an error while syncing with Val (reason: WebSocket error)`,
+              ),
             );
           };
         }

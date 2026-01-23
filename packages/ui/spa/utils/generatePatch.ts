@@ -9,7 +9,7 @@ export function generatePatch(
   input: any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   output: any,
-  basePath?: string[]
+  basePath?: string[],
 ): Operation[] {
   return createPatch(input, output).map((op) => {
     if (op.op === "move" || op.op === "copy") {
@@ -28,11 +28,11 @@ export function generatePatch(
 
 function convertPath(
   path: string,
-  basePath?: string[]
+  basePath?: string[],
 ): array.NonEmptyArray<string> {
   if (basePath) {
     return basePath.concat(
-      path.split("/").slice(1) as array.NonEmptyArray<string>
+      path.split("/").slice(1) as array.NonEmptyArray<string>,
     ) as array.NonEmptyArray<string>;
   }
   return path.split("/").slice(1) as array.NonEmptyArray<string>;

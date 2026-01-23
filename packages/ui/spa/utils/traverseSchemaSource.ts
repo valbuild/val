@@ -25,7 +25,7 @@ export function traverseSchemaSource(
     source: Json;
     schema: SerializedSchema;
     path: SourcePath;
-  }) => void
+  }) => void,
 ): void {
   if (!schema?.type) {
     throw new Error("Schema not found for " + path);
@@ -113,10 +113,9 @@ export function traverseSchemaSource(
     }
     if (!schema.item) {
       throw new Error(
-        "Schema (" + schema.type + ") item not found for " + path
+        "Schema (" + schema.type + ") item not found for " + path,
       );
     }
-    const isRoot = path.endsWith("?p=");
     for (let i = 0; i < source.length; i++) {
       const subPath = sourcePathConcat(path, i);
       traverseSchemaSource(source[i], schema.item, subPath, callback);
@@ -180,7 +179,7 @@ export function traverseSchemaSource(
   // Exhaustive check
   const exhaustiveCheck: never = schema;
   throw new Error(
-    "Unsupported schema type: " + JSON.stringify(exhaustiveCheck)
+    "Unsupported schema type: " + JSON.stringify(exhaustiveCheck),
   );
 }
 
@@ -189,16 +188,16 @@ export function traverseSchemaSource(
  */
 function sourcePathConcat(
   sourcePath: SourcePath,
-  key: string | number
+  key: string | number,
 ): SourcePath {
   const isRoot = sourcePath.endsWith("?p=");
   if (sourcePath.includes(ModuleFilePathSep)) {
     return `${sourcePath}${isRoot ? "" : "."}${JSON.stringify(
-      key
+      key,
     )}` as SourcePath;
   }
   return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key
+    key,
   )}` as SourcePath;
 }
 

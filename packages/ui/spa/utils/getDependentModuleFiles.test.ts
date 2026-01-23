@@ -16,11 +16,11 @@ describe("getDependentModuleFiles", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: { name: "testname1" },
-      }
+      },
     );
     const module2 = c.define(
       "/module2.val.ts",
@@ -29,11 +29,11 @@ describe("getDependentModuleFiles", () => {
       }),
       {
         author: "test1",
-      }
+      },
     );
     const schemas = convert([module1, module2]);
     expect(
-      getDependentModuleFiles(getModuleFilePath(module1), schemas)
+      getDependentModuleFiles(getModuleFilePath(module1), schemas),
     ).toStrictEqual([getModuleFilePath(module2)]);
   });
 
@@ -44,22 +44,22 @@ describe("getDependentModuleFiles", () => {
       s.record(
         s.object({
           name: s.string(),
-        })
+        }),
       ),
       {
         test1: { name: "testname1" },
-      }
+      },
     );
     const module2 = c.define(
       "/module2.val.ts",
       s.record(
         s.object({
           status: s.string(),
-        })
+        }),
       ),
       {
         test2: { status: "teststatus" },
-      }
+      },
     );
     const module3 = c.define(
       "/module3.val.ts",
@@ -70,7 +70,7 @@ describe("getDependentModuleFiles", () => {
       {
         author: "test1",
         status: "test2",
-      }
+      },
     );
     const module4 = c.define(
       "/module4.val.ts",
@@ -85,9 +85,9 @@ describe("getDependentModuleFiles", () => {
             s.object({
               type: s.literal("type2"),
               num: s.number(),
-            })
+            }),
           ),
-        })
+        }),
       ),
       [
         {
@@ -96,20 +96,20 @@ describe("getDependentModuleFiles", () => {
         {
           value: { type: "type2", num: 1 },
         },
-      ]
+      ],
     );
     const schemas = convert([module1, module2, module3, module4]);
     expect(
-      getDependentModuleFiles(getModuleFilePath(module1), schemas)
+      getDependentModuleFiles(getModuleFilePath(module1), schemas),
     ).toStrictEqual([getModuleFilePath(module3), getModuleFilePath(module4)]);
     expect(
-      getDependentModuleFiles(getModuleFilePath(module2), schemas)
+      getDependentModuleFiles(getModuleFilePath(module2), schemas),
     ).toStrictEqual([getModuleFilePath(module3)]);
     expect(
-      getDependentModuleFiles(getModuleFilePath(module3), schemas)
+      getDependentModuleFiles(getModuleFilePath(module3), schemas),
     ).toStrictEqual([]);
     expect(
-      getDependentModuleFiles(getModuleFilePath(module4), schemas)
+      getDependentModuleFiles(getModuleFilePath(module4), schemas),
     ).toStrictEqual([]);
   });
 });
@@ -119,7 +119,7 @@ function getModuleFilePath(module: ValModule<SelectorSource>): ModuleFilePath {
 }
 
 function convert(
-  input: ValModule<SelectorSource>[]
+  input: ValModule<SelectorSource>[],
 ): Record<ModuleFilePath, SerializedSchema> {
   const output: Record<ModuleFilePath, SerializedSchema> = {};
   for (const valModule of input) {

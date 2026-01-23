@@ -102,7 +102,7 @@ export function DateField({ path }: { path: SourcePath }) {
           <Button
             variant={"outline"}
             className={classNames(
-              "w-[280px] justify-start text-left font-normal bg-bg-primary hover:bg-bg-secondary"
+              "w-[280px] justify-start text-left font-normal bg-bg-primary hover:bg-bg-secondary",
             )}
           >
             <CalendarIcon className="w-4 h-4 mr-2" />
@@ -137,7 +137,7 @@ export function DateField({ path }: { path: SourcePath }) {
                       path: patchPath,
                     },
                   ],
-                  schema.type
+                  schema.type,
                 );
                 setPopoverOpen(false);
               }

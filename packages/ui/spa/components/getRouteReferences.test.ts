@@ -18,12 +18,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -34,7 +34,7 @@ describe("getRouteReferences", () => {
         }),
         {
           link: "/home",
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -48,12 +48,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -64,7 +64,7 @@ describe("getRouteReferences", () => {
         }),
         {
           link: "/home",
-        }
+        },
       ),
       c.define(
         "/content2.val.ts",
@@ -73,7 +73,7 @@ describe("getRouteReferences", () => {
         }),
         {
           mainLink: "/home",
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -90,12 +90,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -106,7 +106,7 @@ describe("getRouteReferences", () => {
         }),
         {
           link: "/about",
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -120,12 +120,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -136,7 +136,7 @@ describe("getRouteReferences", () => {
         }),
         {
           links: ["/home", "/about", "/home"],
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -154,12 +154,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -176,7 +176,7 @@ describe("getRouteReferences", () => {
             primary: "/home",
             secondary: "/about",
           },
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -190,12 +190,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -204,12 +204,12 @@ describe("getRouteReferences", () => {
         s.record(
           s.object({
             link: s.route(),
-          })
+          }),
         ),
         {
           item1: { link: "/home" },
           item2: { link: "/about" },
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -223,12 +223,12 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
         "/about": { title: "About" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -245,8 +245,8 @@ describe("getRouteReferences", () => {
               s.object({
                 type: s.literal("text"),
                 content: s.string(),
-              })
-            )
+              }),
+            ),
           ),
         }),
         {
@@ -255,7 +255,7 @@ describe("getRouteReferences", () => {
             { type: "text", content: "Hello" },
             { type: "link", href: "/about" },
           ],
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -269,11 +269,11 @@ describe("getRouteReferences", () => {
       s.record(
         s.object({
           title: s.string(),
-        })
+        }),
       ),
       {
         "/home": { title: "Home" },
-      }
+      },
     );
     const modules = [
       routerMod,
@@ -285,9 +285,9 @@ describe("getRouteReferences", () => {
               level2: s.array(
                 s.object({
                   level3: s.route(),
-                })
+                }),
               ),
-            })
+            }),
           ),
         }),
         {
@@ -296,7 +296,7 @@ describe("getRouteReferences", () => {
               level2: [{ level3: "/home" }, { level3: "/home" }],
             },
           },
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -317,7 +317,7 @@ describe("getRouteReferences", () => {
         }),
         {
           notARoute: "/home",
-        }
+        },
       ),
     ];
     const { schemas, sources } = getTestData(modules);
@@ -338,7 +338,7 @@ function getTestData(valModules: ValModule<SelectorSource>[]) {
 }
 
 function getModuleFilePath(
-  valModule: ValModule<SelectorSource>
+  valModule: ValModule<SelectorSource>,
 ): ModuleFilePath {
   return Internal.getValPath(valModule) as unknown as ModuleFilePath;
 }

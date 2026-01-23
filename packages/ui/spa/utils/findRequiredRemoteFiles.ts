@@ -46,7 +46,7 @@ export function findRequiredRemoteFiles(schema: SerializedSchema) {
         "type" in exhaustiveCheck &&
         (exhaustiveCheck as { type?: string }).type
       }`,
-      schema
+      schema,
     );
     return null;
   }

@@ -40,7 +40,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-02T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -114,7 +114,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-02T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     testPatchSet(
       "/content/projects2.val.ts" as ModuleFilePath,
@@ -145,7 +145,7 @@ describe("PatchSet", () => {
           author: "author1",
         },
       ],
-      patchSet
+      patchSet,
     );
     testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
@@ -164,7 +164,7 @@ describe("PatchSet", () => {
           author: "author1",
         },
       ],
-      patchSet
+      patchSet,
     );
     const expected = [
       {
@@ -274,7 +274,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-02T00:00:00Z",
           author: "author2",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -328,7 +328,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-03T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -386,7 +386,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-04T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -464,7 +464,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-04T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -522,7 +522,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.object({ title: s.string(), description: s.string() })
+          s.object({ title: s.string(), description: s.string() }),
         ),
       }),
       [
@@ -538,7 +538,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-01T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -569,7 +569,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.object({ title: s.string(), description: s.string() })
+          s.object({ title: s.string(), description: s.string() }),
         ),
       }),
       [
@@ -600,7 +600,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-02T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -650,7 +650,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.object({ title: s.string(), description: s.string() })
+          s.object({ title: s.string(), description: s.string() }),
         ),
       }),
       [
@@ -693,7 +693,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-03T00:00:00Z",
           author: "author2",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -752,7 +752,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         array: s.array(
-          s.object({ title: s.string(), description: s.string() })
+          s.object({ title: s.string(), description: s.string() }),
         ),
       }),
       [
@@ -795,7 +795,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-03T00:00:00Z",
           author: "author2",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -854,8 +854,8 @@ describe("PatchSet", () => {
               type: s.literal("article"),
               name: s.string(),
               text: s.string(),
-            })
-          )
+            }),
+          ),
         ),
       }),
       [
@@ -911,7 +911,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-03T00:00:00Z",
           author: "author2",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -990,7 +990,7 @@ describe("PatchSet", () => {
                 s.object({
                   "sub-type": s.literal("sub-type2"),
                   value: s.number(),
-                })
+                }),
               ),
             }),
             s.object({
@@ -1007,10 +1007,10 @@ describe("PatchSet", () => {
                     "sub-type": s.literal("sub-type3"),
                     value: s.number(),
                   }),
-                })
+                }),
               ),
-            })
-          )
+            }),
+          ),
         ),
       }),
       [
@@ -1038,7 +1038,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-02T00:00:00Z",
           author: "author1",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -1108,10 +1108,10 @@ describe("PatchSet", () => {
                     "sub-type": s.literal("sub-type3"),
                     value: s.number(),
                   }),
-                })
+                }),
               ),
-            })
-          )
+            }),
+          ),
         ),
       }),
       [
@@ -1153,7 +1153,7 @@ describe("PatchSet", () => {
           createdAt: "2021-01-03T00:00:00Z",
           author: "author2",
         },
-      ]
+      ],
     );
     const expected = [
       {
@@ -1211,7 +1211,7 @@ function testPatchSet(
   moduleFilePath: ModuleFilePath,
   schema: Schema<SelectorSource>,
   patches: TestData[],
-  prev?: PatchSets
+  prev?: PatchSets,
 ) {
   const patchSet = prev || new PatchSets();
   for (const patch of patches) {
@@ -1222,7 +1222,7 @@ function testPatchSet(
         op,
         patch.patchId,
         patch.createdAt,
-        patch.author
+        patch.author,
       );
     }
   }

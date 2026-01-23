@@ -15,7 +15,7 @@ export function getKeysOf(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, Json>,
   parent: ModuleFilePath,
-  keyOfRecord?: string // NOTE: if this is defined we find keys of this specific record, if not we find all potential references
+  keyOfRecord?: string, // NOTE: if this is defined we find keys of this specific record, if not we find all potential references
 ): SourcePath[] {
   const parentSource = sources[parent];
   if (parentSource === undefined) {
@@ -32,7 +32,7 @@ export function getKeysOf(
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
-    source: Json
+    source: Json,
   ) => {
     if (schema === undefined) {
       console.error(`Schema not found for ${sourcePath}`);
@@ -46,7 +46,7 @@ export function getKeysOf(
               results.push(sourcePath);
             } else {
               console.error(
-                `Duplicate keyOf reference found for ${sourcePath} in ${parent}`
+                `Duplicate keyOf reference found for ${sourcePath} in ${parent}`,
               );
             }
           }
@@ -55,7 +55,7 @@ export function getKeysOf(
             results.push(sourcePath);
           } else {
             console.error(
-              `Duplicate keyOf reference found for ${sourcePath} in ${parent}`
+              `Duplicate keyOf reference found for ${sourcePath} in ${parent}`,
             );
           }
         }
@@ -117,7 +117,7 @@ export function getKeysOf(
       const exhaustiveCheck: never = schema;
       console.error(
         `Could not get keyOf references. Unhandled schema type`,
-        exhaustiveCheck
+        exhaustiveCheck,
       );
     }
   };
@@ -126,7 +126,7 @@ export function getKeysOf(
     go(
       moduleFilePathS as SourcePath,
       schemas[moduleFilePath],
-      sources[moduleFilePath]
+      sources[moduleFilePath],
     );
   }
   return results;
@@ -134,13 +134,13 @@ export function getKeysOf(
 
 function sourcePathConcat(
   sourcePath: SourcePath,
-  key: string | number
+  key: string | number,
 ): SourcePath {
   if (sourcePath.includes(ModuleFilePathSep)) {
     return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
   }
   return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key
+    key,
   )}` as SourcePath;
 }
 

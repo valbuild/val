@@ -36,7 +36,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
-    undefined
+    undefined,
   );
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
-    null
+    null,
   );
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
@@ -75,7 +75,7 @@ export function ImageField({ path }: { path: SourcePath }) {
           typeof metadata.height !== "number"
         ) {
           console.warn(
-            `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`
+            `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`,
           );
           return;
         }
@@ -94,7 +94,7 @@ export function ImageField({ path }: { path: SourcePath }) {
               });
             } else {
               console.warn(
-                `Expected hotspot to have x and y as numbers but x was: ${typeof x} and y: ${typeof y}`
+                `Expected hotspot to have x and y as numbers but x was: ${typeof x} and y: ${typeof y}`,
               );
             }
           }
@@ -204,7 +204,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         path: patchPath.concat(["metadata", "alt"]),
                       },
                     ],
-                    "string"
+                    "string",
                   );
                 } else if (source.metadata && !("alt" in source.metadata)) {
                   addPatch(
@@ -215,7 +215,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         path: patchPath.concat(["metadata", "alt"]),
                       },
                     ],
-                    "string"
+                    "string",
                   );
                 } else if (source.metadata === undefined) {
                   addPatch(
@@ -229,11 +229,11 @@ export function ImageField({ path }: { path: SourcePath }) {
                         path: patchPath.concat(["metadata"]),
                       },
                     ],
-                    "object"
+                    "object",
                   );
                 } else {
                   console.warn(
-                    `Expected source.metadata to be an object but got ${typeof source.metadata}`
+                    `Expected source.metadata to be an object but got ${typeof source.metadata}`,
                   );
                 }
               }}
@@ -275,7 +275,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         value: hotspot,
                       },
                     ],
-                    "object"
+                    "object",
                   );
                 } else if (source.metadata) {
                   addPatch(
@@ -286,7 +286,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         value: hotspot,
                       },
                     ],
-                    "object"
+                    "object",
                   );
                 } else if (source.metadata === undefined) {
                   addPatch(
@@ -299,11 +299,11 @@ export function ImageField({ path }: { path: SourcePath }) {
                         path: patchPath.concat(["metadata"]),
                       },
                     ],
-                    "object"
+                    "object",
                   );
                 } else {
                   console.warn(
-                    `Expected source.metadata to be an object but got ${typeof source.metadata}`
+                    `Expected source.metadata to be an object but got ${typeof source.metadata}`,
                   );
                 }
               }}
@@ -358,7 +358,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 metadata,
                 type,
                 remoteData,
-                config.files?.directory
+                config.files?.directory,
               )
                 .then((patch) => {
                   setLoading(true);
@@ -375,7 +375,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         (bytesUploaded * (currentFile + 1)) /
                         (totalBytes * totalFiles);
                       setProgressPercentage(Math.round(overallProgress * 100));
-                    }
+                    },
                   ).finally(() => {
                     setProgressPercentage(null);
                     setLoading(false);
@@ -406,7 +406,7 @@ function getRemoteFilesError(
     | "error-could-not-get-settings"
     | "no-internet-connection"
     | "unauthorized-personal-access-token-error"
-    | "unauthorized"
+    | "unauthorized",
 ) {
   switch (reason) {
     case "api-key-missing":

@@ -51,7 +51,7 @@ export function NavMenuV2({
   const [isExternalSelected, setIsExternalSelected] = useState(false);
   // Track accordion open state (controlled)
   const [accordionValue, setAccordionValue] = useState<string | undefined>(
-    undefined
+    undefined,
   );
 
   // Check if current path is external
@@ -93,7 +93,7 @@ export function NavMenuV2({
         layout.navMenu.setOpen(false);
       }
     },
-    [navigate, layout.navMenu]
+    [navigate, layout.navMenu],
   );
 
   const handleExternalClick = useCallback(() => {
@@ -110,7 +110,7 @@ export function NavMenuV2({
         onAddPage(moduleFilePath as ModuleFilePath, urlPath);
       }
     },
-    [onAddPage]
+    [onAddPage],
   );
 
   // Calculate max height for scrollable content
@@ -271,7 +271,7 @@ export function NavMenuV2({
  */
 function checkSitemapActive(
   item: NavMenuData["sitemap"],
-  currentPath: string
+  currentPath: string,
 ): boolean {
   if (!item) return false;
 

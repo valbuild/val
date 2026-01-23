@@ -41,7 +41,7 @@ export function FieldSourceError({
                       value: emptyOf(schema.data) as JSONValue,
                     },
                   ],
-                  schema.data.type
+                  schema.data.type,
                 );
               }}
             >

@@ -27,7 +27,7 @@ function MockedNavMenuV2({
   isLoading?: boolean;
 }) {
   const [activeSection, setActiveSection] = useState<string | undefined>(
-    data.sitemap ? "sitemap" : data.explorer ? "explorer" : undefined
+    data.sitemap ? "sitemap" : data.explorer ? "explorer" : undefined,
   );
 
   const handleNavigate = (path: string) => {

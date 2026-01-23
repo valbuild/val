@@ -44,7 +44,7 @@ describe("schemaTypesOfPath", () => {
     const schema = s.union(
       "type",
       s.object({ type: s.literal("string"), value: s.string() }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["value"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -59,10 +59,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1") }),
-          s.object({ test: s.literal("type2"), innerNumber: s.number() })
+          s.object({ test: s.literal("type2"), innerNumber: s.number() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -77,10 +77,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1") }),
-          s.object({ test: s.literal("type2"), innerNumber: s.number() })
+          s.object({ test: s.literal("type2"), innerNumber: s.number() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner", "innerNumber"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -95,10 +95,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
-          s.object({ test: s.literal("type2"), innerValue: s.number() })
+          s.object({ test: s.literal("type2"), innerValue: s.number() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner", "innerValue"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -113,10 +113,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
-          s.object({ test: s.literal("type2"), innerValue: s.number() })
+          s.object({ test: s.literal("type2"), innerValue: s.number() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner", "innerValue"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -131,10 +131,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
-          s.object({ test: s.literal("type2"), innerValue: s.string() })
+          s.object({ test: s.literal("type2"), innerValue: s.string() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner", "innerValue"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -149,10 +149,10 @@ describe("schemaTypesOfPath", () => {
         inner: s.union(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
-          s.object({ test: s.literal("type2"), innerValue: s.string() })
+          s.object({ test: s.literal("type2"), innerValue: s.string() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["value"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
@@ -170,10 +170,10 @@ describe("schemaTypesOfPath", () => {
             test: s.literal("type1"),
             innerValue: s.object({ test: s.string() }),
           }),
-          s.object({ test: s.literal("type2"), innerValue: s.number() })
+          s.object({ test: s.literal("type2"), innerValue: s.number() }),
         ),
       }),
-      s.object({ type: s.literal("number"), value: s.number() })
+      s.object({ type: s.literal("number"), value: s.number() }),
     );
     const patchPath = ["inner", "innerValue"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);

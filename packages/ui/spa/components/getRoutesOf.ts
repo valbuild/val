@@ -13,7 +13,7 @@ export type RouteInfo = {
  */
 export function getRoutesWithModulePaths(
   schemas: Record<ModuleFilePath, SerializedSchema>,
-  sources: Record<ModuleFilePath, Json>
+  sources: Record<ModuleFilePath, Json>,
 ): RouteInfo[] {
   const routeMap = new Map<string, ModuleFilePath>();
 
@@ -45,7 +45,7 @@ export function getRoutesWithModulePaths(
     ([route, moduleFilePath]) => ({
       route,
       moduleFilePath,
-    })
+    }),
   );
 
   return routes.sort((a, b) => a.route.localeCompare(b.route));
@@ -59,7 +59,7 @@ export function getRoutesWithModulePaths(
  */
 export function getRoutesOf(
   schemas: Record<ModuleFilePath, SerializedSchema>,
-  sources: Record<ModuleFilePath, Json>
+  sources: Record<ModuleFilePath, Json>,
 ): string[] {
   return getRoutesWithModulePaths(schemas, sources).map((r) => r.route);
 }

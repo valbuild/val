@@ -11,7 +11,7 @@ import {
 export function resolvePatchPath(
   patchPath: string[],
   schema: SerializedSchema | undefined,
-  source: Json | undefined
+  source: Json | undefined,
 ):
   | {
       success: true;
@@ -69,7 +69,7 @@ export function resolvePatchPath(
       return {
         success: false,
         error: `Empty path part in: '${patchPath.join(
-          "/"
+          "/",
         )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
       };
     }
@@ -80,7 +80,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid array index in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an integer but got '${part}' at part ${i} (sliced: ${patchPath
             .slice(0, i + 1)
             .join("/")})`,
@@ -90,7 +90,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid source type in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an object but got '${typeof currentSource}' at part ${i} (sliced: ${patchPath
             .slice(0, i + 1)
             .join("/")})`,
@@ -100,7 +100,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid source type in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an object but got 'null' at part ${i} (sliced: ${patchPath
             .slice(0, i + 1)
             .join("/")})`,
@@ -110,7 +110,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid source type in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an object but got 'undefined' at part ${i} (sliced: ${patchPath
             .slice(0, i + 1)
             .join("/")})`,
@@ -120,7 +120,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid source type in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an array but got '${typeof currentSource}' at part ${i} (sliced: ${patchPath
             .slice(0, i + 1)
             .join("/")})`,
@@ -130,7 +130,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid array index in: '${patchPath.join(
-            "/"
+            "/",
           )}'. Expected an index less than ${
             currentSource.length
           } but got '${numberPart}' at part ${i} (sliced: ${patchPath
@@ -147,7 +147,7 @@ export function resolvePatchPath(
         part,
         i,
         currentSource,
-        "record"
+        "record",
       );
       if (!currentObjectSourceRes.success) {
         return {
@@ -164,7 +164,7 @@ export function resolvePatchPath(
         part,
         i,
         currentSource,
-        "record"
+        "record",
       );
       if (!currentObjectSourceRes.success) {
         return {
@@ -195,7 +195,7 @@ export function resolvePatchPath(
           part,
           i,
           currentSource,
-          "union object"
+          "union object",
         );
         if (!currentObjectSourceRes.success) {
           return {
@@ -218,7 +218,7 @@ export function resolvePatchPath(
             return {
               success: false,
               error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
-                "/"
+                "/",
               )}' at part ${i} (sliced: ${patchPath
                 .slice(0, i + 1)
                 .join("/")})`,
@@ -229,7 +229,7 @@ export function resolvePatchPath(
           return {
             success: false,
             error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
-              "/"
+              "/",
             )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
           };
         }
@@ -240,7 +240,7 @@ export function resolvePatchPath(
         return {
           success: false,
           error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
-            "/"
+            "/",
           )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
         };
       }
@@ -253,7 +253,7 @@ export function resolvePatchPath(
         part,
         i,
         currentSource,
-        "record"
+        "record",
       );
       if (!currentObjectSourceRes.success) {
         return {
@@ -269,7 +269,7 @@ export function resolvePatchPath(
         error: `Cannot construct sub-path in schema of '${
           currentSchema.type
         }' in: '${patchPath.join("/")}'. Path was: '${patchPath.join(
-          "/"
+          "/",
         )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")}`,
       };
     }
@@ -293,7 +293,7 @@ function getObjectSourceOrError(
   part: string,
   i: number,
   source: Json,
-  expectedType: string
+  expectedType: string,
 ):
   | {
       success: true;
@@ -307,7 +307,7 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Invalid source type in: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected an '${expectedType}' but got '${typeof source}' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,
@@ -317,7 +317,7 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Invalid source type in: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected an '${expectedType}' but got 'null' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,
@@ -327,7 +327,7 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Invalid source type in: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected an '${expectedType}' but got 'undefined' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,
@@ -337,7 +337,7 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Invalid source type in: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected an '${expectedType}' but got '${typeof source}' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,
@@ -347,7 +347,7 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Invalid source type in: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected an '${expectedType}' but got 'array' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,
@@ -357,9 +357,9 @@ function getObjectSourceOrError(
     return {
       success: false,
       error: `Could not find key of source: '${patchPath.join(
-        "/"
+        "/",
       )}'. Expected a key in ${Object.keys(source).join(
-        ", "
+        ", ",
       )} but got '${part}' at part ${i} (sliced: ${patchPath
         .slice(0, i + 1)
         .join("/")})`,

@@ -1,5 +1,4 @@
 import { SourcePath } from "@valbuild/core";
-import { useParent } from "../hooks/useParent";
 import { Preview } from "./Preview";
 import { Globe } from "lucide-react";
 

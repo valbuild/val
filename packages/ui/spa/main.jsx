@@ -13,7 +13,7 @@ if (valAppElem) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <App></App>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
   valAppElem.appendChild(root);
   window.dispatchEvent(new CustomEvent("val-ui-created"));
@@ -22,7 +22,7 @@ if (valAppElem) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <Overlay></Overlay>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
   valOverlayElem.appendChild(root);
   window.dispatchEvent(new CustomEvent("val-ui-created"));
@@ -33,7 +33,7 @@ if (valAppElem) {
 function appendValRoot(elem) {
   if (!root) {
     console.error(
-      "Val: could not mount Val element. Check your configuration."
+      "Val: could not mount Val element. Check your configuration.",
     );
     return;
   }
@@ -43,7 +43,7 @@ function appendValRoot(elem) {
   }
   if (elem.childElementCount > 0) {
     console.error(
-      "Val: could not append root element, mount point is not empty."
+      "Val: could not append root element, mount point is not empty.",
     );
     return;
   }

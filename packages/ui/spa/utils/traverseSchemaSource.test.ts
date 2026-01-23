@@ -2,7 +2,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  SerializedSchema,
   SourcePath,
   ValModule,
   initVal,
@@ -44,7 +43,7 @@ describe("traverseSchemaSource", () => {
       const module = c.define(
         "/test.val.ts",
         s.object({ value: s.boolean() }),
-        { value: true }
+        { value: true },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -76,7 +75,7 @@ describe("traverseSchemaSource", () => {
               ],
             },
           ],
-        }
+        },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath }> = [];
@@ -130,7 +129,7 @@ describe("traverseSchemaSource", () => {
           level1: {
             level2: "nested value",
           },
-        }
+        },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -154,7 +153,7 @@ describe("traverseSchemaSource", () => {
         {
           item1: { name: "Item 1" },
           item2: { name: "Item 2" },
-        }
+        },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -173,7 +172,7 @@ describe("traverseSchemaSource", () => {
       const module = c.define(
         "/test.val.ts",
         s.object({ items: s.array(s.string()) }),
-        { items: ["foo", "bar", "baz"] }
+        { items: ["foo", "bar", "baz"] },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -196,10 +195,10 @@ describe("traverseSchemaSource", () => {
           item: s.union(
             "type",
             s.object({ type: s.literal("text"), content: s.string() }),
-            s.object({ type: s.literal("link"), href: s.string() })
+            s.object({ type: s.literal("link"), href: s.string() }),
           ),
         }),
-        { item: { type: "text", content: "Hello" } }
+        { item: { type: "text", content: "Hello" } },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -218,7 +217,7 @@ describe("traverseSchemaSource", () => {
         s.object({
           value: s.union(s.literal("foo"), s.literal("bar")),
         }),
-        { value: "foo" }
+        { value: "foo" },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -250,12 +249,12 @@ describe("traverseSchemaSource", () => {
       const recordMod = c.define(
         "/records.val.ts",
         s.record(s.object({ name: s.string() })),
-        { key1: { name: "Name 1" } }
+        { key1: { name: "Name 1" } },
       );
       const module = c.define(
         "/test.val.ts",
         s.object({ key: s.keyOf(recordMod) }),
-        { key: "key1" }
+        { key: "key1" },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -271,7 +270,7 @@ describe("traverseSchemaSource", () => {
       const module = c.define(
         "/test.val.ts",
         s.object({ value: s.literal("fixed") }),
-        { value: "fixed" }
+        { value: "fixed" },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; value: Json }> = [];
@@ -303,7 +302,7 @@ describe("traverseSchemaSource", () => {
       const recordMod = c.define(
         "/records.val.ts",
         s.record(s.object({ title: s.string() })),
-        { rec1: { title: "Record 1" } }
+        { rec1: { title: "Record 1" } },
       );
       const module = c.define(
         "/test.val.ts",
@@ -319,8 +318,8 @@ describe("traverseSchemaSource", () => {
                 s.object({
                   type: s.literal("record"),
                   record: s.keyOf(recordMod),
-                })
-              )
+                }),
+              ),
             ),
           }),
         }),
@@ -342,7 +341,7 @@ describe("traverseSchemaSource", () => {
               },
             ],
           },
-        }
+        },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath }> = [];
@@ -370,10 +369,10 @@ describe("traverseSchemaSource", () => {
                 s.object({
                   type: s.literal("file"),
                   file: s.file(),
-                })
-              )
+                }),
+              ),
             ),
-          })
+          }),
         ),
         {
           item1: {
@@ -382,7 +381,7 @@ describe("traverseSchemaSource", () => {
               { type: "file", file: c.file("/public/val/test.pdf") },
             ],
           },
-        }
+        },
       );
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; source: Json }> = [];
@@ -442,7 +441,7 @@ describe("flattenRichText", () => {
 
 function getTestData(valModule: ValModule<SelectorSource>) {
   const moduleFilePath = Internal.getValPath(
-    valModule
+    valModule,
   ) as unknown as ModuleFilePath;
   const schema = Internal.getSchema(valModule)?.["executeSerialize"]();
   if (!schema) {

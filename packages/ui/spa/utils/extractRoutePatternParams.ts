@@ -2,7 +2,7 @@ import { RoutePattern } from "@valbuild/shared/internal";
 
 export function extractRoutePatternParams(
   routePattern: RoutePattern[],
-  fullUrlPath: string
+  fullUrlPath: string,
 ):
   | { status: "success"; params: { [paramName: string]: string | string[] } }
   | { status: "error"; message: string } {

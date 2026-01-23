@@ -4,7 +4,6 @@ import {
   ModuleFilePath,
   SerializedSchema,
   initVal,
-  ValRouter,
 } from "@valbuild/core";
 
 /**
@@ -29,7 +28,7 @@ function createMockData() {
         s.object({
           title: s.string(),
           content: s.richtext(),
-        })
+        }),
       )
       .router(mockRouter),
     {
@@ -64,7 +63,7 @@ function createMockData() {
           },
         ],
       },
-    }
+    },
   );
 
   // Articles record
@@ -75,7 +74,7 @@ function createMockData() {
         title: s.string(),
         description: s.string(),
         author: s.string(),
-      })
+      }),
     ),
     {
       "article-1": {
@@ -89,7 +88,7 @@ function createMockData() {
         description: "Learn the best practices for building React applications",
         author: "Jane Smith",
       },
-    }
+    },
   );
 
   // Settings object
@@ -102,7 +101,7 @@ function createMockData() {
     {
       siteName: "Val Documentation",
       siteDescription: "The official documentation for Val",
-    }
+    },
   );
 
   // Authors record
@@ -112,7 +111,7 @@ function createMockData() {
       s.object({
         name: s.string(),
         bio: s.richtext(),
-      })
+      }),
     ),
     {
       "author-1": {
@@ -137,7 +136,7 @@ function createMockData() {
           },
         ],
       },
-    }
+    },
   );
 
   // Extract schemas and sources from the modules

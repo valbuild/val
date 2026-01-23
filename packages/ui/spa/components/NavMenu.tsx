@@ -325,7 +325,7 @@ function ExternalUrlsButton({
         "flex items-center gap-2 w-full p-4 border-t border-border-primary hover:bg-bg-secondary text-sm",
         {
           "bg-bg-secondary": isActive,
-        }
+        },
       )}
       onClick={() => {
         if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
@@ -425,7 +425,7 @@ function ExplorerNode({
             "p-2": !root,
             underline: currentSourcePath.startsWith(path) && !isDirectory,
             "font-bold": currentSourcePath.startsWith(path) && isDirectory,
-          }
+          },
         )}
         onClick={() => {
           if (isDirectory) {

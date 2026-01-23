@@ -2,7 +2,7 @@ import { useState } from "react";
 import { cn } from "./designSystem/cn";
 
 export function AutoGrowingTextarea(
-  props: React.TextareaHTMLAttributes<HTMLTextAreaElement>
+  props: React.TextareaHTMLAttributes<HTMLTextAreaElement>,
 ) {
   const [text, setText] = useState(props.value || props.defaultValue || "");
   const className =
@@ -14,7 +14,7 @@ export function AutoGrowingTextarea(
         className={cn(
           "resize-none overflow-hidden",
           className,
-          props.className
+          props.className,
         )}
         style={{
           gridArea: "1 / 1 / 2 / 2",
@@ -28,7 +28,7 @@ export function AutoGrowingTextarea(
         className={cn(
           "whitespace-pre-wrap invisible",
           className,
-          props.className
+          props.className,
         )}
         style={{
           gridArea: "1 / 1 / 2 / 2",

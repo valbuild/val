@@ -35,7 +35,7 @@ import { ValidationErrors } from "../../components/ValidationError";
 import { isJsonArray } from "../../utils/isJsonArray";
 
 function isStringUnion(
-  schema: SerializedUnionSchema
+  schema: SerializedUnionSchema,
 ): schema is SerializedStringUnionSchema {
   if (typeof schema.key === "string") {
     return false;
@@ -211,7 +211,7 @@ function ObjectUnionField({
           });
           if (selectedSchema?.items === undefined) {
             console.error(
-              `Selected schema with ${schema.key} = ${value} not found`
+              `Selected schema with ${schema.key} = ${value} not found`,
             );
             return;
           }
@@ -228,7 +228,7 @@ function ObjectUnionField({
                 value: newValue,
               },
             ],
-            schema.type
+            schema.type,
           );
         }}
       >
@@ -294,7 +294,7 @@ function SelectField({
               value: value,
             },
           ],
-          "union"
+          "union",
         );
       }}
     >

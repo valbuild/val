@@ -6,7 +6,7 @@ import { getKeysOf } from "./getKeysOf";
 
 export function useKeysOf(
   parentPath: ModuleFilePath | undefined,
-  keyValue?: string
+  keyValue?: string,
 ) {
   const schemas = useSchemas();
   const loadingStatus = useLoadingStatus();
