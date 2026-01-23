@@ -215,17 +215,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
                       onSelect={() => handleSelect(navPath)}
                       className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
                     >
-                      <div className="flex items-center gap-2 w-full">
-                        <Globe className="h-4 w-4 text-fg-tertiary shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          {url && (
-                            <div className="text-sm font-mono text-fg-secondary mb-1">
-                              {url}
-                            </div>
-                          )}
-                          <SearchItem path={navPath as SourcePath} />
-                        </div>
-                      </div>
+                      <SearchItem path={navPath as SourcePath} url={url} />
                     </CommandItem>
                   );
                 })}
@@ -244,7 +234,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
                       onSelect={() => handleSelect(navPath)}
                       className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
                     >
-                      <SearchItem path={navPath as SourcePath} />
+                      <SearchItem path={navPath as SourcePath} url={null} />
                     </CommandItem>
                   );
                 })}
