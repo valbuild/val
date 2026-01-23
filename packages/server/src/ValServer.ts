@@ -48,6 +48,7 @@ import {
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { ReifiedRender } from "@valbuild/core";
+import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
   route: string;
@@ -662,20 +663,59 @@ export const ValServer = (
             headers: getAuthHeaders(data.token, "application/json"),
           });
           if (fetchRes.status === 200) {
-            return {
-              status: fetchRes.status,
-              json: {
-                mode: "proxy",
-                enabled: await callbacks.isEnabled(),
-                ...(await fetchRes.json()),
-              },
-            };
+            const json = z
+              .object({
+                member_role: z
+                  .union([
+                    z.literal("owner"),
+                    z.literal("developer"),
+                    z.literal("editor"),
+                  ])
+                  .optional(),
+                id: z.string(),
+                full_name: z.string().optional(),
+                username: z.string().optional(),
+                avatar_url: z.string().optional(),
+              })
+              .safeParse(await fetchRes.json());
+            if (json.success) {
+              return {
+                status: fetchRes.status,
+                json: {
+                  mode: "proxy",
+                  enabled: await callbacks.isEnabled(),
+                  ...json.data,
+                },
+              };
+            } else {
+              const message = getErrorMessageFromUnknownJson(
+                json,
+                "Could not parse session response. Unexpected error (no error message). Status: " +
+                  fetchRes.status,
+              );
+              return {
+                status: 500,
+                json: {
+                  message: message,
+                  ...json,
+                },
+              };
+            }
           } else {
+            const json = z
+              .object({
+                message: z.string(),
+              })
+              .safeParse(await fetchRes.json());
+            const message = getErrorMessageFromUnknownJson(
+              json,
+              "Unknown error",
+            );
             return {
               status: fetchRes.status as ValServerErrorStatus,
               json: {
-                message: "Failed to authorize",
-                ...(await fetchRes.json()),
+                message: message,
+                ...json,
               },
             };
           }
@@ -1866,10 +1906,26 @@ function getStateFromCookie(stateCookie: string):
 
 async function createJsonError(fetchRes: Response): Promise<ValServerError> {
   if (fetchRes.headers.get("Content-Type")?.includes("application/json")) {
-    return {
-      status: fetchRes.status as ValServerErrorStatus,
-      json: await fetchRes.json(),
-    };
+    const json = z
+      .object({
+        message: z.string(),
+      })
+      .safeParse(await fetchRes.json());
+    if (json.success) {
+      return {
+        status: fetchRes.status as ValServerErrorStatus,
+        json: json.data,
+      };
+    } else {
+      const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      return {
+        status: fetchRes.status as ValServerErrorStatus,
+        json: {
+          message: message,
+          ...json,
+        },
+      };
+    }
   }
   console.error(
     "Unexpected failure (did not get a json) - Val down?",

@@ -165,6 +165,10 @@ importers:
       zod:
         specifier: ^4.3.5
         version: 4.3.5
+    devDependencies:
+      '@jest/globals':
+        specifier: ^30.2.0
+        version: 30.2.0
 
   packages/core:
     dependencies:
@@ -319,6 +323,9 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
     devDependencies:
+      '@types/react':
+        specifier: ^18.2.38
+        version: 18.2.38
       next:
         specifier: ^13.4.0
         version: 13.5.11(@babel/core@7.28.6)(babel-plugin-macros@3.1.0)(react-dom@19.2.3(react@18.3.1))(react@18.3.1)
