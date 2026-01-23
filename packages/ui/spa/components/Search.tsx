@@ -34,6 +34,7 @@ type SearchResult = {
 export function Search() {
   const [isActive, setIsActive] = useState(false);
 
+  console.log("Search");
   // Handle Cmd+K (Mac) or Ctrl+K (other platforms) to activate search
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -94,23 +95,55 @@ function SearchTrigger({ onActivate }: { onActivate: () => void }) {
 }
 
 function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
+  const sources = useAllSources();
+  const schemasRes = useSchemas();
+  const { navigate } = useNavigation();
+
+  const schemas =
+    schemasRes.status === "success" ? schemasRes.data : undefined;
+
+  const handleSelect = useCallback(
+    (path: SourcePath | ModuleFilePath) => {
+      navigate(path);
+      onDeactivate();
+    },
+    [navigate, onDeactivate],
+  );
+
+  return (
+    <SearchField
+      sources={sources}
+      schemas={schemas}
+      onSelect={handleSelect}
+      onDeactivate={onDeactivate}
+    />
+  );
+}
+
+export function SearchField({
+  sources,
+  schemas,
+  onSelect,
+  onDeactivate,
+}: {
+  sources: Record<ModuleFilePath, Json>;
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
+  onSelect: (path: SourcePath | ModuleFilePath) => void;
+  onDeactivate?: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [index, setIndex] = useState<FlexSearch.Index | null>(null);
   const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
     new Map(),
   );
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
-  const { navigate } = useNavigation();
 
   // Only build index when search input is focused
   useEffect(() => {
-    if (!isFocused || schemasRes.status !== "success" || index !== null) {
+    if (!isFocused || !schemas || index !== null) {
       return;
     }
 
-    const schemas = schemasRes.data;
     const modules: Record<
       ModuleFilePath,
       { source: Json; schema: SerializedSchema }
@@ -127,7 +160,7 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
     const result = buildIndex(modules);
     setIndex(result.index);
     setPathToLabel(result.pathToLabel);
-  }, [isFocused, schemasRes, sources, index]);
+  }, [isFocused, schemas, sources, index]);
 
   const results = useMemo((): SearchResult[] => {
     if (!index || !query.trim()) {
@@ -142,15 +175,16 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
 
   const handleSelect = useCallback(
     (path: SourcePath | ModuleFilePath) => {
-      navigate(path);
+      onSelect(path);
       setQuery("");
-      onDeactivate();
+      onDeactivate?.();
     },
-    [navigate, onDeactivate],
+    [onSelect, onDeactivate],
   );
 
   // Handle Escape key to close search
   useEffect(() => {
+    if (!onDeactivate) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onDeactivate();
@@ -159,8 +193,6 @@ function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [onDeactivate]);
-
-  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
 
   // Separate pages (router pages) from other results
   const { pages, otherResults } = useMemo(() => {
