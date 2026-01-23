@@ -8,6 +8,7 @@ import {
   AccordionTrigger,
 } from "../designSystem/accordion";
 import React from "react";
+import { ScrollArea, ScrollBar } from "../designSystem/scroll-area";
 
 export type SitemapSectionProps = {
   /** Sitemap data */
@@ -48,7 +49,7 @@ export function SitemapSection({
         </div>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
-        <div className="overflow-y-auto p-2" style={{ maxHeight }}>
+        <ScrollArea className="p-2" style={{ height: maxHeight }}>
           {sitemap.sourcePath ? (
             <SitemapItemNode
               key={sitemap.sourcePath}
@@ -72,7 +73,8 @@ export function SitemapSection({
               ))}
             </React.Fragment>
           )}
-        </div>
+          <ScrollBar orientation="vertical" />
+        </ScrollArea>
       </AccordionContent>
     </AccordionItem>
   );

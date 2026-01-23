@@ -4,7 +4,9 @@ import {
   mockNavMenuData,
   mockNavMenuDataSitemapOnly,
   mockNavMenuDataExplorerOnly,
+  mockSitemap,
   mockLargeSitemap,
+  mockLargeExplorer,
   mockExplorer,
   mockExternal,
 } from "../mockData";
@@ -171,4 +173,15 @@ export const LargeSitemap: Story = {
     },
   },
   name: "Large Sitemap (30 items)",
+};
+
+export const LargeExplorer: Story = {
+  args: {
+    data: {
+      sitemap: mockSitemap,
+      explorer: mockLargeExplorer,
+      external: mockExternal,
+    },
+  },
+  name: "Large Explorer (50+ items)",
 };
