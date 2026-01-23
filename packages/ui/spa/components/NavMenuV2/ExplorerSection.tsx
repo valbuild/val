@@ -7,6 +7,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../designSystem/accordion";
+import { ScrollArea } from "../designSystem/scroll-area";
 
 export type ExplorerSectionProps = {
   /** Explorer data */
@@ -41,13 +42,13 @@ export function ExplorerSection({
         </div>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
-        <div className="overflow-y-auto p-2" style={{ maxHeight }}>
+        <ScrollArea className="p-2" style={{ height: maxHeight }}>
           <ExplorerItemNode
             item={explorer}
             currentPath={currentPath}
             onNavigate={onNavigate}
           />
-        </div>
+        </ScrollArea>
       </AccordionContent>
     </AccordionItem>
   );

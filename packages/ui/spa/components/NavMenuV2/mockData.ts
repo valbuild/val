@@ -191,3 +191,66 @@ export const mockLargeSitemap: SitemapItem = {
     },
   ],
 };
+
+/**
+ * Large explorer for testing scroll behavior.
+ */
+export const mockLargeExplorer: ExplorerItem = {
+  name: "/",
+  fullPath: "/",
+  isDirectory: true,
+  children: [
+    {
+      name: "content",
+      fullPath: "/content",
+      isDirectory: true,
+      children: Array.from({ length: 20 }, (_, i) => ({
+        name: `article-${i + 1}.val.ts`,
+        fullPath: `/content/article-${i + 1}.val.ts`,
+        isDirectory: false,
+        children: [],
+        hasError: i === 5, // One file has an error
+      })),
+    },
+    {
+      name: "schema",
+      fullPath: "/schema",
+      isDirectory: true,
+      children: Array.from({ length: 15 }, (_, i) => ({
+        name: `schema-${i + 1}.val.ts`,
+        fullPath: `/schema/schema-${i + 1}.val.ts`,
+        isDirectory: false,
+        children: [],
+      })),
+    },
+    {
+      name: "components",
+      fullPath: "/components",
+      isDirectory: true,
+      children: [
+        {
+          name: "ui",
+          fullPath: "/components/ui",
+          isDirectory: true,
+          children: Array.from({ length: 10 }, (_, i) => ({
+            name: `component-${i + 1}.val.ts`,
+            fullPath: `/components/ui/component-${i + 1}.val.ts`,
+            isDirectory: false,
+            children: [],
+          })),
+        },
+        {
+          name: "layout",
+          fullPath: "/components/layout",
+          isDirectory: true,
+          children: Array.from({ length: 5 }, (_, i) => ({
+            name: `layout-${i + 1}.val.ts`,
+            fullPath: `/components/layout/layout-${i + 1}.val.ts`,
+            isDirectory: false,
+            children: [],
+          })),
+        },
+      ],
+    },
+  ],
+};
