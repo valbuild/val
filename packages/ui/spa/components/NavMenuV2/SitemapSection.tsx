@@ -7,6 +7,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../designSystem/accordion";
+import React from "react";
 
 export type SitemapSectionProps = {
   /** Sitemap data */
@@ -48,16 +49,29 @@ export function SitemapSection({
       </AccordionTrigger>
       <AccordionContent className="pb-0">
         <div className="overflow-y-auto p-2" style={{ maxHeight }}>
-          {sitemap.children.map((child, index) => (
+          {sitemap.sourcePath ? (
             <SitemapItemNode
-              key={child.sourcePath || `${child.urlPath}-${index}`}
-              item={child}
+              key={sitemap.sourcePath}
+              item={sitemap}
               currentPath={currentPath}
               onNavigate={onNavigate}
               onAddPage={onAddPage}
               portalContainer={portalContainer}
             />
-          ))}
+          ) : (
+            <React.Fragment>
+              {sitemap.children.map((child, index) => (
+                <SitemapItemNode
+                  key={child.sourcePath || `${child.urlPath}-${index}`}
+                  item={child}
+                  currentPath={currentPath}
+                  onNavigate={onNavigate}
+                  onAddPage={onAddPage}
+                  portalContainer={portalContainer}
+                />
+              ))}
+            </React.Fragment>
+          )}
         </div>
       </AccordionContent>
     </AccordionItem>

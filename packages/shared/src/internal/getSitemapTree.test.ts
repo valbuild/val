@@ -304,7 +304,7 @@ describe("getNextAppRouterSitemapTree", () => {
       page: {
         fullPath: "/",
       },
-      sourcePath: "/app/page.val.ts?p=/",
+      sourcePath: '/app/page.val.ts?p="/"',
       moduleFilePath: "/app/page.val.ts" as ModuleFilePath,
     });
   });
@@ -323,7 +323,7 @@ describe("getNextAppRouterSitemapTree", () => {
       page: {
         fullPath: "/",
       },
-      sourcePath: "/app/page.val.ts?p=/",
+      sourcePath: '/app/page.val.ts?p="/"',
       moduleFilePath: "/app/page.val.ts" as ModuleFilePath,
     });
   });
@@ -430,7 +430,7 @@ describe("getNextAppRouterSitemapTree", () => {
       page: {
         fullPath: "/",
       },
-      sourcePath: "/app/page.val.ts?p=/",
+      sourcePath: '/app/page.val.ts?p="/"',
       moduleFilePath: "/app/page.val.ts",
       children: [
         {
