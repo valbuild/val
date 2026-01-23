@@ -75,7 +75,7 @@ export function SortableList({
     useSensor(TouchSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    }),
+    })
   );
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -83,10 +83,10 @@ export function SortableList({
 
       if (active?.id !== over?.id) {
         const oldIndex = items.findIndex(
-          (item) => item.id === Number(active?.id),
+          (item) => item.id === Number(active?.id)
         );
         const newIndex = items.findIndex(
-          (item) => item.id === Number(over?.id),
+          (item) => item.id === Number(over?.id)
         );
         setItems((items) => {
           return arrayMove(items, oldIndex, newIndex);
@@ -94,7 +94,7 @@ export function SortableList({
         onMove(oldIndex, newIndex); // DndKit is 1-based, we're 0-based
       }
     },
-    [items],
+    [items]
   );
   return (
     <DndContext
@@ -125,13 +125,13 @@ export function SortableList({
                 onDelete={(id) => {
                   onDelete(
                     /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                    id - 1,
+                    id - 1
                   );
                 }}
                 onDuplicate={(id) => {
                   onDuplicate(
                     /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                    id - 1,
+                    id - 1
                   );
                 }}
               />
@@ -232,7 +232,7 @@ export function SortableItem({
             "flex-grow",
             "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
             "hover:bg-bg-secondary-hover",
-            "overflow-y-clip",
+            "overflow-y-clip"
           )}
           style={{
             maxHeight: LIST_ITEM_MAX_HEIGHT,
@@ -269,7 +269,7 @@ export function SortableItem({
             {
               "items-start mt-4": !centerGripAndDeleteIcons,
               "items-center py-2": centerGripAndDeleteIcons,
-            },
+            }
           )}
         >
           <EllipsisVertical size={16} />

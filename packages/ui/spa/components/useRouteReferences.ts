@@ -10,7 +10,7 @@ import { getRouteReferences } from "./getRouteReferences";
  * Returns an array of SourcePaths for all s.route() fields pointing to this route key.
  */
 export function useEagerRouteReferences(
-  routeKey: string | undefined,
+  routeKey: string | undefined
 ): SourcePath[] {
   const schemas = useSchemas();
   const loadingStatus = useLoadingStatus();

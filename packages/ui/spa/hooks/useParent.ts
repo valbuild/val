@@ -11,7 +11,7 @@ export function useParent(path: SourcePath) {
     Internal.splitModuleFilePathAndModulePath(path);
   const maybeParentPath = Internal.joinModuleFilePathAndModulePath(
     moduleFilePath,
-    Internal.splitModulePath(modulePath).slice(0, -1).join(".") as ModulePath,
+    Internal.splitModulePath(modulePath).slice(0, -1).join(".") as ModulePath
   );
   const parentSchemaAtPath = useSchemaAtPath(maybeParentPath);
   return {
@@ -23,12 +23,12 @@ export function useParent(path: SourcePath) {
 export const isParentRecord = (
   path: SourcePath,
   maybeParentPath: SourcePath,
-  parentSchemaAtPath: SerializedSchema | undefined,
+  parentSchemaAtPath: SerializedSchema | undefined
 ) => maybeParentPath !== path && parentSchemaAtPath?.type === "record";
 export const isParentArray = (
   path: SourcePath,
   maybeParentPath: SourcePath,
-  parentSchemaAtPath: SerializedSchema | undefined,
+  parentSchemaAtPath: SerializedSchema | undefined
 ) => maybeParentPath !== path && parentSchemaAtPath?.type === "array";
 export const isRecord = (schema: SerializedSchema | undefined) =>
   schema?.type === "record";

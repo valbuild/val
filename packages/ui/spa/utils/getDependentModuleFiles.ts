@@ -7,7 +7,7 @@ import { Internal, ModuleFilePath, SerializedSchema } from "@valbuild/core";
  **/
 export function getDependentModuleFiles(
   moduleFilePath: ModuleFilePath,
-  schema: Record<ModuleFilePath, SerializedSchema>,
+  schema: Record<ModuleFilePath, SerializedSchema>
 ) {
   const schemaAtModule = schema[moduleFilePath];
   const dependentModulePaths: Set<ModuleFilePath> = new Set();
@@ -16,7 +16,7 @@ export function getDependentModuleFiles(
   }
   function rec(
     rootModuleFilePath: ModuleFilePath,
-    schemaNode: SerializedSchema,
+    schemaNode: SerializedSchema
   ) {
     if (schemaNode.type === "array" || schemaNode.type === "record") {
       rec(rootModuleFilePath, schemaNode.item);
@@ -26,7 +26,7 @@ export function getDependentModuleFiles(
       }
     } else if (schemaNode.type === "keyOf") {
       const [dependency] = Internal.splitModuleFilePathAndModulePath(
-        schemaNode.path,
+        schemaNode.path
       );
       if (dependency === moduleFilePath) {
         dependentModulePaths.add(rootModuleFilePath);
@@ -55,7 +55,9 @@ export function getDependentModuleFiles(
     } else {
       const exhaustiveCheck: never = schemaNode;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msg = `Val: getDependentModuleFiles: unexpected schema type: ${(exhaustiveCheck as any)?.type}`;
+      const msg = `Val: getDependentModuleFiles: unexpected schema type: ${
+        (exhaustiveCheck as any)?.type
+      }`;
       console.error(msg);
       throw new Error(msg);
     }

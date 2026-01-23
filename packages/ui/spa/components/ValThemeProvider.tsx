@@ -14,10 +14,12 @@ const ValThemeContext = React.createContext<ValThemeContextValue>(
     {},
     {
       get: () => {
-        throw new Error("Cannot use ValThemeContext outside of ValThemeProvider");
+        throw new Error(
+          "Cannot use ValThemeContext outside of ValThemeProvider"
+        );
       },
-    },
-  ) as ValThemeContextValue,
+    }
+  ) as ValThemeContextValue
 );
 
 export function ValThemeProvider({
@@ -38,7 +40,7 @@ export function ValThemeProvider({
           sessionStorage.setItem(VAL_THEME_SESSION_STORAGE_KEY, newTheme);
           localStorage.setItem(
             "val-theme-" + (config?.project || "unknown"),
-            newTheme,
+            newTheme
           );
         } catch (e) {
           console.error("Error setting theme in storage", e);
@@ -48,7 +50,7 @@ export function ValThemeProvider({
         try {
           sessionStorage.removeItem(VAL_THEME_SESSION_STORAGE_KEY);
           localStorage.removeItem(
-            "val-theme-" + (config?.project || "unknown"),
+            "val-theme-" + (config?.project || "unknown")
           );
         } catch (e) {
           console.error("Error removing theme from storage", e);
@@ -58,7 +60,7 @@ export function ValThemeProvider({
         console.warn(`Cannot set invalid theme: ${newTheme}`);
       }
     },
-    [setTheme, config],
+    [setTheme, config]
   );
 
   return (

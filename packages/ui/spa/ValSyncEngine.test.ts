@@ -14,7 +14,13 @@ import {
   ValidationError,
   ValModule,
 } from "@valbuild/core";
-import { applyPatch, deepClone, JSONOps, JSONValue, Patch } from "@valbuild/core/patch";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  JSONValue,
+  Patch,
+} from "@valbuild/core/patch";
 import { z } from "zod";
 
 describe("ValSyncEngine", () => {
@@ -23,41 +29,41 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const updateValue = (syncEngine: ValSyncEngine, value: string) => {
       return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
-        tester.getNextNow(),
+        tester.getNextNow()
       );
     };
 
     const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("test");
 
     expect(updateValue(syncEngine1, "")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
       status: "done",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 1 from store 1");
   });
 
@@ -66,14 +72,14 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const updateValue = (syncEngine: ValSyncEngine, value: string) => {
       return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
-        tester.getNextNow(),
+        tester.getNextNow()
       );
     };
     const syncEngine1 = await tester.createInitializedSyncEngine();
@@ -82,7 +88,7 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 0 from store 1");
     syncEngine1.reset();
     syncEngine1.reset();
@@ -92,7 +98,7 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 0 from store 1");
   });
 
@@ -101,31 +107,31 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const updateValue = (syncEngine: ValSyncEngine, value: string) => {
       return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
-        tester.getNextNow(),
+        tester.getNextNow()
       );
     };
     const syncEngine1 = await tester.createInitializedSyncEngine();
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("test");
     expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
     expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
@@ -154,7 +160,7 @@ describe("ValSyncEngine", () => {
     });
 
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 4 from store 1");
   });
 
@@ -163,33 +169,33 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const updateValue = (syncEngine: ValSyncEngine, value: string) => {
       return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
-        tester.getNextNow(),
+        tester.getNextNow()
       );
     };
 
     const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("test");
     expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 1 from store 1");
     // Start up sync store 2 before sync...
     const syncEngine2 = await tester.createInitializedSyncEngine();
@@ -197,7 +203,7 @@ describe("ValSyncEngine", () => {
       status: "patch-added",
     });
     expect(
-      syncEngine2.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine2.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
@@ -222,7 +228,7 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
     expect(
-      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data
     ).toStrictEqual("value 2 from store 2");
   });
 
@@ -231,12 +237,14 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const syncEngine = await tester.createInitializedSyncEngine();
 
     const mockSchemas = {
-      [toModuleFilePath("/test.val.ts")]: Internal.getSchema(c.define("/test.val.ts", s.string().minLength(2), "test"))?.["executeSerialize"](),
+      [toModuleFilePath("/test.val.ts")]: Internal.getSchema(
+        c.define("/test.val.ts", s.string().minLength(2), "test")
+      )?.["executeSerialize"](),
     } as Record<ModuleFilePath, SerializedSchema | undefined>;
 
     let schemaListenerCalled = false;
@@ -247,10 +255,14 @@ describe("ValSyncEngine", () => {
     syncEngine.setSchemas(mockSchemas);
 
     expect(schemaListenerCalled).toBe(true);
-    const schemaSnapshot = syncEngine.getSchemaSnapshot(toModuleFilePath("/test.val.ts"));
+    const schemaSnapshot = syncEngine.getSchemaSnapshot(
+      toModuleFilePath("/test.val.ts")
+    );
     expect(schemaSnapshot.status).toBe("success");
     if (schemaSnapshot.status === "success") {
-      expect(schemaSnapshot.data).toEqual(mockSchemas[toModuleFilePath("/test.val.ts")]);
+      expect(schemaSnapshot.data).toEqual(
+        mockSchemas[toModuleFilePath("/test.val.ts")]
+      );
     }
 
     unsubscribe();
@@ -261,7 +273,7 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const syncEngine = await tester.createInitializedSyncEngine();
 
@@ -271,7 +283,10 @@ describe("ValSyncEngine", () => {
 
     let sourceListenerCalled = false;
     let allSourcesListenerCalled = false;
-    const unsubscribeSource = syncEngine.subscribe("source", toModuleFilePath("/test.val.ts"))(() => {
+    const unsubscribeSource = syncEngine.subscribe(
+      "source",
+      toModuleFilePath("/test.val.ts")
+    )(() => {
       sourceListenerCalled = true;
     });
     const unsubscribeAllSources = syncEngine.subscribe("all-sources")(() => {
@@ -282,7 +297,9 @@ describe("ValSyncEngine", () => {
 
     expect(sourceListenerCalled).toBe(true);
     expect(allSourcesListenerCalled).toBe(true);
-    const sourceSnapshot = syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts"));
+    const sourceSnapshot = syncEngine.getSourceSnapshot(
+      toModuleFilePath("/test.val.ts")
+    );
     expect(sourceSnapshot.data).toEqual("mock value");
 
     unsubscribeSource();
@@ -294,7 +311,7 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const syncEngine = await tester.createInitializedSyncEngine();
 
@@ -303,14 +320,19 @@ describe("ValSyncEngine", () => {
     } as Record<ModuleFilePath, ReifiedRender | null>;
 
     let renderListenerCalled = false;
-    const unsubscribe = syncEngine.subscribe("render", toModuleFilePath("/test.val.ts"))(() => {
+    const unsubscribe = syncEngine.subscribe(
+      "render",
+      toModuleFilePath("/test.val.ts")
+    )(() => {
       renderListenerCalled = true;
     });
 
     syncEngine.setRenders(mockRenders);
 
     expect(renderListenerCalled).toBe(true);
-    const renderSnapshot = syncEngine.getRenderSnapshot(toModuleFilePath("/test.val.ts"));
+    const renderSnapshot = syncEngine.getRenderSnapshot(
+      toModuleFilePath("/test.val.ts")
+    );
     expect(renderSnapshot).toBe(null);
 
     unsubscribe();
@@ -321,7 +343,7 @@ describe("ValSyncEngine", () => {
     const tester = new SyncEngineTester(
       "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
-      config,
+      config
     );
     const syncEngine = await tester.createInitializedSyncEngine();
 
@@ -347,7 +369,7 @@ function toModuleFilePath(moduleFilePath: `/${string}.val.ts`): ModuleFilePath {
 }
 
 function toSourcePath(
-  moduleFilePath: `/${string}.val.ts${`` | `?p=${string}`}`,
+  moduleFilePath: `/${string}.val.ts${`` | `?p=${string}`}`
 ): SourcePath {
   return moduleFilePath as SourcePath;
 }
@@ -356,8 +378,8 @@ type InferReq<T extends Record<string, unknown>> = {
   [K in keyof T]: T[K] extends z.ZodTypeAny
     ? z.infer<T[K]>
     : T[K] extends Record<string, unknown>
-      ? InferReq<T[K]>
-      : never;
+    ? InferReq<T[K]>
+    : never;
 };
 
 type FakeApi = {
@@ -396,7 +418,7 @@ class SyncEngineTester {
   constructor(
     private mode: "fs" | "http",
     public valModules: ValModule<SelectorSource>[],
-    public config: ValConfig,
+    public config: ValConfig
   ) {
     this.fakeModules = valModules;
     this.ops = new JSONOps();
@@ -405,13 +427,13 @@ class SyncEngineTester {
       this.fakeModules.map((m) => {
         const path = Internal.getValPath(m)!;
         return [path, Internal.getSchema(m)!] as const;
-      }),
+      })
     );
     this.fakeSources = Object.fromEntries(
       this.fakeModules.map((m) => {
         const path = Internal.getValPath(m)!;
         return [path, Internal.getSource(m)] as const;
-      }),
+      })
     );
     this.now = 0;
     this.fakeResponses = {};
@@ -425,7 +447,7 @@ class SyncEngineTester {
     // We could have used the way we do this in ValOps which is better (more stable), but this is simple and should work for the tests
     const textEncoder = new TextEncoder();
     return Internal.getSHA256Hash(
-      textEncoder.encode(JSON.stringify(this.fakeSchemas)),
+      textEncoder.encode(JSON.stringify(this.fakeSchemas))
     );
   }
 
@@ -433,7 +455,7 @@ class SyncEngineTester {
     // We could have used the way we do this in ValOps which is better (more stable), but this is simple and should work for the tests
     const textEncoder = new TextEncoder();
     return Internal.getSHA256Hash(
-      textEncoder.encode(JSON.stringify(this.fakeSources)),
+      textEncoder.encode(JSON.stringify(this.fakeSources))
     );
   }
 
@@ -444,8 +466,8 @@ class SyncEngineTester {
       textEncoder.encode(
         JSON.stringify(this.fakeSchemas) +
           JSON.stringify(this.fakeSources) +
-          JSON.stringify(this.config),
-      ),
+          JSON.stringify(this.config)
+      )
     );
   }
 
@@ -459,12 +481,12 @@ class SyncEngineTester {
 
   getSchema(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _req: InferReq<Api["/schema"]["GET"]["req"]>,
+    _req: InferReq<Api["/schema"]["GET"]["req"]>
   ): z.infer<Api["/schema"]["GET"]["res"]> {
     const serializedSchemas = Object.fromEntries(
       Object.entries(this.fakeSchemas).map(([path, schema]) => {
         return [path, schema?.["executeSerialize"]()] as const;
-      }),
+      })
     );
     return {
       status: 200,
@@ -476,7 +498,7 @@ class SyncEngineTester {
   }
 
   putPatches(
-    req: InferReq<Api["/patches"]["PUT"]["req"]>,
+    req: InferReq<Api["/patches"]["PUT"]["req"]>
   ): z.infer<Api["/patches"]["PUT"]["res"]> {
     const { patches, parentRef } = req.body;
     const isParentRefFirstHead =
@@ -521,7 +543,7 @@ class SyncEngineTester {
   }
 
   deletePatches(
-    req: InferReq<Api["/patches"]["DELETE"]["req"]>,
+    req: InferReq<Api["/patches"]["DELETE"]["req"]>
   ): z.infer<Api["/patches"]["DELETE"]["res"]> {
     const patch_ids = req.query.id;
     const deletedPatchIds: PatchId[] = [];
@@ -539,7 +561,7 @@ class SyncEngineTester {
   }
 
   getPatches(
-    req: InferReq<Api["/patches"]["GET"]["req"]>,
+    req: InferReq<Api["/patches"]["GET"]["req"]>
   ): z.infer<Api["/patches"]["GET"]["res"]> {
     const patches: {
       path: ModuleFilePath;
@@ -591,7 +613,7 @@ class SyncEngineTester {
   }
 
   putSources(
-    req: InferReq<Api["/sources/~"]["PUT"]["req"]>,
+    req: InferReq<Api["/sources/~"]["PUT"]["req"]>
   ): z.infer<Api["/sources/~"]["PUT"]["res"]> {
     const modules: Record<
       ModuleFilePath,
@@ -623,7 +645,7 @@ class SyncEngineTester {
       const patchRes = applyPatch(
         deepClone(this.fakeSources[moduleFilePath]),
         this.ops,
-        patch,
+        patch
       );
       if (!modules[moduleFilePath]) {
         modules[moduleFilePath] = {};
@@ -663,7 +685,7 @@ class SyncEngineTester {
         req.query.validate_sources &&
         schema["executeValidate"](
           moduleFilePath as unknown as SourcePath,
-          source,
+          source
         );
       modules[moduleFilePath] = {
         source: deepClone(source),
@@ -684,7 +706,7 @@ class SyncEngineTester {
 
   removeFakeResponse<R extends keyof FakeApi, M extends keyof FakeApi[R]>(
     route: R,
-    method: M,
+    method: M
   ): this {
     const maybeAnyRoute = this.fakeResponses[
       route as keyof typeof this.fakeResponses
@@ -696,7 +718,7 @@ class SyncEngineTester {
   setFakeResponse<
     R extends keyof FakeApi,
     M extends keyof FakeApi[R],
-    ResType = FakeApi[R][M],
+    ResType = FakeApi[R][M]
   >(route: R, method: M, response: ResType | ClientFetchErrors): this {
     if (!this.fakeResponses[route as keyof typeof this.fakeResponses]) {
       this.fakeResponses[route as keyof typeof this.fakeResponses] = {} as any;
@@ -737,7 +759,9 @@ class SyncEngineTester {
       return {
         status: 404,
         json: {
-          message: `Invalid route ${route} with method ${method as string}. This is most likely a Val bug.`,
+          message: `Invalid route ${route} with method ${
+            method as string
+          }. This is most likely a Val bug.`,
           path: route,
           method: method as string,
         },
@@ -755,7 +779,7 @@ class SyncEngineTester {
       this.fakePatches.map((p) => p.patchId),
       authorId,
       this.getCommitSha(),
-      this.now++,
+      this.now++
     );
   }
 
@@ -770,7 +794,7 @@ class SyncEngineTester {
       this.fakePatches.map((p) => p.patchId),
       authorId,
       this.getCommitSha(),
-      this.now++,
+      this.now++
     );
     return syncEngine;
   }

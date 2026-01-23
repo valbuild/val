@@ -28,7 +28,7 @@ describe("relativeLocalDate", () => {
   test("should return 'Xd ago' when the difference is more than a day", () => {
     const now = new Date();
     const date = new Date(
-      now.getTime() - 1000 * 60 * 60 * 24 * 3,
+      now.getTime() - 1000 * 60 * 60 * 24 * 3
     ).toISOString();
     expect(relativeLocalDate(now, date)).toBe("3d ago");
   });
@@ -38,7 +38,7 @@ describe("relativeLocalDate", () => {
     const date = new Date(
       now.getFullYear(),
       now.getMonth() - 2,
-      now.getDate(),
+      now.getDate()
     ).toISOString();
     expect(relativeLocalDate(now, date)).toBe("2mo ago");
   });

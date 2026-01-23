@@ -43,7 +43,7 @@ export function ToolsMenu() {
     let sumValidationErrors = 0;
     for (const sourcePath in validationErrors) {
       const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-        sourcePath as SourcePath,
+        sourcePath as SourcePath
       );
       modulesWithErrors.add(moduleFilePath);
       sumValidationErrors += 1;
@@ -173,7 +173,7 @@ function ShortenedErrorMessage({ error }: { error: string }) {
         {
           truncate: !isExpanded,
           "whitespace-normal": isExpanded,
-        },
+        }
       )}
       onClick={() => setIsExpanded(!isExpanded)}
     >

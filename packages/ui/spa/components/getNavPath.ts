@@ -13,7 +13,7 @@ import { resolvePatchPath } from "../resolvePatchPath";
  */
 function isSchemaNavStop(
   schema: SerializedSchema,
-  parentSchema: SerializedSchema | null,
+  parentSchema: SerializedSchema | null
 ): boolean {
   if (parentSchema?.type === "array") {
     if (schema.type === "string") {
@@ -29,7 +29,7 @@ function isSchemaNavStop(
 export function getNavPathFromAll(
   requestedPath: SourcePath | ModuleFilePath,
   allSources: Record<ModuleFilePath, Json>,
-  schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined
 ): SourcePath | ModuleFilePath | null {
   if (!schemas) {
     return null;
@@ -50,7 +50,7 @@ export function getNavPathFromAll(
   const resolutionRes = resolvePatchPath(
     Internal.splitModulePath(modulePath),
     schema,
-    source,
+    source
   );
   if (resolutionRes.success) {
     // Move upwards in path until we find where to stop:
@@ -63,14 +63,14 @@ export function getNavPathFromAll(
         }
         return Internal.joinModuleFilePathAndModulePath(
           moduleFilePath,
-          resolved.modulePath,
+          resolved.modulePath
         );
       }
     }
     return moduleFilePath;
   } else {
     console.error(
-      `Error resolving path: ${resolutionRes.error} for path: ${requestedPath}`,
+      `Error resolving path: ${resolutionRes.error} for path: ${requestedPath}`
     );
   }
 

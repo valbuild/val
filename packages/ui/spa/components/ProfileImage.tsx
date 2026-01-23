@@ -10,7 +10,7 @@ export function ProfileImage({
   size?: "sm" | "md" | "lg";
 }) {
   const [imageUrl, setImageUrl] = useState<string | null>(
-    profile?.avatar?.url || null,
+    profile?.avatar?.url || null
   );
   useEffect(() => {
     if (profile?.avatar?.url) {
@@ -29,7 +29,7 @@ export function ProfileImage({
       "h-8 w-8 leading-8 text-xs": size === "sm",
       "h-10 w-10 leading-10 text-base": size === "md",
       "h-12 w-12 leading-[3rem] text-lg": size === "lg",
-    },
+    }
   );
   if (imageUrl) {
     return (

@@ -41,7 +41,7 @@ export function NavMenuV2Wrapper() {
 
       // Create the patch to add the new page
       const newPatchPath = Internal.createPatchPath("" as ModulePath).concat(
-        urlPath,
+        urlPath
       );
       addModuleFilePatch(
         moduleFilePath,
@@ -52,17 +52,17 @@ export function NavMenuV2Wrapper() {
             value: emptyOf(schema.item) as JSONValue,
           },
         ],
-        "record",
+        "record"
       );
 
       // Navigate to the new page
       const sourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        Internal.patchPathToModulePath(newPatchPath),
+        Internal.patchPathToModulePath(newPatchPath)
       ) as SourcePath;
       navigate(sourcePath);
     },
-    [addModuleFilePatch, schemas, navigate],
+    [addModuleFilePatch, schemas, navigate]
   );
 
   if (navMenuData.status === "error") {

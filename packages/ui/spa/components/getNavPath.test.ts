@@ -17,7 +17,7 @@ const module = c.define(
       recordA: s.record(
         s.object({
           field201: s.string(),
-        }),
+        })
       ),
     }),
     arrayOfObjects: s.array(
@@ -27,9 +27,9 @@ const module = c.define(
           s.object({
             string1: s.string(),
             string2: s.string(),
-          }),
+          })
         ),
-      }),
+      })
     ),
   }),
   {
@@ -56,78 +56,78 @@ const module = c.define(
         ],
       },
     ],
-  },
+  }
 );
 
 describe("getNavPath", () => {
   test("array of string", () => {
     // NOTE: this behavior might change: maybe array of strings should not default to be shown
     expect(
-      testNavPath('/app/test.val.ts?p="arrayOfStrings"', module),
+      testNavPath('/app/test.val.ts?p="arrayOfStrings"', module)
     ).toStrictEqual("/app/test.val.ts");
 
     expect(
-      testNavPath('/app/test.val.ts?p="arrayOfStrings".0', module),
+      testNavPath('/app/test.val.ts?p="arrayOfStrings".0', module)
     ).toStrictEqual("/app/test.val.ts");
   });
 
   test("object of record", () => {
     expect(
-      testNavPath('/app/test.val.ts?p="objectOfRecord"', module),
+      testNavPath('/app/test.val.ts?p="objectOfRecord"', module)
     ).toStrictEqual("/app/test.val.ts");
     expect(
-      testNavPath('/app/test.val.ts?p="objectOfRecord"."recordA"', module),
+      testNavPath('/app/test.val.ts?p="objectOfRecord"."recordA"', module)
     ).toStrictEqual("/app/test.val.ts");
     expect(
-      testNavPath('/app/test.val.ts?p="objectOfRecord"."recordA"."a"', module),
+      testNavPath('/app/test.val.ts?p="objectOfRecord"."recordA"."a"', module)
     ).toStrictEqual('/app/test.val.ts?p="objectOfRecord"."recordA"."a"');
     expect(
       testNavPath(
         '/app/test.val.ts?p="objectOfRecord"."recordA"."a"."field201"',
-        module,
-      ),
+        module
+      )
     ).toStrictEqual('/app/test.val.ts?p="objectOfRecord"."recordA"."a"');
   });
 
   test("array of objects", () => {
     expect(
-      testNavPath('/app/test.val.ts?p="arrayOfObjects"', module),
+      testNavPath('/app/test.val.ts?p="arrayOfObjects"', module)
     ).toStrictEqual("/app/test.val.ts");
     expect(
-      testNavPath('/app/test.val.ts?p="arrayOfObjects".0', module),
+      testNavPath('/app/test.val.ts?p="arrayOfObjects".0', module)
     ).toStrictEqual('/app/test.val.ts?p="arrayOfObjects".0');
     expect(
       testNavPath(
         '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects"',
-        module,
-      ),
+        module
+      )
     ).toStrictEqual('/app/test.val.ts?p="arrayOfObjects".0');
     expect(
       testNavPath(
         '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0',
-        module,
-      ),
+        module
+      )
     ).toStrictEqual(
-      '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0',
+      '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0'
     );
     expect(
       testNavPath(
         '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0."string1"',
-        module,
-      ),
+        module
+      )
     ).toStrictEqual(
-      '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0',
+      '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0'
     );
   });
 });
 
 function testNavPath(
   path: string,
-  module: ValModule<SelectorSource>,
+  module: ValModule<SelectorSource>
 ): string | null {
   const source = Internal.getSource(module);
   const moduleFilePath = Internal.getValPath(
-    module,
+    module
   ) as unknown as ModuleFilePath;
   const schema = Internal.getSchema(module)!["executeSerialize"]();
   const navPath = getNavPathFromAll(
@@ -137,7 +137,7 @@ function testNavPath(
     },
     {
       [moduleFilePath]: schema,
-    },
+    }
   );
   return navPath;
 }

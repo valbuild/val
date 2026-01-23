@@ -22,7 +22,7 @@ export function Preview({ path }: { path: SourcePath }) {
     path,
     "data" in schemaAtPath && schemaAtPath.data.type
       ? schemaAtPath.data.type
-      : undefined,
+      : undefined
   );
 
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {

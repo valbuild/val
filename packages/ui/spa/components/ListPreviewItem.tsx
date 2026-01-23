@@ -23,7 +23,7 @@ export function ListPreviewItem({
     <div
       className={cn(
         "flex w-full items-start justify-between pl-4 flex-grow text-left",
-        className,
+        className
       )}
     >
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
@@ -69,7 +69,9 @@ function ImageOrPlaceholder({
         alt={alt}
         onLoad={() => setIsLoaded(true)}
         onError={() => setIsLoaded(false)}
-        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${isLoaded ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${
+          isLoaded ? "opacity-100" : "opacity-0"
+        }`}
         style={{
           objectPosition: src.metadata?.hotspot
             ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`

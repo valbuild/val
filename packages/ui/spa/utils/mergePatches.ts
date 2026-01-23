@@ -2,10 +2,10 @@ import { ModuleFilePath } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 
 export function mergePatches(
-  pendingPatches: Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>,
+  pendingPatches: Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>
 ): { patch: Patch; path: ModuleFilePath }[] {
   const pendingPatchesModuleFilePaths = Object.keys(
-    pendingPatches,
+    pendingPatches
   ) as ModuleFilePath[];
   if (pendingPatchesModuleFilePaths.length === 0) {
     return [];

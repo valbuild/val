@@ -88,7 +88,7 @@ export function SitemapItemNode({
           "hover:bg-bg-secondary",
           {
             "bg-bg-secondary": isActive,
-          },
+          }
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onMouseEnter={() => setShowActions(true)}
@@ -105,7 +105,7 @@ export function SitemapItemNode({
                 "shrink-0 text-fg-secondary transition-transform duration-200",
                 {
                   "rotate-90": isOpen,
-                },
+                }
               )}
             />
           )}
@@ -253,7 +253,7 @@ function AddRouteForm({
                       "focus:outline-none focus:ring-1 focus:ring-border-focus",
                       {
                         "border-fg-error": errors[part.paramName],
-                      },
+                      }
                     )}
                     placeholder={part.paramName}
                     value={params[part.paramName] || ""}

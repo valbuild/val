@@ -149,7 +149,7 @@ function getParamValue(
   params: {
     [paramName: string]: string | string[];
   },
-  paramName: string,
+  paramName: string
 ) {
   const value = params[paramName];
   if (Array.isArray(value)) {
