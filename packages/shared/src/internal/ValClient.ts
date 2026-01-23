@@ -1,6 +1,7 @@
 import { Api, ApiEndpoint, ClientOf, ClientFetchErrors } from "./ApiRoutes";
 import { fromError } from "zod-validation-error";
 import { SharedValConfig } from "./SharedValConfig";
+import { getErrorMessageFromUnknownJson } from "./getErrorMessageFromUnknownJson";
 
 export type ValClient = ClientOf<Api>;
 export const createValClient = (
@@ -126,12 +127,12 @@ export const createValClient = (
         };
         if (res.status === 500) {
           console.error("Server responded with an error", json);
+          const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           return {
             status: 500,
             json: {
               type: "unknown",
-              message: json.message,
-              ...json,
+              message,
             },
           } satisfies ClientFetchErrors;
         }
