@@ -16,14 +16,14 @@ import { isJsonArray } from "../utils/isJsonArray";
 export function getRouteReferences(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, Json>,
-  routeKey: string,
+  routeKey: string
 ): SourcePath[] {
   const results: SourcePath[] = [];
 
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
-    source: Json,
+    source: Json
   ) => {
     if (schema === undefined) {
       return;
@@ -84,7 +84,7 @@ export function getRouteReferences(
     go(
       moduleFilePathS as SourcePath,
       schemas[moduleFilePath],
-      sources[moduleFilePath],
+      sources[moduleFilePath]
     );
   }
 
@@ -93,12 +93,14 @@ export function getRouteReferences(
 
 function sourcePathConcat(
   sourcePath: SourcePath,
-  key: string | number,
+  key: string | number
 ): SourcePath {
   if (sourcePath.includes(ModuleFilePathSep)) {
     return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
   }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(key)}` as SourcePath;
+  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
+    key
+  )}` as SourcePath;
 }
 
 function isObjectSource(source: Json): source is Record<string, Json> {

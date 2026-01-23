@@ -10,17 +10,15 @@ const ValPortalContext = React.createContext<ValPortalContextValue>(
     {},
     {
       get: () => {
-        throw new Error("Cannot use ValPortalContext outside of ValPortalProvider");
+        throw new Error(
+          "Cannot use ValPortalContext outside of ValPortalProvider"
+        );
       },
-    },
-  ) as ValPortalContextValue,
+    }
+  ) as ValPortalContextValue
 );
 
-export function ValPortalProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function ValPortalProvider({ children }: { children: React.ReactNode }) {
   const portalRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 

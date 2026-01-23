@@ -96,7 +96,7 @@ export function BooleanField({ path }: { path: SourcePath }) {
                 value: nextValue,
               },
             ],
-            schemaAtPath.data.type,
+            schemaAtPath.data.type
           );
         }}
       />
@@ -127,8 +127,8 @@ export function EmbeddedBooleanField({
         source === null
           ? "indeterminate"
           : typeof source === "boolean"
-            ? source
-            : false
+          ? source
+          : false
       }
       onCheckedChange={() => {
         if (source === null) {
@@ -140,7 +140,7 @@ export function EmbeddedBooleanField({
                 value: true,
               },
             ],
-            "boolean",
+            "boolean"
           );
         } else if (source === false && isNullable) {
           addPatch(
@@ -151,7 +151,7 @@ export function EmbeddedBooleanField({
                 value: null,
               },
             ],
-            "boolean",
+            "boolean"
           );
         } else if (source === false) {
           addPatch(
@@ -162,7 +162,7 @@ export function EmbeddedBooleanField({
                 value: true,
               },
             ],
-            "boolean",
+            "boolean"
           );
         } else {
           addPatch(
@@ -173,7 +173,7 @@ export function EmbeddedBooleanField({
                 value: false,
               },
             ],
-            "boolean",
+            "boolean"
           );
         }
       }}

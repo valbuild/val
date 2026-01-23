@@ -34,7 +34,7 @@ export function PublishSummary({
           disabled={!!summary.isGenerating}
           className={cn(
             className,
-            "resize-none overflow-clip disabled:opacity-50",
+            "resize-none overflow-clip disabled:opacity-50"
           )}
           value={summary.isGenerating ? "" : text}
           style={{

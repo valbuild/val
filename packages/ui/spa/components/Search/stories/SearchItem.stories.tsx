@@ -70,7 +70,7 @@ function SearchItemWithProviders({
         },
       };
     },
-    [],
+    []
   );
 
   // Mock remoteFiles
@@ -80,7 +80,7 @@ function SearchItemWithProviders({
       message: "Remote files not available in Storybook",
       reason: "project-not-configured" as const,
     }),
-    [],
+    []
   );
 
   console.log("SearchItemWithProviders", sources);

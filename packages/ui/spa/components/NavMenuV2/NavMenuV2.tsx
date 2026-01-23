@@ -1,10 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { DEFAULT_APP_HOST, SourcePath, ModuleFilePath } from "@valbuild/core";
 import { Ellipsis, Loader2, Moon, Sun, LogOut, User } from "lucide-react";
-import {
-  useCurrentProfile,
-  useValMode,
-} from "../ValProvider";
+import { useCurrentProfile, useValMode } from "../ValProvider";
 import { useSchemaAtPath, useValConfig } from "../ValFieldProvider";
 import { useTheme } from "../ValThemeProvider";
 import { useValPortal } from "../ValPortalProvider";
@@ -54,7 +51,7 @@ export function NavMenuV2({
   const [isExternalSelected, setIsExternalSelected] = useState(false);
   // Track accordion open state (controlled)
   const [accordionValue, setAccordionValue] = useState<string | undefined>(
-    undefined,
+    undefined
   );
 
   // Check if current path is external
@@ -96,7 +93,7 @@ export function NavMenuV2({
         layout.navMenu.setOpen(false);
       }
     },
-    [navigate, layout.navMenu],
+    [navigate, layout.navMenu]
   );
 
   const handleExternalClick = useCallback(() => {
@@ -113,7 +110,7 @@ export function NavMenuV2({
         onAddPage(moduleFilePath as ModuleFilePath, urlPath);
       }
     },
-    [onAddPage],
+    [onAddPage]
   );
 
   // Calculate max height for scrollable content
@@ -274,7 +271,7 @@ export function NavMenuV2({
  */
 function checkSitemapActive(
   item: NavMenuData["sitemap"],
-  currentPath: string,
+  currentPath: string
 ): boolean {
   if (!item) return false;
 

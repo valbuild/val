@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
  */
 export function useConfig() {
   const [currentConfig, setCurrentConfig] = useState<SharedValConfig | null>(
-    null,
+    null
   );
   const defaultConfig = useMemo(getConfigFromSessionStorage, []);
   useEffect(() => {
@@ -33,7 +33,7 @@ function getConfigFromSessionStorage() {
     if (sharedConfig.error) {
       console.error(
         "Error parsing config from session storage",
-        sharedConfig.error,
+        sharedConfig.error
       );
       return null;
     }

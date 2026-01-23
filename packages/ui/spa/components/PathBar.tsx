@@ -10,7 +10,7 @@ export function PathBar() {
   const maybeSplitPaths =
     currentSourcePath &&
     Internal.splitModuleFilePathAndModulePath(
-      currentSourcePath as unknown as SourcePath,
+      currentSourcePath as unknown as SourcePath
     );
   if (!maybeSplitPaths) {
     return null;

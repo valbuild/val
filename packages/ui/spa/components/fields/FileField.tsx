@@ -50,13 +50,13 @@ export async function createFilePatch(
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null,
-  directory: ConfigDirectory = "/public/val",
+  directory: ConfigDirectory = "/public/val"
 ): Promise<Patch> {
   const newFilePath = Internal.createFilename(
     data,
     filename,
     metadata,
-    fileHash,
+    fileHash
   );
   if (!newFilePath || !metadata) {
     return [];
@@ -75,7 +75,7 @@ export async function createFilePatch(
           getFileExt(newFilePath),
           metadata,
           remoteFileHash,
-          textEncoder,
+          textEncoder
         ),
         fileHash: remoteFileHash,
         filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
@@ -116,7 +116,7 @@ export function FileField({ path }: { path: SourcePath }) {
   const [loading, setLoading] = useState(false);
   const { patchPath, addAndUploadPatchWithFileOps } = useAddPatch(path);
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
-    null,
+    null
   );
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
@@ -225,7 +225,7 @@ export function FileField({ path }: { path: SourcePath }) {
   if (source?._ref) {
     if (schemaAtPath.data.remote) {
       const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(
-        source?._ref,
+        source?._ref
       );
       if (splitRemoteRefDataRes.status === "success") {
         filePathRef = splitRemoteRefDataRes.filePath;
@@ -347,7 +347,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   metadata,
                   type,
                   remoteData,
-                  config.files?.directory,
+                  config.files?.directory
                 )
                   .then((patch) => {
                     setLoading(true);
@@ -364,9 +364,9 @@ export function FileField({ path }: { path: SourcePath }) {
                           (bytesUploaded * (currentFile + 1)) /
                           (totalBytes * totalFiles);
                         setProgressPercentage(
-                          Math.round(overallProgress * 100),
+                          Math.round(overallProgress * 100)
                         );
-                      },
+                      }
                     ).finally(() => {
                       setProgressPercentage(null);
                       setLoading(false);

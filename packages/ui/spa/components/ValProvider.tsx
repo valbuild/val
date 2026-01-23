@@ -96,8 +96,8 @@ const ValContext = React.createContext<ValContextValue>(
       get: () => {
         throw new Error("Cannot use ValContext outside of ValProvider");
       },
-    },
-  ) as ValContextValue,
+    }
+  ) as ValContextValue
 );
 
 export function useClient() {
@@ -139,7 +139,7 @@ export function ValProvider({
         }
       }),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
-    [dispatchValEvents],
+    [dispatchValEvents]
   );
   const runtimeConfig =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
@@ -180,7 +180,7 @@ export function ValProvider({
           return mergeCommitsAndDeployments(
             prev,
             stat.data?.commits || [],
-            stat.data?.deployments || [],
+            stat.data?.deployments || []
           ).filter((d) => !dismissedDeploymentsRef.current.has(d.commitSha));
         }
         return prev;
@@ -197,7 +197,7 @@ export function ValProvider({
     dismissedDeploymentsRef.current.add(commitSha);
   }, []);
   const [observedCommitShas, setObservedCommitShas] = useState<Set<string>>(
-    new Set(),
+    new Set()
   );
   useEffect(() => {
     if ("data" in stat && stat.data?.commitSha) {
@@ -224,7 +224,7 @@ export function ValProvider({
   const schemas = useSyncExternalStore(
     syncEngine.subscribe("schema"),
     () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
+    () => syncEngine.getAllSchemasSnapshot()
   );
   useEffect(() => {
     if (schemas) {
@@ -251,7 +251,7 @@ export function ValProvider({
                 status: "ready",
                 coreVersion: res.json.coreVersion,
                 buckets: res.json.remoteFileBuckets.map(
-                  (bucket) => bucket.bucket,
+                  (bucket) => bucket.bucket
                 ),
                 publicProjectId: res.json.publicProjectId,
               });
@@ -317,7 +317,7 @@ export function ValProvider({
             stat.data.patches,
             stat.data.profileId,
             stat.data.commitSha ?? null,
-            Date.now(),
+            Date.now()
           );
           console.debug("ValSyncEngine init result", res);
           if (res.status === "retry") {
@@ -334,7 +334,7 @@ export function ValProvider({
         } else {
           syncEngineInitStatus.current = "not-initialized";
           throw Error(
-            "Unexpected state: init was started with stat.data but now it is not there",
+            "Unexpected state: init was started with stat.data but now it is not there"
           );
         }
       };
@@ -357,7 +357,7 @@ export function ValProvider({
         stat.data.patches,
         stat.data.profileId,
         stat.data.commitSha ?? null,
-        Date.now(),
+        Date.now()
       );
     }
   }, [stat, syncEngine, initializedAt]);
@@ -396,7 +396,7 @@ export function ValProvider({
   const pendingOpsCount = useSyncExternalStore(
     syncEngine.subscribe("pending-ops-count"),
     () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+    () => syncEngine.getPendingOpsSnapshot()
   );
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -413,7 +413,7 @@ export function ValProvider({
   const profilesData = useProfilesData(
     client,
     authenticationState,
-    serviceUnavailable,
+    serviceUnavailable
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<
@@ -434,7 +434,7 @@ export function ValProvider({
     while (res.status === null && retries < 5) {
       console.warn(
         "Failed to get direct file upload settings, retrying...",
-        res,
+        res
       );
       await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
       res = await client("/direct-file-upload-settings", "POST", {});
@@ -502,7 +502,7 @@ export function ValProvider({
 function useProfilesData(
   client: ValClient,
   authenticationState: AuthenticationState,
-  serviceUnavailable: boolean | undefined,
+  serviceUnavailable: boolean | undefined
 ) {
   const loadProfileDataRef = useRef(true);
   const [profilesData, setProfilesData] = useState<
@@ -582,11 +582,11 @@ export function useAddModuleFilePatch() {
     (
       moduleFilePath: ModuleFilePath,
       patch: Patch,
-      type: SerializedSchema["type"],
+      type: SerializedSchema["type"]
     ) => {
       syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
     },
-    [syncEngine],
+    [syncEngine]
   );
   return { addModuleFilePatch };
 }
@@ -604,7 +604,7 @@ export function useDeletePatches() {
         syncEngine.deletePatches(batch, Date.now());
       }
     },
-    [syncEngine],
+    [syncEngine]
   );
   return { deletePatches };
 }
@@ -631,7 +631,7 @@ export function usePatchSets():
   const serializedPatchSets = useSyncExternalStore(
     syncEngine.subscribe("patch-sets"),
     () => syncEngine.getSerializedPatchSetsSnapshot(),
-    () => syncEngine.getSerializedPatchSetsSnapshot(),
+    () => syncEngine.getSerializedPatchSetsSnapshot()
   );
   return { status: "success", data: serializedPatchSets };
 }
@@ -641,7 +641,7 @@ export function useCommittedPatches() {
   const allPatches = useSyncExternalStore(
     syncEngine.subscribe("all-patches"),
     () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
+    () => syncEngine.getAllPatchesSnapshot()
   );
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useMemo(() => {
@@ -662,7 +662,7 @@ export function usePendingServerSidePatchIds(): PatchId[] {
   const globalServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("global-server-side-patch-ids"),
     () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
+    () => syncEngine.getGlobalServerSidePatchIdsSnapshot()
   );
   return globalServerSidePatchIds;
 }
@@ -672,7 +672,7 @@ export function usePendingClientSidePatchIds(): PatchId[] {
   const pendingClientSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("pending-client-side-patch-ids"),
     () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
-    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
+    () => syncEngine.getPendingClientSidePatchIdsSnapshot()
   );
   return pendingClientSidePatchIds;
 }
@@ -684,7 +684,7 @@ export function useCurrentPatchIds(): PatchId[] {
   const savedServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("saved-server-side-patch-ids"),
     () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
-    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
+    () => syncEngine.getSavedServerSidePatchIdsSnapshot()
   );
   const currentPatchIds = useMemo(() => {
     const added: Set<PatchId> = new Set();
@@ -727,7 +727,7 @@ export function useLoadingStatus(): LoadingStatus {
   const pendingOpsCount = useSyncExternalStore(
     syncEngine.subscribe("pending-ops-count"),
     () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+    () => syncEngine.getPendingOpsSnapshot()
   );
   if (pendingOpsCount > 0) {
     return "loading";
@@ -763,7 +763,7 @@ export function usePublishSummary() {
   const publishDisabled = useSyncExternalStore(
     syncEngine.subscribe("publish-disabled"),
     () => syncEngine.getPublishDisabledSnapshot(),
-    () => syncEngine.getPublishDisabledSnapshot(),
+    () => syncEngine.getPublishDisabledSnapshot()
   );
   const { patchErrors } = useAllPatchErrors();
   const hasPatchErrors = useMemo(() => {
@@ -785,7 +785,7 @@ export function usePublishSummary() {
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
-        runtimeConfig?.project,
+        runtimeConfig?.project
       );
       if (
         storedSummaryState &&
@@ -880,12 +880,7 @@ export function usePublishSummary() {
           setIsPublishing(false);
         });
     },
-    [
-      globalServerSidePatchIds,
-      isPublishing,
-      runtimeConfig?.project,
-      syncEngine,
-    ],
+    [globalServerSidePatchIds, isPublishing, runtimeConfig?.project, syncEngine]
   );
   const setSummary = useCallback(
     (
@@ -893,7 +888,7 @@ export function usePublishSummary() {
         | { type: "manual" | "ai"; text: string }
         | {
             type: "not-asked";
-          },
+          }
     ) => {
       setPublishSummaryState((prev) => {
         let publishSummary: PublishSummaryState;
@@ -914,7 +909,7 @@ export function usePublishSummary() {
         return publishSummary;
       });
     },
-    [globalServerSidePatchIds, setPublishSummaryState, runtimeConfig?.project],
+    [globalServerSidePatchIds, setPublishSummaryState, runtimeConfig?.project]
   );
   return {
     publish,
@@ -929,12 +924,12 @@ export function usePublishSummary() {
 
 function saveSummaryStateInLocalStorage(
   publishSummaryState: PublishSummaryState,
-  project?: string,
+  project?: string
 ) {
   try {
     localStorage.setItem(
       "val-publish-summary-" + (project || "unknown"),
-      JSON.stringify(publishSummaryState),
+      JSON.stringify(publishSummaryState)
     );
   } catch (e) {
     console.error("Error setting publish summary in local storage", e);
@@ -943,22 +938,22 @@ function saveSummaryStateInLocalStorage(
 }
 
 function getSummaryStateFromLocalStorage(
-  project?: string,
+  project?: string
 ): PublishSummaryState | null {
   try {
     const publishSummaryState = localStorage.getItem(
-      "val-publish-summary-" + (project || "unknown"),
+      "val-publish-summary-" + (project || "unknown")
     );
     if (publishSummaryState) {
       const parseRes = PublishSummaryState.safeParse(
-        JSON.parse(publishSummaryState),
+        JSON.parse(publishSummaryState)
       );
       if (parseRes.success) {
         return parseRes.data;
       } else {
         console.warn(
           "Error parsing publish summary from local storage",
-          parseRes.error,
+          parseRes.error
         );
       }
     }
@@ -1022,7 +1017,7 @@ export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   const initializedAt = useSyncExternalStore(
     syncEngine.subscribe("initialized-at"),
     () => syncEngine.getInitializedAtSnapshot(),
-    () => syncEngine.getInitializedAtSnapshot(),
+    () => syncEngine.getInitializedAtSnapshot()
   );
   return initializedAt.data;
 };
@@ -1032,7 +1027,7 @@ export function useAutoPublish() {
   const autoPublish = useSyncExternalStore(
     syncEngine.subscribe("auto-publish"),
     () => syncEngine.getAutoPublishSnapshot(),
-    () => syncEngine.getAutoPublishSnapshot(),
+    () => syncEngine.getAutoPublishSnapshot()
   );
   return {
     autoPublish,
@@ -1047,7 +1042,7 @@ export function useGlobalTransientErrors() {
   const globalTransientErrors = useSyncExternalStore(
     syncEngine.subscribe("global-transient-errors"),
     () => syncEngine.getGlobalTransientErrorsSnapshot(),
-    () => syncEngine.getGlobalTransientErrorsSnapshot(),
+    () => syncEngine.getGlobalTransientErrorsSnapshot()
   );
   return {
     globalTransientErrors,
@@ -1078,12 +1073,12 @@ export function useGlobalError():
   const networkError = useSyncExternalStore(
     syncEngine.subscribe("network-error"),
     () => syncEngine.getNetworkErrorSnapshot(),
-    () => syncEngine.getNetworkErrorSnapshot(),
+    () => syncEngine.getNetworkErrorSnapshot()
   );
   const schemaError = useSyncExternalStore(
     syncEngine.subscribe("schema-error"),
     () => syncEngine.getSchemaErrorSnapshot(),
-    () => syncEngine.getSchemaErrorSnapshot(),
+    () => syncEngine.getSchemaErrorSnapshot()
   );
   if (networkError !== null) {
     return {
@@ -1115,7 +1110,7 @@ export function useAllPatchErrors() {
   const schemas = useSyncExternalStore(
     syncEngine.subscribe("schema"),
     () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
+    () => syncEngine.getAllSchemasSnapshot()
   );
   useEffect(() => {
     setAllModuleFilePaths(Object.keys(schemas) as ModuleFilePath[]);
@@ -1124,7 +1119,7 @@ export function useAllPatchErrors() {
   const patchErrors = useSyncExternalStore(
     syncEngine.subscribe("patch-errors", allModuleFilePaths),
     () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
-    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
+    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths)
   );
   return { patchErrors };
 }
@@ -1233,16 +1228,16 @@ type ShallowSourcesOf<SchemaType extends SerializedSchema["type"]> =
       errors: { moduleFilePath: ModuleFilePath; message: string }[];
     };
 export function useShallowModulesAtPaths<
-  SchemaType extends SerializedSchema["type"],
+  SchemaType extends SerializedSchema["type"]
 >(
   moduleFilePaths: ModuleFilePath[],
-  type: SchemaType,
+  type: SchemaType
 ): ShallowSourcesOf<SchemaType> {
   const { syncEngine } = useContext(ValContext);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("sources", moduleFilePaths || []),
     () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
-    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
+    () => syncEngine.getSourcesSnapshot(moduleFilePaths || [])
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   return useMemo((): ShallowSourcesOf<SchemaType> => {
@@ -1267,7 +1262,7 @@ export function useShallowModulesAtPaths<
       if (moduleFilePath === undefined) {
         // should never happen
         throw new Error(
-          "While resolving shallow modules at paths, we unexpectedly got an undefined module file path",
+          "While resolving shallow modules at paths, we unexpectedly got an undefined module file path"
         );
       }
       const source = sourcesRes?.[i];
@@ -1278,7 +1273,7 @@ export function useShallowModulesAtPaths<
         moduleFilePath,
         "" as ModulePath,
         type,
-        source,
+        source
       );
 
       if (mappedSource.status === "success") {
@@ -1319,7 +1314,7 @@ export function useNextAppRouterSrcFolder():
       let currentSrcFolder: string | null = null;
       for (const moduleFilePath in schemas.data) {
         const maybeCurrentSrcFolder = getNextAppRouterSourceFolder(
-          moduleFilePath as ModuleFilePath,
+          moduleFilePath as ModuleFilePath
         );
         if (maybeCurrentSrcFolder) {
           if (currentSrcFolder === null) {
@@ -1343,7 +1338,7 @@ export function useNextAppRouterSrcFolder():
 
 function walkSourcePath(
   modulePath: ModulePath,
-  sources?: Json,
+  sources?: Json
 ):
   | {
       status: "success";
@@ -1382,7 +1377,9 @@ function walkSourcePath(
     if (typeof source !== "object") {
       return {
         status: "error",
-        error: `Expected object at ${modulePath}, got ${JSON.stringify(source)}`,
+        error: `Expected object at ${modulePath}, got ${JSON.stringify(
+          source
+        )}`,
       };
     }
     if (isJsonArray(source)) {
@@ -1409,13 +1406,13 @@ function walkSourcePath(
 }
 
 function getShallowSourceAtSourcePath<
-  SchemaType extends SerializedSchema["type"],
+  SchemaType extends SerializedSchema["type"]
 >(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
   type: SchemaType,
   sources: Json,
-  clientSideOnly: boolean,
+  clientSideOnly: boolean
 ): ShallowSourceOf<SchemaType> {
   const source = walkSourcePath(modulePath, sources);
   if ("data" in source && source.data !== undefined) {
@@ -1423,7 +1420,7 @@ function getShallowSourceAtSourcePath<
       moduleFilePath,
       modulePath,
       type,
-      source.data,
+      source.data
     );
     if (mappedSource.status === "success") {
       return {
@@ -1441,7 +1438,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
   schemaType: SchemaType,
-  source: Json,
+  source: Json
 ):
   | {
       status: "success";
@@ -1528,7 +1525,9 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     if (typeof source !== "string" && source !== null) {
       return {
         status: "error",
-        error: `Expected string, got ${typeof source}: ${JSON.stringify(source)}`,
+        error: `Expected string, got ${typeof source}: ${JSON.stringify(
+          source
+        )}`,
       };
     }
     return {
@@ -1622,7 +1621,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
 function concatModulePath(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
-  key: string | number,
+  key: string | number
 ): SourcePath {
   if (!modulePath) {
     return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;

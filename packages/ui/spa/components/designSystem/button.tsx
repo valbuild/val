@@ -14,35 +14,35 @@ const buttonVariants = cva(
           "border border-border-brand-primary",
           "bg-bg-brand-primary text-fg-brand-primary",
           "hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary"
         ),
         destructive: cn(
           "cursor-pointer",
           "border border-bg-error-primary",
-          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary",
+          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary"
         ),
         outline: cn(
           "cursor-pointer",
           "border border-transparent",
           "bg-bg-background hover:bg-bg-secondary",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary"
         ),
         secondary: cn(
           "cursor-pointer",
           "border border-border-secondary",
-          "bg-bg-secondary text-fg-secondary hover:bg-bg-secondary-hover",
+          "bg-bg-secondary text-fg-secondary hover:bg-bg-secondary-hover"
         ),
         ghost: cn(
           "cursor-pointer",
           "border border-transparent",
           "bg-bg-background hover:bg-bg-secondary",
           "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
-          "hover:bg-bg-secondary-hover hover:text-fg-secondary",
+          "hover:bg-bg-secondary-hover hover:text-fg-secondary"
         ),
         link: cn(
           "cursor-pointer",
           "border border-transparent",
-          "text-fg-primary underline-offset-4 hover:underline",
+          "text-fg-primary underline-offset-4 hover:underline"
         ),
       },
       size: {
@@ -56,12 +56,11 @@ const buttonVariants = cva(
       variant: "default",
       size: "default",
     },
-  },
+  }
 );
 
 export interface ButtonProps
-  extends
-    React.ButtonHTMLAttributes<HTMLButtonElement>,
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
 }
@@ -76,7 +75,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       />
     );
-  },
+  }
 );
 Button.displayName = "Button";
 

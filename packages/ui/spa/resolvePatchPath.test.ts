@@ -20,10 +20,10 @@ const testModule1 = c.define(
           s.object({
             type: s.literal("type3"),
             image: s.image(),
-          }),
-        ),
+          })
+        )
       ),
-    }),
+    })
   ),
   {
     "1": {
@@ -42,7 +42,7 @@ const testModule1 = c.define(
         },
       ],
     },
-  },
+  }
 );
 const testSchema1 = Internal.getSchema(testModule1)!["executeSerialize"]();
 const testSource1 = Internal.getSource(testModule1);
@@ -78,7 +78,7 @@ describe("resolvePatchPath", () => {
 
   test("basics level 2", () => {
     expect(
-      resolvePatchPath(["1", "2"], testSchema1, testSource1),
+      resolvePatchPath(["1", "2"], testSchema1, testSource1)
     ).toMatchObject({
       modulePath: `"1"."2"`,
       schema: {
@@ -106,7 +106,7 @@ describe("resolvePatchPath", () => {
 
   test("basics level 3", () => {
     expect(
-      resolvePatchPath(["1", "2", "3"], testSchema1, testSource1),
+      resolvePatchPath(["1", "2", "3"], testSchema1, testSource1)
     ).toMatchObject({
       modulePath: `"1"."2".3`,
       schema: {
@@ -121,7 +121,7 @@ describe("resolvePatchPath", () => {
 
   test("basics level 4", () => {
     expect(
-      resolvePatchPath(["1", "2", "3", "4"], testSchema1, testSource1),
+      resolvePatchPath(["1", "2", "3", "4"], testSchema1, testSource1)
     ).toMatchObject({
       modulePath: `"1"."2".3."4"`,
       schema: {
@@ -133,7 +133,7 @@ describe("resolvePatchPath", () => {
 
   test("basics level 5", () => {
     expect(
-      resolvePatchPath(["1", "2", "3", "4", "5"], testSchema1, testSource1),
+      resolvePatchPath(["1", "2", "3", "4", "5"], testSchema1, testSource1)
     ).toMatchObject({
       modulePath: `"1"."2".3."4".5`,
       schema: {
@@ -145,7 +145,7 @@ describe("resolvePatchPath", () => {
 
   test("basics image", () => {
     expect(
-      resolvePatchPath(["1", "2", "4", "image"], testSchema1, testSource1),
+      resolvePatchPath(["1", "2", "4", "image"], testSchema1, testSource1)
     ).toMatchObject({
       modulePath: `"1"."2".4."image"`,
       schema: {
@@ -164,8 +164,8 @@ describe("resolvePatchPath", () => {
       resolvePatchPath(
         ["1", "2", "4", "image", "metadata", "alt"],
         testSchema1,
-        testSource1,
-      ),
+        testSource1
+      )
     ).toMatchObject({
       modulePath: `"1"."2".4."image"."metadata"."alt"`,
       schema: {

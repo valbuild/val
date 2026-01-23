@@ -69,7 +69,7 @@ export function ArrayAndRecordTools({
     maybeParentPath as unknown as ModuleFilePath,
     isParentRecord(path, maybeParentPath, parentSchemaAtPath)
       ? last?.part
-      : undefined,
+      : undefined
   );
   const srcFolder = useNextAppRouterSrcFolder();
   const routePattern =
@@ -82,7 +82,7 @@ export function ArrayAndRecordTools({
       ? getRouterPattern(
           moduleFilePath,
           srcFolder.data,
-          schemaAtPath.data.router,
+          schemaAtPath.data.router
         )
       : null;
   const parentRoutePattern =
@@ -95,7 +95,7 @@ export function ArrayAndRecordTools({
       ? getRouterPattern(
           moduleFilePath,
           srcFolder.data,
-          parentSchemaAtPath.router,
+          parentSchemaAtPath.router
         )
       : null;
   const isParentFixedRoute =
@@ -186,7 +186,7 @@ export function ArrayAndRecordTools({
 function getRouterPattern(
   moduleFilePath: ModuleFilePath,
   srcFolder: string,
-  router: string,
+  router: string
 ): RoutePattern[] | null {
   if (router === "next-app-router") {
     const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
@@ -220,8 +220,12 @@ function ReferencesPopover({
       moduleFilePath,
       patchPath,
       label: `${prettifyFilename(
-        Internal.splitModuleFilePath(moduleFilePath).pop() || "",
-      )}${modulePath ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}` : ""}`,
+        Internal.splitModuleFilePath(moduleFilePath).pop() || ""
+      )}${
+        modulePath
+          ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}`
+          : ""
+      }`,
     };
   });
 
@@ -267,7 +271,7 @@ function ReferencesPopover({
                       <Check
                         className={cn(
                           "mr-2 h-4 w-4",
-                          isCurrent ? "opacity-100" : "opacity-0",
+                          isCurrent ? "opacity-100" : "opacity-0"
                         )}
                       />
                       <ValPath
@@ -295,7 +299,7 @@ function getButtonSize(variant: Variant): "icon" | "sm" | "lg" | "default" {
 }
 
 function getButtonVariant(
-  variant: Variant,
+  variant: Variant
 ): "ghost" | "outline" | "default" | "secondary" {
   return variant === "module" ? "outline" : "ghost";
 }
@@ -341,14 +345,14 @@ function AddArrayButton({
               value: emptyOf(schema.item) as JSONValue,
             },
           ],
-          schema.type,
+          schema.type
         );
         if (schema.item.type !== "string") {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,
-              Internal.patchPathToModulePath(newPatchPath),
-            ),
+              Internal.patchPathToModulePath(newPatchPath)
+            )
           );
         }
       }}
@@ -368,7 +372,7 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
         part,
         sourcePath: moduleFilePath as unknown as SourcePath,
       };
-    },
+    }
   );
   if (!modulePath) {
     return moduleFilePathParts;
@@ -394,7 +398,7 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
       part: splittedModulePath[i],
       sourcePath: Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        modulePathPart as ModulePath,
+        modulePathPart as ModulePath
       ),
     });
   }

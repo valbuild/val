@@ -48,7 +48,7 @@ function App() {
                 detail: {
                   type: "val-css-loaded",
                 },
-              }),
+              })
             );
             setCssLoaded(true);
           }}

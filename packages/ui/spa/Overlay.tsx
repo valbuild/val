@@ -52,7 +52,7 @@ function Overlay() {
         } else {
           console.error(
             "Val: invalid event detail (val-overlay-spa)",
-            event.detail,
+            event.detail
           );
         }
       } else {
@@ -65,7 +65,7 @@ function Overlay() {
         detail: {
           type: "spa-ready",
         },
-      }),
+      })
     );
     return () => {
       window.removeEventListener("val-overlay-spa", listener);
@@ -106,8 +106,10 @@ function Overlay() {
                   window.dispatchEvent(event);
                 }}
                 disableOverlay={() => {
-                  location.href = `${window.location.origin}/api/val/disable?redirect_to=${encodeURIComponent(
-                    window.location.href,
+                  location.href = `${
+                    window.location.origin
+                  }/api/val/disable?redirect_to=${encodeURIComponent(
+                    window.location.href
                   )}`;
                 }}
               />

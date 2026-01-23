@@ -110,7 +110,7 @@ export function RichTextEditor<E extends AnyExtension>({
   const remirrorClassNames = useMemo(() => {
     return [
       classNames(
-        "p-4 outline-none focus:outline-none appearance-none bg-bg-primary rounded-b-md",
+        "p-4 outline-none focus:outline-none appearance-none bg-bg-primary rounded-b-md"
       ),
     ];
   }, [showToolbar]);
@@ -129,7 +129,7 @@ export function RichTextEditor<E extends AnyExtension>({
         }
       }}
       className={classNames(
-        "relative text-base m-1 val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md",
+        "relative text-base m-1 val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md"
       )}
     >
       <Remirror
@@ -190,7 +190,7 @@ const Toolbar = ({
           "sticky top-0 flex flex-col py-2 z-[40] divide-y rounded-md rounded-b-none border-b border-input bg-primary-foreground",
           {
             hidden: !showToolbar,
-          },
+          }
         )}
       >
         <div className="flex items-center justify-between">
@@ -381,7 +381,7 @@ const Toolbar = ({
                                 height: res.height,
                                 mimeType: res.mimeType,
                               },
-                              res.fileHash,
+                              res.fileHash
                             ) ?? undefined,
                         })
                         .focus()
@@ -471,7 +471,8 @@ export function LinkToolBar() {
   );
 }
 
-export interface ToolbarButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ToolbarButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary";
   active?: boolean;
   disabled?: boolean;

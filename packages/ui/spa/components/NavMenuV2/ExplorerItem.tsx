@@ -33,7 +33,7 @@ export function ExplorerItemNode({
     if (item.hasError) return true;
     const checkChildren = (children: ExplorerItemType[]): boolean => {
       return children.some(
-        (child) => child.hasError || checkChildren(child.children),
+        (child) => child.hasError || checkChildren(child.children)
       );
     };
     return checkChildren(item.children);
@@ -83,7 +83,7 @@ export function ExplorerItemNode({
           "hover:bg-bg-secondary",
           {
             "bg-bg-secondary": isActive,
-          },
+          }
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={handleClick}
@@ -97,7 +97,7 @@ export function ExplorerItemNode({
                 {
                   "rotate-90": isOpen,
                   invisible: !hasChildren,
-                },
+                }
               )}
             />
           ) : (

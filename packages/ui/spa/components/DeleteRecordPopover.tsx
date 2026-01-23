@@ -2,10 +2,7 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { Trash2, Workflow } from "lucide-react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useShallowSourceAtPath,
-} from "./ValFieldProvider";
+import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -125,7 +122,7 @@ function DeleteRecordButton({
               path: patchPath as array.NonEmptyArray<string>,
             },
           ],
-          "record",
+          "record"
         );
         navigate(parentPath);
         if (onComplete) {

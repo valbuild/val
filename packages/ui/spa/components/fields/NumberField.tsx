@@ -71,7 +71,7 @@ export function NumberField({ path }: { path: SourcePath }) {
                   value: nextNumber,
                 },
               ],
-              type,
+              type
             );
           }
         }}

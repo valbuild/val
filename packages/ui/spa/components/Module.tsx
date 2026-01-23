@@ -1,9 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import {
-  useAllSources,
-  useSchemaAtPath,
-  useSchemas,
-} from "./ValFieldProvider";
+import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
@@ -67,7 +63,7 @@ export function Module({ path }: { path: SourcePath }) {
         navigate(path);
       }
     },
-    [schemasRes, sources, navigate],
+    [schemasRes, sources, navigate]
   );
 
   if (schemaAtPath.status === "error") {

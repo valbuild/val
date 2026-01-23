@@ -82,17 +82,17 @@ export function AddRecordPopover({
             value: emptyOf(schema.item) as JSONValue,
           },
         ],
-        "record",
+        "record"
       );
       navigate(
         Internal.joinModuleFilePathAndModulePath(
           moduleFilePath,
-          Internal.patchPathToModulePath(newPatchPath),
-        ) as SourcePath,
+          Internal.patchPathToModulePath(newPatchPath)
+        ) as SourcePath
       );
       setOpen(false);
     },
-    [addPatch, navigate, schemaAtPath, path],
+    [addPatch, navigate, schemaAtPath, path]
   );
 
   if (

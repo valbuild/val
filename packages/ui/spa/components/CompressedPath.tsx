@@ -51,15 +51,12 @@ export function CompressedPath({
         disabled={disabled}
         title={Internal.joinModuleFilePathAndModulePath(
           moduleFilePath,
-          modulePath,
+          modulePath
         )}
         className="inline-block text-left truncate"
         onClick={() => {
           navigate(
-            Internal.joinModuleFilePathAndModulePath(
-              moduleFilePath,
-              modulePath,
-            ),
+            Internal.joinModuleFilePathAndModulePath(moduleFilePath, modulePath)
           );
         }}
       >

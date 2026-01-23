@@ -1,10 +1,7 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useShallowSourceAtPath,
-} from "./ValFieldProvider";
+import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -77,7 +74,7 @@ export function ChangeRecordPopover({
         {
           op: "move",
           from: parentPatchPath.concat(
-            defaultValue,
+            defaultValue
           ) as array.NonEmptyArray<string>,
           path: parentPatchPath.concat(key) as array.NonEmptyArray<string>,
         },
@@ -96,12 +93,12 @@ export function ChangeRecordPopover({
               value: key,
             },
           ],
-          "record",
+          "record"
         );
       }
       const newSourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        Internal.patchPathToModulePath(parentPatchPath.concat(key)),
+        Internal.patchPathToModulePath(parentPatchPath.concat(key))
       );
       navigate(newSourcePath, {
         replace: true,
@@ -117,7 +114,7 @@ export function ChangeRecordPopover({
       parentPatchPath,
       navigate,
       onComplete,
-    ],
+    ]
   );
 
   return (

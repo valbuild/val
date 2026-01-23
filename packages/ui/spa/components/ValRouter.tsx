@@ -15,7 +15,7 @@ type ValRouterContextValue = {
     params?: {
       scrollToId?: string;
       replace?: true;
-    },
+    }
   ) => void;
   currentSourcePath: SourcePath;
 };
@@ -26,8 +26,8 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
       get: () => {
         throw Error("ValRouter context not provided");
       },
-    },
-  ) as ValRouterContextValue,
+    }
+  ) as ValRouterContextValue
 );
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
@@ -58,7 +58,7 @@ export function ValRouter({
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
         const moduleFilePath = location.pathname.slice(
-          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length,
+          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
@@ -79,7 +79,7 @@ export function ValRouter({
           window.history.replaceState(
             null,
             "",
-            location.pathname + location.search,
+            location.pathname + location.search
           );
           let retriesLeft = 100;
           const execScroll = () => {
@@ -109,7 +109,7 @@ export function ValRouter({
   const navigate = useCallback(
     (
       path: SourcePath | ModuleFilePath,
-      params?: { scrollToId?: string; replace?: true },
+      params?: { scrollToId?: string; replace?: true }
     ) => {
       const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setSourcePath(path as SourcePath);
@@ -143,7 +143,7 @@ export function ValRouter({
           navigateTo + (params?.scrollToId ? `#${params.scrollToId}` : "");
       }
     },
-    [overlay],
+    [overlay]
   );
   return (
     <ValRouterContext.Provider

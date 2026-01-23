@@ -31,7 +31,7 @@ export function FieldValidationError({
                 "min-h-6",
                 "transition-colors duration-200 ease-in-out",
                 "group-data-[state=closed]:bg-bg-error-primary rounded-lg",
-                "p-2",
+                "p-2"
               )}
             >
               <div className={cn("flex items-center justify-between w-full")}>
@@ -51,7 +51,7 @@ export function FieldValidationError({
                     key={i}
                     className={cn(
                       "p-2 rounded-lg",
-                      "bg-bg-error-primary text-fg-error-primary",
+                      "bg-bg-error-primary text-fg-error-primary"
                     )}
                   >
                     {error.message}
@@ -126,7 +126,7 @@ function SingleValidationError({
       className={cn(
         "flex items-center justify-between w-full transition-all duration-200 ease-in-out",
         "p-2 mt-2",
-        "bg-bg-error-primary text-fg-error-primary rounded-lg",
+        "bg-bg-error-primary text-fg-error-primary rounded-lg"
       )}
       style={{
         height: open ? "auto" : undefined,
@@ -163,7 +163,7 @@ function SingleValidationError({
               "transform transition-transform duration-200 ease-in-out",
               {
                 "rotate-180": open,
-              },
+              }
             )}
           />
         </button>

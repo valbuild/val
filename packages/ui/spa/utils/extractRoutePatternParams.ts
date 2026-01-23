@@ -2,7 +2,7 @@ import { RoutePattern } from "@valbuild/shared/internal";
 
 export function extractRoutePatternParams(
   routePattern: RoutePattern[],
-  fullUrlPath: string,
+  fullUrlPath: string
 ):
   | { status: "success"; params: { [paramName: string]: string | string[] } }
   | { status: "error"; message: string } {
@@ -73,7 +73,9 @@ export function extractRoutePatternParams(
   if (partIndex < cleanParts.length) {
     return {
       status: "error",
-      message: `Extra path parts found: ${cleanParts.slice(partIndex).join("/")}`,
+      message: `Extra path parts found: ${cleanParts
+        .slice(partIndex)
+        .join("/")}`,
     };
   }
 

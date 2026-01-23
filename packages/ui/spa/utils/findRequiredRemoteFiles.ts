@@ -41,8 +41,12 @@ export function findRequiredRemoteFiles(schema: SerializedSchema) {
   } else {
     const exhaustiveCheck: never = schema;
     console.error(
-      `Val: requiresRemoteFiles: unexpected schema type ${typeof exhaustiveCheck === "object" && "type" in exhaustiveCheck && (exhaustiveCheck as { type?: string }).type}`,
-      schema,
+      `Val: requiresRemoteFiles: unexpected schema type ${
+        typeof exhaustiveCheck === "object" &&
+        "type" in exhaustiveCheck &&
+        (exhaustiveCheck as { type?: string }).type
+      }`,
+      schema
     );
     return null;
   }

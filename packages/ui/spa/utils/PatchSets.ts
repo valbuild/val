@@ -63,7 +63,7 @@ export class PatchSets {
     author: AuthorId | null,
     opType: Operation["op"],
     schemaTypes: SerializedSchema["type"][],
-    opPath: PatchPath,
+    opPath: PatchPath
   ) {
     let newPatchSetPath =
       affectsPatchPath.length > 0
@@ -124,16 +124,16 @@ export class PatchSets {
           this.patchSetMetadata[newPatchSetPath].patches.unshift(patchMetadata);
           if (patchMetadata.author !== null) {
             this.patchSetMetadata[newPatchSetPath].authors.unshift(
-              patchMetadata.author,
+              patchMetadata.author
             );
           }
           this.patchSetMetadata[newPatchSetPath].opTypes.unshift(
-            patchMetadata.opType,
+            patchMetadata.opType
           );
         }
       } else {
         throw new Error(
-          `Could not find patch set metadata or patch metadata for (inserted) patch set path: ${moduleFileOrPatchSetPath}`,
+          `Could not find patch set metadata or patch metadata for (inserted) patch set path: ${moduleFileOrPatchSetPath}`
         );
       }
 
@@ -187,7 +187,7 @@ export class PatchSets {
     op: Operation,
     patchId: PatchId,
     createdAt: IsoDateString,
-    author: AuthorId | null,
+    author: AuthorId | null
   ) {
     if (this.insertedPatches.has(patchId)) {
       return;
@@ -201,7 +201,7 @@ export class PatchSets {
         author,
         op.op,
         [],
-        op.path,
+        op.path
       );
       return;
     }
@@ -221,7 +221,7 @@ export class PatchSets {
           author,
           op.op,
           Array.from(schemaTypesAtPath),
-          op.path,
+          op.path
         );
       } else if (
         op.op === "add" ||
@@ -242,7 +242,7 @@ export class PatchSets {
             author,
             op.op,
             Array.from(schemaTypesAtPath),
-            op.path,
+            op.path
           );
           if (op.op === "move") {
             const path = op.from.slice(0, -1);
@@ -255,7 +255,7 @@ export class PatchSets {
               author,
               op.op,
               Array.from(schemaTypesAtPath),
-              op.path,
+              op.path
             );
           }
         } else if (
@@ -273,7 +273,7 @@ export class PatchSets {
             author,
             op.op,
             Array.from(schemaTypesAtPath),
-            op.path,
+            op.path
           );
           if (op.op === "move") {
             const path = op.from;
@@ -286,7 +286,7 @@ export class PatchSets {
               author,
               op.op,
               Array.from(schemaTypesAtPath),
-              op.path,
+              op.path
             );
           }
         } else if (
@@ -294,9 +294,11 @@ export class PatchSets {
           !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
         ) {
           throw new Error(
-            `Cannot perform op: '${op.op}' on non-array or non-record schema. Type: ${
+            `Cannot perform op: '${
+              op.op
+            }' on non-array or non-record schema. Type: ${
               schemaTypesAtPath.values().next().value
-            }`,
+            }`
           );
         } else {
           // we cannot really know if this is a record or array so the entire module is the patch set
@@ -308,7 +310,7 @@ export class PatchSets {
             author,
             op.op,
             [schema.type],
-            op.path,
+            op.path
           );
         }
       } else {
@@ -320,7 +322,7 @@ export class PatchSets {
       if (e instanceof Error) {
         console.error(
           "Could not resolve path while creating patch set",
-          e.message,
+          e.message
         );
       } else {
         console.error("Could not resolve path while creating patch set", e);
@@ -334,7 +336,7 @@ export class PatchSets {
         author,
         op.op,
         [schema.type],
-        op.path,
+        op.path
       );
     }
   }
@@ -349,7 +351,7 @@ export class PatchSets {
         return this.patchSetMetadata[key];
       } else {
         throw new Error(
-          `Could not find patch set metadata or patch metadata for (inserted) patch set path: ${key}`,
+          `Could not find patch set metadata or patch metadata for (inserted) patch set path: ${key}`
         );
       }
     });
