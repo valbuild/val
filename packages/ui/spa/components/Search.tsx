@@ -5,7 +5,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import FlexSearch from "flexsearch";
+import FlexSearch, { Index } from "flexsearch";
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
@@ -131,7 +131,7 @@ function SearchField({
 }) {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [index, setIndex] = useState<FlexSearch.Index | null>(null);
+  const [index, setIndex] = useState<Index | null>(null);
   const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
     new Map(),
   );
@@ -330,7 +330,7 @@ function getRouterPageUrl(path: SourcePath): string | null {
 
 function buildIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
-): { index: FlexSearch.Index; pathToLabel: Map<string, string> } {
+): { index: Index; pathToLabel: Map<string, string> } {
   console.log("building index");
   const index = new FlexSearch.Index({
     tokenize: "forward",
