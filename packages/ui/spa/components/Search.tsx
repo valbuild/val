@@ -246,7 +246,7 @@ function SearchField({
               )}
               {pages.length > 0 && (
                 <CommandGroup heading="Pages" className="gap-1">
-                  {pages.map((result, index) => {
+                  {pages.map((result) => {
                     const navPath =
                       getNavPathFromAll(result.path, sources, schemas) ||
                       result.path;
@@ -254,9 +254,8 @@ function SearchField({
                     return (
                       <CommandItem
                         key={result.path}
-                        value={`page-${index}`}
                         onSelect={() => handleSelect(navPath)}
-                        className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                        className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
                       >
                         <SearchItem path={navPath as SourcePath} url={url} />
                       </CommandItem>
@@ -266,16 +265,15 @@ function SearchField({
               )}
               {otherResults.length > 0 && (
                 <CommandGroup heading="Results" className="gap-1">
-                  {otherResults.map((result, index) => {
+                  {otherResults.map((result) => {
                     const navPath =
                       getNavPathFromAll(result.path, sources, schemas) ||
                       result.path;
                     return (
                       <CommandItem
                         key={result.path}
-                        value={`result-${index}`}
                         onSelect={() => handleSelect(navPath)}
-                        className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                        className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
                       >
                         <SearchItem path={navPath as SourcePath} url={null} />
                       </CommandItem>
