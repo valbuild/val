@@ -7,7 +7,7 @@
     "url": "git+https://github.com/valbuild/val.git"
   },
   "scripts": {
-    "build": "preconstruct build && pnpm run build --filter packages/ui",
+    "build": "preconstruct build && pnpm --filter @valbuild/ui build",
     "postinstall": "preconstruct dev",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
