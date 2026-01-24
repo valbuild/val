@@ -25,6 +25,8 @@ import { getNavPathFromAll } from "./getNavPath";
 import { SearchItem } from "./SearchItem";
 import { Internal } from "@valbuild/core";
 import { Search as SearchIcon } from "lucide-react";
+import { cn } from "./designSystem/cn";
+import { ScrollArea } from "./designSystem/scroll-area";
 
 type SearchResult = {
   path: SourcePath;
@@ -218,7 +220,12 @@ function SearchField({
   return (
     <div className="relative w-full overflow-visible">
       <Command
-        className="rounded-lg border border-border-primary shadow-sm overflow-visible"
+        className={cn(
+          "rounded-lg border border-border-primary shadow-sm overflow-visible",
+          {
+            "border-b-0 rounded-b-none": !!query.trim(),
+          },
+        )}
         shouldFilter={false}
       >
         <CommandInput
@@ -230,51 +237,53 @@ function SearchField({
           autoFocus
         />
         {query.trim() && (
-          <CommandList className="absolute top-full left-0 right-0 mt-1 max-h-[400px] overflow-y-auto p-2 z-[100] bg-bg-primary border border-border-primary rounded-lg shadow-lg">
-            {results.length === 0 && (
-              <CommandEmpty className="py-6 text-center text-fg-tertiary">
-                No results found.
-              </CommandEmpty>
-            )}
-            {pages.length > 0 && (
-              <CommandGroup heading="Pages" className="gap-1">
-                {pages.map((result, index) => {
-                  const navPath =
-                    getNavPathFromAll(result.path, sources, schemas) ||
-                    result.path;
-                  const url = getRouterPageUrl(navPath as SourcePath);
-                  return (
-                    <CommandItem
-                      key={result.path}
-                      value={`page-${index}`}
-                      onSelect={() => handleSelect(navPath)}
-                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                    >
-                      <SearchItem path={navPath as SourcePath} url={url} />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-            {otherResults.length > 0 && (
-              <CommandGroup heading="Results" className="gap-1">
-                {otherResults.map((result, index) => {
-                  const navPath =
-                    getNavPathFromAll(result.path, sources, schemas) ||
-                    result.path;
-                  return (
-                    <CommandItem
-                      key={result.path}
-                      value={`result-${index}`}
-                      onSelect={() => handleSelect(navPath)}
-                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                    >
-                      <SearchItem path={navPath as SourcePath} url={null} />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
+          <CommandList className="absolute top-full left-0 right-0 max-h-[420px]">
+            <ScrollArea className="h-[400px] z-50 p-2 bg-bg-primary border border-t-0 border-border-primary rounded-lg rounded-t-none shadow-lg ">
+              {results.length === 0 && (
+                <CommandEmpty className="py-6 text-center text-fg-tertiary">
+                  No results found.
+                </CommandEmpty>
+              )}
+              {pages.length > 0 && (
+                <CommandGroup heading="Pages" className="gap-1">
+                  {pages.map((result, index) => {
+                    const navPath =
+                      getNavPathFromAll(result.path, sources, schemas) ||
+                      result.path;
+                    const url = getRouterPageUrl(navPath as SourcePath);
+                    return (
+                      <CommandItem
+                        key={result.path}
+                        value={`page-${index}`}
+                        onSelect={() => handleSelect(navPath)}
+                        className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                      >
+                        <SearchItem path={navPath as SourcePath} url={url} />
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+              {otherResults.length > 0 && (
+                <CommandGroup heading="Results" className="gap-1">
+                  {otherResults.map((result, index) => {
+                    const navPath =
+                      getNavPathFromAll(result.path, sources, schemas) ||
+                      result.path;
+                    return (
+                      <CommandItem
+                        key={result.path}
+                        value={`result-${index}`}
+                        onSelect={() => handleSelect(navPath)}
+                        className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+                      >
+                        <SearchItem path={navPath as SourcePath} url={null} />
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+            </ScrollArea>
           </CommandList>
         )}
       </Command>
