@@ -7,15 +7,15 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import FlexSearch from "flexsearch";
+import FlexSearch, { Index } from "flexsearch";
 import { isJsonArray } from "../utils/isJsonArray";
 
 function rec(
   source: Json,
   schema: SerializedSchema,
   path: SourcePath,
-  sourceIndex: FlexSearch.Index,
-  sourcePathIndex: FlexSearch.Index,
+  sourceIndex: Index,
+  sourcePathIndex: Index,
 ): void {
   const isRoot = path.endsWith("?p="); // skip root module
   if (
@@ -346,7 +346,7 @@ function tokenizeSourcePath(sourcePath: SourcePath | ModuleFilePath) {
 }
 
 function addTokenizedSourcePath(
-  sourcePathIndex: FlexSearch.Index,
+  sourcePathIndex: Index,
   sourcePath: SourcePath | ModuleFilePath,
 ) {
   sourcePathIndex.add(sourcePath, tokenizeSourcePath(sourcePath).join(" "));
@@ -354,7 +354,7 @@ function addTokenizedSourcePath(
 const debugPerf = true;
 export function createSearchIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
-): FlexSearch.Index {
+): Index {
   if (debugPerf) {
     console.time("indexing");
   }

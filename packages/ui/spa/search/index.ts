@@ -1,9 +1,9 @@
 import { SourcePath } from "@valbuild/core";
-import FlexSearch from "flexsearch";
+import { Index } from "flexsearch";
 export { createSearchIndex } from "./createSearchIndex";
 
 const debugPerf = false;
-export function search(index: FlexSearch.Index, query: string) {
+export function search(index: Index, query: string) {
   if (debugPerf) {
     console.time("search: " + query);
   }
