@@ -20,7 +20,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: pnpm/action-setup@v2
         with:
-          version: 9
+          version: 10
       - run: pnpm install --frozen-lockfile
       - uses: changesets/action@v1
         with:
