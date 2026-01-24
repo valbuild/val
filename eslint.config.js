@@ -40,6 +40,18 @@ module.exports = defineConfig([
       "@typescript-eslint": typescriptEslint,
     },
 
+    rules: {
+      // Fix for @typescript-eslint/no-unused-expressions rule compatibility with flat config
+      "@typescript-eslint/no-unused-expressions": [
+        "error",
+        {
+          allowShortCircuit: false,
+          allowTernary: false,
+          allowTaggedTemplates: false,
+        },
+      ],
+    },
+
     settings: {
       react: {
         version: "detect",
