@@ -21,7 +21,6 @@ import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
-import { Internal } from "@valbuild/core";
 import { Search as SearchIcon } from "lucide-react";
 import { cn } from "./designSystem/cn";
 import { SearchResultsList, type SearchResult } from "./SearchResultsList";
