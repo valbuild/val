@@ -49,10 +49,6 @@ export function NavMenuV2({
 
   // Track if external is selected (not an accordion, just a button)
   const [isExternalSelected, setIsExternalSelected] = useState(false);
-  // Track accordion open state (controlled)
-  const [accordionValue, setAccordionValue] = useState<string | undefined>(
-    undefined,
-  );
 
   // Check if current path is external
   const isExternalPath = useMemo(() => {
@@ -71,16 +67,34 @@ export function NavMenuV2({
     return data.sitemap && checkSitemapActive(data.sitemap, currentSourcePath);
   }, [data.sitemap, currentSourcePath]);
 
-  // Update accordion value based on current path
-  useEffect(() => {
+  // Calculate which section should be active based on current path
+  const activeSection = useMemo(() => {
     if (isExternalPath) {
-      setAccordionValue("external");
+      return "external";
     } else if (isSitemapSection) {
-      setAccordionValue("sitemap");
+      return "sitemap";
     } else if (isExplorerSection) {
-      setAccordionValue("explorer");
+      return "explorer";
     }
-  }, [isExternalPath, isSitemapSection, isExplorerSection]);
+    // Default to first available section
+    if (data.sitemap) return "sitemap";
+    if (data.explorer) return "explorer";
+    return "";
+  }, [
+    isExternalPath,
+    isSitemapSection,
+    isExplorerSection,
+    data.sitemap,
+    data.explorer,
+  ]);
+
+  // Track accordion open state (controlled) - use activeSection as the value
+  const [accordionValue, setAccordionValue] = useState<string>(activeSection);
+
+  // Update accordion value when active section changes
+  useEffect(() => {
+    setAccordionValue(activeSection);
+  }, [activeSection]);
 
   const handleNavigate = useCallback(
     (sourcePath: string, isExternal = false) => {
