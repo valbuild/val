@@ -40,10 +40,16 @@ function buildIndex(
       if (
         schema.type === "string" ||
         schema.type === "number" ||
-        schema.type === "boolean"
+        schema.type === "boolean" ||
+        schema.type === "date" ||
+        schema.type === "keyOf" ||
+        schema.type === "route"
       ) {
         searchText = source.toString();
         label = source.toString();
+      } else if (schema.type === "literal") {
+        searchText = schema.value.toString();
+        label = schema.value.toString();
       }
       // Handle richtext - flatten to get text content
       else if (schema.type === "richtext") {
@@ -69,32 +75,6 @@ function buildIndex(
               : "";
           searchText = filenameOnly + " " + alt;
           label = filenameOnly;
-        }
-      }
-      // Handle date
-      else if (schema.type === "date") {
-        if (typeof source === "string") {
-          searchText = source;
-          label = source;
-        }
-      }
-      // Handle keyOf
-      else if (schema.type === "keyOf") {
-        if (typeof source === "string" || typeof source === "number") {
-          searchText = source.toString();
-          label = source.toString();
-        }
-      }
-      // Handle literal
-      else if (schema.type === "literal") {
-        searchText = schema.value.toString();
-        label = schema.value.toString();
-      }
-      // Handle route
-      else if (schema.type === "route") {
-        if (typeof source === "string") {
-          searchText = source;
-          label = source;
         }
       }
 
