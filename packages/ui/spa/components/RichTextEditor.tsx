@@ -31,6 +31,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "./designSystem/dropdown-menu";
+import { Button } from "./designSystem/button";
 import { Internal, SerializedRichTextOptions } from "@valbuild/core";
 import { readImage } from "../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";
@@ -187,14 +188,14 @@ const Toolbar = ({
       <div className="h-0" ref={dropdownContainerRef}></div>
       <div
         className={classNames(
-          "sticky top-0 flex flex-col py-2 z-[40] divide-y rounded-md rounded-b-none border-b border-input bg-primary-foreground",
+          "sticky top-0 flex flex-col py-1 z-[40] divide-y rounded-md rounded-b-none border-b border-border-primary",
           {
             hidden: !showToolbar,
           },
         )}
       >
         <div className="flex items-center justify-between">
-          <div className="flex flex-row items-center justify-start px-4 py-1 gap-x-3">
+          <div className="flex flex-row items-center justify-start px-2 py-1 gap-x-1">
             {(options?.block?.h1 ||
               options?.block?.h2 ||
               options?.block?.h3 ||
@@ -203,16 +204,16 @@ const Toolbar = ({
               options?.block?.h6 ||
               active.heading()) && (
               <DropdownMenu>
-                <DropdownMenuTrigger asChild className="pr-4">
-                  <button>
-                    {active.heading({ level: 1 }) && <Heading1 size={22} />}
-                    {active.heading({ level: 2 }) && <Heading2 size={22} />}
-                    {active.heading({ level: 3 }) && <Heading3 size={22} />}
-                    {active.heading({ level: 4 }) && <Heading4 size={22} />}
-                    {active.heading({ level: 5 }) && <Heading5 size={22} />}
-                    {active.heading({ level: 6 }) && <Heading6 size={22} />}
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="xs" className="min-w-[3.5rem]">
+                    {active.heading({ level: 1 }) && <Heading1 size={16} />}
+                    {active.heading({ level: 2 }) && <Heading2 size={16} />}
+                    {active.heading({ level: 3 }) && <Heading3 size={16} />}
+                    {active.heading({ level: 4 }) && <Heading4 size={16} />}
+                    {active.heading({ level: 5 }) && <Heading5 size={16} />}
+                    {active.heading({ level: 6 }) && <Heading6 size={16} />}
                     {!active.heading() && "Normal"}
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent container={dropdownContainerRef.current}>
                   <DropdownMenuItem
@@ -300,7 +301,7 @@ const Toolbar = ({
             )}
             {(options?.style?.bold || active.bold()) && (
               <ToolbarButton
-                icon={<Bold size={18} />}
+                icon={<Bold size={16} />}
                 stroke={3}
                 isOption={options?.style?.bold}
                 isActive={options?.style?.bold || active.bold()}
@@ -309,7 +310,7 @@ const Toolbar = ({
             )}
             {(options?.style?.lineThrough || active.strike()) && (
               <ToolbarButton
-                icon={<Strikethrough size={18} />}
+                icon={<Strikethrough size={16} />}
                 stroke={3}
                 isOption={options?.style?.lineThrough}
                 isActive={options?.style?.lineThrough || active.strike()}
@@ -318,7 +319,7 @@ const Toolbar = ({
             )}
             {(options?.style?.italic || active.italic()) && (
               <ToolbarButton
-                icon={<Italic size={18} />}
+                icon={<Italic size={16} />}
                 stroke={3}
                 isOption={options?.style?.italic}
                 isActive={options?.style?.italic || active.italic()}
@@ -327,7 +328,7 @@ const Toolbar = ({
             )}
             {(options?.block?.ul || active.bulletList()) && (
               <ToolbarButton
-                icon={<List size={18} />}
+                icon={<List size={16} />}
                 stroke={3}
                 isActive={options?.block?.ul || active.bulletList()}
                 onToggle={() => chain.toggleBulletList().focus().run()}
@@ -335,7 +336,7 @@ const Toolbar = ({
             )}
             {(options?.block?.ol || active.orderedList()) && (
               <ToolbarButton
-                icon={<ListOrdered size={18} />}
+                icon={<ListOrdered size={16} />}
                 stroke={3}
                 isActive={options?.block?.ol || active.orderedList()}
                 onToggle={() => chain.toggleOrderedList().focus().run()}
@@ -343,7 +344,7 @@ const Toolbar = ({
             )}
             {(options?.inline?.a || active.link()) && (
               <ToolbarButton
-                icon={<Link size={18} />}
+                icon={<Link size={16} />}
                 stroke={3}
                 isActive={!!options?.inline?.a || active.link()}
                 onToggle={() =>
@@ -356,10 +357,7 @@ const Toolbar = ({
               />
             )}
             {(options?.inline?.img || active.image()) && (
-              <label
-                className="cursor-pointer"
-                htmlFor="val-toolbar-image-select"
-              >
+              <>
                 <input
                   hidden
                   id="val-toolbar-image-select"
@@ -391,19 +389,27 @@ const Toolbar = ({
                     });
                   }}
                 />
-                <Image
-                  size={18}
-                  className={`${active.image() && "stroke-[3px]"}`}
-                />
-              </label>
+                <Button variant="ghost" size="icon-sm" asChild>
+                  <label htmlFor="val-toolbar-image-select">
+                    <Image
+                      size={16}
+                      className={classNames({
+                        "text-accent stroke-[3px]": active.image(),
+                      })}
+                    />
+                  </label>
+                </Button>
+              </>
             )}
             {debug && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chain.insertHardBreak().run()}
               >
                 Br
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -435,7 +441,7 @@ export function LinkToolBar() {
     return null;
   }
   return (
-    <div className="flex items-center justify-start px-4 pt-1 gap-x-2">
+    <div className="flex items-center justify-start px-2 pt-1 gap-x-1">
       <input
         className="bg-transparent text-accent"
         onChange={(ev) => {
@@ -444,8 +450,9 @@ export function LinkToolBar() {
         defaultValue={href}
         placeholder="https://"
       ></input>
-      <button
-        className="p-2"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         title="Update"
         disabled={href === undefined}
         onClick={() => {
@@ -457,16 +464,17 @@ export function LinkToolBar() {
         }}
       >
         <Check size={14} />
-      </button>
-      <button
-        className="p-2"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         title="Remove"
         onClick={() => {
           chain.removeLink().focus().run();
         }}
       >
         <Unlink size={13} />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -490,7 +498,9 @@ function ToolbarButton({
   stroke: 2 | 3;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="icon-sm"
       className={classNames({
         "text-accent": isActive,
         "stroke-[2px]": isActive && stroke === 2,
@@ -502,6 +512,6 @@ function ToolbarButton({
       }}
     >
       {icon}
-    </button>
+    </Button>
   );
 }
