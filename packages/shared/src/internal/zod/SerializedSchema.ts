@@ -116,33 +116,38 @@ export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
     opt: z.boolean(),
   });
 
-export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.object({
-  style: z
-    .object({
-      bold: z.boolean().optional(),
-      italic: z.boolean().optional(),
-      lineThrough: z.boolean().optional(),
-    })
-    .optional(),
-  block: z
-    .object({
-      h1: z.boolean().optional(),
-      h2: z.boolean().optional(),
-      h3: z.boolean().optional(),
-      h4: z.boolean().optional(),
-      h5: z.boolean().optional(),
-      h6: z.boolean().optional(),
-      ul: z.boolean().optional(),
-      ol: z.boolean().optional(),
-    })
-    .optional(),
-  inline: z
-    .object({
-      a: z.boolean().optional(),
-      img: z.union([z.boolean(), SerializedImageSchema]).optional(),
-    })
-    .optional(),
-});
+export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
+  () =>
+    z.object({
+      style: z
+        .object({
+          bold: z.boolean().optional(),
+          italic: z.boolean().optional(),
+          lineThrough: z.boolean().optional(),
+        })
+        .optional(),
+      block: z
+        .object({
+          h1: z.boolean().optional(),
+          h2: z.boolean().optional(),
+          h3: z.boolean().optional(),
+          h4: z.boolean().optional(),
+          h5: z.boolean().optional(),
+          h6: z.boolean().optional(),
+          ul: z.boolean().optional(),
+          ol: z.boolean().optional(),
+        })
+        .optional(),
+      inline: z
+        .object({
+          a: z
+            .union([z.boolean(), SerializedRouteSchema, SerializedStringSchema])
+            .optional(),
+          img: z.union([z.boolean(), SerializedImageSchema]).optional(),
+        })
+        .optional(),
+    }),
+);
 export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
   z.object({
     type: z.literal("richtext"),

@@ -15,6 +15,8 @@ import {
 } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ImageSchema, SerializedImageSchema } from "./image";
+import { RouteSchema, SerializedRouteSchema } from "./route";
+import { SerializedStringSchema, StringSchema } from "./string";
 import {
   ValidationError,
   ValidationErrors,
@@ -226,8 +228,59 @@ export class RichTextSchema<
             false,
           );
         }
-        if (node.tag === "a" && !this.options.inline?.a) {
-          addError(path, `'a' inline is not valid`, false);
+        if (node.tag === "a") {
+          if (!this.options.inline?.a) {
+            addError(path, `'a' inline is not valid`, false);
+          } else if (this.options.inline?.a) {
+            if (!("href" in node)) {
+              return {
+                [path]: [
+                  {
+                    message: `Expected 'href' in 'a'`,
+                    typeError: true,
+                  },
+                ],
+              };
+            }
+            const hrefPath = unsafeCreateSourcePath(path, "href");
+            const hrefSchema =
+              typeof this.options.inline?.a === "boolean"
+                ? new RouteSchema()
+                : this.options.inline.a;
+
+            const executeValidate = () => {
+              if (hrefSchema instanceof RouteSchema) {
+                return hrefSchema["executeValidate"](
+                  hrefPath,
+                  node.href as string,
+                );
+              } else if (hrefSchema instanceof StringSchema) {
+                return hrefSchema["executeValidate"](
+                  hrefPath,
+                  node.href as string,
+                );
+              } else {
+                const exhaustiveCheck: never = hrefSchema;
+                console.error(
+                  "Exhaustive check failed in RichText (anchor href validation)",
+                  exhaustiveCheck,
+                );
+                return false;
+              }
+            };
+            const hrefValidationErrors = executeValidate();
+            if (hrefValidationErrors) {
+              for (const validationErrorPathS in hrefValidationErrors) {
+                const validationErrorPath = validationErrorPathS as SourcePath;
+                if (!current[validationErrorPath]) {
+                  current[validationErrorPath] = [];
+                }
+                current[validationErrorPath].push(
+                  ...hrefValidationErrors[validationErrorPath],
+                );
+              }
+            }
+          }
         }
 
         if (node.tag === "img") {
@@ -562,13 +615,30 @@ export class RichTextSchema<
   }
 
   protected executeSerialize(): SerializedSchema {
+    const serializeAnchorSchema = ():
+      | SerializedRouteSchema
+      | SerializedStringSchema
+      | boolean
+      | undefined => {
+      if (this.options.inline?.a instanceof RouteSchema) {
+        return this.options.inline?.a[
+          "executeSerialize"
+        ]() as SerializedRouteSchema;
+      } else if (this.options.inline?.a instanceof StringSchema) {
+        return this.options.inline?.a[
+          "executeSerialize"
+        ]() as SerializedStringSchema;
+      } else {
+        return this.options.inline?.a;
+      }
+    };
     const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
       maxLength: this.options.maxLength,
       minLength: this.options.minLength,
       style: this.options.style,
       block: this.options.block,
       inline: this.options.inline && {
-        a: this.options.inline.a,
+        a: serializeAnchorSchema(),
         img:
           this.options.inline.img && typeof this.options.inline.img === "object"
             ? (this.options.inline.img[

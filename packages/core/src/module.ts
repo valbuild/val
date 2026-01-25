@@ -365,6 +365,20 @@ export function resolvePath<
               : resolvedSchema
             : resolvedSchema;
       }
+      if (
+        "href" in resolvedSource &&
+        "tag" in resolvedSource &&
+        resolvedSource.tag === "a" &&
+        parts.length === 0
+      ) {
+        resolvedSchema =
+          resolvedSchema instanceof RichTextSchema
+            ? resolvedSchema["options"]?.inline?.a &&
+              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
+              ? resolvedSchema["options"].inline.a
+              : resolvedSchema
+            : resolvedSchema;
+      }
       resolvedSource = resolvedSource[part];
     } else {
       throw Error(
@@ -613,6 +627,20 @@ export function safeResolvePath<
             ? resolvedSchema["options"]?.inline?.img &&
               typeof resolvedSchema["options"]?.inline?.img !== "boolean"
               ? resolvedSchema["options"].inline.img
+              : resolvedSchema
+            : resolvedSchema;
+      }
+      if (
+        "href" in resolvedSource &&
+        "tag" in resolvedSource &&
+        resolvedSource.tag === "a" &&
+        parts.length === 0
+      ) {
+        resolvedSchema =
+          resolvedSchema instanceof RichTextSchema
+            ? resolvedSchema["options"]?.inline?.a &&
+              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
+              ? resolvedSchema["options"].inline.a
               : resolvedSchema
             : resolvedSchema;
       }

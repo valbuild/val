@@ -345,7 +345,7 @@ const Toolbar = ({
               <ToolbarButton
                 icon={<Link size={18} />}
                 stroke={3}
-                isActive={options?.inline?.a || active.link()}
+                isActive={!!options?.inline?.a || active.link()}
                 onToggle={() =>
                   chain
                     .selectMark("link")
