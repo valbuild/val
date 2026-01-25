@@ -63,6 +63,61 @@ function createMockData() {
           },
         ],
       },
+      "/blogs/blog-4": {
+        title: "Advanced Search Features",
+        content: [
+          {
+            tag: "p",
+            children: [
+              "Discover advanced search capabilities and how to use them effectively.",
+            ],
+          },
+        ],
+      },
+      "/blogs/blog-5": {
+        title: "Advanced Search Features",
+        content: [
+          {
+            tag: "p",
+            children: [
+              "Discover advanced search capabilities and how to use them effectively.",
+            ],
+          },
+        ],
+      },
+      "/blogs/blog-6": {
+        title: "Advanced Search Features",
+        content: [
+          {
+            tag: "p",
+            children: [
+              "Discover advanced search capabilities and how to use them effectively.",
+            ],
+          },
+        ],
+      },
+      "/blogs/blog-7": {
+        title: "Advanced Search Features",
+        content: [
+          {
+            tag: "p",
+            children: [
+              "Discover advanced search capabilities and how to use them effectively.",
+            ],
+          },
+        ],
+      },
+      "/blogs/blog-8": {
+        title: "Advanced Search Features",
+        content: [
+          {
+            tag: "p",
+            children: [
+              "Discover advanced search capabilities and how to use them effectively.",
+            ],
+          },
+        ],
+      },
     },
   );
 
@@ -86,6 +141,42 @@ function createMockData() {
       "article-2": {
         title: "React Best Practices",
         description: "Learn the best practices for building React applications",
+        author: "Jane Smith",
+      },
+      "article-3": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
+        author: "Jane Smith",
+      },
+      "article-4": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
+        author: "Jane Smith",
+      },
+      "article-5": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
+        author: "Jane Smith",
+      },
+      "article-6": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
+        author: "Jane Smith",
+      },
+      "article-7": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
+        author: "Jane Smith",
+      },
+      "article-8": {
+        title: "Advanced Search Features",
+        description:
+          "Discover advanced search capabilities and how to use them effectively.",
         author: "Jane Smith",
       },
     },
@@ -126,6 +217,72 @@ function createMockData() {
         ],
       },
       "author-2": {
+        name: "Jane Smith",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "Jane is a designer and developer passionate about user experience.",
+            ],
+          },
+        ],
+      },
+      "author-3": {
+        name: "John Doe",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "John is a software engineer with 10 years of experience.",
+            ],
+          },
+        ],
+      },
+      "author-4": {
+        name: "Jane Smith",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "Jane is a designer and developer passionate about user experience.",
+            ],
+          },
+        ],
+      },
+      "author-5": {
+        name: "John Doe",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "John is a software engineer with 10 years of experience.",
+            ],
+          },
+        ],
+      },
+      "author-6": {
+        name: "Jane Smith",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "Jane is a designer and developer passionate about user experience.",
+            ],
+          },
+        ],
+      },
+      "author-7": {
+        name: "Jane Smith",
+        bio: [
+          {
+            tag: "p",
+            children: [
+              "Jane is a designer and developer passionate about user experience.",
+            ],
+          },
+        ],
+      },
+      "author-8": {
         name: "Jane Smith",
         bio: [
           {
