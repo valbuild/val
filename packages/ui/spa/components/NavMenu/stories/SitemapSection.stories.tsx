@@ -5,7 +5,7 @@ import { mockSitemap, mockLargeSitemap } from "../mockData";
 import { Accordion } from "../../designSystem/accordion";
 
 const meta: Meta<typeof SitemapSection> = {
-  title: "NavMenuV2/SitemapSection",
+  title: "NavMenu/SitemapSection",
   component: SitemapSection,
   parameters: {
     layout: "padded",

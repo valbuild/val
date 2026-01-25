@@ -1,4 +1,4 @@
-import { NAV_MENU_V2_MOBILE_BREAKPOINT, NavMenuV2Wrapper } from "./NavMenuV2";
+import { NAV_MENU_MOBILE_BREAKPOINT, NavMenuWrapper } from "./NavMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
 import { useAuthenticationState } from "./ValProvider";
@@ -21,7 +21,7 @@ export function Layout() {
   const { currentSourcePath, ready: navigationReady } = useNavigation();
   useEffect(() => {
     if (!didInitialize && navigationReady) {
-      if (window.innerWidth < NAV_MENU_V2_MOBILE_BREAKPOINT) {
+      if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
         if (!currentSourcePath) {
           setIsNavMenuOpenState(true);
         }
@@ -83,7 +83,7 @@ export function Layout() {
         >
           <Sidebar className="border-r-0" side="left">
             <SidebarContent>
-              <NavMenuV2Wrapper />
+              <NavMenuWrapper />
             </SidebarContent>
             <SidebarRail />
           </Sidebar>

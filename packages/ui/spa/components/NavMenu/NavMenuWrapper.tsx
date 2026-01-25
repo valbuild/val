@@ -6,7 +6,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
-import { NavMenuV2 } from "./NavMenuV2";
+import { NavMenu } from "./NavMenu";
 import { useNavMenuData } from "./useNavMenuData";
 import { useSchemas } from "../ValFieldProvider";
 import { useAddModuleFilePatch } from "../ValProvider";
@@ -14,10 +14,10 @@ import { useNavigation } from "../ValRouter";
 import { emptyOf } from "../fields/emptyOf";
 
 /**
- * Wrapper component that connects NavMenuV2 to the data layer.
- * Use this in the main Layout instead of NavMenuV2 directly.
+ * Wrapper component that connects NavMenu to the data layer.
+ * Use this in the main Layout instead of NavMenu directly.
  */
-export function NavMenuV2Wrapper() {
+export function NavMenuWrapper() {
   const navMenuData = useNavMenuData();
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const schemas = useSchemas();
@@ -67,15 +67,15 @@ export function NavMenuV2Wrapper() {
 
   if (navMenuData.status === "error") {
     // Fallback to empty state on error
-    return <NavMenuV2 data={{}} isLoading={false} />;
+    return <NavMenu data={{}} isLoading={false} />;
   }
 
   if (!("data" in navMenuData)) {
-    return <NavMenuV2 data={{}} isLoading={true} />;
+    return <NavMenu data={{}} isLoading={true} />;
   }
 
   return (
-    <NavMenuV2
+    <NavMenu
       data={navMenuData.data}
       isLoading={false}
       onAddPage={handleAddPage}
