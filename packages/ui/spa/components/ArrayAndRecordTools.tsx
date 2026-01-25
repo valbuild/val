@@ -251,7 +251,7 @@ function ReferencesPopover({
         container={portalContainer}
       >
         <Command>
-          <CommandInput placeholder="Search references..." />
+          <CommandInput placeholder="Filter" />
           <CommandList>
             {refItems.length === 0 ? (
               <CommandEmpty>No references found.</CommandEmpty>
