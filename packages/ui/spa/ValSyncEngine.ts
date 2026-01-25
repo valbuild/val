@@ -1721,9 +1721,12 @@ export class ValSyncEngine {
             },
           });
           if (res.status !== 200) {
-            console.log("Failed to get changes (batch) - null status", {
-              res,
-            });
+            console.debug(
+              "Val: SyncEngine: Failed to get changes (batch) - null status",
+              {
+                res,
+              },
+            );
             return {
               status: "retry",
             };
@@ -2373,7 +2376,6 @@ export class ValSyncEngine {
    */
   setSources(sources: Record<ModuleFilePath, JSONValue | undefined>): void {
     this.serverSources = sources;
-    this.optimisticClientSources = sources;
     this.cachedSourceSnapshots = null;
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
@@ -2390,14 +2392,9 @@ export class ValSyncEngine {
    */
   setRenders(renders: Record<ModuleFilePath, ReifiedRender | null>): void {
     this.renders = renders;
-    if (this.cachedRenderSnapshots !== null) {
-      this.cachedRenderSnapshots = {};
-    }
+    this.cachedRenderSnapshots = renders;
     for (const moduleFilePath in renders) {
       const path = moduleFilePath as ModuleFilePath;
-      if (this.cachedRenderSnapshots !== null) {
-        this.cachedRenderSnapshots[path] = null;
-      }
       this.emit(this.listeners["render"]?.[path]);
     }
   }

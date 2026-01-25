@@ -1,9 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useMemo, useState } from "react";
-import { ModuleFilePath, SerializedSchema } from "@valbuild/core";
+import {
+  ModuleFilePath,
+  ReifiedRender,
+  SerializedSchema,
+} from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { Search } from "../../Search";
-import { mockSchemas, mockSources } from "./mockData";
+import { mockSchemas, mockSources, mockRenders } from "./mockData";
 import { ValSyncEngine } from "../../../ValSyncEngine";
 import { ValThemeProvider, Themes } from "../../ValThemeProvider";
 import { ValErrorProvider } from "../../ValErrorProvider";
@@ -33,9 +37,11 @@ function createMockClient(): ValClient {
 function SearchWithProviders({
   schemas = mockSchemas,
   sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
+  renders = mockRenders,
 }: {
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources?: Record<ModuleFilePath, JSONValue | undefined>;
+  renders?: Record<ModuleFilePath, ReifiedRender | null>;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>(null);
@@ -43,12 +49,13 @@ function SearchWithProviders({
   // Create syncEngine and initialize with mock data
   const syncEngine = useMemo(() => {
     const engine = new ValSyncEngine(client, undefined);
-    // Use setSchemas and setSources to initialize with mock data
+    // Use setSchemas, setSources, and setRenders to initialize with mock data
     engine.setSchemas(schemas);
     engine.setSources(sources);
+    engine.setRenders(renders);
     engine.setInitializedAt(Date.now());
     return engine;
-  }, [client, schemas, sources]);
+  }, [client, schemas, sources, renders]);
 
   // Mock getDirectFileUploadSettings callback
   const getDirectFileUploadSettings = useMemo(
@@ -146,7 +153,7 @@ export const EmptyState: Story = {
       <p className="mb-4 text-sm text-fg-secondary">
         Search with no data. Press Cmd+K (Mac) or Ctrl+K to activate search.
       </p>
-      <SearchWithProviders schemas={{}} sources={{}} />
+      <SearchWithProviders schemas={{}} sources={{}} renders={{}} />
     </div>
   ),
   name: "Empty State",
