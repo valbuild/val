@@ -109,15 +109,11 @@ function createAuthorResults(
 
 // Wrapper component that provides all necessary providers
 function SearchResultsListWithProviders({
-  pages,
-  otherResults,
   results,
   schemas = mockSchemas,
   sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
   renders = mockRenders,
 }: {
-  pages: SearchResult[];
-  otherResults: SearchResult[];
   results: SearchResult[];
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources?: Record<ModuleFilePath, JSONValue | undefined>;
@@ -200,8 +196,6 @@ function SearchResultsListWithProviders({
                 <div className="relative w-full max-w-md">
                   <Command shouldFilter={false}>
                     <SearchResultsList
-                      pages={pages}
-                      otherResults={otherResults}
                       results={results}
                       sources={loadedSources}
                       schemas={loadedSchemas}
@@ -250,11 +244,7 @@ export const LongMixedResults: Story = {
       ...createConfigResults(3),
     ];
     return (
-      <SearchResultsListWithProviders
-        pages={pages}
-        otherResults={otherResults}
-        results={[...pages, ...otherResults]}
-      />
+      <SearchResultsListWithProviders results={[...pages, ...otherResults]} />
     );
   },
   name: "Long Set of Mixed Results",
@@ -271,8 +261,6 @@ export const LongMixedResults: Story = {
 export const ShortMixedResults: Story = {
   render: () => (
     <SearchResultsListWithProviders
-      pages={createMockSearchResults(2, true)}
-      otherResults={createMockSearchResults(3, false)}
       results={[
         ...createMockSearchResults(2, true),
         ...createMockSearchResults(3, false),
@@ -293,8 +281,6 @@ export const ShortMixedResults: Story = {
 export const OnlyPages: Story = {
   render: () => (
     <SearchResultsListWithProviders
-      pages={createMockSearchResults(4, true)}
-      otherResults={[]}
       results={createMockSearchResults(4, true)}
     />
   ),
@@ -311,8 +297,6 @@ export const OnlyPages: Story = {
 export const OnlyOtherResults: Story = {
   render: () => (
     <SearchResultsListWithProviders
-      pages={[]}
-      otherResults={createMockSearchResults(6, false)}
       results={createMockSearchResults(6, false)}
     />
   ),
@@ -327,9 +311,7 @@ export const OnlyOtherResults: Story = {
 };
 
 export const NoResults: Story = {
-  render: () => (
-    <SearchResultsListWithProviders pages={[]} otherResults={[]} results={[]} />
-  ),
+  render: () => <SearchResultsListWithProviders results={[]} />,
   name: "No Results",
   parameters: {
     docs: {
@@ -343,11 +325,7 @@ export const NoResults: Story = {
 
 export const TeamMembersWithListView: Story = {
   render: () => (
-    <SearchResultsListWithProviders
-      pages={[]}
-      otherResults={createTeamResults(3)}
-      results={createTeamResults(3)}
-    />
+    <SearchResultsListWithProviders results={createTeamResults(3)} />
   ),
   name: "Team Members (List View Rendering)",
   parameters: {
@@ -362,11 +340,7 @@ export const TeamMembersWithListView: Story = {
 
 export const ProductPagesWithListView: Story = {
   render: () => (
-    <SearchResultsListWithProviders
-      pages={createProductPageResults(3)}
-      otherResults={[]}
-      results={createProductPageResults(3)}
-    />
+    <SearchResultsListWithProviders results={createProductPageResults(3)} />
   ),
   name: "Product Pages (Router + List View)",
   parameters: {
@@ -381,11 +355,7 @@ export const ProductPagesWithListView: Story = {
 
 export const ConfigWithCodeRendering: Story = {
   render: () => (
-    <SearchResultsListWithProviders
-      pages={[]}
-      otherResults={createConfigResults(3)}
-      results={createConfigResults(3)}
-    />
+    <SearchResultsListWithProviders results={createConfigResults(3)} />
   ),
   name: "Config Items (Array with Code Rendering)",
   parameters: {
@@ -404,14 +374,9 @@ export const MixedRenderTypes: Story = {
       ...createTeamResults(2),
       ...createProductPageResults(2),
       ...createConfigResults(2),
+      ...createAuthorResults(2),
     ];
-    return (
-      <SearchResultsListWithProviders
-        pages={createProductPageResults(2)}
-        otherResults={[...createTeamResults(2), ...createConfigResults(2)]}
-        results={results}
-      />
-    );
+    return <SearchResultsListWithProviders results={results} />;
   },
   name: "Mixed Render Types",
   parameters: {

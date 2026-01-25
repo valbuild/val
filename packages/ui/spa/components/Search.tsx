@@ -165,27 +165,21 @@ function SearchField({
     [onSelect, onDeactivate],
   );
 
-  // Separate pages (router pages) from other results
-  const { pages, otherResults } = useMemo(() => {
-    const pagesList: SearchResult[] = [];
-    const otherList: SearchResult[] = [];
-
+  // Deduplicate results based on navPath
+  const deduplicatedResults = useMemo(() => {
     const addedPaths = new Set<string>();
+    const deduplicated: SearchResult[] = [];
+
     for (const result of results) {
       const navPath =
         getNavPathFromAll(result.path, sources, schemas) || result.path;
-      if (addedPaths.has(navPath)) {
-        continue;
+      if (!addedPaths.has(navPath)) {
+        deduplicated.push(result);
+        addedPaths.add(navPath);
       }
-      if (navPath && isRouterPage(navPath as SourcePath, schemas)) {
-        pagesList.push(result);
-      } else {
-        otherList.push(result);
-      }
-      addedPaths.add(navPath);
     }
 
-    return { pages: pagesList, otherResults: otherList };
+    return deduplicated;
   }, [results, sources, schemas]);
 
   // Focus the input when the component mounts (when dialog opens)
@@ -217,9 +211,7 @@ function SearchField({
         />
         {query.trim() && (
           <SearchResultsList
-            pages={pages}
-            otherResults={otherResults}
-            results={results}
+            results={deduplicatedResults}
             sources={sources}
             schemas={schemas}
             onSelect={handleSelect}
@@ -228,34 +220,6 @@ function SearchField({
       </Command>
     </div>
   );
-}
-
-function isRouterPage(
-  path: SourcePath,
-  schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
-): boolean {
-  if (!schemas) return false;
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(path);
-  if (!modulePath) return false;
-
-  // Get parent path by removing last segment
-  const pathSegments = Internal.splitModulePath(modulePath);
-  if (pathSegments.length === 0) return false;
-
-  // For nested paths, check if parent is a router
-  // The parent would be the module with one less segment
-  const moduleSchema = schemas[moduleFilePath];
-  if (
-    moduleSchema?.type === "record" &&
-    Boolean(moduleSchema.router) &&
-    moduleSchema.router !== "external"
-  ) {
-    // If the module is a router and we have a path segment, it's a router page
-    return true;
-  }
-
-  return false;
 }
 
 function buildIndex(

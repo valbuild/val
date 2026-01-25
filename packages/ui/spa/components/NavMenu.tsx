@@ -9,20 +9,6 @@ import {
   ChevronRight,
   Ellipsis,
   Loader2,
-  Type,
-  Calendar,
-  Code,
-  FileIcon,
-  FileText,
-  Hash,
-  ImageIcon,
-  Key,
-  List,
-  Split,
-  Table,
-  ToggleRight,
-  HelpCircle,
-  Layers,
   Moon,
   Sun,
   LogOut,
@@ -30,6 +16,7 @@ import {
   Globe,
   PanelsTopLeft,
 } from "lucide-react";
+import { NodeIcon } from "./NodeIcon";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode } from "../utils/pathTree";
 import { useCurrentProfile } from "./ValProvider";
@@ -448,7 +435,7 @@ function ExplorerNode({
               })}
             />
           ) : (
-            <NodeIcon type={schemaType} size={14} />
+            <NodeIcon type={schemaType} size={14} className="mr-2" />
           )}
           <span>{prettifyFilename(name)}</span>
         </div>
@@ -467,45 +454,3 @@ function ExplorerNode({
   );
 }
 
-function NodeIcon({
-  size,
-  type,
-}: {
-  size?: number;
-  type: SerializedSchema["type"] | "loading";
-}) {
-  if (type === "loading") {
-    return <Loader2 size={size} className="mr-2 animate-spin" />;
-  }
-
-  switch (type) {
-    case "string":
-      return <Type size={size} className="mr-2" />;
-    case "number":
-      return <Hash size={size} className="mr-2" />;
-    case "boolean":
-      return <ToggleRight size={size} className="mr-2" />;
-    case "object":
-      return <Layers size={size} className="mr-2" />;
-    case "literal":
-      return <Code size={size} className="mr-2" />;
-    case "array":
-      return <List size={size} className="mr-2" />;
-    case "union":
-      return <Split size={size} className="mr-2" />;
-    case "richtext":
-      return <FileText size={size} className="mr-2" />;
-    case "record":
-      return <Table size={size} className="mr-2" />;
-    case "keyOf":
-      return <Key size={size} className="mr-2" />;
-    case "file":
-      return <FileIcon size={size} className="mr-2" />;
-    case "date":
-      return <Calendar size={size} className="mr-2" />;
-    case "image":
-      return <ImageIcon size={size} className="mr-2" />;
-    default:
-      return <HelpCircle size={size} className="mr-2" />;
-  }
-}
