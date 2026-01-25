@@ -4,50 +4,23 @@ import {
   SourcePath,
   Json,
 } from "@valbuild/core";
-import {
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "./designSystem/command";
+import { CommandEmpty, CommandItem, CommandList } from "./designSystem/command";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { SearchItem } from "./SearchItem";
 import { getNavPathFromAll } from "./getNavPath";
-import { Internal } from "@valbuild/core";
+import { Fragment } from "react";
 
 export type SearchResult = {
   path: SourcePath;
   label: string;
 };
 
-function getRouterPageUrl(path: SourcePath): string | null {
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
-  if (!modulePath) return null;
-
-  // Get the first key (URL) from the module path
-  const pathSegments = Internal.splitModulePath(modulePath);
-  if (pathSegments.length === 0) return null;
-
-  // The first segment is the URL key
-  const urlKey = pathSegments[0];
-  // Try to parse it (it might be JSON stringified)
-  try {
-    return JSON.parse(urlKey);
-  } catch {
-    return urlKey;
-  }
-}
-
 export function SearchResultsList({
-  pages,
-  otherResults,
   results,
   sources,
   schemas,
   onSelect,
 }: {
-  pages: SearchResult[];
-  otherResults: SearchResult[];
   results: SearchResult[];
   sources: Record<ModuleFilePath, Json>;
   schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
@@ -61,41 +34,21 @@ export function SearchResultsList({
             No results found.
           </CommandEmpty>
         )}
-        {pages.length > 0 && (
-          <CommandGroup heading="Pages" className="gap-1">
-            {pages.map((result) => {
-              const navPath =
-                getNavPathFromAll(result.path, sources, schemas) || result.path;
-              const url = getRouterPageUrl(navPath as SourcePath);
-              return (
-                <CommandItem
-                  key={result.path}
-                  onSelect={() => onSelect(navPath)}
-                  className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                >
-                  <SearchItem path={navPath as SourcePath} url={url} />
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-        )}
-        {otherResults.length > 0 && (
-          <CommandGroup heading="Results" className="gap-1">
-            {otherResults.map((result) => {
-              const navPath =
-                getNavPathFromAll(result.path, sources, schemas) || result.path;
-              return (
-                <CommandItem
-                  key={result.path}
-                  onSelect={() => onSelect(navPath)}
-                  className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                >
-                  <SearchItem path={navPath as SourcePath} url={null} />
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-        )}
+        {results.map((result) => {
+          const navPath =
+            getNavPathFromAll(result.path, sources, schemas) || result.path;
+          return (
+            <Fragment key={result.path}>
+              <div className="h-px bg-border-primary opacity-50" />
+              <CommandItem
+                onSelect={() => onSelect(navPath)}
+                className="flex flex-col justify-between px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
+              >
+                <SearchItem path={navPath as SourcePath} size="compact" />
+              </CommandItem>
+            </Fragment>
+          );
+        })}
       </ScrollArea>
     </CommandList>
   );

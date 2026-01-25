@@ -32,12 +32,10 @@ function createMockClient(): ValClient {
 // Wrapper component that provides mock providers
 function SearchItemWithProviders({
   path,
-  url,
   schemas = mockSchemas,
   sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
 }: {
   path: SourcePath;
-  url: string | null;
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources?: Record<ModuleFilePath, JSONValue | undefined>;
 }) {
@@ -93,7 +91,7 @@ function SearchItemWithProviders({
               <ValRouter>
                 <div className="w-full max-w-md p-4">
                   <div className="rounded-lg border border-border-primary p-3 bg-bg-primary">
-                    <SearchItem path={path} url={url} />
+                    <SearchItem path={path} />
                   </div>
                 </div>
               </ValRouter>
@@ -128,7 +126,6 @@ export const WithUrl: Story = {
   render: () => (
     <SearchItemWithProviders
       path={'/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1"' as SourcePath}
-      url="/blogs/blog-1"
     />
   ),
   name: "With URL (Router Page)",
@@ -146,7 +143,6 @@ export const WithoutUrl: Story = {
   render: () => (
     <SearchItemWithProviders
       path={'/content/settings.val.ts?p="siteName"' as SourcePath}
-      url={null}
     />
   ),
   name: "Without URL (Regular Content)",
@@ -164,7 +160,6 @@ export const StringContent: Story = {
   render: () => (
     <SearchItemWithProviders
       path={'/content/settings.val.ts?p="siteName"' as SourcePath}
-      url={null}
     />
   ),
   name: "String Content",
@@ -176,7 +171,6 @@ export const RichTextContent: Story = {
       path={
         '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1".content' as SourcePath
       }
-      url={null}
     />
   ),
   name: "RichText Content",
