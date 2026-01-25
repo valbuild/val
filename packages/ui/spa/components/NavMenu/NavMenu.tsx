@@ -21,9 +21,9 @@ import { ExternalButton } from "./ExternalButton";
 import { Accordion, AccordionItem } from "../designSystem/accordion";
 import { MOBILE_BREAKPOINT } from "../hooks/use-mobile";
 
-export const NAV_MENU_V2_MOBILE_BREAKPOINT = MOBILE_BREAKPOINT;
+export const NAV_MENU_MOBILE_BREAKPOINT = MOBILE_BREAKPOINT;
 
-export type NavMenuV2Props = {
+export type NavMenuProps = {
   /** Navigation data */
   data: NavMenuData;
   /** Loading state */
@@ -32,11 +32,11 @@ export type NavMenuV2Props = {
   onAddPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
 };
 
-export function NavMenuV2({
+export function NavMenu({
   data,
   isLoading = false,
   onAddPage,
-}: NavMenuV2Props) {
+}: NavMenuProps) {
   const { currentSourcePath, navigate } = useNavigation();
   const layout = useLayout();
   const { theme, setTheme } = useTheme();

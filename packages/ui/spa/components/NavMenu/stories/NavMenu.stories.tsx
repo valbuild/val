@@ -18,8 +18,8 @@ import { Accordion } from "../../designSystem/accordion";
 import { Loader2 } from "lucide-react";
 import { AccordionItem } from "@radix-ui/react-accordion";
 
-// Mock NavMenuV2 that renders the actual components without needing providers
-function MockedNavMenuV2({
+// Mock NavMenu that renders the actual components without needing providers
+function MockedNavMenu({
   data,
   isLoading,
 }: {
@@ -124,9 +124,9 @@ function MockedNavMenuV2({
   );
 }
 
-const meta: Meta<typeof MockedNavMenuV2> = {
-  title: "NavMenuV2/NavMenuV2",
-  component: MockedNavMenuV2,
+const meta: Meta<typeof MockedNavMenu> = {
+  title: "NavMenu/NavMenu",
+  component: MockedNavMenu,
   parameters: {
     layout: "padded",
   },
@@ -134,7 +134,7 @@ const meta: Meta<typeof MockedNavMenuV2> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof MockedNavMenuV2>;
+type Story = StoryObj<typeof MockedNavMenu>;
 
 export const Default: Story = {
   args: {

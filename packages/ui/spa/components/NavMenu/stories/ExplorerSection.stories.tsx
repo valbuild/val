@@ -5,7 +5,7 @@ import { mockExplorer } from "../mockData";
 import { Accordion } from "../../designSystem/accordion";
 
 const meta: Meta<typeof ExplorerSection> = {
-  title: "NavMenuV2/ExplorerSection",
+  title: "NavMenu/ExplorerSection",
   component: ExplorerSection,
   parameters: {
     layout: "padded",

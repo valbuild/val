@@ -3,7 +3,7 @@ import { ExternalButton } from "../ExternalButton";
 import { mockExternal } from "../mockData";
 
 const meta: Meta<typeof ExternalButton> = {
-  title: "NavMenuV2/ExternalButton",
+  title: "NavMenu/ExternalButton",
   component: ExternalButton,
   parameters: {
     layout: "padded",
