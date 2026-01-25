@@ -184,8 +184,9 @@ export const mockLargeSitemap: SitemapItem = {
       children: Array.from({ length: 30 }, (_, i) => ({
         name: `blog-${i + 1}`,
         urlPath: `/blogs/blog-${i + 1}`,
-        sourcePath:
-          `/app/blogs/[blog]/page.val.ts?p="/blogs/blog-${i + 1}"` as SourcePath,
+        sourcePath: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog-${
+          i + 1
+        }"` as SourcePath,
         children: [],
       })),
     },

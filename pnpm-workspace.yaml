@@ -10,6 +10,14 @@ packages:
   - packages/init
   - packages/eslint-plugin
   - examples/next
+  - packages/server/test/example-projects/*
+
+ignoredBuiltDependencies:
+  - less
+  - unrs-resolver
 
 minimumReleaseAgeExclude:
   - "@valbuild/*"
+
+onlyBuiltDependencies:
+  - esbuild

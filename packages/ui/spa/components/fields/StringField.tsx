@@ -5,7 +5,7 @@ import {
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
-} from "../ValProvider";
+} from "../ValFieldProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";

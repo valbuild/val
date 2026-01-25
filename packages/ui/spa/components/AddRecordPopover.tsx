@@ -8,8 +8,8 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,

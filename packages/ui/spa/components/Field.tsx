@@ -5,11 +5,11 @@ import { ChevronDown, ChevronsDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   useAddPatch,
-  useLoadingStatus,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useValidationErrors,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useValidationErrors } from "./ValErrorProvider";
+import { useLoadingStatus } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";

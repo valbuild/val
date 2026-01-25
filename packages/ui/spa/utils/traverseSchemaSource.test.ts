@@ -2,7 +2,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  SerializedSchema,
   SourcePath,
   ValModule,
   initVal,

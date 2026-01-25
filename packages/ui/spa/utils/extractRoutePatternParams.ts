@@ -73,7 +73,9 @@ export function extractRoutePatternParams(
   if (partIndex < cleanParts.length) {
     return {
       status: "error",
-      message: `Extra path parts found: ${cleanParts.slice(partIndex).join("/")}`,
+      message: `Extra path parts found: ${cleanParts
+        .slice(partIndex)
+        .join("/")}`,
     };
   }
 

@@ -10,7 +10,8 @@ import { fallbackRender } from "./fallbackRender";
 import { ValOverlay } from "./components/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
-import { Themes, ValProvider } from "./components/ValProvider";
+import { ValProvider } from "./components/ValProvider";
+import { Themes } from "./components/ValThemeProvider";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
@@ -105,7 +106,9 @@ function Overlay() {
                   window.dispatchEvent(event);
                 }}
                 disableOverlay={() => {
-                  location.href = `${window.location.origin}/api/val/disable?redirect_to=${encodeURIComponent(
+                  location.href = `${
+                    window.location.origin
+                  }/api/val/disable?redirect_to=${encodeURIComponent(
                     window.location.href,
                   )}`;
                 }}

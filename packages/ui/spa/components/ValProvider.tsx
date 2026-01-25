@@ -10,10 +10,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
-  DEFAULT_APP_HOST,
-  DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
-  Internal,
   Json,
   ModuleFilePath,
   ModuleFilePathSep,
@@ -23,13 +20,11 @@ import {
   SourcePath,
   ValConfig,
 } from "@valbuild/core";
-import { Operation, Patch } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 import {
-  ParentRef,
   SharedValConfig,
   ValClient,
   getNextAppRouterSourceFolder,
-  VAL_THEME_SESSION_STORAGE_KEY,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -42,7 +37,12 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { FileOperation } from "@valbuild/core/patch";
+import { useSchemas } from "./ValFieldProvider";
+import { ValThemeProvider, Themes } from "./ValThemeProvider";
+import { ValErrorProvider } from "./ValErrorProvider";
+import { ValPortalProvider } from "./ValPortalProvider";
+import { ValFieldProvider } from "./ValFieldProvider";
+import { ValRemoteProvider } from "./ValRemoteProvider";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
@@ -53,9 +53,6 @@ type ValContextValue = {
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
-  portalRef: HTMLElement | null;
-  theme: Themes | null;
-  setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
   authenticationState: AuthenticationState;
   profiles: Record<AuthorId, Profile>;
@@ -104,6 +101,7 @@ export function useClient() {
 export function ValProvider({
   children,
   client,
+  config: _config,
   dispatchValEvents,
   theme,
   setTheme,
@@ -112,9 +110,11 @@ export function ValProvider({
   client: ValClient;
   config: SharedValConfig | null;
   dispatchValEvents: boolean;
-  theme: Themes | null;
-  setTheme: (theme: Themes | null) => void;
+  theme?: Themes | null;
+  setTheme?: (theme: Themes | null) => void;
 }) {
+  // config parameter is unused but kept for API compatibility
+  void _config;
   const [
     stat,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -137,7 +137,7 @@ export function ValProvider({
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
-  const config =
+  const runtimeConfig =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
@@ -162,7 +162,6 @@ export function ValProvider({
     }
   }, [serviceUnavailable, showServiceUnavailable]);
 
-  const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
@@ -412,6 +411,40 @@ export function ValProvider({
     authenticationState,
     serviceUnavailable,
   );
+
+  const getDirectFileUploadSettings = useCallback(async (): Promise<
+    | {
+        status: "success";
+        data: {
+          nonce: string | null;
+          baseUrl: string;
+        };
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+  > => {
+    let res = await client("/direct-file-upload-settings", "POST", {});
+    let retries = 0;
+    while (res.status === null && retries < 5) {
+      console.warn(
+        "Failed to get direct file upload settings, retrying...",
+        res,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
+      res = await client("/direct-file-upload-settings", "POST", {});
+      retries++;
+    }
+    if (res.status === 200) {
+      return { status: "success", data: res.json };
+    }
+    return {
+      status: "error",
+      error: "Could not get direct file upload settings",
+    };
+  }, [client]);
+
   return (
     <ValContext.Provider
       value={{
@@ -426,48 +459,37 @@ export function ValProvider({
         observedCommitShas,
         deployments,
         dismissDeployment,
-        portalRef: portalRef.current,
         authenticationState,
-        theme,
-        setTheme: (theme) => {
-          if (theme === "dark" || theme === "light") {
-            try {
-              sessionStorage.setItem(VAL_THEME_SESSION_STORAGE_KEY, theme);
-              localStorage.setItem(
-                "val-theme-" + (config?.project || "unknown"),
-                theme,
-              );
-            } catch (e) {
-              console.error("Error setting theme in storage", e);
-            }
-            setTheme(theme);
-          } else if (theme === null) {
-            try {
-              sessionStorage.removeItem(VAL_THEME_SESSION_STORAGE_KEY);
-              localStorage.removeItem(
-                "val-theme-" + (config?.project || "unknown"),
-              );
-            } catch (e) {
-              console.error("Error removing theme from storage", e);
-            }
-            setTheme(null);
-          } else {
-            console.warn(`Cannot set invalid theme: ${theme}`);
-          }
-        },
-        config,
+        config: runtimeConfig,
         profiles:
           "data" in profilesData && profilesData.data ? profilesData.data : {},
         remoteFiles,
       }}
     >
       <TooltipProvider>
-        <div
-          data-val-portal="true"
-          ref={portalRef}
-          {...(theme ? { "data-mode": theme } : {})}
-        ></div>
-        {children}
+        {theme !== undefined && setTheme ? (
+          <ValThemeProvider
+            theme={theme}
+            setTheme={setTheme}
+            config={runtimeConfig}
+          >
+            <ValErrorProvider syncEngine={syncEngine}>
+              <ValPortalProvider>
+                <ValRemoteProvider remoteFiles={remoteFiles}>
+                  <ValFieldProvider
+                    syncEngine={syncEngine}
+                    getDirectFileUploadSettings={getDirectFileUploadSettings}
+                    config={runtimeConfig}
+                  >
+                    {children}
+                  </ValFieldProvider>
+                </ValRemoteProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValThemeProvider>
+        ) : (
+          children
+        )}
       </TooltipProvider>
     </ValContext.Provider>
   );
@@ -536,75 +558,6 @@ function useProfilesData(
   return profilesData;
 }
 
-export function useValPortal() {
-  return useContext(ValContext).portalRef;
-}
-
-export type Themes = "dark" | "light";
-
-export function useTheme() {
-  const { theme, setTheme } = useContext(ValContext);
-  return { theme, setTheme };
-}
-
-export function useValConfig() {
-  const { config } = useContext(ValContext);
-  const lastConfig = useRef<
-    | (ValConfig & {
-        remoteHost: string;
-        appHost: string;
-        studioPrefix: string;
-      })
-    | undefined
-  >(
-    config && {
-      ...config,
-      remoteHost: DEFAULT_VAL_REMOTE_HOST,
-      appHost: DEFAULT_APP_HOST,
-      studioPrefix: "/val/~",
-    },
-  );
-  useEffect(() => {
-    if (config) {
-      lastConfig.current = {
-        ...config,
-        remoteHost: DEFAULT_VAL_REMOTE_HOST,
-        appHost: DEFAULT_APP_HOST,
-        studioPrefix: "/val/~",
-      };
-    }
-  }, [config]);
-  return lastConfig.current;
-}
-
-export function useRemoteFiles() {
-  const { remoteFiles } = useContext(ValContext);
-  return remoteFiles;
-}
-
-export function useCurrentRemoteFileBucket() {
-  const { remoteFiles } = useContext(ValContext);
-  const [currentBucket, setCurrentBucket] = useState<string | null>(null);
-
-  function getRandomInt(max: number) {
-    return Math.floor(Math.random() * max);
-  }
-
-  useEffect(() => {
-    if (
-      remoteFiles.status === "ready" &&
-      remoteFiles.buckets.length > 0 &&
-      currentBucket === null
-    ) {
-      // Ideally we do round robin, but for now, we just pick a random bucket
-      setCurrentBucket(
-        remoteFiles.buckets[getRandomInt(remoteFiles.buckets.length)],
-      );
-    }
-  }, [remoteFiles]);
-  return currentBucket;
-}
-
 export function useAuthenticationState() {
   const { authenticationState } = useContext(ValContext);
   return authenticationState;
@@ -613,316 +566,6 @@ export function useAuthenticationState() {
 export function useConnectionStatus() {
   const { serviceUnavailable } = useContext(ValContext);
   return serviceUnavailable === true ? "service-unavailable" : "connected";
-}
-
-const textEncoder = new TextEncoder();
-const SavePatchFileResponse = z.object({
-  patchId: z.string().refine((v): v is PatchId => v.length > 0),
-  filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
-});
-
-export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
-  const { syncEngine, client } = useContext(ValContext);
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const patchPath = useMemo(() => {
-    return Internal.createPatchPath(modulePath);
-  }, [modulePath]);
-  // TODO: do we even need these callbacks now? Earlier they were useful, but after moving to syncEngine, they give us very little value
-  const addPatch = useCallback(
-    (patch: Patch, type: SerializedSchema["type"]) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
-    },
-    [syncEngine, moduleFilePath],
-  );
-  const addPatchAwaitable = useCallback(
-    (patch: Patch, type: SerializedSchema["type"], patchId: PatchId) => {
-      return syncEngine.addPatchAwaitable(
-        moduleFilePath,
-        type,
-        patch,
-        patchId,
-        Date.now(),
-      );
-    },
-    [syncEngine, moduleFilePath],
-  );
-  const addModuleFilePatch = useCallback(
-    (
-      moduleFilePath: ModuleFilePath,
-      patch: Patch,
-      type: SerializedSchema["type"],
-    ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
-    },
-    [syncEngine],
-  );
-
-  const getDirectFileUploadSettings = useCallback(async (): Promise<
-    | {
-        status: "success";
-        data: {
-          nonce: string | null;
-          baseUrl: string;
-        };
-      }
-    | {
-        status: "error";
-        error: string;
-      }
-  > => {
-    let res = await client("/direct-file-upload-settings", "POST", {});
-    let retries = 0;
-    while (res.status === null && retries < 5) {
-      console.warn(
-        "Failed to get direct file upload settings, retrying...",
-        res,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
-      res = await client("/direct-file-upload-settings", "POST", {});
-      retries++;
-    }
-    if (res.status === 200) {
-      return { status: "success", data: res.json };
-    }
-    return {
-      status: "error",
-      error: "Could not get direct file upload settings",
-    };
-  }, [client]);
-
-  const uploadPatchFile = useCallback(
-    async (
-      baseUrl: string,
-      nonce: string | null,
-      parentRef: ParentRef,
-      patchId: PatchId,
-      type: "file" | "image",
-      op: FileOperation,
-      onProgress: (bytesUploaded: number, totalBytes: number) => void,
-    ): Promise<
-      | { status: "done"; patchId: PatchId; filePath: string }
-      | {
-          status: "error";
-          error: {
-            message: string;
-          };
-        }
-    > => {
-      const authHeaders = nonce
-        ? {
-            "x-val-auth-nonce": nonce,
-          }
-        : {};
-      const { filePath: filePathOrRef, value: data, metadata, remote } = op;
-
-      // Create the payload once
-      let filePath: string;
-      if (remote) {
-        const splitRemoteRefDataRes =
-          Internal.remote.splitRemoteRef(filePathOrRef);
-        if (splitRemoteRefDataRes.status === "error") {
-          return Promise.reject({
-            status: "error",
-            error: {
-              message: `Could not create correct file path of remote file (${splitRemoteRefDataRes.error}). This is most likely a Val bug.`,
-            },
-          });
-        }
-        filePath = "/" + splitRemoteRefDataRes.filePath;
-      } else {
-        filePath = filePathOrRef;
-      }
-      const payload = JSON.stringify({
-        filePath,
-        parentRef,
-        data,
-        type,
-        metadata,
-        remote,
-      });
-
-      // Get byte length directly from the string
-      const totalBytes = textEncoder.encode(payload).length;
-
-      // Initial progress report
-      onProgress(0, totalBytes);
-
-      return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            onProgress(event.loaded, event.total);
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const responseText = xhr.responseText;
-              const responseData = JSON.parse(responseText);
-              const parsed = SavePatchFileResponse.safeParse(responseData);
-
-              if (parsed.success) {
-                resolve({
-                  status: "done",
-                  patchId: parsed.data.patchId,
-                  filePath: parsed.data.filePath,
-                });
-              } else {
-                resolve({
-                  status: "error",
-                  error: {
-                    message: `While saving a file we got an unexpected response (${responseText?.slice(0, 100)}...)`,
-                  },
-                });
-              }
-            } catch (e) {
-              resolve({
-                status: "error",
-                error: {
-                  message: `Got an exception while saving a file. Error: ${e instanceof Error ? e.message : String(e)}`,
-                },
-              });
-            }
-          } else {
-            resolve({
-              status: "error",
-              error: {
-                message:
-                  "Could not save patch file. HTTP error: " +
-                  xhr.status +
-                  " " +
-                  xhr.statusText,
-              },
-            });
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: `Could save source file (network error?)`,
-            },
-          });
-        });
-
-        xhr.addEventListener("abort", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: "Upload was aborted",
-            },
-          });
-        });
-
-        xhr.responseType = "text";
-        xhr.open("POST", `${baseUrl}/patches/${patchId}/files`);
-
-        // Set headers
-        xhr.setRequestHeader("Content-Type", "application/json");
-        for (const [key, value] of Object.entries(authHeaders)) {
-          xhr.setRequestHeader(key, value);
-        }
-
-        // Send the payload
-        xhr.send(payload);
-      });
-    },
-    [],
-  );
-  const parentRef = useSyncExternalStore(
-    syncEngine.subscribe("parent-ref"),
-    () => syncEngine.getParentRefSnapshot(),
-    () => syncEngine.getParentRefSnapshot(),
-  );
-  const addAndUploadPatchWithFileOps = useCallback(
-    async (
-      patch: Patch,
-      type: "image" | "file",
-      onError: (message: string) => void,
-      onProgress: (
-        bytesUploaded: number,
-        totalBytes: number,
-        currentFile: number,
-        totalFiles: number,
-      ) => void,
-    ) => {
-      if (parentRef === null) {
-        onError("Cannot upload files yet. Not initialized.");
-        return;
-      }
-      const directFileUploadSettings = await getDirectFileUploadSettings();
-      if (directFileUploadSettings.status !== "success") {
-        onError(directFileUploadSettings.error);
-        return;
-      }
-      const { baseUrl, nonce } = directFileUploadSettings.data;
-      const fileOps: FileOperation[] = [];
-      const patchOps: Operation[] = [];
-      for (const op of patch) {
-        if (op.op === "file") {
-          fileOps.push(op);
-          // We need to know that we are writing a file, but we do not want to send all the file data
-          // because we will upload it separately
-          patchOps.push({
-            ...op,
-            value:
-              typeof op.value === "string"
-                ? Internal.getSHA256Hash(textEncoder.encode(op.value))
-                : op.value,
-          });
-        } else {
-          patchOps.push(op);
-        }
-      }
-      const patchId = syncEngine.createPatchId();
-      let currentFile = 0;
-      for (const fileOp of fileOps) {
-        // Currently we upload one by one, but we could do it in parallel but before we do that, we need to figure out if that is a good idea for file uploads in particular:
-        // Would it even likely be faster? How would that affect the server, ...
-        const res = await uploadPatchFile(
-          baseUrl,
-          nonce,
-          parentRef,
-          patchId,
-          type,
-          fileOp,
-          (bytesUploaded, totalBytes) => {
-            onProgress(bytesUploaded, totalBytes, currentFile, fileOps.length);
-          },
-        );
-        if (res.status === "error") {
-          onError(res.error.message);
-          return;
-        }
-        currentFile++;
-      }
-      const addPatchRes = await addPatchAwaitable(patchOps, type, patchId);
-      if (addPatchRes.status !== "patch-synced") {
-        onError(addPatchRes.message);
-        return;
-      }
-    },
-    [
-      getDirectFileUploadSettings,
-      addPatchAwaitable,
-      uploadPatchFile,
-      parentRef,
-      syncEngine,
-    ],
-  );
-  return {
-    patchPath,
-    addPatch,
-    addAndUploadPatchWithFileOps,
-    /**
-     * Prefer addPatch. Use addModuleFilePatch only if you need to add a patch to a different module file (should be rare).
-     */
-    addModuleFilePatch,
-  };
 }
 
 /**
@@ -1110,7 +753,7 @@ export function usePublishSummary() {
     client,
     publishSummaryState,
     setPublishSummaryState,
-    config,
+    config: runtimeConfig,
   } = useContext(ValContext);
   const globalServerSidePatchIds = useCurrentPatchIds();
   const publishDisabled = useSyncExternalStore(
@@ -1127,18 +770,18 @@ export function usePublishSummary() {
   const [canGenerate, setCanGenerate] = useState(false);
   useEffect(() => {
     if (
-      config?.ai?.commitMessages?.disabled === undefined ||
-      config.ai.commitMessages.disabled === false
+      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
+      runtimeConfig.ai.commitMessages.disabled === false
     ) {
       setCanGenerate(true);
     } else {
       setCanGenerate(false);
     }
-  }, [config]);
+  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
-        config?.project,
+        runtimeConfig?.project,
       );
       if (
         storedSummaryState &&
@@ -1149,7 +792,7 @@ export function usePublishSummary() {
         setPublishSummaryState(storedSummaryState);
       }
     }
-  }, [publishSummaryState, config, setPublishSummaryState]);
+  }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
   const generateSummary = useCallback(async (): Promise<
     { type: "ai"; text: string } | { type: "error"; message: string }
   > => {
@@ -1221,7 +864,7 @@ export function usePublishSummary() {
         .publish(globalServerSidePatchIds, summary, Date.now())
         .then((res) => {
           if (res.status === "done") {
-            deleteSummaryStateFromLocalStorage(config?.project);
+            deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
               type: "not-asked",
               isGenerating: prev.isGenerating,
@@ -1233,7 +876,12 @@ export function usePublishSummary() {
           setIsPublishing(false);
         });
     },
-    [globalServerSidePatchIds, isPublishing, config?.project, syncEngine],
+    [
+      globalServerSidePatchIds,
+      isPublishing,
+      runtimeConfig?.project,
+      syncEngine,
+    ],
   );
   const setSummary = useCallback(
     (
@@ -1258,11 +906,11 @@ export function usePublishSummary() {
             isGenerating: !!prev.isGenerating,
           };
         }
-        saveSummaryStateInLocalStorage(publishSummary, config?.project);
+        saveSummaryStateInLocalStorage(publishSummary, runtimeConfig?.project);
         return publishSummary;
       });
     },
-    [globalServerSidePatchIds, setPublishSummaryState, config?.project],
+    [globalServerSidePatchIds, setPublishSummaryState, runtimeConfig?.project],
   );
   return {
     publish,
@@ -1388,199 +1036,6 @@ export function useAutoPublish() {
       syncEngine.setAutoPublish(Date.now(), autoPublish);
     },
   };
-}
-
-export function useRenderOverrideAtPath(
-  sourcePath: SourcePath | ModuleFilePath,
-) {
-  const { syncEngine } = useContext(ValContext);
-  const [moduleFilePath] = useMemo(() => {
-    return Internal.splitModuleFilePathAndModulePath(sourcePath);
-  }, [sourcePath]);
-  const renderRes = useSyncExternalStore(
-    syncEngine.subscribe("render", moduleFilePath),
-    () => syncEngine.getRenderSnapshot(moduleFilePath),
-    () => syncEngine.getRenderSnapshot(moduleFilePath),
-  );
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  return useMemo(() => {
-    const isOptimistic =
-      sourcesRes.status === "success" && sourcesRes.optimistic;
-    const renderAtPath = renderRes?.[sourcePath];
-    if (initializedAt === null || isOptimistic) {
-      const renderData =
-        renderAtPath && "data" in renderAtPath ? renderAtPath?.data : undefined;
-      return { status: "loading" as const, data: renderData };
-    }
-    return renderAtPath;
-  }, [renderRes, initializedAt, sourcesRes, sourcePath]);
-}
-
-export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
-  | { status: "not-found" }
-  | { status: "loading" }
-  | {
-      status: "success";
-      data: SerializedSchema;
-    }
-  | {
-      status: "error";
-      error: string;
-    } {
-  const { syncEngine } = useContext(ValContext);
-  const [moduleFilePath, modulePath] = useMemo(() => {
-    return Internal.splitModuleFilePathAndModulePath(sourcePath);
-  }, [sourcePath]);
-  const schemaRes = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getSchemaSnapshot(moduleFilePath),
-    () => syncEngine.getSchemaSnapshot(moduleFilePath),
-  );
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-  );
-  const resolvedSchemaAtPathRes = useMemo(() => {
-    if (schemaRes.status !== "success") {
-      return schemaRes;
-    }
-    if (sourcesRes.status !== "success") {
-      return sourcesRes;
-    }
-    let resolvedSchemaAtPath: SerializedSchema | null = null;
-
-    try {
-      const resolvedSchemaAtPathRes = Internal.safeResolvePath(
-        modulePath,
-        sourcesRes.data,
-        schemaRes.data,
-      );
-      if (resolvedSchemaAtPathRes.status === "error") {
-        return {
-          status: "error" as const,
-          error: resolvedSchemaAtPathRes.message,
-        };
-      }
-      if (resolvedSchemaAtPathRes.status === "source-undefined") {
-        return {
-          status: "source-not-found" as const,
-        };
-      }
-      resolvedSchemaAtPath = resolvedSchemaAtPathRes.schema;
-    } catch (e) {
-      console.error(
-        "Error resolving schema at path",
-        sourcePath,
-        modulePath,
-        sourcesRes.data,
-        schemaRes.data,
-        e,
-      );
-      return {
-        status: "error" as const,
-        error: `Error resolving schema at path: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-    if (!resolvedSchemaAtPath) {
-      return {
-        status: "resolved-schema-not-found" as const,
-      };
-    }
-    return {
-      status: "success" as const,
-      data: resolvedSchemaAtPath,
-    };
-  }, [schemaRes, sourcesRes, moduleFilePath, modulePath]);
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    return { status: "loading" };
-  }
-  if (resolvedSchemaAtPathRes.status !== "success") {
-    if (resolvedSchemaAtPathRes.status === "resolved-schema-not-found") {
-      return { status: "not-found" };
-    }
-    if (resolvedSchemaAtPathRes.status === "source-not-found") {
-      return { status: "not-found" };
-    }
-    if (resolvedSchemaAtPathRes.status === "no-schemas") {
-      return { status: "error", error: "No schemas" };
-    }
-    if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
-      return { status: "not-found" };
-    }
-    return {
-      status: "loading",
-    };
-  }
-  return resolvedSchemaAtPathRes;
-}
-
-export function useSchemas():
-  | {
-      status: "loading";
-    }
-  | {
-      status: "error";
-      error: "Schemas not found";
-    }
-  | {
-      status: "success";
-      data: Record<ModuleFilePath, SerializedSchema>;
-    } {
-  const { syncEngine } = useContext(ValContext);
-  const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
-  );
-
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    return { status: "loading" } as const;
-  }
-  if (schemas === null) {
-    console.warn("Schemas: not found");
-    return {
-      status: "error",
-      error: "Schemas not found",
-    } as const;
-  }
-  const definedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-  for (const [moduleFilePathS, moduleSchema] of Object.entries(schemas)) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    if (moduleSchema) {
-      definedSchemas[moduleFilePath] = moduleSchema;
-    }
-  }
-  return {
-    status: "success",
-    data: definedSchemas,
-  } as const;
-}
-
-export function useValidationErrors(sourcePath: SourcePath) {
-  const { syncEngine } = useContext(ValContext);
-  const data = useSyncExternalStore(
-    syncEngine.subscribe("validation-error", sourcePath),
-    () => syncEngine.getValidationErrorSnapshot(sourcePath),
-    () => syncEngine.getValidationErrorSnapshot(sourcePath),
-  );
-  return data || [];
-}
-export function useAllValidationErrors() {
-  const { syncEngine } = useContext(ValContext);
-  const validationErrors = useSyncExternalStore(
-    syncEngine.subscribe("all-validation-errors"),
-    () => syncEngine.getAllValidationErrorsSnapshot(),
-    () => syncEngine.getAllValidationErrorsSnapshot(),
-  );
-  return validationErrors;
 }
 
 export function useGlobalTransientErrors() {
@@ -1730,72 +1185,12 @@ export function useProfilesByAuthorId() {
   return profiles;
 }
 
-type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
-  | { status: "not-found" }
-  | {
-      status: "success";
-      clientSideOnly: boolean;
-      data: ShallowSource[SchemaType] | null; // we add union to allow for nullable values
-    }
-  | {
-      status: "loading";
-      data?: ShallowSource[SchemaType] | null;
-    }
-  | {
-      status: "error";
-      data?: ShallowSource[SchemaType] | null;
-      error: string;
-    };
-
 /**
  * A shallow source is the source that is just enough to render each type of schema.
  * @see ShallowSource for more information.
  *
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
-export function useShallowSourceAtPath<
-  SchemaType extends SerializedSchema["type"],
->(
-  sourcePath?: SourcePath | ModuleFilePath,
-  type?: SchemaType,
-): ShallowSourceOf<SchemaType> {
-  const { syncEngine } = useContext(ValContext);
-  const [moduleFilePath, modulePath] = sourcePath
-    ? Internal.splitModuleFilePathAndModulePath(sourcePath)
-    : (["", ""] as [ModuleFilePath, ModulePath]);
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-
-  const source = useMemo((): ShallowSourceOf<SchemaType> => {
-    if (initializedAt === null) {
-      return { status: "loading" };
-    }
-    if (sourcesRes.status === "success") {
-      const moduleSources = sourcesRes.data;
-      if (moduleSources !== undefined && type !== undefined) {
-        const sourceAtSourcePath = getShallowSourceAtSourcePath(
-          moduleFilePath,
-          modulePath,
-          type,
-          moduleSources,
-          sourcesRes.optimistic,
-        );
-        return sourceAtSourcePath;
-      } else {
-        return { status: "not-found" };
-      }
-    }
-    return {
-      status: "error",
-      error: sourcesRes.message || "Unknown error",
-    };
-  }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type]);
-  return source;
-}
 
 type ShallowSourcesOf<SchemaType extends SerializedSchema["type"]> =
   | {
@@ -1925,150 +1320,6 @@ export function useNextAppRouterSrcFolder():
   }, [schemas]);
 }
 
-export function useAllSources() {
-  const { syncEngine } = useContext(ValContext);
-  const sources = useSyncExternalStore(
-    syncEngine.subscribe("all-sources"),
-    () => syncEngine.getAllSourcesSnapshot(),
-    () => syncEngine.getAllSourcesSnapshot(),
-  );
-  return sources;
-}
-
-export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
-  | {
-      status: "success";
-      data: Json;
-    }
-  | {
-      status: "error";
-      error: string;
-    }
-  | {
-      status: "not-found";
-    }
-  | {
-      status: "loading";
-    } {
-  const { syncEngine } = useContext(ValContext);
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const sourceSnapshot = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  return useMemo(() => {
-    if (initializedAt === null) {
-      return { status: "loading" };
-    }
-    if (sourceSnapshot.status === "success") {
-      return walkSourcePath(modulePath, sourceSnapshot.data);
-    }
-    return {
-      status: "error",
-      error: sourceSnapshot.message || "Unknown error",
-    };
-  }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath]);
-}
-
-function walkSourcePath(
-  modulePath: ModulePath,
-  sources?: Json,
-):
-  | {
-      status: "success";
-      data: Json;
-    }
-  | {
-      status: "error";
-      error: string;
-    }
-  | {
-      status: "not-found";
-    }
-  | {
-      status: "loading";
-    } {
-  let source = sources;
-  if (sources === undefined) {
-    return { status: "not-found" };
-  }
-  for (const part of Internal.splitModulePath(modulePath)) {
-    // We allow null at the leaf node, but NOT in the middle of the path
-    if (source === null) {
-      return {
-        status: "error",
-        error: `Expected object at ${modulePath}, got null`,
-      };
-    }
-    // We never allow undefined
-    if (source === undefined) {
-      return {
-        status: "error",
-        error: `Expected object at ${modulePath}, got undefined`,
-      };
-    }
-    // Since the source path is not at the end leaf node, we expect an object / array.
-    if (typeof source !== "object") {
-      return {
-        status: "error",
-        error: `Expected object at ${modulePath}, got ${JSON.stringify(source)}`,
-      };
-    }
-    if (isJsonArray(source)) {
-      const index = Number(part);
-      if (Number.isNaN(index)) {
-        return {
-          status: "error",
-          error: `Expected number at ${modulePath}, got ${part}`,
-        };
-      }
-      source = source[index];
-    } else {
-      source = source[part];
-    }
-  }
-  // We never allow undefined
-  if (source === undefined) {
-    return {
-      status: "error",
-      error: `Expected object at ${modulePath}, got undefined`,
-    };
-  }
-  return { status: "success", data: source };
-}
-
-function getShallowSourceAtSourcePath<
-  SchemaType extends SerializedSchema["type"],
->(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  type: SchemaType,
-  sources: Json,
-  clientSideOnly: boolean,
-): ShallowSourceOf<SchemaType> {
-  const source = walkSourcePath(modulePath, sources);
-  if ("data" in source && source.data !== undefined) {
-    const mappedSource = mapSource(
-      moduleFilePath,
-      modulePath,
-      type,
-      source.data,
-    );
-    if (mappedSource.status === "success") {
-      return {
-        status: "success",
-        data: mappedSource.data,
-        clientSideOnly,
-      };
-    }
-    return mappedSource;
-  }
-  return source as ShallowSourceOf<SchemaType>;
-}
-
 function mapSource<SchemaType extends SerializedSchema["type"]>(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
@@ -2160,7 +1411,9 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     if (typeof source !== "string" && source !== null) {
       return {
         status: "error",
-        error: `Expected string, got ${typeof source}: ${JSON.stringify(source)}`,
+        error: `Expected string, got ${typeof source}: ${JSON.stringify(
+          source,
+        )}`,
       };
     }
     return {

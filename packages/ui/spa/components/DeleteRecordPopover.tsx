@@ -2,11 +2,8 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { Trash2, Workflow } from "lucide-react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,

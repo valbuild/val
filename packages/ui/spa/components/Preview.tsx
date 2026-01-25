@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import { StringPreview } from "./fields/StringField";
-import { useSchemaAtPath, useShallowSourceAtPath } from "./ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ArrayPreview } from "./fields/ArrayFields";
 import { BooleanPreview } from "./fields/BooleanField";
 import { NumberPreview } from "./fields/NumberField";
@@ -16,7 +16,13 @@ import { RichTextPreview } from "./fields/RichTextField";
 import { FilePreview } from "./fields/FileField";
 import { Loader2 } from "lucide-react";
 
-export function Preview({ path }: { path: SourcePath }) {
+export function Preview({
+  path,
+  size,
+}: {
+  path: SourcePath;
+  size?: "compact";
+}) {
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(
     path,
@@ -44,7 +50,7 @@ export function Preview({ path }: { path: SourcePath }) {
   } else if (type === "union") {
     return <UnionPreview path={path} />;
   } else if (type === "object") {
-    return <ObjectPreview path={path} />;
+    return <ObjectPreview path={path} size={size} />;
   } else if (type === "image") {
     return <ImagePreview path={path} />;
   } else if (type === "keyOf") {
@@ -56,7 +62,7 @@ export function Preview({ path }: { path: SourcePath }) {
   } else if (type === "literal") {
     return <LiteralPreview path={path} />;
   } else if (type === "record") {
-    return <RecordPreview path={path} />;
+    return <RecordPreview path={path} size={size} />;
   } else if (type === "richtext") {
     return <RichTextPreview path={path} />;
   } else if (type === "file") {

@@ -22,9 +22,11 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+} from "../ValFieldProvider";
+import {
   useCurrentRemoteFileBucket,
   useRemoteFiles,
-} from "../ValProvider";
+} from "../ValRemoteProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
 import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
 import { readFile } from "../../utils/readFile";

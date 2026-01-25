@@ -12,11 +12,11 @@ import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
-  useNextAppRouterSrcFolder,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+} from "./ValFieldProvider";
+import { useNextAppRouterSrcFolder } from "./ValProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,
@@ -221,7 +221,11 @@ function ReferencesPopover({
       patchPath,
       label: `${prettifyFilename(
         Internal.splitModuleFilePath(moduleFilePath).pop() || "",
-      )}${modulePath ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}` : ""}`,
+      )}${
+        modulePath
+          ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}`
+          : ""
+      }`,
     };
   });
 
@@ -247,7 +251,7 @@ function ReferencesPopover({
         container={portalContainer}
       >
         <Command>
-          <CommandInput placeholder="Search references..." />
+          <CommandInput placeholder="Filter" />
           <CommandList>
             {refItems.length === 0 ? (
               <CommandEmpty>No references found.</CommandEmpty>

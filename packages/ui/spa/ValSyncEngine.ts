@@ -1721,9 +1721,12 @@ export class ValSyncEngine {
             },
           });
           if (res.status !== 200) {
-            console.log("Failed to get changes (batch) - null status", {
-              res,
-            });
+            console.debug(
+              "Val: SyncEngine: Failed to get changes (batch) - null status",
+              {
+                res,
+              },
+            );
             return {
               status: "retry",
             };
@@ -2352,6 +2355,58 @@ export class ValSyncEngine {
         );
       this.invalidateGlobalTransientErrors();
     }
+  }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets schemas directly and invalidates related caches.
+   */
+  setSchemas(
+    schemas: Record<ModuleFilePath, SerializedSchema | undefined>,
+  ): void {
+    this.schemas = schemas;
+    this.cachedSchemaSnapshots = null;
+    this.cachedAllSchemasSnapshot = null;
+    this.emit(this.listeners["schema"]?.[globalNamespace]);
+  }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets both serverSources and optimisticClientSources to the same value and invalidates related caches.
+   */
+  setSources(sources: Record<ModuleFilePath, JSONValue | undefined>): void {
+    this.serverSources = sources;
+    this.cachedSourceSnapshots = null;
+    this.cachedAllSourcesSnapshot = null;
+    this.cachedSourcesSnapshot = null;
+    for (const moduleFilePath in sources) {
+      this.emit(this.listeners["sources"]?.[moduleFilePath as ModuleFilePath]);
+      this.emit(this.listeners["source"]?.[moduleFilePath as ModuleFilePath]);
+    }
+    this.emit(this.listeners["all-sources"]?.[globalNamespace]);
+  }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets renders directly and invalidates related caches.
+   */
+  setRenders(renders: Record<ModuleFilePath, ReifiedRender | null>): void {
+    this.renders = renders;
+    this.cachedRenderSnapshots = renders;
+    for (const moduleFilePath in renders) {
+      const path = moduleFilePath as ModuleFilePath;
+      this.emit(this.listeners["render"]?.[path]);
+    }
+  }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets initializedAt directly and invalidates related caches.
+   */
+  setInitializedAt(timestamp: number): void {
+    this.initializedAt = timestamp;
+    this.cachedInitializedAtSnapshot = null;
+    this.emit(this.listeners["initialized-at"]?.[globalNamespace]);
   }
 }
 

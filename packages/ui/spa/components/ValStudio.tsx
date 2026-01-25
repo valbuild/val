@@ -1,6 +1,7 @@
 import { FC } from "react";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
-import { Themes, ValProvider } from "./ValProvider";
+import { ValProvider } from "./ValProvider";
+import { Themes } from "./ValThemeProvider";
 import { Layout } from "./Layout";
 import { SharedValConfig } from "@valbuild/shared/internal";
 import { ValRouter } from "./ValRouter";

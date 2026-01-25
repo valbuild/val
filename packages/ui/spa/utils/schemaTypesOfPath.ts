@@ -79,7 +79,9 @@ export function schemaTypesOfPath(
       const _unreachable: never = current;
       const unknownType = (_unreachable as { type: string }).type;
       console.error(
-        `Unexecpted resolved schema type: ${unknownType} in ${patchPath.join("/")} at ${pathPart}`,
+        `Unexecpted resolved schema type: ${unknownType} in ${patchPath.join(
+          "/",
+        )} at ${pathPart}`,
       );
       return new Set([unknownType as SerializedSchema["type"]]);
     }

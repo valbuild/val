@@ -36,6 +36,7 @@ import {
   ValDeployment,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
+import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
 
@@ -61,7 +62,7 @@ const MetadataRes = z.object({
 });
 
 const SummaryResponse = z.object({
-  commitSummary: z.string().nullable(),
+  commitSummary: z.string(),
 });
 const GetApplicablePatches = z.object({
   patches: z.array(
@@ -179,6 +180,10 @@ const ProfilesResponse = z.object({
     }),
   ),
 });
+const NonceResponse = z.object({
+  nonce: z.string(),
+  url: z.string(),
+});
 
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders: { Authorization: string };
@@ -273,18 +278,20 @@ export class ValOpsHttp extends ValOps {
           },
         };
       }
+      const unknownErrorMessage = `Could not get presigned auth nonce. HTTP error: ${res.status} ${res.statusText}`;
       if (res.headers.get("Content-Type")?.includes("application/json")) {
         const json = await res.json();
-        if (json.message) {
-          console.error("Presigned auth nonce error:", json.message);
-          return {
-            status: "error",
-            statusCode: 500,
-            error: { message: json.message },
-          };
-        }
+        const message = getErrorMessageFromUnknownJson(
+          json,
+          unknownErrorMessage,
+        );
+        console.error("Presigned auth nonce error:", message);
+        return {
+          status: "error",
+          statusCode: 500,
+          error: { message },
+        };
       }
-      const unknownErrorMessage = `Could not get presigned auth nonce. HTTP error: ${res.status} ${res.statusText}`;
       console.error(unknownErrorMessage);
       return {
         status: "error",
@@ -360,10 +367,12 @@ export class ValOpsHttp extends ValOps {
       const unknownErrorMessage = `Could not get summary. HTTP error: ${res.status} ${res.statusText}`;
       if (res.headers.get("Content-Type")?.includes("application/json")) {
         const json = await res.json();
-        if (json.message) {
-          console.error("Summary error:", json.message);
-          return { error: { message: json.message } };
-        }
+        const message = getErrorMessageFromUnknownJson(
+          json,
+          unknownErrorMessage,
+        );
+        console.error("Summary error:", message);
+        return { error: { message } };
       }
       console.error(unknownErrorMessage);
       return { error: { message: unknownErrorMessage } };
@@ -499,38 +508,44 @@ export class ValOpsHttp extends ValOps {
     })
       .then(async (res) => {
         if (res.ok) {
-          const json = await res.json();
-          if (typeof json.nonce !== "string" || typeof json.url !== "string") {
+          const json = NonceResponse.safeParse(await res.json());
+          if (!json.success) {
             return {
               status: "error" as const,
               error: {
-                message: "Invalid nonce response: " + JSON.stringify(json),
+                message:
+                  "Invalid nonce response: " + fromError(json.error).toString(),
               },
             };
           }
-          if (!json.url.startsWith("ws://") && !json.url.startsWith("wss://")) {
+          if (
+            !json.data.url.startsWith("ws://") &&
+            !json.data.url.startsWith("wss://")
+          ) {
             return {
               status: "error" as const,
               error: {
-                message: "Invalid websocket url: " + json.url,
+                message: "Invalid websocket url: " + json.data.url,
               },
             };
           }
           return {
             status: "success" as const,
-            data: { nonce: json.nonce, url: json.url },
+            data: { nonce: json.data.nonce, url: json.data.url },
           };
         }
         const contentType = res.headers.get("Content-Type") || "";
         if (contentType.startsWith("application/json")) {
           const json = await res.json();
+          const message = getErrorMessageFromUnknownJson(
+            json,
+            "Could not get nonce. Unexpected error (no error message). Status: " +
+              res.status,
+          );
           return {
             status: "error" as const,
             error: {
-              message:
-                "Could not get nonce." +
-                (json.message ||
-                  "Unexpected error (no error message). Status: " + res.status),
+              message: "Could not get nonce." + message,
             },
           };
         }
@@ -803,9 +818,10 @@ export class ValOpsHttp extends ValOps {
         }
         if (res.headers.get("Content-Type")?.includes("application/json")) {
           const json = await res.json();
+          const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           return result.err({
             errorType: "other",
-            message: json.message || "Unknown error",
+            message,
           });
         }
         return result.err({
@@ -1270,11 +1286,20 @@ export class ValOpsHttp extends ValOps {
     );
     if (res.ok) {
       const json = await res.json();
-      return { commitSummary: json.commitSummary };
+      const parsed = SummaryResponse.safeParse(json);
+      if (parsed.success) {
+        return { commitSummary: parsed.data.commitSummary };
+      }
+      return {
+        error: {
+          message: `Could not parse commit summary response. Error: ${fromError(parsed.error)}`,
+        },
+      };
     }
     if (res.headers.get("Content-Type")?.includes("application/json")) {
       const json = await res.json();
-      return { error: { message: json.message } };
+      const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      return { error: { message } };
     }
     return {
       error: {
@@ -1346,8 +1371,10 @@ export class ValOpsHttp extends ValOps {
         };
       }
       if (res.headers.get("Content-Type")?.includes("application/json")) {
-        const json = await res.json();
-        if (json.isNotFastForward) {
+        const json = z
+          .object({ isNotFastForward: z.boolean().optional() })
+          .safeParse(await res.json());
+        if (json.success && json.data.isNotFastForward) {
           return {
             isNotFastForward: true,
             error: {
@@ -1355,9 +1382,10 @@ export class ValOpsHttp extends ValOps {
             },
           };
         }
+        const message = getErrorMessageFromUnknownJson(json, "Unknown error");
         return {
           error: {
-            message: json.message,
+            message,
           },
         };
       }
@@ -1410,9 +1438,8 @@ export class ValOpsHttp extends ValOps {
     }
     if (res.headers.get("Content-Type")?.includes("application/json")) {
       const json = await res.json();
-      throw Error(
-        `Could not get profiles (status: ${res.status}): ${"message" in json ? json.message : "Unknown error"}`,
-      );
+      const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      throw Error(`Could not get profiles (status: ${res.status}): ${message}`);
     }
     throw Error(`Could not get profiles. Got status: ${res.status}`);
   }

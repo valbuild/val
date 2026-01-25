@@ -34,19 +34,17 @@ import {
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
-  useAllValidationErrors,
   useAuthenticationState,
   useCurrentPatchIds,
   useLoadingStatus,
-  useSchemaAtPath,
-  useTheme,
-  useValConfig,
   useValMode,
-  useValPortal,
   usePublishSummary,
-  useSchemas,
   useShallowModulesAtPaths,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
+import { useTheme } from "./ValThemeProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";

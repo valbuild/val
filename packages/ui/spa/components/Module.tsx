@@ -1,11 +1,7 @@
 import { SourcePath } from "@valbuild/core";
-import {
-  useAllSources,
-  useSchemaAtPath,
-  useSchemas,
-  useValidationErrors,
-  useValPortal,
-} from "./ValProvider";
+import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
+import { useValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";

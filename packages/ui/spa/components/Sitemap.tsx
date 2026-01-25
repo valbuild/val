@@ -46,9 +46,9 @@ export function NextAppRouterSitemap({
         const failedModules = Object.keys(shallowModules.errors);
         return {
           status: "error",
-          error: `Failed to load ${failedModules.length} modules: ${Object.entries(
-            shallowModules.errors,
-          )
+          error: `Failed to load ${
+            failedModules.length
+          } modules: ${Object.entries(shallowModules.errors)
             .map(([m, e]) => `"${m}": ${e.message}`)
             .join(", ")}`,
         };

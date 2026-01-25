@@ -2,8 +2,6 @@ import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { useEffect, useState } from "react";
 import { FieldLoading } from "./FieldLoading";
 import { AlertCircle, ArrowLeft } from "lucide-react";
-import { useNavigation } from "./ValRouter";
-import { useConfig } from "../hooks/useConfig";
 import { urlOf } from "@valbuild/shared/internal";
 
 export function FieldNotFound({

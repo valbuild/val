@@ -7,15 +7,15 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import FlexSearch from "flexsearch";
+import FlexSearch, { Index } from "flexsearch";
 import { isJsonArray } from "../utils/isJsonArray";
 
 function rec(
   source: Json,
   schema: SerializedSchema,
   path: SourcePath,
-  sourceIndex: FlexSearch.Index,
-  sourcePathIndex: FlexSearch.Index,
+  sourceIndex: Index,
+  sourcePathIndex: Index,
 ): void {
   const isRoot = path.endsWith("?p="); // skip root module
   if (
@@ -100,8 +100,7 @@ function rec(
   } else if (schema.type === "union") {
     if (typeof schema.key === "string") {
       const schemaKey = schema.key;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const subSchema = (schema.items as any[]).find((item) => {
+      const subSchema = (schema.items as SerializedSchema[]).find((item) => {
         if (item.type !== "object") {
           throw new Error(
             `Union schema must have sub object of object but has: (${item.type}) for ${path}`,
@@ -110,8 +109,10 @@ function rec(
           const schemaAtKey = item.items[schemaKey];
           if (schemaAtKey.type !== "literal") {
             throw new Error(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              `Union schema must have sub object with literal key but has: ${(item.items as any)?.[schemaKey]?.type} for ${path}`,
+              `Union schema must have sub object with literal key but has: ${
+                (item.items as Record<string, SerializedSchema>)?.[schemaKey]
+                  ?.type
+              } for ${path}`,
             );
           } else if (
             source &&
@@ -345,7 +346,7 @@ function tokenizeSourcePath(sourcePath: SourcePath | ModuleFilePath) {
 }
 
 function addTokenizedSourcePath(
-  sourcePathIndex: FlexSearch.Index,
+  sourcePathIndex: Index,
   sourcePath: SourcePath | ModuleFilePath,
 ) {
   sourcePathIndex.add(sourcePath, tokenizeSourcePath(sourcePath).join(" "));
@@ -353,7 +354,7 @@ function addTokenizedSourcePath(
 const debugPerf = true;
 export function createSearchIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
-): FlexSearch.Index {
+): Index {
   if (debugPerf) {
     console.time("indexing");
   }

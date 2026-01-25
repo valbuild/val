@@ -3,11 +3,8 @@ import { Module } from "./Module";
 import { CopyIcon, PanelRightOpen, Search as SearchIcon } from "lucide-react";
 import { useNavigation } from "./ValRouter";
 import { Search } from "./Search";
-import {
-  useConnectionStatus,
-  useGlobalError,
-  useValPortal,
-} from "./ValProvider";
+import { useConnectionStatus, useGlobalError } from "./ValProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useLayout } from "./Layout";
 import classNames from "classnames";
 import ExhaustiveCheck from "./ExhaustiveCheck";
@@ -156,7 +153,7 @@ function ContentAreaHeader() {
   const { navMenu, toolsMenu } = useLayout();
   const { currentSourcePath } = useNavigation();
   const isHome = (currentSourcePath?.length || 0) === 0;
-  
+
   return (
     <div className="flex justify-between items-center px-4 w-full h-16 border-b border-border-primary overflow-visible relative z-10">
       <button
