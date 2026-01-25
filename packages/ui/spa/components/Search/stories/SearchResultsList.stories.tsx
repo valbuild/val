@@ -55,6 +55,57 @@ function createMockSearchResults(
   return results;
 }
 
+// Helper to create team member search results (list view rendering)
+function createTeamResults(count: 0 | 1 | 2 | 3): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (let i = 1; i <= count; i++) {
+    results.push({
+      path: `/content/team.val.ts?p="team-${i}"` as SourcePath,
+      label: `Team Member ${i}`,
+    });
+  }
+  return results;
+}
+
+// Helper to create product page search results (router with list view rendering)
+function createProductPageResults(count: 0 | 1 | 2 | 3): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (let i = 1; i <= count; i++) {
+    results.push({
+      path: `/app/products/[product]/page.val.ts?p="/products/product-${i}"` as SourcePath,
+      label: `Product ${i}`,
+    });
+  }
+  return results;
+}
+
+// Helper to create config array item results (array with code rendering)
+function createConfigResults(count: 0 | 1 | 2 | 3): SearchResult[] {
+  const results: SearchResult[] = [];
+  const keys = ["customHook", "apiConfig", "utilFunction"];
+  for (let i = 0; i < count; i++) {
+    results.push({
+      path: `/content/config.val.ts?p=${i}` as SourcePath,
+      label: `Config: ${keys[i]}`,
+    });
+  }
+  return results;
+}
+
+// Helper to create author search results
+function createAuthorResults(
+  count: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (let i = 1; i <= count; i++) {
+    results.push({
+      path: `/content/authors.val.ts?p="author-${i}"` as SourcePath,
+      label: `Author ${i}`,
+    });
+  }
+  return results;
+}
+
 // Wrapper component that provides all necessary providers
 function SearchResultsListWithProviders({
   pages,
@@ -183,22 +234,31 @@ export default meta;
 type Story = StoryObj<typeof SearchResultsListWithProviders>;
 
 export const LongMixedResults: Story = {
-  render: () => (
-    <SearchResultsListWithProviders
-      pages={createMockSearchResults(5, true)}
-      otherResults={createMockSearchResults(8, false)}
-      results={[
-        ...createMockSearchResults(5, true),
-        ...createMockSearchResults(8, false),
-      ]}
-    />
-  ),
+  render: () => {
+    const pages = [
+      ...createMockSearchResults(5, true),
+      ...createProductPageResults(3),
+    ];
+    const otherResults = [
+      ...createMockSearchResults(5, false),
+      ...createAuthorResults(4),
+      ...createTeamResults(3),
+      ...createConfigResults(3),
+    ];
+    return (
+      <SearchResultsListWithProviders
+        pages={pages}
+        otherResults={otherResults}
+        results={[...pages, ...otherResults]}
+      />
+    );
+  },
   name: "Long Set of Mixed Results",
   parameters: {
     docs: {
       description: {
         story:
-          "Search results list with a long set of mixed results - 5 pages and 8 other results.",
+          "Search results list with a comprehensive mix of all content types: blog pages (5), product pages (3), articles (5), authors (4), team members (3), and config items (3). Demonstrates handling of various render types including list views, code editors, and textareas.",
       },
     },
   },
@@ -272,6 +332,89 @@ export const NoResults: Story = {
       description: {
         story:
           "Search results list showing the empty state when no results are found.",
+      },
+    },
+  },
+};
+
+export const TeamMembersWithListView: Story = {
+  render: () => (
+    <SearchResultsListWithProviders
+      pages={[]}
+      otherResults={createTeamResults(3)}
+      results={createTeamResults(3)}
+    />
+  ),
+  name: "Team Members (List View Rendering)",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Team members record with list view rendering. Each member displays name as title and position as subtitle. The bio field uses textarea rendering for multiline text.",
+      },
+    },
+  },
+};
+
+export const ProductPagesWithListView: Story = {
+  render: () => (
+    <SearchResultsListWithProviders
+      pages={createProductPageResults(3)}
+      otherResults={[]}
+      results={createProductPageResults(3)}
+    />
+  ),
+  name: "Product Pages (Router + List View)",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Product pages using router with list view rendering. Displays product name and price. The description field uses textarea rendering and the code field uses code editor with JSON syntax highlighting.",
+      },
+    },
+  },
+};
+
+export const ConfigWithCodeRendering: Story = {
+  render: () => (
+    <SearchResultsListWithProviders
+      pages={[]}
+      otherResults={createConfigResults(3)}
+      results={createConfigResults(3)}
+    />
+  ),
+  name: "Config Items (Array with Code Rendering)",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Configuration array items where the value field uses code editor rendering with TypeScript syntax highlighting, and description uses textarea rendering for multiline text.",
+      },
+    },
+  },
+};
+
+export const MixedRenderTypes: Story = {
+  render: () => {
+    const results = [
+      ...createTeamResults(2),
+      ...createProductPageResults(2),
+      ...createConfigResults(2),
+    ];
+    return (
+      <SearchResultsListWithProviders
+        pages={createProductPageResults(2)}
+        otherResults={[...createTeamResults(2), ...createConfigResults(2)]}
+        results={results}
+      />
+    );
+  },
+  name: "Mixed Render Types",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "A focused view of items with different render methods: list views (team and products), code editors (config), and textareas. Demonstrates how various render options are handled together.",
       },
     },
   },
