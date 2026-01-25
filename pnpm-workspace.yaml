@@ -17,7 +17,7 @@ ignoredBuiltDependencies:
   - unrs-resolver
 
 minimumReleaseAgeExclude:
-  - '@valbuild/*'
+  - "@valbuild/*"
 
 onlyBuiltDependencies:
   - esbuild
