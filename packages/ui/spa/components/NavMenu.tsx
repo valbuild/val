@@ -1,9 +1,4 @@
-import {
-  DEFAULT_APP_HOST,
-  ModuleFilePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { DEFAULT_APP_HOST, ModuleFilePath, SourcePath } from "@valbuild/core";
 import classNames from "classnames";
 import {
   ChevronRight,
