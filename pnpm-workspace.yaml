@@ -12,5 +12,12 @@ packages:
   - examples/next
   - packages/server/test/example-projects/*
 
+ignoredBuiltDependencies:
+  - less
+  - unrs-resolver
+
 minimumReleaseAgeExclude:
-  - "@valbuild/*"
+  - '@valbuild/*'
+
+onlyBuiltDependencies:
+  - esbuild

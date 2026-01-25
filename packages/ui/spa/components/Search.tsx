@@ -9,14 +9,7 @@ import FlexSearch, { Index } from "flexsearch";
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "./designSystem/command";
+import { Command, CommandInput } from "./designSystem/command";
 import {
   Dialog,
   DialogOverlay,
@@ -28,17 +21,11 @@ import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
-import { getNavPathFromAll } from "./getNavPath";
-import { SearchItem } from "./SearchItem";
 import { Internal } from "@valbuild/core";
 import { Search as SearchIcon } from "lucide-react";
 import { cn } from "./designSystem/cn";
-import { ScrollArea } from "./designSystem/scroll-area";
-
-type SearchResult = {
-  path: SourcePath;
-  label: string;
-};
+import { SearchResultsList, type SearchResult } from "./SearchResultsList";
+import { getNavPathFromAll } from "./getNavPath";
 
 export function Search() {
   const sources = useAllSources();
@@ -229,52 +216,14 @@ function SearchField({
           onValueChange={setQuery}
         />
         {query.trim() && (
-          <CommandList className="absolute top-full left-0 right-0 max-h-[420px]">
-            <ScrollArea className="max-h-[400px] z-50 p-2 bg-bg-primary border border-t-0 border-border-primary rounded-lg rounded-t-none shadow-lg ">
-              {results.length === 0 && (
-                <CommandEmpty className="py-6 text-center text-fg-tertiary">
-                  No results found.
-                </CommandEmpty>
-              )}
-              {pages.length > 0 && (
-                <CommandGroup heading="Pages" className="gap-1">
-                  {pages.map((result) => {
-                    const navPath =
-                      getNavPathFromAll(result.path, sources, schemas) ||
-                      result.path;
-                    const url = getRouterPageUrl(navPath as SourcePath);
-                    return (
-                      <CommandItem
-                        key={result.path}
-                        onSelect={() => handleSelect(navPath)}
-                        className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                      >
-                        <SearchItem path={navPath as SourcePath} url={url} />
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-              {otherResults.length > 0 && (
-                <CommandGroup heading="Results" className="gap-1">
-                  {otherResults.map((result) => {
-                    const navPath =
-                      getNavPathFromAll(result.path, sources, schemas) ||
-                      result.path;
-                    return (
-                      <CommandItem
-                        key={result.path}
-                        onSelect={() => handleSelect(navPath)}
-                        className="rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                      >
-                        <SearchItem path={navPath as SourcePath} url={null} />
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-            </ScrollArea>
-          </CommandList>
+          <SearchResultsList
+            pages={pages}
+            otherResults={otherResults}
+            results={results}
+            sources={sources}
+            schemas={schemas}
+            onSelect={handleSelect}
+          />
         )}
       </Command>
     </div>
@@ -309,28 +258,9 @@ function isRouterPage(
   return false;
 }
 
-function getRouterPageUrl(path: SourcePath): string | null {
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
-  if (!modulePath) return null;
-
-  // Get the first key (URL) from the module path
-  const pathSegments = Internal.splitModulePath(modulePath);
-  if (pathSegments.length === 0) return null;
-
-  // The first segment is the URL key
-  const urlKey = pathSegments[0];
-  // Try to parse it (it might be JSON stringified)
-  try {
-    return JSON.parse(urlKey);
-  } catch {
-    return urlKey;
-  }
-}
-
 function buildIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
 ): { index: Index; pathToLabel: Map<string, string> } {
-  console.log("building index");
   const index = new FlexSearch.Index({
     tokenize: "forward",
   });
