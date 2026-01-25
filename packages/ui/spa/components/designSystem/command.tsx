@@ -20,12 +20,26 @@ const Command = React.forwardRef<
 ));
 Command.displayName = CommandPrimitive.displayName;
 
-type CommandDialogProps = DialogProps;
+type CommandDialogProps = DialogProps & {
+  container?: HTMLElement | null;
+  hideClose?: boolean;
+  contentClassName?: string;
+};
 
-const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
+const CommandDialog = ({
+  children,
+  container,
+  hideClose,
+  contentClassName,
+  ...props
+}: CommandDialogProps) => {
   return (
     <Dialog {...props}>
-      <DialogContent className="p-0 overflow-hidden shadow-lg">
+      <DialogContent
+        container={container}
+        hideClose={hideClose}
+        className={cn("p-0 overflow-hidden shadow-lg", contentClassName)}
+      >
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
           {children}
         </Command>
@@ -43,7 +57,9 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-11 w-full rounded-md py-3 text-sm",
+        "placeholder:text-fg-secondary",
+        "bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}

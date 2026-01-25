@@ -6,7 +6,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import FlexSearch, { Index } from "flexsearch";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -17,6 +17,13 @@ import {
   CommandItem,
   CommandList,
 } from "./designSystem/command";
+import {
+  Dialog,
+  DialogOverlay,
+  DialogPortal,
+  DialogTrigger,
+} from "./designSystem/dialog";
+import * as DialogPrimitive from "./designSystem/dialog-primitive";
 import {
   traverseSchemaSource,
   flattenRichText,
@@ -34,7 +41,12 @@ type SearchResult = {
 };
 
 export function Search() {
-  const [isActive, setIsActive] = useState(false);
+  const sources = useAllSources();
+  const schemasRes = useSchemas();
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
+
+  const [open, setOpen] = useState(false);
+  const searchTriggerRef = useRef<HTMLDivElement>(null);
 
   // Handle Cmd+K (Mac) or Ctrl+K (other platforms) to activate search
   useEffect(() => {
@@ -57,66 +69,56 @@ export function Search() {
         }
 
         event.preventDefault();
-        setIsActive(true);
+        setOpen(true);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-
-  if (!isActive) {
-    return <SearchTrigger onActivate={() => setIsActive(true)} />;
-  }
-
-  return <SearchActive onDeactivate={() => setIsActive(false)} />;
-}
-
-function SearchTrigger({ onActivate }: { onActivate: () => void }) {
-  return (
-    <div className="relative w-full overflow-visible">
-      <div
-        className="rounded-lg border border-border-primary shadow-sm overflow-visible cursor-text"
-        onClick={onActivate}
-        onFocus={onActivate}
-        tabIndex={0}
-      >
-        <div className="flex items-center px-3 h-11">
-          <SearchIcon className="w-4 h-4 mr-2 opacity-50 shrink-0" />
-          <input
-            className="flex h-full w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary cursor-text"
-            placeholder="Search content..."
-            readOnly
-            onFocus={onActivate}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
   const { navigate } = useNavigation();
 
-  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
-
-  const handleSelect = useCallback(
-    (path: SourcePath | ModuleFilePath) => {
-      navigate(path);
-      onDeactivate();
-    },
-    [navigate, onDeactivate],
-  );
-
   return (
-    <SearchField
-      sources={sources}
-      schemas={schemas}
-      onSelect={handleSelect}
-      onDeactivate={onDeactivate}
-    />
+    <Dialog open={open} onOpenChange={setOpen} modal={false}>
+      <div className="relative" ref={searchTriggerRef}>
+        <DialogTrigger className="w-full" onClick={() => setOpen(true)}>
+          <SearchTrigger />
+        </DialogTrigger>
+        <DialogPortal container={searchTriggerRef.current}>
+          <DialogPrimitive.Content className="top-full absolute left-0 bg-bg-primary -translate-y-full z-[8999] w-full">
+            <DialogOverlay />
+            <SearchField
+              sources={sources}
+              schemas={schemas}
+              onSelect={(path) => {
+                navigate(path);
+                setOpen(false);
+              }}
+              onDeactivate={() => setOpen(false)}
+            />
+          </DialogPrimitive.Content>
+        </DialogPortal>
+      </div>
+    </Dialog>
+  );
+}
+
+function SearchTrigger() {
+  return (
+    <div className="rounded-lg border border-border-primary shadow-sm overflow-visible cursor-text">
+      <div className="flex items-center justify-center px-3">
+        <SearchIcon className="w-4 h-4 mr-2 opacity-50 shrink-0" />
+        <span
+          className={cn(
+            "flex h-11 w-full rounded-md py-3 text-sm",
+            "text-fg-secondary cursor-text",
+            "leading-[21px]",
+          )}
+        >
+          Search content...
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -132,18 +134,8 @@ function SearchField({
   onDeactivate?: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [isFocused, setIsFocused] = useState(false);
-  const [index, setIndex] = useState<Index | null>(null);
-  const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
-    new Map(),
-  );
-
-  // Only build index when search input is focused
-  useEffect(() => {
-    if (!isFocused || !schemas || index !== null) {
-      return;
-    }
-
+  const inputRef = useRef<HTMLInputElement>(null);
+  const indexRes = useMemo(() => {
     const modules: Record<
       ModuleFilePath,
       { source: Json; schema: SerializedSchema }
@@ -156,11 +148,15 @@ function SearchField({
         modules[moduleFilePath as ModuleFilePath] = { source, schema };
       }
     }
-
     const result = buildIndex(modules);
-    setIndex(result.index);
-    setPathToLabel(result.pathToLabel);
-  }, [isFocused, schemas, sources, index]);
+    return result;
+  }, [sources, schemas]);
+  const index = useMemo(() => {
+    return indexRes?.index ?? null;
+  }, [indexRes]);
+  const pathToLabel = useMemo(() => {
+    return indexRes?.pathToLabel ?? new Map();
+  }, [indexRes]);
 
   const results = useMemo((): SearchResult[] => {
     if (!index || !query.trim()) {
@@ -181,18 +177,6 @@ function SearchField({
     },
     [onSelect, onDeactivate],
   );
-
-  // Handle Escape key to close search
-  useEffect(() => {
-    if (!onDeactivate) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onDeactivate();
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [onDeactivate]);
 
   // Separate pages (router pages) from other results
   const { pages, otherResults } = useMemo(() => {
@@ -217,28 +201,36 @@ function SearchField({
     return { pages: pagesList, otherResults: otherList };
   }, [results, sources, schemas]);
 
+  // Focus the input when the component mounts (when dialog opens)
+  useEffect(() => {
+    // Use a small delay to ensure the dialog is fully rendered
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="relative w-full overflow-visible">
       <Command
+        key="search-command"
         className={cn(
           "rounded-lg border border-border-primary shadow-sm overflow-visible",
           {
-            "border-b-0 rounded-b-none": !!query.trim(),
+            "border-b-0 rounded-b-none pb-[1px]": !!query.trim(),
           },
         )}
         shouldFilter={false}
       >
         <CommandInput
+          ref={inputRef}
           placeholder="Search content..."
           value={query}
           onValueChange={setQuery}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          autoFocus
         />
         {query.trim() && (
           <CommandList className="absolute top-full left-0 right-0 max-h-[420px]">
-            <ScrollArea className="h-[400px] z-50 p-2 bg-bg-primary border border-t-0 border-border-primary rounded-lg rounded-t-none shadow-lg ">
+            <ScrollArea className="max-h-[400px] z-50 p-2 bg-bg-primary border border-t-0 border-border-primary rounded-lg rounded-t-none shadow-lg ">
               {results.length === 0 && (
                 <CommandEmpty className="py-6 text-center text-fg-tertiary">
                   No results found.
