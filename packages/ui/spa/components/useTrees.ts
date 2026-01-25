@@ -2,7 +2,7 @@ import { ModuleFilePath } from "@valbuild/core";
 import { useMemo } from "react";
 import { Remote } from "../utils/Remote";
 import { PathNode, pathTree } from "../utils/pathTree";
-import { useSchemas } from "./ValProvider";
+import { useSchemas } from "./ValFieldProvider";
 
 export function useTrees(): Remote<{
   root: PathNode;

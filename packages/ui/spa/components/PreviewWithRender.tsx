@@ -11,14 +11,16 @@ import {
 import { ListPreviewItem } from "./ListPreviewItem";
 import { Preview } from "./Preview";
 import { useParent } from "../hooks/useParent";
-import { useRenderOverrideAtPath } from "./ValProvider";
+import { useRenderOverrideAtPath } from "./ValFieldProvider";
 
 export function PreviewWithRender({
   path,
   className,
+  size,
 }: {
   path: SourcePath;
   className?: string;
+  size?: "compact";
 }) {
   const { path: parentPath, schema: parentSchema } = useParent(path);
   const renderAtPath = useRenderOverrideAtPath(parentPath);
@@ -103,15 +105,22 @@ export function PreviewWithRender({
         image={render.image ?? null}
         subtitle={render.subtitle ?? null}
         className={className}
+        size={size}
       />
     );
   }
   if (className) {
     return (
       <div className={className}>
-        <Preview path={path} />
+        <div className="p-2">
+          <Preview path={path} size={size} />
+        </div>
       </div>
     );
   }
-  return <Preview path={path} />;
+  return (
+    <div className="p-2">
+      <Preview path={path} size={size} />
+    </div>
+  );
 }

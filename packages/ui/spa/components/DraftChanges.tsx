@@ -16,15 +16,15 @@ import {
   useErrors,
   useProfilesByAuthorId,
   useValMode,
-  useValPortal,
   usePatchSets,
   usePublishSummary,
-  useAllValidationErrors,
   useAutoPublish,
   useGlobalTransientErrors,
   useAllPatchErrors,
   useClient,
 } from "./ValProvider";
+import { useAllValidationErrors } from "./ValErrorProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {
@@ -121,7 +121,9 @@ export function DraftChanges({
     });
     if (patchRes.status === 200) {
       const json = patchRes.json;
-      const fileName = `val-patch-error-report-${moduleFilePath.replace("/", "__").replace(/\.val\./, "-")}-${patchId}.json`;
+      const fileName = `val-patch-error-report-${moduleFilePath
+        .replace("/", "__")
+        .replace(/\.val\./, "-")}-${patchId}.json`;
       const blob = new Blob(
         [
           JSON.stringify(

@@ -294,7 +294,9 @@ export class PatchSets {
           !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
         ) {
           throw new Error(
-            `Cannot perform op: '${op.op}' on non-array or non-record schema. Type: ${
+            `Cannot perform op: '${
+              op.op
+            }' on non-array or non-record schema. Type: ${
               schemaTypesAtPath.values().next().value
             }`,
           );

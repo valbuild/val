@@ -1,6 +1,7 @@
 import { ModuleFilePath } from "@valbuild/core";
 import { useMemo } from "react";
-import { useAllSources, useLoadingStatus, useSchemas } from "./ValProvider";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { useLoadingStatus } from "./ValProvider";
 import { getKeysOf } from "./getKeysOf";
 
 export function useKeysOf(

@@ -1,7 +1,7 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "./designSystem/button";
-import { useAddPatch } from "./ValProvider";
+import { useAddPatch } from "./ValFieldProvider";
 import { emptyOf } from "./fields/emptyOf";
 import { JSONValue } from "@valbuild/core/patch";
 

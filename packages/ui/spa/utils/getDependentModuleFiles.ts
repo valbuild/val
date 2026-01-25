@@ -54,8 +54,9 @@ export function getDependentModuleFiles(
       // ignore
     } else {
       const exhaustiveCheck: never = schemaNode;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msg = `Val: getDependentModuleFiles: unexpected schema type: ${(exhaustiveCheck as any)?.type}`;
+      const msg = `Val: getDependentModuleFiles: unexpected schema type: ${
+        (exhaustiveCheck as SerializedSchema)?.type
+      }`;
       console.error(msg);
       throw new Error(msg);
     }

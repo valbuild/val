@@ -13,20 +13,23 @@ export function ListPreviewItem({
   image,
   subtitle,
   className,
+  size,
 }: {
   title: string;
   image: ImageSource | RemoteSource<ImageMetadata> | null;
   subtitle: string | null;
   className?: string;
+  size?: "compact";
 }) {
   return (
     <div
       className={cn(
-        "flex w-full items-start justify-between pl-4 flex-grow text-left",
+        "flex w-full items-start justify-between pl-2 flex-grow text-left",
+        size === "compact" && "h-[60px] overflow-hidden",
         className,
       )}
     >
-      <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
+      <div className="flex flex-col flex-shrink py-2 overflow-x-clip">
         <div className="font-semibold">{title}</div>
         {subtitle && (
           <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
@@ -69,7 +72,9 @@ function ImageOrPlaceholder({
         alt={alt}
         onLoad={() => setIsLoaded(true)}
         onError={() => setIsLoaded(false)}
-        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${isLoaded ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${
+          isLoaded ? "opacity-100" : "opacity-0"
+        }`}
         style={{
           objectPosition: src.metadata?.hotspot
             ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`

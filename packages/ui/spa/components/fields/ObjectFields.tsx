@@ -4,7 +4,7 @@ import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { AnyField } from "../../components/AnyField";
 import { Preview } from "../../components/Preview";
@@ -74,7 +74,13 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   );
 }
 
-export function ObjectPreview({ path }: { path: SourcePath }) {
+export function ObjectPreview({
+  path,
+  size,
+}: {
+  path: SourcePath;
+  size?: "compact";
+}) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
   if (schemaAtPath.status === "error") {
@@ -98,26 +104,30 @@ export function ObjectPreview({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data;
-  return <ObjectLikePreview path={path} schema={schema} />;
+  return <ObjectLikePreview path={path} schema={schema} size={size} />;
 }
 
 export function ObjectLikePreview({
   path,
   schema,
+  size,
 }: {
   path: SourcePath;
   schema: { items: Record<string, SerializedSchema> };
+  size?: "compact";
 }) {
   return (
     <div
       id={path}
-      className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs"
+      className={`grid grid-cols-[min-content,1fr] text-left gap-2 text-xs ${
+        size === "compact" ? "max-h-[60px] overflow-hidden" : ""
+      }`}
     >
       {Object.keys(schema.items).map((key) => {
         const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>
-            <Preview path={subPath} />
+            <Preview path={subPath} size={size} />
           </PreviewField>
         );
       })}

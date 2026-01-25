@@ -116,7 +116,6 @@ export function traverseSchemaSource(
         "Schema (" + schema.type + ") item not found for " + path,
       );
     }
-    const isRoot = path.endsWith("?p=");
     for (let i = 0; i < source.length; i++) {
       const subPath = sourcePathConcat(path, i);
       traverseSchemaSource(source[i], schema.item, subPath, callback);
@@ -193,9 +192,13 @@ function sourcePathConcat(
 ): SourcePath {
   const isRoot = sourcePath.endsWith("?p=");
   if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}${isRoot ? "" : "."}${JSON.stringify(key)}` as SourcePath;
+    return `${sourcePath}${isRoot ? "" : "."}${JSON.stringify(
+      key,
+    )}` as SourcePath;
   }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(key)}` as SourcePath;
+  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
+    key,
+  )}` as SourcePath;
 }
 
 /**

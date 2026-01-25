@@ -14,8 +14,8 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useValPortal,
-} from "../ValProvider";
+} from "../ValFieldProvider";
+import { useValPortal } from "../ValPortalProvider";
 import {
   Popover,
   PopoverContent,

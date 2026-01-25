@@ -3,11 +3,11 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import {
-  useAllValidationErrors,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
-} from "../ValProvider";
+} from "../ValFieldProvider";
+import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -15,7 +15,7 @@ import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
-import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
+import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewWithRender } from "../../components/PreviewWithRender";
 import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
@@ -123,7 +123,7 @@ function ListRecordRenderComponent({
   const { navigate } = useNavigation();
   return (
     <div className="flex flex-col space-y-4 w-full">
-      {items.map(([key, { title, subtitle, image }]) => (
+      {items.map(([key]) => (
         <button
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
@@ -139,7 +139,13 @@ function ListRecordRenderComponent({
   );
 }
 
-export function RecordPreview({ path }: { path: SourcePath }) {
+export function RecordPreview({
+  path,
+  size,
+}: {
+  path: SourcePath;
+  size?: "compact";
+}) {
   const sourceAtPath = useShallowSourceAtPath(path, "record");
   if (sourceAtPath.status === "error") {
     return <FieldSourceError path={path} error={sourceAtPath.error} />;
@@ -152,7 +158,11 @@ export function RecordPreview({ path }: { path: SourcePath }) {
   }
   const keys = Object.keys(sourceAtPath.data);
   return (
-    <div className="text-left">
+    <div
+      className={`text-left ${
+        size === "compact" ? "max-h-[60px] overflow-hidden" : ""
+      }`}
+    >
       <span className="text-fg-brand-primary">{keys.length}</span>
       <span className="mr-1">{` item${keys.length === 1 ? "" : "s"}:`}</span>
       {keys.map((key, index) => (

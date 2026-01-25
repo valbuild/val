@@ -1,11 +1,8 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useShallowSourceAtPath,
-  useValPortal,
-} from "./ValProvider";
+import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
   Popover,

@@ -58,7 +58,9 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "next": "^13.4.0"
+    "@types/react": "^18.2.38",
+    "next": "^13.4.0",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "next": ">=13.4.0",

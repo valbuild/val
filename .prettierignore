@@ -15,3 +15,5 @@ out
 
 .tmp
 examples/next*/.val/*
+
+pnpm-lock.yaml

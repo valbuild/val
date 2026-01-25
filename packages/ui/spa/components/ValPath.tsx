@@ -1,6 +1,6 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAllSources, useSchemas, useValConfig } from "./ValProvider";
+import { useAllSources, useSchemas, useValConfig } from "./ValFieldProvider";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { Tooltip, TooltipContent } from "./designSystem/tooltip";
 import { TooltipTrigger } from "@radix-ui/react-tooltip";

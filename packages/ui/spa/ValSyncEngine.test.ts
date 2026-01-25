@@ -6,13 +6,21 @@ import {
   Internal,
   ModuleFilePath,
   PatchId,
+  ReifiedRender,
   SelectorSource,
+  SerializedSchema,
   SourcePath,
   ValConfig,
   ValidationError,
   ValModule,
 } from "@valbuild/core";
-import { applyPatch, deepClone, JSONOps, Patch } from "@valbuild/core/patch";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  JSONValue,
+  Patch,
+} from "@valbuild/core/patch";
 import { z } from "zod";
 
 describe("ValSyncEngine", () => {
@@ -222,6 +230,137 @@ describe("ValSyncEngine", () => {
     expect(
       syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 2 from store 2");
+  });
+
+  test("setSchemas sets schemas and invalidates caches", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    const mockSchemas = {
+      [toModuleFilePath("/test.val.ts")]: Internal.getSchema(
+        c.define("/test.val.ts", s.string().minLength(2), "test"),
+      )?.["executeSerialize"](),
+    } as Record<ModuleFilePath, SerializedSchema | undefined>;
+
+    let schemaListenerCalled = false;
+    const unsubscribe = syncEngine.subscribe("schema")(() => {
+      schemaListenerCalled = true;
+    });
+
+    syncEngine.setSchemas(mockSchemas);
+
+    expect(schemaListenerCalled).toBe(true);
+    const schemaSnapshot = syncEngine.getSchemaSnapshot(
+      toModuleFilePath("/test.val.ts"),
+    );
+    expect(schemaSnapshot.status).toBe("success");
+    if (schemaSnapshot.status === "success") {
+      expect(schemaSnapshot.data).toEqual(
+        mockSchemas[toModuleFilePath("/test.val.ts")],
+      );
+    }
+
+    unsubscribe();
+  });
+
+  test("setSources sets both serverSources and optimisticClientSources", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    const mockSources = {
+      [toModuleFilePath("/test.val.ts")]: "mock value",
+    } as Record<ModuleFilePath, JSONValue | undefined>;
+
+    let sourceListenerCalled = false;
+    let allSourcesListenerCalled = false;
+    const unsubscribeSource = syncEngine.subscribe(
+      "source",
+      toModuleFilePath("/test.val.ts"),
+    )(() => {
+      sourceListenerCalled = true;
+    });
+    const unsubscribeAllSources = syncEngine.subscribe("all-sources")(() => {
+      allSourcesListenerCalled = true;
+    });
+
+    syncEngine.setSources(mockSources);
+
+    expect(sourceListenerCalled).toBe(true);
+    expect(allSourcesListenerCalled).toBe(true);
+    const sourceSnapshot = syncEngine.getSourceSnapshot(
+      toModuleFilePath("/test.val.ts"),
+    );
+    expect(sourceSnapshot.data).toEqual("mock value");
+
+    unsubscribeSource();
+    unsubscribeAllSources();
+  });
+
+  test("setRenders sets renders and invalidates caches", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    const mockRenders = {
+      [toModuleFilePath("/test.val.ts")]: null,
+    } as Record<ModuleFilePath, ReifiedRender | null>;
+
+    let renderListenerCalled = false;
+    const unsubscribe = syncEngine.subscribe(
+      "render",
+      toModuleFilePath("/test.val.ts"),
+    )(() => {
+      renderListenerCalled = true;
+    });
+
+    syncEngine.setRenders(mockRenders);
+
+    expect(renderListenerCalled).toBe(true);
+    const renderSnapshot = syncEngine.getRenderSnapshot(
+      toModuleFilePath("/test.val.ts"),
+    );
+    expect(renderSnapshot).toBe(null);
+
+    unsubscribe();
+  });
+
+  test("setInitializedAt sets initializedAt and invalidates cache", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    const mockTimestamp = 1234567890;
+
+    let initializedAtListenerCalled = false;
+    const unsubscribe = syncEngine.subscribe("initialized-at")(() => {
+      initializedAtListenerCalled = true;
+    });
+
+    syncEngine.setInitializedAt(mockTimestamp);
+
+    expect(initializedAtListenerCalled).toBe(true);
+    const initializedAtSnapshot = syncEngine.getInitializedAtSnapshot();
+    expect(initializedAtSnapshot.data).toBe(mockTimestamp);
+
+    unsubscribe();
   });
 });
 
@@ -620,7 +759,9 @@ class SyncEngineTester {
       return {
         status: 404,
         json: {
-          message: `Invalid route ${route} with method ${method as string}. This is most likely a Val bug.`,
+          message: `Invalid route ${route} with method ${
+            method as string
+          }. This is most likely a Val bug.`,
           path: route,
           method: method as string,
         },

@@ -5,36 +5,35 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import FlexSearch from "flexsearch";
-import { useMemo, useState, useCallback, useEffect } from "react";
-import { useAllSources, useSchemas } from "./ValProvider";
+import FlexSearch, { Index } from "flexsearch";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
+import { Command, CommandInput } from "./designSystem/command";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "./designSystem/command";
+  Dialog,
+  DialogOverlay,
+  DialogPortal,
+  DialogTrigger,
+} from "./designSystem/dialog";
+import * as DialogPrimitive from "./designSystem/dialog-primitive";
 import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
+import { Search as SearchIcon } from "lucide-react";
+import { cn } from "./designSystem/cn";
+import { SearchResultsList, type SearchResult } from "./SearchResultsList";
 import { getNavPathFromAll } from "./getNavPath";
-import { SearchItem } from "./SearchItem";
-import { Internal, ModulePath } from "@valbuild/core";
-import { Globe, Search as SearchIcon } from "lucide-react";
-
-type SearchResult = {
-  path: SourcePath;
-  label: string;
-};
 
 export function Search() {
-  const [isActive, setIsActive] = useState(false);
+  const sources = useAllSources();
+  const schemasRes = useSchemas();
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
 
-  console.log("Search");
+  const [open, setOpen] = useState(false);
+  const searchTriggerRef = useRef<HTMLDivElement>(null);
+
   // Handle Cmd+K (Mac) or Ctrl+K (other platforms) to activate search
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -56,71 +55,60 @@ export function Search() {
         }
 
         event.preventDefault();
-        setIsActive(true);
+        setOpen(true);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+  const { navigate } = useNavigation();
 
-  if (!isActive) {
-    return <SearchTrigger onActivate={() => setIsActive(true)} />;
-  }
-
-  return <SearchActive onDeactivate={() => setIsActive(false)} />;
+  return (
+    <Dialog open={open} onOpenChange={setOpen} modal={false}>
+      <div className="relative" ref={searchTriggerRef}>
+        <DialogTrigger className="w-full" onClick={() => setOpen(true)}>
+          <SearchTrigger />
+        </DialogTrigger>
+        <DialogPortal container={searchTriggerRef.current}>
+          <DialogPrimitive.Content className="top-full absolute left-0 bg-bg-primary -translate-y-full z-[8999] w-full">
+            <DialogOverlay />
+            <SearchField
+              sources={sources}
+              schemas={schemas}
+              onSelect={(path) => {
+                navigate(path);
+                setOpen(false);
+              }}
+              onDeactivate={() => setOpen(false)}
+            />
+          </DialogPrimitive.Content>
+        </DialogPortal>
+      </div>
+    </Dialog>
+  );
 }
 
-function SearchTrigger({ onActivate }: { onActivate: () => void }) {
+function SearchTrigger() {
   return (
-    <div className="relative w-full overflow-visible">
-      <div
-        className="rounded-lg border border-border-primary shadow-sm overflow-visible cursor-text"
-        onClick={onActivate}
-        onFocus={onActivate}
-        tabIndex={0}
-      >
-        <div className="flex items-center px-3 h-11">
-          <SearchIcon className="w-4 h-4 mr-2 opacity-50 shrink-0" />
-          <input
-            className="flex h-full w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary cursor-text"
-            placeholder="Search content..."
-            readOnly
-            onFocus={onActivate}
-          />
-        </div>
+    <div className="rounded-lg border border-border-primary shadow-sm overflow-visible cursor-text">
+      <div className="flex items-center justify-center px-3">
+        <SearchIcon className="w-4 h-4 mr-2 opacity-50 shrink-0" />
+        <span
+          className={cn(
+            "flex h-11 w-full rounded-md py-3 text-sm",
+            "text-fg-secondary cursor-text",
+            "leading-[21px]",
+          )}
+        >
+          Search content...
+        </span>
       </div>
     </div>
   );
 }
 
-function SearchActive({ onDeactivate }: { onDeactivate: () => void }) {
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
-  const { navigate } = useNavigation();
-
-  const schemas =
-    schemasRes.status === "success" ? schemasRes.data : undefined;
-
-  const handleSelect = useCallback(
-    (path: SourcePath | ModuleFilePath) => {
-      navigate(path);
-      onDeactivate();
-    },
-    [navigate, onDeactivate],
-  );
-
-  return (
-    <SearchField
-      sources={sources}
-      schemas={schemas}
-      onSelect={handleSelect}
-      onDeactivate={onDeactivate}
-    />
-  );
-}
-
-export function SearchField({
+function SearchField({
   sources,
   schemas,
   onSelect,
@@ -132,18 +120,8 @@ export function SearchField({
   onDeactivate?: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [isFocused, setIsFocused] = useState(false);
-  const [index, setIndex] = useState<FlexSearch.Index | null>(null);
-  const [pathToLabel, setPathToLabel] = useState<Map<string, string>>(
-    new Map(),
-  );
-
-  // Only build index when search input is focused
-  useEffect(() => {
-    if (!isFocused || !schemas || index !== null) {
-      return;
-    }
-
+  const inputRef = useRef<HTMLInputElement>(null);
+  const indexRes = useMemo(() => {
     const modules: Record<
       ModuleFilePath,
       { source: Json; schema: SerializedSchema }
@@ -156,11 +134,15 @@ export function SearchField({
         modules[moduleFilePath as ModuleFilePath] = { source, schema };
       }
     }
-
     const result = buildIndex(modules);
-    setIndex(result.index);
-    setPathToLabel(result.pathToLabel);
-  }, [isFocused, schemas, sources, index]);
+    return result;
+  }, [sources, schemas]);
+  const index = useMemo(() => {
+    return indexRes?.index ?? null;
+  }, [indexRes]);
+  const pathToLabel = useMemo(() => {
+    return indexRes?.pathToLabel ?? new Map();
+  }, [indexRes]);
 
   const results = useMemo((): SearchResult[] => {
     if (!index || !query.trim()) {
@@ -182,158 +164,66 @@ export function SearchField({
     [onSelect, onDeactivate],
   );
 
-  // Handle Escape key to close search
-  useEffect(() => {
-    if (!onDeactivate) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onDeactivate();
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [onDeactivate]);
-
-  // Separate pages (router pages) from other results
-  const { pages, otherResults } = useMemo(() => {
-    const pagesList: SearchResult[] = [];
-    const otherList: SearchResult[] = [];
-
+  // Deduplicate results based on navPath
+  const deduplicatedResults = useMemo(() => {
     const addedPaths = new Set<string>();
+    const deduplicated: SearchResult[] = [];
+
     for (const result of results) {
       const navPath =
         getNavPathFromAll(result.path, sources, schemas) || result.path;
-      if (addedPaths.has(navPath)) {
-        continue;
+      if (!addedPaths.has(navPath)) {
+        deduplicated.push(result);
+        addedPaths.add(navPath);
       }
-      if (navPath && isRouterPage(navPath as SourcePath, schemas)) {
-        pagesList.push(result);
-      } else {
-        otherList.push(result);
-      }
-      addedPaths.add(navPath);
     }
 
-    return { pages: pagesList, otherResults: otherList };
+    return deduplicated;
   }, [results, sources, schemas]);
+
+  // Focus the input when the component mounts (when dialog opens)
+  useEffect(() => {
+    // Use a small delay to ensure the dialog is fully rendered
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="relative w-full overflow-visible">
       <Command
-        className="rounded-lg border border-border-primary shadow-sm overflow-visible"
+        key="search-command"
+        className={cn(
+          "rounded-lg border border-border-primary shadow-sm overflow-visible",
+          {
+            "border-b-0 rounded-b-none pb-[1px]": !!query.trim(),
+          },
+        )}
         shouldFilter={false}
       >
         <CommandInput
+          ref={inputRef}
           placeholder="Search content..."
           value={query}
           onValueChange={setQuery}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          autoFocus
         />
         {query.trim() && (
-          <CommandList className="absolute top-full left-0 right-0 mt-1 max-h-[400px] overflow-y-auto p-2 z-[100] bg-bg-primary border border-border-primary rounded-lg shadow-lg">
-            {results.length === 0 && (
-              <CommandEmpty className="py-6 text-center text-fg-tertiary">
-                No results found.
-              </CommandEmpty>
-            )}
-            {pages.length > 0 && (
-              <CommandGroup heading="Pages" className="gap-1">
-                {pages.map((result, index) => {
-                  const navPath =
-                    getNavPathFromAll(result.path, sources, schemas) ||
-                    result.path;
-                  const url = getRouterPageUrl(navPath as SourcePath);
-                  return (
-                    <CommandItem
-                      key={result.path}
-                      value={`page-${index}`}
-                      onSelect={() => handleSelect(navPath)}
-                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                    >
-                      <SearchItem path={navPath as SourcePath} url={url} />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-            {otherResults.length > 0 && (
-              <CommandGroup heading="Results" className="gap-1">
-                {otherResults.map((result, index) => {
-                  const navPath =
-                    getNavPathFromAll(result.path, sources, schemas) ||
-                    result.path;
-                  return (
-                    <CommandItem
-                      key={result.path}
-                      value={`result-${index}`}
-                      onSelect={() => handleSelect(navPath)}
-                      className="cursor-pointer rounded-md px-3 py-2.5 aria-selected:bg-bg-secondary hover:bg-bg-secondary transition-colors"
-                    >
-                      <SearchItem path={navPath as SourcePath} url={null} />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
+          <SearchResultsList
+            results={deduplicatedResults}
+            sources={sources}
+            schemas={schemas}
+            onSelect={handleSelect}
+          />
         )}
       </Command>
     </div>
   );
 }
 
-function isRouterPage(
-  path: SourcePath,
-  schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
-): boolean {
-  if (!schemas) return false;
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(path);
-  if (!modulePath) return false;
-
-  // Get parent path by removing last segment
-  const pathSegments = Internal.splitModulePath(modulePath);
-  if (pathSegments.length === 0) return false;
-
-  // For nested paths, check if parent is a router
-  // The parent would be the module with one less segment
-  const moduleSchema = schemas[moduleFilePath];
-  if (
-    moduleSchema?.type === "record" &&
-    Boolean(moduleSchema.router) &&
-    moduleSchema.router !== "external"
-  ) {
-    // If the module is a router and we have a path segment, it's a router page
-    return true;
-  }
-
-  return false;
-}
-
-function getRouterPageUrl(path: SourcePath): string | null {
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
-  if (!modulePath) return null;
-
-  // Get the first key (URL) from the module path
-  const pathSegments = Internal.splitModulePath(modulePath);
-  if (pathSegments.length === 0) return null;
-
-  // The first segment is the URL key
-  const urlKey = pathSegments[0];
-  // Try to parse it (it might be JSON stringified)
-  try {
-    return JSON.parse(urlKey);
-  } catch {
-    return urlKey;
-  }
-}
-
 function buildIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
-): { index: FlexSearch.Index; pathToLabel: Map<string, string> } {
-  console.log("building index");
+): { index: Index; pathToLabel: Map<string, string> } {
   const index = new FlexSearch.Index({
     tokenize: "forward",
   });
@@ -378,11 +268,10 @@ function buildIndex(
           const filename = source[FILE_REF_PROP] as string;
           // Extract just the filename from the path
           const filenameOnly = filename.replace("/public/val/", "");
+          const metadata = source?.metadata;
           const alt =
-            source?.metadata &&
-            typeof source?.metadata === "object" &&
-            "alt" in source?.metadata
-              ? source?.metadata?.alt
+            metadata && typeof metadata === "object" && "alt" in metadata
+              ? metadata.alt
               : "";
           searchText = filenameOnly + " " + alt;
           label = filenameOnly;

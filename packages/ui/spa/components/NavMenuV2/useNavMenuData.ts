@@ -96,7 +96,6 @@ export function useNavMenuData(): Remote<NavMenuData> {
           }
         }
         const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
-        console.log("sitemapTree", sitemapTree);
         data.sitemap = transformSitemapNode(sitemapTree);
       } else if (
         srcFolder.status === "loading" ||

@@ -1,3 +1,5 @@
+import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+
 export async function uploadRemoteFile(
   contentHost: string,
   project: string,
@@ -52,17 +54,14 @@ export async function uploadRemoteFile(
     }
     if (res.headers.get("content-type")?.includes("application/json")) {
       const json = await res.json();
-      if (json.message) {
-        return {
-          success: false,
-          error: `Failed to upload remote file: ${json.message}.`,
-        };
-      } else {
-        return {
-          success: false,
-          error: `Failed to upload remote file: ${JSON.stringify(json)}.`,
-        };
-      }
+      const message = getErrorMessageFromUnknownJson(
+        json,
+        JSON.stringify(json),
+      );
+      return {
+        success: false,
+        error: `Failed to upload remote file: ${message}.`,
+      };
     }
     return {
       success: false,

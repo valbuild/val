@@ -1,14 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { DEFAULT_APP_HOST, SourcePath, ModuleFilePath } from "@valbuild/core";
 import { Ellipsis, Loader2, Moon, Sun, LogOut, User } from "lucide-react";
-import {
-  useCurrentProfile,
-  useSchemaAtPath,
-  useTheme,
-  useValConfig,
-  useValMode,
-  useValPortal,
-} from "../ValProvider";
+import { useCurrentProfile, useValMode } from "../ValProvider";
+import { useSchemaAtPath, useValConfig } from "../ValFieldProvider";
+import { useTheme } from "../ValThemeProvider";
+import { useValPortal } from "../ValPortalProvider";
 import {
   Popover,
   PopoverTrigger,

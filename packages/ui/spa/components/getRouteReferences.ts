@@ -98,7 +98,9 @@ function sourcePathConcat(
   if (sourcePath.includes(ModuleFilePathSep)) {
     return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
   }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(key)}` as SourcePath;
+  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
+    key,
+  )}` as SourcePath;
 }
 
 function isObjectSource(source: Json): source is Record<string, Json> {
