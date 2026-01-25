@@ -70,12 +70,23 @@ export function deserializeSchema(
       const deserializedOptions = {
         ...(serialized.options || {}),
         inline:
-          typeof serialized.options?.inline?.img === "object"
+          typeof serialized.options?.inline?.img === "object" ||
+          typeof serialized.options?.inline?.a === "object"
             ? {
-                a: serialized.options.inline.a,
-                img: deserializeSchema(
-                  serialized.options.inline.img,
-                ) as ImageSchema<ImageSource | RemoteSource<ImageMetadata>>,
+                a:
+                  typeof serialized.options?.inline?.a === "object"
+                    ? (deserializeSchema(serialized.options.inline.a) as
+                        | RouteSchema<string>
+                        | StringSchema<string>)
+                    : serialized.options?.inline?.a,
+                img:
+                  typeof serialized.options?.inline?.img === "object"
+                    ? (deserializeSchema(
+                        serialized.options.inline.img,
+                      ) as ImageSchema<
+                        ImageSource | RemoteSource<ImageMetadata>
+                      >)
+                    : serialized.options?.inline?.img,
               }
             : (serialized.options?.inline as
                 | undefined
