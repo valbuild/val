@@ -3,13 +3,14 @@ import { useMemo, useState } from "react";
 import {
   Json,
   ModuleFilePath,
+  ReifiedRender,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { SearchResultsList, type SearchResult } from "../../SearchResultsList";
 import { Command } from "../../designSystem/command";
-import { mockSchemas, mockSources } from "./mockData";
+import { mockSchemas, mockSources, mockRenders } from "./mockData";
 import { ValSyncEngine } from "../../../ValSyncEngine";
 import { ValThemeProvider, Themes } from "../../ValThemeProvider";
 import { ValErrorProvider } from "../../ValErrorProvider";
@@ -113,12 +114,14 @@ function SearchResultsListWithProviders({
   results,
   schemas = mockSchemas,
   sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
+  renders = mockRenders,
 }: {
   pages: SearchResult[];
   otherResults: SearchResult[];
   results: SearchResult[];
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources?: Record<ModuleFilePath, JSONValue | undefined>;
+  renders?: Record<ModuleFilePath, ReifiedRender | null>;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>(null);
@@ -128,9 +131,10 @@ function SearchResultsListWithProviders({
     const engine = new ValSyncEngine(client, undefined);
     engine.setSchemas(schemas);
     engine.setSources(sources);
+    engine.setRenders(renders);
     engine.setInitializedAt(Date.now());
     return engine;
-  }, [client, schemas, sources]);
+  }, [client, schemas, sources, renders]);
 
   // Mock getDirectFileUploadSettings callback
   const getDirectFileUploadSettings = useMemo(

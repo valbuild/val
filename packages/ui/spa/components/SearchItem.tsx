@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
-import { Preview } from "./Preview";
 import { Globe } from "lucide-react";
+import { PreviewWithRender } from "./PreviewWithRender";
 
 export function SearchItem({
   path,
@@ -17,5 +17,5 @@ export function SearchItem({
       </div>
     );
   }
-  return <Preview path={path} />;
+  return <PreviewWithRender path={path} />;
 }

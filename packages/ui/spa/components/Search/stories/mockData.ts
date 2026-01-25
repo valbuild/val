@@ -2,6 +2,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
+  ReifiedRender,
   SerializedSchema,
   initVal,
 } from "@valbuild/core";
@@ -304,7 +305,7 @@ function createMockData() {
         s.object({
           name: s.string(),
           position: s.string(),
-          bio: s.string().render({ as: "textarea" }),
+          bio: s.string(),
           email: s.string(),
         }),
       )
@@ -414,13 +415,23 @@ function createMockData() {
   // Configuration array with render methods
   const config = c.define(
     "/content/config.val.ts",
-    s.array(
-      s.object({
-        key: s.string(),
-        value: s.string().render({ as: "code", language: "typescript" }),
-        description: s.string().render({ as: "textarea" }),
+    s
+      .array(
+        s.object({
+          key: s.string(),
+          value: s.string().render({ as: "code", language: "typescript" }),
+          description: s.string().render({ as: "textarea" }),
+        }),
+      )
+      .render({
+        as: "list",
+        select({ val }) {
+          return {
+            title: val.key,
+            subtitle: val.description,
+          };
+        },
       }),
-    ),
     [
       {
         key: "customHook",
@@ -464,7 +475,7 @@ function createMockData() {
   ];
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Json> = {};
-
+  const renders: Record<string, ReifiedRender> = {};
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
     const schema = Internal.getSchema(module);
@@ -476,13 +487,19 @@ function createMockData() {
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
+      renders[path] = schema["executeRender"](path, source);
     }
   }
 
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
+    renders: renders as Record<ModuleFilePath, ReifiedRender>,
   };
 }
 
-export const { schemas: mockSchemas, sources: mockSources } = createMockData();
+export const {
+  schemas: mockSchemas,
+  sources: mockSources,
+  renders: mockRenders,
+} = createMockData();
