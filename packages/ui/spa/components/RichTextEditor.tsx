@@ -570,7 +570,7 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
           <Link size={16} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" container={portalContainer}>
+      <PopoverContent className="w-80 z-[8999]" container={portalContainer}>
         <div className="relative">
           <button
             className="absolute right-0 top-0 p-1 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
