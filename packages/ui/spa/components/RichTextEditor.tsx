@@ -5,6 +5,9 @@ import {
   useActive,
   useChainedCommands,
   useAttrs,
+  useCurrentSelection,
+  useRemirrorContext,
+  useHelpers,
 } from "@remirror/react";
 import classNames from "classnames";
 import {
@@ -23,17 +26,25 @@ import {
   Image,
   Unlink,
   Check,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from "./designSystem/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "./designSystem/popover";
 import { Button } from "./designSystem/button";
+import { Input } from "./designSystem/input";
 import { Internal, SerializedRichTextOptions } from "@valbuild/core";
 import { readImage } from "../utils/readImage";
+import { RouteSelector } from "./fields/RouteField";
 import { BoldExtension } from "@remirror/extension-bold";
 import { ItalicExtension } from "@remirror/extension-italic";
 import { StrikeExtension } from "@remirror/extension-strike";
@@ -53,6 +64,8 @@ import {
   EditorState,
   RemirrorEventListenerProps,
 } from "@remirror/core";
+import { useValPortal } from "./ValPortalProvider";
+import { useRoutesWithModulePaths } from "./useRoutesOf";
 
 const allExtensions = () => {
   const extensions = [
@@ -343,18 +356,7 @@ const Toolbar = ({
               />
             )}
             {(options?.inline?.a || active.link()) && (
-              <ToolbarButton
-                icon={<Link size={16} />}
-                stroke={3}
-                isActive={!!options?.inline?.a || active.link()}
-                onToggle={() =>
-                  chain
-                    .selectMark("link")
-                    .updateLink({ href: "" })
-                    .focus()
-                    .run()
-                }
-              />
+              <LinkPopover options={options} />
             )}
             {(options?.inline?.img || active.image()) && (
               <>
@@ -413,69 +415,229 @@ const Toolbar = ({
             )}
           </div>
         </div>
-        <LinkToolBar />
       </div>
     </div>
   );
 };
 
-export function LinkToolBar() {
+function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
+  const portalContainer = useValPortal();
   const chain = useChainedCommands();
-  const [href, setHref] = useState<string>();
   const activeLink = useAttrs<LinkExtension>().link();
+  const { empty, to, from } = useCurrentSelection();
+
+  // Get all routes with their module paths for route selection
+  const routesWithModulePaths = useRoutesWithModulePaths();
+
+  const [open, setOpen] = useState(false);
+  const [linkText, setLinkText] = useState("");
+  const [linkHref, setLinkHref] = useState("");
+
+  const { getTextBetween } = useHelpers();
+
+  // Detect if inline.a is a route schema
+  // When inline.a is true, default to route
+  // When inline.a is an object with type: "route", it's a route
+  // When inline.a is an object with type: "string", it's a string
+  const isRouteLink =
+    options?.inline?.a === true ||
+    (typeof options?.inline?.a === "object" &&
+      "type" in options.inline.a &&
+      options.inline.a.type === "route");
+
+  // Extract patterns from schema if it's a route
+  const routeSchema =
+    isRouteLink &&
+    options?.inline?.a &&
+    typeof options.inline.a === "object" &&
+    "type" in options.inline.a &&
+    options.inline.a.type === "route"
+      ? options.inline.a
+      : undefined;
+  const includePattern = routeSchema?.options?.include
+    ? new RegExp(
+        routeSchema.options.include.source,
+        routeSchema.options.include.flags,
+      )
+    : undefined;
+  const excludePattern = routeSchema?.options?.exclude
+    ? new RegExp(
+        routeSchema.options.exclude.source,
+        routeSchema.options.exclude.flags,
+      )
+    : undefined;
+
+  const { view } = useRemirrorContext();
+  // Handle opening the popover
+  const handleOpenPopover = useCallback(() => {
+    // If cursor is on a link, always select the entire link first
+    const hasExistingLink = activeLink !== undefined;
+    if (hasExistingLink) {
+      // Select the entire link mark, whether or not there's already a selection
+      chain.selectMark("link").run();
+
+      // Get the href from activeLink
+
+      // Small delay to let the selection update, then get the selected text
+      setTimeout(() => {
+        const selection = view.state.selection;
+        const selectedText = getTextBetween(selection.from, selection.to);
+        setLinkText(selectedText);
+        setLinkHref(activeLink.href as string);
+        setOpen(true);
+      }, 10);
+    } else {
+      setOpen(true);
+    }
+  }, [activeLink, chain, view, getTextBetween]);
 
   useEffect(() => {
-    const href =
-      typeof activeLink === "object" &&
-      "href" in activeLink &&
-      typeof activeLink.href === "string"
-        ? activeLink.href
-        : undefined;
-    setHref(href);
-  }, [activeLink]);
+    const handleDoubleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      const linkElement = target.tagName === "A" ? target : target.closest("a");
 
-  const isEnabled =
-    //active.link() || // doesn't seem to work for the first char (of a link) of a line, so we could remove this since selectedHref does the trick?
-    activeLink !== undefined;
-  if (!isEnabled) {
-    return null;
-  }
+      if (linkElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pos = view.posAtDOM(linkElement, 0);
+        chain.selectText(pos).selectMark("link").run();
+        setLinkText(linkElement.textContent || "");
+        setLinkHref(linkElement.getAttribute("href") || "");
+        setTimeout(() => setOpen(true), 10);
+      }
+    };
+
+    const editorElement = view.dom;
+    editorElement.addEventListener("dblclick", handleDoubleClick);
+    return () => {
+      editorElement.removeEventListener("dblclick", handleDoubleClick);
+    };
+  }, [view, chain]);
+
+  const handleSubmit = () => {
+    if (!linkText.trim() || !linkHref.trim()) {
+      return;
+    }
+
+    if (empty) {
+      chain
+        .insertText(linkText)
+        .selectText({ from, to: to + linkText.length })
+        .updateLink({ href: linkHref })
+        .focus()
+        .run();
+    } else {
+      chain
+        .replaceText({ content: linkText })
+        .updateLink({ href: linkHref })
+        .focus()
+        .run();
+    }
+
+    setOpen(false);
+    setLinkText("");
+    setLinkHref("");
+  };
+
+  const handleRemove = () => {
+    chain.removeLink().focus().run();
+    setOpen(false);
+    setLinkText("");
+    setLinkHref("");
+  };
+
+  const handleCancel = () => {
+    setOpen(false);
+    setLinkText("");
+    setLinkHref("");
+  };
+
+  const isSubmitDisabled = !linkText.trim() || !linkHref.trim();
+
   return (
-    <div className="flex items-center justify-start px-2 pt-1 gap-x-1">
-      <input
-        className="bg-transparent text-accent"
-        onChange={(ev) => {
-          setHref(ev.target.value);
-        }}
-        defaultValue={href}
-        placeholder="https://"
-      ></input>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        title="Update"
-        disabled={href === undefined}
-        onClick={() => {
-          if (href !== undefined) {
-            chain.selectMark("link").updateLink({ href }).focus().run();
-            // This doesn't work inside ShadowRoot? :_( It does selectMark.original("link") so maybe that is the problem?
-            // chain.selectLink().updateLink({ href }).focus().run();
-          }
-        }}
-      >
-        <Check size={14} />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        title="Remove"
-        onClick={() => {
-          chain.removeLink().focus().run();
-        }}
-      >
-        <Unlink size={13} />
-      </Button>
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={classNames({
+            "text-accent stroke-[3px]":
+              !!options?.inline?.a || activeLink !== undefined,
+            "bg-bg-primary-hover": activeLink !== undefined,
+          })}
+          onClick={handleOpenPopover}
+        >
+          <Link size={16} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80" container={portalContainer}>
+        <div className="relative">
+          <button
+            className="absolute right-0 top-0 p-1 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onClick={handleCancel}
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+          <div className="space-y-3 pt-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Link Text</label>
+              <Input
+                placeholder="Enter link text"
+                value={linkText}
+                onChange={(e) => setLinkText(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {isRouteLink ? "Route" : "URL"}
+              </label>
+              {isRouteLink ? (
+                <RouteSelector
+                  routes={routesWithModulePaths}
+                  value={linkHref}
+                  onChange={(route) => setLinkHref(route)}
+                  includePattern={includePattern}
+                  excludePattern={excludePattern}
+                  placeholder="Select route..."
+                  portalContainer={portalContainer}
+                />
+              ) : (
+                <Input
+                  placeholder="https://"
+                  value={linkHref}
+                  onChange={(e) => setLinkHref(e.target.value)}
+                />
+              )}
+            </div>
+            <div className="flex justify-between items-center gap-2">
+              <div className="flex gap-2">
+                {!empty && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleRemove}
+                  >
+                    <Unlink size={14} className="mr-1" />
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={isSubmitDisabled}
+                >
+                  <Check size={14} className="mr-1" />
+                  {!empty ? "Update" : "Insert"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

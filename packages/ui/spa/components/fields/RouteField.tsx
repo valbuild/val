@@ -32,9 +32,102 @@ import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 
+export interface RouteSelectorProps {
+  routes: Array<{ route: string; moduleFilePath: string }>;
+  value: string | null;
+  onChange: (route: string) => void;
+  includePattern?: RegExp;
+  excludePattern?: RegExp;
+  placeholder?: string;
+  className?: string;
+  portalContainer?: HTMLElement | null;
+  isLoading?: boolean;
+}
+
+export function RouteSelector({
+  routes,
+  value,
+  onChange,
+  includePattern,
+  excludePattern,
+  placeholder = "Select route...",
+  className,
+  portalContainer,
+  isLoading = false,
+}: RouteSelectorProps) {
+  const [open, setOpen] = React.useState(false);
+
+  // Filter routes based on include/exclude patterns
+  const filteredRoutes = routes.filter((routeInfo) => {
+    // If include pattern exists, route must match it
+    if (includePattern && !includePattern.test(routeInfo.route)) {
+      return false;
+    }
+    // If exclude pattern exists, route must NOT match it
+    if (excludePattern && excludePattern.test(routeInfo.route)) {
+      return false;
+    }
+    return true;
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          role="combobox"
+          aria-expanded={open}
+          className={cn(
+            "w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover",
+            className,
+          )}
+        >
+          <span className="truncate">{value || placeholder}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        container={portalContainer}
+      >
+        <Command>
+          <CommandInput placeholder={placeholder} />
+          <CommandList>
+            {isLoading ? (
+              <div className="py-6 text-center text-sm">Loading...</div>
+            ) : filteredRoutes.length === 0 ? (
+              <CommandEmpty>No routes found.</CommandEmpty>
+            ) : (
+              <CommandGroup>
+                {filteredRoutes.map((routeInfo) => (
+                  <CommandItem
+                    key={routeInfo.route}
+                    value={routeInfo.route}
+                    onSelect={(currentValue) => {
+                      onChange(currentValue);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        value === routeInfo.route ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    {routeInfo.route}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function RouteField({ path }: { path: SourcePath }) {
   const type = "route";
-  const [open, setOpen] = React.useState(false);
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -94,18 +187,6 @@ export function RouteField({ path }: { path: SourcePath }) {
     ? new RegExp(schema.options.exclude.source, schema.options.exclude.flags)
     : undefined;
 
-  const filteredRoutes = routesWithModulePaths.filter((routeInfo) => {
-    // If include pattern exists, route must match it
-    if (includePattern && !includePattern.test(routeInfo.route)) {
-      return false;
-    }
-    // If exclude pattern exists, route must NOT match it
-    if (excludePattern && excludePattern.test(routeInfo.route)) {
-      return false;
-    }
-    return true;
-  });
-
   // Find the module path for the currently selected route
   const selectedRouteInfo = source
     ? routesWithModulePaths.find((r) => r.route === source)
@@ -117,66 +198,26 @@ export function RouteField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              role="combobox"
-              aria-expanded={open}
-              className="w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover"
-            >
-              <span className="truncate">{source || "Select route..."}</span>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0"
-            container={portalContainer}
-          >
-            <Command>
-              <CommandInput placeholder="Search route..." />
-              <CommandList>
-                {isLoading ? (
-                  <div className="py-6 text-center text-sm">Loading...</div>
-                ) : filteredRoutes.length === 0 ? (
-                  <CommandEmpty>No routes found.</CommandEmpty>
-                ) : (
-                  <CommandGroup>
-                    {filteredRoutes.map((routeInfo) => (
-                      <CommandItem
-                        key={routeInfo.route}
-                        value={routeInfo.route}
-                        onSelect={(currentValue) => {
-                          addPatch(
-                            [
-                              {
-                                op: "replace",
-                                path: patchPath,
-                                value: currentValue,
-                              },
-                            ],
-                            type,
-                          );
-                          setOpen(false);
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-4 w-4",
-                            source === routeInfo.route
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        {routeInfo.route}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                )}
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+        <RouteSelector
+          routes={routesWithModulePaths}
+          value={source}
+          onChange={(route) => {
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: route,
+                },
+              ],
+              type,
+            );
+          }}
+          includePattern={includePattern}
+          excludePattern={excludePattern}
+          portalContainer={portalContainer}
+          isLoading={isLoading}
+        />
         {source && selectedRouteInfo && (
           <button
             title="Go to reference"

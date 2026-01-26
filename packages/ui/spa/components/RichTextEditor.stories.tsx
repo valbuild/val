@@ -1,8 +1,130 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
-import { RemirrorJSON } from "@remirror/core";
-import { initVal, RichTextSource, AllRichTextOptions } from "@valbuild/core";
+import {
+  RichTextSource,
+  AllRichTextOptions,
+  ModuleFilePath,
+  SerializedSchema,
+  ReifiedRender,
+  initVal,
+  Internal,
+  Json,
+} from "@valbuild/core";
 import { richTextToRemirror } from "@valbuild/shared/internal";
+import { ValPortalProvider } from "./ValPortalProvider";
+import { Themes, ValThemeProvider } from "./ValThemeProvider";
+import { useMemo, useState } from "react";
+import { ValFieldProvider } from "./ValFieldProvider";
+import { ValSyncEngine } from "../ValSyncEngine";
+import { ValClient } from "@valbuild/shared/internal";
+import { JSONValue } from "@valbuild/core/patch";
+
+// Create mock data with routes for testing
+function createMockData() {
+  const { s, c } = initVal();
+
+  // Create a simple mock router for Storybook
+  const mockRouter = {
+    getRouterId: () => "next-app-router",
+    validate: () => [],
+  };
+
+  // Router module for blog pages
+  const blogPages = c.define(
+    "/app/blogs/[blog]/page.val.ts",
+    s
+      .record(
+        s.object({
+          title: s.string(),
+          content: s.richtext(),
+        }),
+      )
+      .router(mockRouter),
+    {
+      "/blogs/getting-started": {
+        title: "Getting Started with Val",
+        content: [],
+      },
+      "/blogs/advanced-features": {
+        title: "Advanced Features",
+        content: [],
+      },
+      "/blogs/best-practices": {
+        title: "Best Practices",
+        content: [],
+      },
+    },
+  );
+
+  // Router module for docs pages
+  const docsPages = c.define(
+    "/app/docs/[...slug]/page.val.ts",
+    s
+      .record(
+        s.object({
+          title: s.string(),
+          content: s.richtext(),
+        }),
+      )
+      .router(mockRouter),
+    {
+      "/docs/introduction": {
+        title: "Introduction",
+        content: [],
+      },
+      "/docs/installation": {
+        title: "Installation",
+        content: [],
+      },
+      "/docs/api-reference": {
+        title: "API Reference",
+        content: [],
+      },
+    },
+  );
+
+  // Extract schemas and sources from the modules
+  const modules = [blogPages, docsPages];
+  const schemas: Record<string, SerializedSchema> = {};
+  const sources: Record<string, Json> = {};
+  const renders: Record<string, ReifiedRender> = {};
+
+  for (const module of modules) {
+    const moduleFilePath = Internal.getValPath(module);
+    const schema = Internal.getSchema(module);
+    const source = Internal.getSource(module);
+
+    if (moduleFilePath && schema && source !== undefined) {
+      const path = moduleFilePath as unknown as ModuleFilePath;
+      schemas[path] = schema["executeSerialize"]();
+      sources[path] = source;
+      renders[path] = schema["executeRender"](path, source);
+    }
+  }
+
+  return {
+    schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
+    sources: sources as Record<ModuleFilePath, Json>,
+    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+  };
+}
+
+// Create a minimal mock ValClient for Storybook
+function createMockClient(mockData: {
+  schemas: Record<ModuleFilePath, SerializedSchema>;
+  sources: Record<ModuleFilePath, Json>;
+}): ValClient {
+  return (async () => {
+    return {
+      status: 200,
+      json: async () => ({
+        schemas: mockData.schemas,
+        sources: mockData.sources,
+        config: { project: "storybook-test" },
+      }),
+    } as unknown as Awaited<ReturnType<ValClient>>;
+  }) as ValClient;
+}
 
 // Wrapper component that uses the hook
 function RichTextEditorStory({
@@ -34,8 +156,36 @@ function RichTextEditorStory({
 }) {
   const initialContent = content ? richTextToRemirror(content) : undefined;
   const { manager, state, setState } = useRichTextEditor(initialContent);
+  const [theme, setTheme] = useState<Themes | null>("dark");
 
-  return (
+  // Create mock data and sync engine if routes are needed
+  const mockData = useMemo(() => createMockData(), []);
+  const client = useMemo(() => createMockClient(mockData), [mockData]);
+  const syncEngine = useMemo(() => {
+    const engine = new ValSyncEngine(client, undefined);
+    engine.setSchemas(mockData.schemas);
+    engine.setSources(
+      mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
+    );
+    engine.setRenders(mockData.renders);
+    engine.setInitializedAt(Date.now());
+    return engine;
+  }, [client, mockData]);
+
+  const getDirectFileUploadSettings = useMemo(
+    () => async () => {
+      return {
+        status: "success" as const,
+        data: {
+          nonce: null,
+          baseUrl: "https://mock-upload.example.com",
+        },
+      };
+    },
+    [],
+  );
+
+  const editor = (
     <div className="w-full max-w-2xl">
       <RichTextEditor
         manager={manager}
@@ -47,6 +197,26 @@ function RichTextEditorStory({
         autoFocus={false}
       />
     </div>
+  );
+
+  return (
+    <ValThemeProvider
+      theme={theme}
+      setTheme={setTheme}
+      config={{
+        project: "storybook-test",
+      }}
+    >
+      <ValPortalProvider>
+        <ValFieldProvider
+          syncEngine={syncEngine}
+          getDirectFileUploadSettings={getDirectFileUploadSettings}
+          config={undefined}
+        >
+          {editor}
+        </ValFieldProvider>
+      </ValPortalProvider>
+    </ValThemeProvider>
   );
 }
 
@@ -98,20 +268,50 @@ export const Empty: Story = {
   name: "Empty",
 };
 
-// Editor with a link
+// Editor with links (both external and route links)
 export const WithLink: Story = {
   args: {
     content: [
       {
         tag: "p",
         children: [
-          "This is a paragraph with a ",
+          "This is a paragraph with an ",
           {
             tag: "a",
             href: "https://val.build",
-            children: ["link to Val"],
+            children: ["external link"],
+          },
+          " and a ",
+          {
+            tag: "a",
+            href: "/blogs/getting-started",
+            children: ["route link"],
           },
           " in the middle.",
+        ],
+      },
+      {
+        tag: "p",
+        children: [
+          "Here are more examples: ",
+          {
+            tag: "a",
+            href: "/blogs/advanced-features",
+            children: ["Advanced Features"],
+          },
+          ", ",
+          {
+            tag: "a",
+            href: "/docs/introduction",
+            children: ["Introduction"],
+          },
+          ", and ",
+          {
+            tag: "a",
+            href: "/docs/api-reference",
+            children: ["API Reference"],
+          },
+          ".",
         ],
       },
     ],

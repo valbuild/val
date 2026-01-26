@@ -1,7 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import { useMemo } from "react";
-import { useAllSources, useSchemas } from "./ValFieldProvider";
-import { useLoadingStatus } from "./ValProvider";
+import { useAllSources, useSchemas, useLoadingStatus } from "./ValFieldProvider";
 import { getRouteReferences } from "./getRouteReferences";
 
 /**
