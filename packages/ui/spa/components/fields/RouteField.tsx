@@ -42,6 +42,7 @@ export interface RouteSelectorProps {
   className?: string;
   portalContainer?: HTMLElement | null;
   isLoading?: boolean;
+  zIndex?: number;
 }
 
 export function RouteSelector({
@@ -54,6 +55,7 @@ export function RouteSelector({
   className,
   portalContainer,
   isLoading = false,
+  zIndex,
 }: RouteSelectorProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -88,6 +90,9 @@ export function RouteSelector({
       </PopoverTrigger>
       <PopoverContent
         className="w-[var(--radix-popover-trigger-width)] p-0"
+        style={{
+          zIndex,
+        }}
         container={portalContainer}
       >
         <Command>

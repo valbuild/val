@@ -39,6 +39,7 @@ import {
   Popover,
   PopoverTrigger,
   PopoverContent,
+  PopoverAnchor,
 } from "./designSystem/popover";
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
@@ -432,6 +433,10 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
   const [open, setOpen] = useState(false);
   const [linkText, setLinkText] = useState("");
   const [linkHref, setLinkHref] = useState("");
+  const [anchorPosition, setAnchorPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const { getTextBetween } = useHelpers();
 
@@ -484,9 +489,19 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
         const selectedText = getTextBetween(selection.from, selection.to);
         setLinkText(selectedText);
         setLinkHref(activeLink.href as string);
+
+        // Get selection position for anchor
+        const coords = view.coordsAtPos(selection.from);
+        setAnchorPosition({ x: coords.left, y: coords.top });
+
         setOpen(true);
       }, 10);
     } else {
+      // Get current cursor position for anchor
+      const selection = view.state.selection;
+      const coords = view.coordsAtPos(selection.from);
+      setAnchorPosition({ x: coords.left, y: coords.top });
+
       setOpen(true);
     }
   }, [activeLink, chain, view, getTextBetween]);
@@ -503,6 +518,11 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
         chain.selectText(pos).selectMark("link").run();
         setLinkText(linkElement.textContent || "");
         setLinkHref(linkElement.getAttribute("href") || "");
+
+        // Get position for anchor
+        const coords = view.coordsAtPos(pos);
+        setAnchorPosition({ x: coords.left, y: coords.top });
+
         setTimeout(() => setOpen(true), 10);
       }
     };
@@ -570,7 +590,26 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
           <Link size={16} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 z-[8999]" container={portalContainer}>
+      {anchorPosition && (
+        <PopoverAnchor asChild>
+          <div
+            style={{
+              position: "fixed",
+              left: `${anchorPosition.x}px`,
+              top: `${anchorPosition.y}px`,
+              width: "16px",
+              height: "16px",
+              pointerEvents: "none",
+            }}
+          />
+        </PopoverAnchor>
+      )}
+      <PopoverContent
+        className="w-80 z-[8999]"
+        container={portalContainer}
+        side="bottom"
+        sideOffset={8}
+      >
         <div className="relative">
           <button
             className="absolute right-0 top-0 p-1 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -601,6 +640,9 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
                   excludePattern={excludePattern}
                   placeholder="Select route..."
                   portalContainer={portalContainer}
+                  zIndex={
+                    9000 // not ideal, but it works: we need to use isolate but for now we're using a fixed z-index (this portal is already 8999) we want to keep below 9000 which NextJSs / Vercel menus
+                  }
                 />
               ) : (
                 <Input
@@ -613,12 +655,7 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
             <div className="flex justify-between items-center gap-2">
               <div className="flex gap-2">
                 {!empty && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleRemove}
-                  >
-                    <Unlink size={14} className="mr-1" />
+                  <Button variant="secondary" size="sm" onClick={handleRemove}>
                     Remove
                   </Button>
                 )}
@@ -629,7 +666,6 @@ function LinkPopover({ options }: { options?: SerializedRichTextOptions }) {
                   onClick={handleSubmit}
                   disabled={isSubmitDisabled}
                 >
-                  <Check size={14} className="mr-1" />
                   {!empty ? "Update" : "Insert"}
                 </Button>
               </div>
