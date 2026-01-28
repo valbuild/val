@@ -3,6 +3,8 @@ import {
   ImageSchema,
   SerializedImageSchema,
 } from "../schema/image";
+import { RouteSchema, SerializedRouteSchema } from "../schema/route";
+import { StringSchema, SerializedStringSchema } from "../schema/string";
 import { FileSource } from "./file";
 import { ImageSource } from "./image";
 import { RemoteSource } from "./remote";
@@ -26,7 +28,7 @@ export type RichTextOptions = Partial<{
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
   inline: Partial<{
-    a: boolean;
+    a: boolean | RouteSchema<string> | StringSchema<string>;
     img: boolean | ImageSchema<ImageSource | RemoteSource<ImageMetadata>>;
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
@@ -50,7 +52,7 @@ export type SerializedRichTextOptions = Partial<{
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
   inline: Partial<{
-    a: boolean;
+    a: boolean | SerializedRouteSchema | SerializedStringSchema;
     img: boolean | SerializedImageSchema;
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
@@ -155,7 +157,11 @@ export type LinkNode<O extends RichTextOptions> = NonNullable<
   O["inline"]
 >["a"] extends true
   ? LinkTagNode<O>
-  : never;
+  : NonNullable<O["inline"]>["a"] extends
+        | RouteSchema<string>
+        | StringSchema<string>
+    ? LinkTagNode<O>
+    : never;
 
 //#region List
 type ListItemTagNode<O extends RichTextOptions> = {

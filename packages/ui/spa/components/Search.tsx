@@ -21,7 +21,7 @@ import { SearchResultsList, type SearchResult } from "./SearchResultsList";
 import { getNavPathFromAll } from "./getNavPath";
 import { useSearchWorker } from "../search/useSearchWorker";
 
-export function Search() {
+export function Search({ container }: { container?: HTMLElement }) {
   const sources = useAllSources();
   const schemasRes = useSchemas();
   const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
@@ -65,7 +65,7 @@ export function Search() {
         <DialogTrigger className="w-full" onClick={() => setOpen(true)}>
           <SearchTrigger />
         </DialogTrigger>
-        <DialogPortal container={searchTriggerRef.current}>
+        <DialogPortal container={container ?? searchTriggerRef.current}>
           <DialogPrimitive.Content className="top-full absolute left-0 bg-bg-primary -translate-y-full z-[8999] w-full">
             <DialogOverlay />
             <SearchField

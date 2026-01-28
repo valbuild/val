@@ -154,8 +154,7 @@ export function ValPath({
         <a
           href={
             navPath && config
-              ? // TODO: use config to determine the /val/~ prefix
-                `${config.studioPrefix}${navPath.navPath}#${navPath.scrollToId}`
+              ? `${config.studioPrefix}${navPath.navPath}#${navPath.scrollToId}`
               : undefined
           }
           ref={containerRef}
