@@ -24,8 +24,6 @@ import {
   Heading6,
   ListOrdered,
   Image,
-  Unlink,
-  Check,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
