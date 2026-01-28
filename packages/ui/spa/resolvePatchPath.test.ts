@@ -174,4 +174,54 @@ describe("resolvePatchPath", () => {
       source: "test",
     });
   });
+
+  test("richtext anchor href", () => {
+    const richtextModule = c.define(
+      "/test-richtext.val.ts",
+      s.record(
+        s.object({
+          text: s.richtext({
+            style: { bold: true, italic: true, lineThrough: true },
+            block: { h2: true, ul: true },
+            inline: { a: true },
+          }),
+        }),
+      ),
+      {
+        "/": {
+          text: [
+            {
+              tag: "p",
+              children: [
+                "Visit ",
+                {
+                  tag: "a",
+                  href: "https://val.build",
+                  children: ["Val"],
+                },
+                " for more information.",
+              ],
+            },
+          ],
+        },
+      },
+    );
+    const richtextSchema =
+      Internal.getSchema(richtextModule)!["executeSerialize"]();
+    const richtextSource = Internal.getSource(richtextModule);
+
+    expect(
+      resolvePatchPath(
+        ["/", "text", "0", "children", "1", "href"],
+        richtextSchema,
+        richtextSource,
+      ),
+    ).toMatchObject({
+      modulePath: `"/"."text"`,
+      schema: {
+        type: "richtext",
+      },
+      source: "https://val.build",
+    });
+  });
 });
