@@ -165,12 +165,11 @@ export function Module({ path }: { path: SourcePath }) {
 
 function Home() {
   return (
-    <div className="flex flex-col items-center justify-center h-full py-16 px-4">
-      <div className="flex flex-col items-center gap-6 w-full max-w-md text-center">
+    <div className="flex flex-col min-h-[calc(100vh-100px)] items-center grow">
+      <div className="flex flex-col pt-20 gap-6 w-full max-w-md text-center">
         <div className="w-full">
           <Search />
         </div>
-
         <p className="text-sm text-fg-tertiary">
           Use the menu on the left to browse and edit your content.
         </p>
