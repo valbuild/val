@@ -97,6 +97,13 @@ export function ValRouter({
           };
           execScroll();
         }
+      } else if (
+        location.pathname === "/val" ||
+        location.pathname === "/val/" ||
+        location.pathname === VAL_CONTENT_VIEW_ROUTE
+      ) {
+        // Handle the home route - reset to empty path
+        setSourcePath("" as SourcePath);
       }
       setReady(true);
     };

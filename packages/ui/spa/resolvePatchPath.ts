@@ -7,6 +7,7 @@ import {
   SerializedObjectUnionSchema,
   SerializedStringUnionSchema,
 } from "@valbuild/core";
+import { isJsonArray } from "./utils/isJsonArray";
 
 export function resolvePatchPath(
   patchPath: string[],
@@ -263,6 +264,61 @@ export function resolvePatchPath(
       }
       currentSource = currentObjectSourceRes.source[part];
       addPart(JSON.stringify(part));
+    } else if (currentSchema.type === "richtext") {
+      for (const part of patchPath.slice(i)) {
+        i++;
+        if (currentSource === null) {
+          return {
+            success: false,
+            error: `Invalid source type in rich text: '${patchPath.join(
+              "/",
+            )}'. Expected an object but got 'null' at part ${i} (sliced: ${patchPath
+              .slice(0, i + 1)
+              .join("/")})`,
+          };
+        } else if (
+          typeof currentSource === "object" &&
+          isJsonArray(currentSource)
+        ) {
+          if (!Number.isSafeInteger(Number(part))) {
+            return {
+              success: false,
+              error: `Invalid array index in rich text: '${patchPath.join(
+                "/",
+              )}'. Expected an integer but got '${part}' at part ${i} (sliced: ${patchPath
+                .slice(0, i + 1)
+                .join("/")})`,
+            };
+          }
+          currentSource = currentSource[Number(part)];
+        } else if (
+          typeof currentSource === "object" &&
+          !Array.isArray(currentSource)
+        ) {
+          currentSource = currentSource[part];
+        } else if (
+          typeof currentSource === "string" ||
+          typeof currentSource === "number" ||
+          typeof currentSource === "boolean"
+        ) {
+          return {
+            success: true,
+            modulePath: current as ModulePath,
+            schema: currentSchema,
+            source: currentSource,
+            allResolved,
+          };
+        } else {
+          return {
+            success: false,
+            error: `Invalid source type in rich text: '${patchPath.join(
+              "/",
+            )}'. Expected an object but got '${typeof currentSource}' at part ${i} (sliced: ${patchPath
+              .slice(0, i + 1)
+              .join("/")})`,
+          };
+        }
+      }
     } else {
       return {
         success: false,

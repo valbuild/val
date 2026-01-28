@@ -274,6 +274,14 @@
 @layer components {
   .val-rich-text-editor .remirror-editor.ProseMirror {
     overflow-y: hidden;
+    min-height: 3rem;
+    caret-color: var(--fg-primary);
+  }
+  .val-rich-text-editor .remirror-editor.ProseMirror:focus {
+    caret-color: var(--fg-primary);
+  }
+  .val-rich-text-editor .remirror-editor.ProseMirror.ProseMirror-focused {
+    caret-color: var(--fg-primary);
   }
   .val-rich-text-editor h1 {
     @apply text-2xl font-bold;

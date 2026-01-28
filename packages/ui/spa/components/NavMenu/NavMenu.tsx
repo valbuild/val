@@ -32,11 +32,7 @@ export type NavMenuProps = {
   onAddPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
 };
 
-export function NavMenu({
-  data,
-  isLoading = false,
-  onAddPage,
-}: NavMenuProps) {
+export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
   const { currentSourcePath, navigate } = useNavigation();
   const layout = useLayout();
   const { theme, setTheme } = useTheme();

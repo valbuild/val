@@ -102,6 +102,20 @@ const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   return initializedAt.data;
 };
 
+export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
+export function useLoadingStatus(): LoadingStatus {
+  const { syncEngine } = useContext(ValFieldContext);
+  const pendingOpsCount = useSyncExternalStore(
+    syncEngine.subscribe("pending-ops-count"),
+    () => syncEngine.getPendingOpsSnapshot(),
+    () => syncEngine.getPendingOpsSnapshot(),
+  );
+  if (pendingOpsCount > 0) {
+    return "loading";
+  }
+  return "success";
+}
+
 const textEncoder = new TextEncoder();
 const SavePatchFileResponse = z.object({
   patchId: z.string().refine((v): v is PatchId => v.length > 0),
