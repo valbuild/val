@@ -1,6 +1,6 @@
 import { ModuleFilePath } from "./val";
 
-export const externalUrlPage: ValRouter = {
+export const externalPageRouter: ValRouter = {
   getRouterId: () => "external-url-router",
   validate: (_moduleFilePath, urlPaths): RouteValidationError[] => {
     const errors: RouteValidationError[] = [];

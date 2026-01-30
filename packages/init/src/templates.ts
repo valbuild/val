@@ -74,10 +74,10 @@ export const VAL_CONFIG = (
   options: ValConfig,
 ) => `import { initVal } from "@valbuild/next";
 
-const { s, c, val, config, nextAppRouter, externalUrlPage } = initVal(${JSON.stringify(options, null, 2)});
+const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal(${JSON.stringify(options, null, 2)});
 
 ${isTypeScript ? 'export type { t } from "@valbuild/next";' : ""};
-export { s, c, val, config, nextAppRouter, externalUrlPage };
+export { s, c, val, config, nextAppRouter, externalPageRouter };
 `;
 
 export const VAL_API_ROUTER = (

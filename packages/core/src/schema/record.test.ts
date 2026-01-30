@@ -1,4 +1,4 @@
-import { nextAppRouter, externalUrlPage } from "../router";
+import { nextAppRouter, externalPageRouter } from "../router";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { number } from "./number";
@@ -92,8 +92,8 @@ describe("RecordSchema", () => {
     ).toBe(false); // No validation errors for valid path
   });
 
-  test("record: externalUrlPage router", () => {
-    const schema = record(object({ title: string() })).router(externalUrlPage);
+  test("record: externalPageRouter router", () => {
+    const schema = record(object({ title: string() })).router(externalPageRouter);
     expect(
       schema["executeValidate"]("/external.val.ts" as SourcePath, {
         "https://www.google.com": { title: "Test" },
