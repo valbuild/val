@@ -33,6 +33,7 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  OrderedPatches,
   PatchSourceError,
   SchemaSha,
   SourcesSha,
@@ -1333,10 +1334,15 @@ export const ValServer = (
             },
           };
         }
-        const patchOps = await serverOps.fetchPatches({
-          patchIds: undefined,
-          excludePatchOps: false,
-        });
+        let patchOps: OrderedPatches = {
+          patches: [],
+        };
+        if (query.exclude_patches !== true) {
+          patchOps = await serverOps.fetchPatches({
+            patchIds: undefined,
+            excludePatchOps: false,
+          });
+        }
         // We check authorization here, because it is the first call to the backend
         if (patchOps.error && patchOps.unauthorized) {
           return {
