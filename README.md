@@ -38,12 +38,6 @@
   </p>
 </p>
 
-# 🐉 HERE BE DRAGONS 🐉
-
-Val is currently in beta - the API can be considered relatively stable, but expect some features to be broken and the UX to be changing.
-
-Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedback.
-
 ## Table of contents
 
 - [Installation](./packages/next/README.md#Installation)
@@ -147,3 +141,7 @@ Examples can found [here](./examples).
 Val currently only support Next.js.
 
 To get started using Next.js, checkout the [README](./packages/next/README.md).
+
+## Get in touch
+
+Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedback.

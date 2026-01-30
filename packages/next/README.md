@@ -38,12 +38,6 @@
   </p>
 </p>
 
-# 🐉 HERE BE DRAGONS 🐉
-
-Val is currently in beta - the API can be considered relatively stable, but expect some features to be broken and the UX to be changing.
-
-Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedback.
-
 ## Table of contents
 
 - [Installation](#installation)
@@ -873,3 +867,7 @@ s.string().validate((val) => {
   return false; // no validation error
 });
 ```
+
+## Get in touch
+
+Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedback.
