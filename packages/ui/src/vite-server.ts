@@ -5,6 +5,7 @@ import {
 import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from "./vite-index";
+import { getMainJsAppFile } from "./getMainJsAppFile";
 
 const files: Record<string, string> = JSON.parse(
   `$$BUILD_$$REPLACE_WITH_RECORD$$`,
@@ -26,18 +27,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
   const jsFiles = Object.keys(decodedFiles).filter(
     (path) => path.endsWith(".js") || path.endsWith(".jsx"),
   );
-  if (jsFiles.length === 0) {
-    throw new Error(
-      "Val UI files missing (error: no .js files found)! This Val version or build is corrupted!",
-    );
-  } else if (jsFiles.length > 1) {
-    throw new Error(
-      `Val UI files missing (error: multiple .js files found: ${jsFiles.join(
-        " ,",
-      )})! This Val version or build is corrupted!`,
-    );
-  }
-  const MAIN_FILE = jsFiles[0];
+  const MAIN_FILE = getMainJsAppFile(jsFiles);
 
   const cssFiles = Object.keys(decodedFiles).filter((path) =>
     path.endsWith(".css"),
@@ -48,7 +38,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     );
   } else if (cssFiles.length > 1) {
     throw new Error(
-      `Val UI files missing (error: multiple .css files found: ${jsFiles.join(
+      `Val UI files missing (error: multiple .css files found: ${cssFiles.join(
         " ,",
       )})! This Val version or build is corrupted!`,
     );
