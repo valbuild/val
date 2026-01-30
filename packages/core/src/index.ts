@@ -132,7 +132,7 @@ export {
   type CodeRender,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
-import { nextAppRouter, externalUrlPage } from "./router";
+import { nextAppRouter, externalPageRouter } from "./router";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -167,7 +167,7 @@ const Internal = {
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   nextAppRouter,
-  externalUrlPage,
+  externalPageRouter,
   remote: {
     createRemoteRef,
     getValidationBasis,

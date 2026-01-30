@@ -1,8 +1,8 @@
-import { c, s, externalUrlPage } from "../val.config";
+import { c, s, externalPageRouter } from "../val.config";
 
 export default c.define(
   "/app/external.val.ts",
-  s.router(externalUrlPage, s.object({ title: s.string() })),
+  s.router(externalPageRouter, s.object({ title: s.string() })),
   {
     "https://www.google.com": { title: "Google" },
     "https://www.youtube.com": { title: "YouTube" },
