@@ -2028,6 +2028,7 @@ export class ValSyncEngine {
           query: {
             validate_sources: true,
             validate_binary_files: false,
+            exclude_patches: false,
           },
         });
         if (sourcesRes.status !== null) {

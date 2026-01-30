@@ -801,6 +801,7 @@ export const Api = {
         query: {
           validate_sources: onlyOneBooleanQueryParam.optional(),
           validate_binary_files: onlyOneBooleanQueryParam.optional(),
+          exclude_patches: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
