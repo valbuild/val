@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/react",
-  "version": "0.92.1",
+  "version": "0.92.2",
   "private": false,
   "description": "Val - React internal helpers",
   "repository": {

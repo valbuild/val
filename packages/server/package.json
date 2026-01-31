@@ -16,7 +16,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.92.1",
+  "version": "0.92.2",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
