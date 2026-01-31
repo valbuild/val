@@ -4,9 +4,41 @@ import {
   VAL_EXTENSION,
   FILE_REF_PROP,
   Internal,
+  RichTextSource,
+  AllRichTextOptions,
+  ReifiedRender,
 } from "@valbuild/core";
-import { PatchSetComparison } from "../utils/comparePatchSets";
+import {
+  PatchSetComparison,
+  generateChangeDescription,
+  getChangeType,
+} from "../utils/comparePatchSets";
 import { cn } from "./designSystem/cn";
+import { useRichTextEditor } from "./RichTextEditor";
+import { ReadOnlyRichTextEditor } from "./ReadOnlyRichTextEditor";
+import { richTextToRemirror } from "@valbuild/shared/internal";
+import { CodeEditor } from "./CodeEditor";
+import { InlineTextDiff } from "./InlineTextDiff";
+import { InlineRichTextDiff } from "./InlineRichTextDiff";
+import { AuthorAvatarGroup } from "./AuthorAvatar";
+import {
+  Pencil,
+  Plus,
+  Minus,
+  ArrowRightLeft,
+  RefreshCw,
+  FileCode2,
+  FileInput,
+  FileOutput,
+} from "lucide-react";
+import { useState } from "react";
+import { Button } from "./designSystem/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "./designSystem/tooltip";
 
 export function Compare({
   comparisons,
@@ -15,54 +47,387 @@ export function Compare({
   comparisons: PatchSetComparison[];
   className?: string;
 }) {
+  // Track which move operations we've already displayed
+  const displayedMoves = new Set<number>();
+
   return (
-    <div className={cn("space-y-6", className)}>
-      {comparisons.map((comparison, index) => (
-        <ComparisonItem key={index} comparison={comparison} />
-      ))}
+    <TooltipProvider>
+      <div className={cn("space-y-6", className)}>
+        {comparisons.map((comparison, index) => {
+          // Skip if this is a destination of a move we've already shown
+          if (
+            comparison.moveOperation?.type === "destination" &&
+            comparison.moveOperation.pairIndex !== undefined &&
+            displayedMoves.has(comparison.moveOperation.pairIndex)
+          ) {
+            return null;
+          }
+
+          // If this is a move source, mark both as displayed
+          if (comparison.moveOperation?.type === "source") {
+            displayedMoves.add(index);
+            if (comparison.moveOperation.pairIndex !== undefined) {
+              displayedMoves.add(comparison.moveOperation.pairIndex);
+            }
+            return (
+              <MoveComparisonItem
+                key={index}
+                sourceComparison={comparison}
+                destinationComparison={
+                  comparison.moveOperation.pairIndex !== undefined
+                    ? comparisons[comparison.moveOperation.pairIndex]
+                    : undefined
+                }
+              />
+            );
+          }
+
+          return <ComparisonItem key={index} comparison={comparison} />;
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function MoveComparisonItem({
+  sourceComparison,
+  destinationComparison,
+}: {
+  sourceComparison: PatchSetComparison;
+  destinationComparison?: PatchSetComparison;
+}) {
+  if (!destinationComparison) {
+    // Fallback to regular display if destination not found
+    return <ComparisonItem comparison={sourceComparison} />;
+  }
+
+  const [viewMode, setViewMode] = useState<"diff" | "before" | "after">("diff");
+  const sourceKey = sourceComparison.patchSet.patchPath.slice(-1)[0];
+  const destinationKey = destinationComparison.patchSet.patchPath.slice(-1)[0];
+  const parentPath = sourceComparison.patchSet.patchPath.slice(0, -1);
+
+  const changeDescription = `Renamed from ${sourceKey} to ${destinationKey}`;
+
+  // Collect all unique authors from all patches
+  const authors = sourceComparison.patchSet.patches
+    .map((p) => p.author)
+    .filter((author): author is string => author !== null);
+
+  // Construct source path for clickable link
+  const sourcePath = `${sourceComparison.patchSet.moduleFilePath}#${parentPath.join(".")}`;
+
+  return (
+    <div className="border border-border-primary border-l-4 border-l-brand-primary rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+      {/* Header with move operation metadata */}
+      <div className="bg-bg-secondary px-4 py-3 border-b border-border-primary">
+        <div className="flex items-center gap-3 justify-between">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex-shrink-0">
+              <ArrowRightLeft className="w-5 h-5 text-fg-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <a
+                href={sourcePath}
+                className="font-medium text-fg-primary text-sm hover:underline cursor-pointer block"
+                onClick={(e) => {
+                  e.preventDefault();
+                  console.log("Navigate to:", sourcePath);
+                }}
+              >
+                {changeDescription}
+              </a>
+              <div className="text-xs text-fg-secondary mt-0.5">
+                /{parentPath.join("/")}
+                {sourceComparison.patchSet.lastUpdated && (
+                  <span className="ml-2">
+                    {new Date(
+                      sourceComparison.patchSet.lastUpdated,
+                    ).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setViewMode("diff")}
+                  variant={viewMode === "diff" ? "default" : "ghost"}
+                  size="sm"
+                >
+                  <FileCode2 size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Show key change</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setViewMode("before")}
+                  variant={viewMode === "before" ? "default" : "ghost"}
+                  size="sm"
+                >
+                  <FileInput size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Show with old key</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setViewMode("after")}
+                  variant={viewMode === "after" ? "default" : "ghost"}
+                  size="sm"
+                >
+                  <FileOutput size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Show with new key</TooltipContent>
+            </Tooltip>
+            {authors.length > 0 && <AuthorAvatarGroup authors={authors} />}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      {viewMode === "diff" ? (
+        <div className="grid grid-cols-2 divide-x divide-border-primary">
+          <div className="p-4 bg-bg-primary">
+            <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+              Old Key
+            </div>
+            <code className="px-3 py-2 bg-bg-tertiary text-fg-error-primary rounded border border-error-primary font-mono text-sm block">
+              {sourceKey}
+            </code>
+          </div>
+          <div className="p-4 bg-bg-primary">
+            <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+              New Key
+            </div>
+            <code className="px-3 py-2 bg-bg-tertiary text-fg-brand-secondary rounded border border-brand-secondary font-mono text-sm block">
+              {destinationKey}
+            </code>
+          </div>
+        </div>
+      ) : (
+        <div className="p-4 bg-bg-primary">
+          <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+            {viewMode === "before"
+              ? `Value at ${sourceKey}`
+              : `Value at ${destinationKey}`}
+          </div>
+          <CompareValue
+            value={sourceComparison.before}
+            schema={sourceComparison.beforeSchema}
+            render={sourceComparison.render}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 function ComparisonItem({ comparison }: { comparison: PatchSetComparison }) {
-  const { before, after, beforeSchema, afterSchema } = comparison;
+  const { before, after, beforeSchema, afterSchema, render } = comparison;
+  const changeType = getChangeType(comparison);
+
+  // Default view mode based on change type
+  const getDefaultViewMode = (): "diff" | "before" | "after" => {
+    if (changeType === "add") return "after";
+    if (changeType === "remove") return "before";
+    return "diff";
+  };
+
+  const [viewMode, setViewMode] = useState<"diff" | "before" | "after">(
+    getDefaultViewMode(),
+  );
+  const changeDescription = generateChangeDescription(comparison);
+
+  // Collect all unique authors from all patches
+  const authors = comparison.patchSet.patches
+    .map((p) => p.author)
+    .filter((author): author is string => author !== null);
+
+  // Construct source path for clickable link
+  const patchPath = comparison.patchSet.patchPath;
+  const sourcePath = `${comparison.patchSet.moduleFilePath}#${patchPath.join(".")}`;
+
+  const IconComponent = {
+    add: Plus,
+    remove: Minus,
+    edit: Pencil,
+    move: ArrowRightLeft,
+    multiple: RefreshCw,
+  }[changeType];
+
+  const borderColor = {
+    add: "border-l-4 border-l-fg-secondary",
+    remove: "border-l-4 border-l-fg-error-primary",
+    edit: "border-l-4 border-l-fg-primary",
+    move: "border-l-4 border-l-fg-primary",
+    multiple: "border-l-4 border-l-fg-secondary",
+  }[changeType];
 
   return (
-    <div className="border border-border-primary rounded-lg overflow-hidden">
-      {/* Header with patch metadata */}
-      <div className="bg-bg-secondary px-4 py-2 border-b border-border-primary">
-        <div className="flex items-center justify-between text-sm">
-          <div className="font-medium text-text-primary">
-            Path: /{comparison.patchSet.patchPath.join("/")}
+    <div
+      className={cn(
+        "border border-border-primary rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
+        borderColor,
+      )}
+    >
+      {/* Header with change metadata */}
+      <div className="bg-bg-secondary px-4 py-3 border-b border-border-primary">
+        <div className="flex items-center gap-3 justify-between">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex-shrink-0">
+              <IconComponent className="w-5 h-5 text-fg-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <a
+                href={sourcePath}
+                className="font-medium text-fg-primary text-sm hover:underline cursor-pointer block"
+                onClick={(e) => {
+                  e.preventDefault();
+                  console.log("Navigate to:", sourcePath);
+                }}
+              >
+                {changeDescription}
+              </a>
+              <div className="text-xs text-fg-secondary mt-0.5">
+                {comparison.patchSet.patches.length} change
+                {comparison.patchSet.patches.length !== 1 ? "s" : ""}
+                {comparison.patchSet.lastUpdated && (
+                  <span className="ml-2">
+                    {new Date(comparison.patchSet.lastUpdated).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="text-text-secondary text-xs">
-            {comparison.patchSet.patches.length} patch
-            {comparison.patchSet.patches.length !== 1 ? "es" : ""}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setViewMode("diff")}
+                  variant={viewMode === "diff" ? "default" : "ghost"}
+                  size="sm"
+                >
+                  <FileCode2 size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Show diff</TooltipContent>
+            </Tooltip>
+            {changeType !== "add" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => setViewMode("before")}
+                    variant={viewMode === "before" ? "default" : "ghost"}
+                    size="sm"
+                  >
+                    <FileInput size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Show previous</TooltipContent>
+              </Tooltip>
+            )}
+            {changeType !== "remove" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => setViewMode("after")}
+                    variant={viewMode === "after" ? "default" : "ghost"}
+                    size="sm"
+                  >
+                    <FileOutput size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Show current</TooltipContent>
+              </Tooltip>
+            )}
+            {authors.length > 0 && <AuthorAvatarGroup authors={authors} />}
           </div>
         </div>
-        {comparison.patchSet.lastUpdated && (
-          <div className="text-xs text-text-secondary mt-1">
-            {new Date(comparison.patchSet.lastUpdated).toLocaleString()}
-            {comparison.patchSet.lastUpdatedBy &&
-              ` by ${comparison.patchSet.lastUpdatedBy}`}
-          </div>
-        )}
       </div>
 
       {/* Comparison grid */}
-      <div className="grid grid-cols-2 divide-x divide-border-primary">
-        <div className="p-4">
-          <div className="text-xs font-medium text-text-secondary mb-2">
-            Before
+      <div
+        className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border-primary"
+        key={viewMode}
+      >
+        {viewMode === "diff" ? (
+          <>
+            {/* Show inline diff for string changes */}
+            {changeType === "edit" &&
+            typeof before === "string" &&
+            typeof after === "string" &&
+            before !== after ? (
+              <div className="p-4 bg-bg-primary col-span-1 md:col-span-2">
+                <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+                  Changes
+                </div>
+                <InlineTextDiff before={before} after={after} />
+              </div>
+            ) : changeType === "edit" &&
+              Array.isArray(before) &&
+              Array.isArray(after) &&
+              beforeSchema?.type === "richtext" &&
+              afterSchema?.type === "richtext" ? (
+              <div className="p-4 bg-bg-primary col-span-1 md:col-span-2">
+                <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+                  Changes
+                </div>
+                <InlineRichTextDiff
+                  before={before as RichTextSource<AllRichTextOptions>}
+                  after={after as RichTextSource<AllRichTextOptions>}
+                  options={beforeSchema.options}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="p-4 bg-bg-primary">
+                  <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+                    Previous
+                  </div>
+                  <CompareValue
+                    value={before}
+                    schema={beforeSchema}
+                    render={render}
+                  />
+                </div>
+                <div className="p-4 bg-bg-primary">
+                  <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+                    Current
+                  </div>
+                  <CompareValue
+                    value={after}
+                    schema={afterSchema}
+                    render={render}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        ) : viewMode === "before" && changeType !== "add" ? (
+          <div className="p-4 bg-bg-primary col-span-1 md:col-span-2">
+            <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+              Previous
+            </div>
+            <CompareValue
+              value={before}
+              schema={beforeSchema}
+              render={render}
+            />
           </div>
-          <CompareValue value={before} schema={beforeSchema} />
-        </div>
-        <div className="p-4">
-          <div className="text-xs font-medium text-text-secondary mb-2">
-            After
+        ) : viewMode === "after" && changeType !== "remove" ? (
+          <div className="p-4 bg-bg-primary col-span-1 md:col-span-2">
+            <div className="text-xs font-semibold text-fg-secondary mb-3 uppercase tracking-wide">
+              Current
+            </div>
+            <CompareValue value={after} schema={afterSchema} render={render} />
           </div>
-          <CompareValue value={after} schema={afterSchema} />
-        </div>
+        ) : null}
       </div>
     </div>
   );
@@ -71,9 +436,11 @@ function ComparisonItem({ comparison }: { comparison: PatchSetComparison }) {
 function CompareValue({
   value,
   schema,
+  render,
 }: {
   value: Json;
   schema: SerializedSchema | undefined;
+  render?: ReifiedRender;
 }) {
   if (!schema) {
     return <CompareNullField value={value} />;
@@ -84,23 +451,23 @@ function CompareValue({
     case "route":
     case "string":
     case "date":
-      return <CompareStringField value={value} />;
+      return <CompareStringField value={value} render={render} />;
     case "number":
       return <CompareNumberField value={value} />;
     case "boolean":
       return <CompareBooleanField value={value} />;
     case "object":
-      return <CompareObjectField value={value} />;
+      return <CompareObjectField value={value} schema={schema} />;
     case "array":
-      return <CompareArrayField value={value} />;
+      return <CompareArrayField value={value} schema={schema} />;
     case "record":
-      return <CompareRecordField value={value} />;
+      return <CompareRecordField value={value} schema={schema} />;
     case "union":
-      return <CompareUnionField value={value} />;
+      return <CompareUnionField value={value} schema={schema} />;
     case "literal":
       return <CompareLiteralField value={value} />;
     case "richtext":
-      return <CompareRichTextField value={value} />;
+      return <CompareRichTextField value={value} schema={schema} />;
     case "image":
       return <CompareImageField value={value} />;
     case "file":
@@ -116,15 +483,48 @@ function CompareValue({
 
 function CompareNullField({ value }: { value: Json }) {
   if (value === null || value === undefined) {
-    return <span className="text-text-tertiary italic">undefined</span>;
+    return (
+      <div className="text-fg-tertiary italic text-sm p-2 bg-bg-tertiary rounded border border-dashed border-border-secondary">
+        (empty)
+      </div>
+    );
   }
   return <CompareDefaultField value={value} />;
 }
 
-export function CompareStringField({ value }: { value: Json }) {
+export function CompareStringField({
+  value,
+  render,
+}: {
+  value: Json;
+  render?: ReifiedRender;
+}) {
   if (typeof value === "string") {
+    // Check if render specifies code layout
+    const renderData = render && Object.values(render)[0];
+    const isCodeLayout =
+      renderData?.status === "success" && renderData.data.layout === "code";
+
+    if (isCodeLayout && renderData.status === "success") {
+      const language =
+        "language" in renderData.data ? renderData.data.language : "typescript";
+      return (
+        <div className="[&_.cm-editor]:bg-bg-tertiary [&_.cm-editor]:rounded [&_.cm-editor]:border [&_.cm-editor]:border-border-secondary">
+          <CodeEditor
+            language={language}
+            value={value}
+            onChange={() => {}} // Read-only
+            options={{
+              lineNumbers: true,
+              foldGutter: true,
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
-      <div className="font-mono text-sm p-2 bg-bg-tertiary rounded border border-border-secondary">
+      <div className="font-mono text-sm p-2 bg-bg-tertiary rounded border border-border-secondary whitespace-pre-wrap">
         {value || <span className="text-text-tertiary italic">empty</span>}
       </div>
     );
@@ -154,20 +554,29 @@ export function CompareBooleanField({ value }: { value: Json }) {
   return <CompareDefaultField value={value} />;
 }
 
-export function CompareObjectField({ value }: { value: Json }) {
+export function CompareObjectField({
+  value,
+  schema,
+}: {
+  value: Json;
+  schema?: SerializedSchema;
+}) {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const entries = Object.entries(value);
     if (entries.length === 0) {
       return (
-        <div className="text-text-tertiary italic text-sm">empty object</div>
+        <div className="text-fg-tertiary italic text-sm">empty object</div>
       );
     }
+    const objectSchema = schema?.type === "object" ? schema : undefined;
     return (
-      <div className="space-y-2">
+      <div className="space-y-3 p-3 bg-bg-tertiary rounded-lg border border-border-secondary">
         {entries.map(([key, val]) => (
-          <div key={key} className="text-sm">
-            <span className="font-medium text-text-secondary">{key}: </span>
-            <span className="font-mono">{JSON.stringify(val)}</span>
+          <div key={key} className="space-y-1">
+            <div className="font-semibold text-fg-secondary text-xs uppercase tracking-wide">
+              {key}
+            </div>
+            <CompareValue value={val} schema={objectSchema?.items?.[key]} />
           </div>
         ))}
       </div>
@@ -176,22 +585,29 @@ export function CompareObjectField({ value }: { value: Json }) {
   return <CompareDefaultField value={value} />;
 }
 
-export function CompareArrayField({ value }: { value: Json }) {
+export function CompareArrayField({
+  value,
+  schema,
+}: {
+  value: Json;
+  schema?: SerializedSchema;
+}) {
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return (
-        <div className="text-text-tertiary italic text-sm">empty array</div>
-      );
+      return <div className="text-fg-tertiary italic text-sm">empty array</div>;
     }
+    const arraySchema = schema?.type === "array" ? schema : undefined;
     return (
-      <div className="space-y-1">
+      <div className="space-y-2">
         {value.map((item, index) => (
           <div
             key={index}
-            className="text-sm p-2 bg-bg-tertiary rounded border border-border-secondary"
+            className="p-3 bg-bg-tertiary rounded-lg border border-border-secondary"
           >
-            <span className="text-text-secondary font-mono">[{index}] </span>
-            <span className="font-mono">{JSON.stringify(item)}</span>
+            <div className="text-xs text-fg-secondary font-semibold mb-2">
+              [{index}]
+            </div>
+            <CompareValue value={item} schema={arraySchema?.item} />
           </div>
         ))}
       </div>
@@ -200,23 +616,32 @@ export function CompareArrayField({ value }: { value: Json }) {
   return <CompareDefaultField value={value} />;
 }
 
-export function CompareRecordField({ value }: { value: Json }) {
+export function CompareRecordField({
+  value,
+  schema,
+}: {
+  value: Json;
+  schema?: SerializedSchema;
+}) {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const entries = Object.entries(value);
     if (entries.length === 0) {
       return (
-        <div className="text-text-tertiary italic text-sm">empty record</div>
+        <div className="text-fg-tertiary italic text-sm">empty record</div>
       );
     }
+    const recordSchema = schema?.type === "record" ? schema : undefined;
     return (
       <div className="space-y-2">
         {entries.map(([key, val]) => (
           <div
             key={key}
-            className="text-sm p-2 bg-bg-tertiary rounded border border-border-secondary"
+            className="p-3 bg-bg-tertiary rounded-lg border border-border-secondary"
           >
-            <span className="font-medium text-text-secondary">{key}: </span>
-            <span className="font-mono">{JSON.stringify(val)}</span>
+            <div className="text-xs font-semibold text-fg-secondary mb-2">
+              {key}
+            </div>
+            <CompareValue value={val} schema={recordSchema?.item} />
           </div>
         ))}
       </div>
@@ -225,17 +650,65 @@ export function CompareRecordField({ value }: { value: Json }) {
   return <CompareDefaultField value={value} />;
 }
 
-export function CompareUnionField({ value }: { value: Json }) {
+export function CompareUnionField({
+  value,
+  schema,
+}: {
+  value: Json;
+  schema?: SerializedSchema;
+}) {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    // Try to identify the variant
+    const unionSchema = schema?.type === "union" ? schema : undefined;
+
+    // Try to find the matching variant based on discriminator
+    let variantSchema: SerializedSchema | undefined;
+    if (
+      unionSchema &&
+      "items" in unionSchema &&
+      Array.isArray(unionSchema.items) &&
+      unionSchema.items.every(
+        (item) => typeof item === "object" && item.type === "object",
+      )
+    ) {
+      // This is a SerializedObjectUnionSchema
+      const objectUnionSchema = unionSchema as {
+        type: "union";
+        key: string;
+        items: SerializedSchema[];
+      };
+      const discriminatorKey = objectUnionSchema.key;
+      const valueAsRecord = value as Record<string, Json>;
+      if (
+        typeof discriminatorKey === "string" &&
+        typeof valueAsRecord[discriminatorKey] === "string"
+      ) {
+        const discriminatorValue = valueAsRecord[discriminatorKey];
+        variantSchema = objectUnionSchema.items.find(
+          (v) =>
+            v.type === "object" &&
+            v.items[discriminatorKey]?.type === "literal" &&
+            v.items[discriminatorKey].value === discriminatorValue,
+        );
+      }
+    }
+
     const entries = Object.entries(value);
     return (
-      <div className="p-2 bg-bg-tertiary rounded border border-border-secondary">
-        <div className="space-y-2">
+      <div className="p-3 bg-bg-tertiary rounded-lg border border-border-secondary">
+        <div className="space-y-3">
           {entries.map(([key, val]) => (
-            <div key={key} className="text-sm">
-              <span className="font-medium text-text-secondary">{key}: </span>
-              <span className="font-mono">{JSON.stringify(val)}</span>
+            <div key={key} className="space-y-1">
+              <div className="text-xs font-semibold text-fg-secondary uppercase tracking-wide">
+                {key}
+              </div>
+              <CompareValue
+                value={val}
+                schema={
+                  variantSchema?.type === "object"
+                    ? variantSchema.items?.[key]
+                    : undefined
+                }
+              />
             </div>
           ))}
         </div>
@@ -268,123 +741,31 @@ function CompareDefaultField({ value }: { value: Json }) {
   );
 }
 
-export function CompareRichTextField({ value }: { value: Json }) {
+export function CompareRichTextField({
+  value,
+  schema,
+}: {
+  value: Json;
+  schema?: SerializedSchema;
+}) {
   if (!Array.isArray(value)) {
     return <CompareDefaultField value={value} />;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderNode = (node: any, index: number): React.ReactNode => {
-    if (typeof node === "string") {
-      return node;
-    }
+  const richTextValue = value as RichTextSource<AllRichTextOptions>;
+  const remirrorContent = richTextToRemirror(richTextValue);
+  const { manager } = useRichTextEditor(remirrorContent);
 
-    if (typeof node !== "object" || !node.tag) {
-      return null;
-    }
-
-    const { tag, children, styles, href, src } = node;
-
-    // Render children recursively
-    const renderedChildren = children
-      ? Array.isArray(children)
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          children.map((child: any, i: number) => renderNode(child, i))
-        : renderNode(children, 0)
-      : null;
-
-    // Apply styles
-    let className = "";
-    if (styles && Array.isArray(styles)) {
-      if (styles.includes("bold")) className += " font-bold";
-      if (styles.includes("italic")) className += " italic";
-      if (styles.includes("line-through")) className += " line-through";
-    }
-
-    // Render based on tag
-    switch (tag) {
-      case "h1":
-        return (
-          <h1 key={index} className="text-2xl font-bold mb-2">
-            {renderedChildren}
-          </h1>
-        );
-      case "h2":
-        return (
-          <h2 key={index} className="text-xl font-bold mb-2">
-            {renderedChildren}
-          </h2>
-        );
-      case "h3":
-        return (
-          <h3 key={index} className="text-lg font-bold mb-2">
-            {renderedChildren}
-          </h3>
-        );
-      case "h4":
-      case "h5":
-      case "h6":
-        return (
-          <div key={index} className="font-bold mb-1">
-            {renderedChildren}
-          </div>
-        );
-      case "p":
-        return (
-          <p key={index} className="mb-2">
-            {renderedChildren}
-          </p>
-        );
-      case "ul":
-        return (
-          <ul key={index} className="list-disc list-inside mb-2">
-            {renderedChildren}
-          </ul>
-        );
-      case "ol":
-        return (
-          <ol key={index} className="list-decimal list-inside mb-2">
-            {renderedChildren}
-          </ol>
-        );
-      case "li":
-        return <li key={index}>{renderedChildren}</li>;
-      case "a":
-        return (
-          <a key={index} href={href} className="text-blue-500 underline">
-            {renderedChildren}
-          </a>
-        );
-      case "img":
-        return (
-          <img
-            key={index}
-            src={
-              src && typeof src === "object" && FILE_REF_PROP in src
-                ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (src as any)[FILE_REF_PROP]
-                : ""
-            }
-            alt=""
-            className="max-w-full h-auto"
-          />
-        );
-      case "span":
-        return (
-          <span key={index} className={className}>
-            {renderedChildren}
-          </span>
-        );
-      case "br":
-        return <br key={index} />;
-      default:
-        return <span key={index}>{renderedChildren}</span>;
-    }
-  };
+  const options =
+    schema && schema.type === "richtext" ? schema.options : undefined;
 
   return (
-    <div className="text-sm p-2 bg-bg-tertiary rounded border border-border-secondary prose prose-sm max-w-none">
-      {value.map((node, index) => renderNode(node, index))}
+    <div className="text-sm rounded border border-border-secondary overflow-hidden">
+      <ReadOnlyRichTextEditor
+        manager={manager}
+        initialContent={manager.createState({ content: remirrorContent })}
+        options={options}
+      />
     </div>
   );
 }
@@ -528,4 +909,3 @@ export function CompareFileField({ value }: { value: Json }) {
 
   return <CompareDefaultField value={value} />;
 }
-

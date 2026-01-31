@@ -28,6 +28,7 @@ function applyPatchesAndGetSets(
   patchSets: PatchSets;
   afterSource: Json;
   serializedSchema: SerializedSchema;
+  schema: Schema<SelectorSource>;
 } {
   const patchSets = new PatchSets();
   const serializedSchema = schema["executeSerialize"]();
@@ -59,7 +60,7 @@ function applyPatchesAndGetSets(
     }
   }
 
-  return { patchSets, afterSource: currentSource, serializedSchema };
+  return { patchSets, afterSource: currentSource, serializedSchema, schema };
 }
 
 describe("comparePatchSets", () => {
@@ -77,14 +78,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result).toHaveLength(1);
@@ -106,14 +113,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe(42);
@@ -134,14 +147,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe(true);
@@ -166,14 +185,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe(1);
@@ -200,14 +225,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("before");
@@ -230,14 +261,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("a");
@@ -266,14 +303,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("Bob");
@@ -294,14 +337,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // PatchSets groups array adds at parent level
@@ -323,14 +372,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // PatchSets groups array removes at parent level
@@ -358,14 +413,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Both operations grouped at array level, newest first
@@ -394,20 +455,140 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Both operations grouped at array level
       expect(result).toHaveLength(1);
       expect(result[0].before).toEqual(["a", "b", "c"]);
       expect(result[0].after).toEqual(["a", "c", "d"]);
+      expect(result[0].beforeSchema?.type).toBe("array");
+      expect(result[0].afterSchema?.type).toBe("array");
+    });
+    it("detects array item move operation", () => {
+      const schema = s.array(s.string());
+      const beforeSource: Json = ["a", "b", "c", "d"];
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [{ op: "move", from: ["1"], path: ["3"] }],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      // Move operations are grouped at array level
+      expect(result[0].before).toEqual(["a", "b", "c", "d"]);
+      expect(result[0].after).toEqual(["a", "c", "d", "b"]);
+      expect(result[0].beforeSchema?.type).toBe("array");
+      expect(result[0].afterSchema?.type).toBe("array");
+    });
+
+    it("detects multiple array move operations", () => {
+      const schema = s.array(s.string());
+      const beforeSource: Json = ["a", "b", "c", "d", "e"];
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [{ op: "move", from: ["0"], path: ["4"] }],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+        {
+          patchId: "patch2",
+          patch: [{ op: "move", from: ["2"], path: ["0"] }],
+          createdAt: "2026-01-30T00:00:01Z",
+          author: "user2",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      // All move operations grouped at array level, newest first
+      expect(result).toHaveLength(1);
+      expect(result[0].before).toEqual(["a", "b", "c", "d", "e"]);
+      expect(result[0].after).toEqual(["d", "b", "c", "e", "a"]);
+      expect(result[0].beforeSchema?.type).toBe("array");
+      expect(result[0].afterSchema?.type).toBe("array");
+    });
+
+    it("detects move within nested array", () => {
+      const schema = s.object({
+        items: s.array(s.string()),
+      });
+      const beforeSource: Json = {
+        items: ["x", "y", "z"],
+      };
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [{ op: "move", from: ["items", "0"], path: ["items", "2"] }],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      expect(result[0].before).toEqual(["x", "y", "z"]);
+      expect(result[0].after).toEqual(["y", "z", "x"]);
       expect(result[0].beforeSchema?.type).toBe("array");
       expect(result[0].afterSchema?.type).toBe("array");
     });
@@ -426,14 +607,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe(10);
@@ -454,14 +641,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Record add creates a patch set at the specific key level
@@ -483,14 +676,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Record remove creates a patch set at the specific key level
@@ -518,14 +717,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Both operations grouped at the same key level
@@ -554,14 +759,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // Two separate patch sets: one for key3 addition, one for key2 removal (newest first)
@@ -574,6 +785,140 @@ describe("comparePatchSets", () => {
       expect(result[1].after).toBe(30);
       expect(result[1].beforeSchema).toBeUndefined();
       expect(result[1].afterSchema?.type).toBe("number");
+    });
+
+    it("detects record value move operation", () => {
+      const schema = s.record(s.string());
+      const beforeSource: Json = {
+        key1: "value1",
+        key2: "value2",
+        key3: "value3",
+      };
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [{ op: "move", from: ["key1"], path: ["key4"] }],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      // Move in record creates two patch sets: source (key1) then destination (key4)
+      expect(result).toHaveLength(2);
+      expect(result[0].before).toBe("value1");
+      expect(result[0].after).toBe(null);
+      expect(result[0].beforeSchema?.type).toBe("string");
+      expect(result[0].afterSchema).toBeUndefined();
+      expect(result[1].before).toBe(null);
+      expect(result[1].after).toBe("value1");
+      expect(result[1].beforeSchema).toBeUndefined();
+      expect(result[1].afterSchema?.type).toBe("string");
+    });
+
+    it("detects multiple record move operations", () => {
+      const schema = s.record(s.number());
+      const beforeSource: Json = { a: 1, b: 2, c: 3 };
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [{ op: "move", from: ["a"], path: ["d"] }],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+        {
+          patchId: "patch2",
+          patch: [{ op: "move", from: ["b"], path: ["e"] }],
+          createdAt: "2026-01-30T00:00:01Z",
+          author: "user2",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      // Each move creates two patch sets: source then destination, newest move first
+      expect(result).toHaveLength(4);
+      // Second move (newest): b source then e destination
+      expect(result[0].before).toBe(2);
+      expect(result[0].after).toBe(null);
+      expect(result[1].before).toBe(null);
+      expect(result[1].after).toBe(2);
+      // First move: a source then d destination
+      expect(result[2].before).toBe(1);
+      expect(result[2].after).toBe(null);
+      expect(result[3].before).toBe(null);
+      expect(result[3].after).toBe(1);
+    });
+
+    it("detects move within nested record", () => {
+      const schema = s.object({
+        data: s.record(s.string()),
+      });
+      const beforeSource: Json = {
+        data: { oldKey: "value", otherKey: "other" },
+      };
+      const patches: TestPatch[] = [
+        {
+          patchId: "patch1",
+          patch: [
+            { op: "move", from: ["data", "oldKey"], path: ["data", "newKey"] },
+          ],
+          createdAt: "2026-01-30T00:00:00Z",
+          author: "user1",
+        },
+      ];
+
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
+
+      const result = comparePatchSets(
+        rootSchema,
+        serializedSchema,
+        patchSets.serialize(),
+        beforeSource,
+        afterSource,
+        "/test.val.ts" as ModuleFilePath,
+      );
+
+      // Move creates two patch sets: source (oldKey) then destination (newKey)
+      expect(result).toHaveLength(2);
+      expect(result[0].before).toBe("value");
+      expect(result[0].after).toBe(null);
+      expect(result[1].before).toBe(null);
+      expect(result[1].after).toBe("value");
     });
   });
 
@@ -592,14 +937,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // PatchSets groups add/remove operations at the root level for objects
@@ -623,14 +974,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       // PatchSets groups add/remove operations at the root level for objects
@@ -670,14 +1027,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result).toHaveLength(3);
@@ -714,14 +1077,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("hello");
@@ -754,14 +1123,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toEqual({ type: "text", content: "hello" });
@@ -802,14 +1177,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toEqual({ kind: "section", title: "My Title" });
@@ -845,14 +1226,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe(10);
@@ -917,14 +1304,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("/old.png");
@@ -947,14 +1340,20 @@ describe("comparePatchSets", () => {
         },
       ];
 
-      const { patchSets, afterSource, serializedSchema } =
-        applyPatchesAndGetSets(schema, beforeSource, patches);
+      const {
+        patchSets,
+        afterSource,
+        serializedSchema,
+        schema: rootSchema,
+      } = applyPatchesAndGetSets(schema, beforeSource, patches);
 
       const result = comparePatchSets(
+        rootSchema,
         serializedSchema,
         patchSets.serialize(),
         beforeSource,
         afterSource,
+        "/test.val.ts" as ModuleFilePath,
       );
 
       expect(result[0].before).toBe("before");

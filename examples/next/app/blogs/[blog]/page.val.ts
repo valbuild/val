@@ -15,7 +15,15 @@ const blogSchema = s.object({
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s.router(nextAppRouter, blogSchema),
+  s.router(nextAppRouter, blogSchema).render({
+    as: "list",
+    select: ({ val, key }) => {
+      return {
+        title: val.title,
+        subtitle: key,
+      };
+    },
+  }),
   {
     "/blogs/blog2": {
       title: "Blog 2",
