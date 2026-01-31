@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/eslint-plugin",
-  "version": "0.92.0",
+  "version": "0.92.2",
   "description": "ESLint rules for val",
   "repository": {
     "type": "git",
