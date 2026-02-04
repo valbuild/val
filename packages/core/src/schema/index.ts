@@ -4,7 +4,9 @@ import { ModuleFilePath, SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
 import { SerializedFileSchema } from "./file";
+import { SerializedFilesSchema } from "./files";
 import { SerializedImageSchema } from "./image";
+import { SerializedImagesSchema } from "./images";
 import { SerializedKeyOfSchema } from "./keyOf";
 import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
@@ -39,9 +41,11 @@ export type SerializedSchema =
   | SerializedRecordSchema
   | SerializedKeyOfSchema
   | SerializedFileSchema
+  | SerializedFilesSchema
   | SerializedDateSchema
   | SerializedRouteSchema
-  | SerializedImageSchema;
+  | SerializedImageSchema
+  | SerializedImagesSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
 export type AssertError =
