@@ -4,11 +4,13 @@ export const ValidationFix = [
   "image:upload-remote",
   "image:download-remote",
   "image:check-remote",
+  "images:check-remote",
   "file:add-metadata",
   "file:check-metadata",
   "file:upload-remote",
   "file:download-remote",
   "file:check-remote",
+  "files:check-remote",
   "keyof:check-keys",
   "router:check-route",
 ] as const;
