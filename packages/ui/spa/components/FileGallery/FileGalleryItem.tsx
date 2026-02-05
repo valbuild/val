@@ -1,19 +1,19 @@
 import { cn } from "../designSystem/cn";
 import { FilePreview } from "./FilePreview";
-import type { GalleryFile } from "./types";
+import type { GalleryFile, ViewMode } from "./types";
 
 interface FileGalleryItemProps {
   file: GalleryFile;
-  isSelected: boolean;
   onClick: () => void;
-  onDoubleClick: () => void;
+  viewMode: ViewMode;
+  imageMode?: boolean;
 }
 
 export function FileGalleryItem({
   file,
-  isSelected,
   onClick,
-  onDoubleClick,
+  viewMode,
+  imageMode,
 }: FileGalleryItemProps) {
   // Calculate aspect ratio for masonry layout
   const hasValidDimensions =
@@ -22,24 +22,26 @@ export function FileGalleryItem({
     ? file.metadata.width / file.metadata.height
     : 1;
 
-  return (
+  const hasErrors = file.validationErrors && file.validationErrors.length > 0;
+
+  const buttonContent = (
     <button
       type="button"
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
       className={cn(
-        "group mb-2 flex w-full break-inside-avoid flex-col overflow-hidden rounded border bg-bg-primary transition-all",
-        "hover:border-border-primary hover:shadow-md",
-        "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-        isSelected
-          ? "border-accent ring-2 ring-accent"
-          : "border-border-secondary",
+        "group flex w-full flex-col overflow-hidden rounded border bg-bg-primary transition-all",
+        "hover:shadow-md",
+        "focus:outline-none focus:ring-2 focus:ring-offset-2",
+        hasErrors
+          ? "border-destructive ring-destructive/50 hover:border-destructive focus:ring-destructive"
+          : "border-border-secondary hover:border-border-primary focus:ring-ring",
       )}
+      title={hasErrors ? file.validationErrors!.join(", ") : undefined}
     >
       <div
         className="relative w-full overflow-hidden bg-bg-secondary"
         style={{
-          aspectRatio: aspectRatio,
+          aspectRatio: viewMode === "masonry" ? aspectRatio : 1,
         }}
       >
         <FilePreview file={file} />
@@ -51,7 +53,23 @@ export function FileGalleryItem({
         >
           {file.filename}
         </p>
+        {imageMode &&
+          file.metadata.mimeType.startsWith("image/") &&
+          file.metadata.alt && (
+            <p
+              className="truncate text-xs text-fg-secondary"
+              title={file.metadata.alt}
+            >
+              {file.metadata.alt}
+            </p>
+          )}
       </div>
     </button>
   );
+
+  if (viewMode === "masonry") {
+    return <div className="mb-2 break-inside-avoid">{buttonContent}</div>;
+  }
+
+  return buttonContent;
 }
