@@ -1,7 +1,6 @@
 import { SourcePath } from "../val";
 import { images, ImagesEntryMetadata } from "./images";
 import { string } from "./string";
-import { record } from "./record";
 
 describe("ImagesSchema", () => {
   describe("assert", () => {

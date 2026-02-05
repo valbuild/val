@@ -19,7 +19,7 @@ export function FilePreview({ file, className }: FilePreviewProps) {
     return (
       <img
         src={file.url}
-        alt={file.filename}
+        alt={file.metadata.alt || file.filename}
         className={cn("h-full w-full object-cover", className)}
       />
     );
