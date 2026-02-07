@@ -9,7 +9,7 @@ import {
   Path,
 } from "./selector";
 import { Source } from "./source";
-import { getValPath, ModuleFilePath, ModulePath, SourcePath } from "./val";
+import { ModuleFilePath, ModulePath, SourcePath } from "./val";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { Json } from "./Json";
@@ -65,7 +65,7 @@ export function define<T extends Schema<SelectorSource>>(
   } as unknown as ValModule<SelectorOfSchema<T>>;
 }
 
-export function enrichFileImageSourceWithRemote(
+export function enrichFileImageRemoteSourceWithMetadata(
   source: SelectorSource,
   schema: Schema<SelectorSource>,
 ): SelectorSource {
