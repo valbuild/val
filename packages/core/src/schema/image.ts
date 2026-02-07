@@ -8,14 +8,16 @@ import {
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
-import { SourcePath } from "../val";
+import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { FileMetadata, FileSchema, Internal } from "..";
+import { FileMetadata, Internal, ValModule } from "..";
 import { RemoteSource } from "../source/remote";
 import { ReifiedRender } from "../render";
+import { ImagesEntryMetadata } from "./images";
+import { getSource } from "../module";
 
 export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
@@ -30,6 +32,7 @@ export type SerializedImageSchema = {
   opt: boolean;
   remote?: boolean;
   customValidate?: boolean;
+  moduleMetadata?: Record<string, Record<string, ImagesEntryMetadata>>;
 };
 
 export type ImageMetadata = FileMetadata & {
@@ -52,19 +55,32 @@ export class ImageSchema<
     private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly moduleMetadata: Record<
+      ModulePath,
+      Record<string, ImagesEntryMetadata>
+    > = {},
   ) {
     super();
   }
 
   remote(): ImageSchema<Src | RemoteSource<ImageMetadata | undefined>> {
-    return new ImageSchema(this.options, this.opt, true);
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      true,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+    ) as ImageSchema<Src | RemoteSource<ImageMetadata | undefined>>;
   }
 
   validate(validationFunction: CustomValidateFunction<Src>): ImageSchema<Src> {
-    return new ImageSchema(this.options, this.opt, this.isRemote, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      [...this.customValidateFunctions, validationFunction],
+      this.moduleMetadata,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -342,6 +358,10 @@ export class ImageSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      moduleMetadata:
+        this.moduleMetadata && Object.keys(this.moduleMetadata).length > 0
+          ? this.moduleMetadata
+          : undefined,
     };
   }
 
@@ -350,6 +370,35 @@ export class ImageSchema<
   }
 }
 
-export const image = (options?: ImageOptions): ImageSchema<ImageSource> => {
-  return new ImageSchema(options);
+export const image = (
+  options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
+  ...args: ValModule<Record<string, ImagesEntryMetadata>>[]
+): ImageSchema<ImageSource> => {
+  const isModule = !!Internal.getValPath(
+    options as ValModule<Record<string, ImagesEntryMetadata>>,
+  );
+  if (isModule) {
+    const allModules: Record<string, Record<string, ImagesEntryMetadata>> = {};
+    for (const valModule of [
+      options as ValModule<Record<string, ImagesEntryMetadata>>,
+      ...args,
+    ]) {
+      const modulePath = getValPath(valModule) as ModulePath | undefined;
+      if (modulePath === undefined) {
+        throw new Error(
+          `Invalid argument passed to s.image(). Expected a ValModule constructed through c.define, but got an object without a valid module path.`,
+        );
+      }
+      allModules[modulePath] = getSource(valModule) as Record<
+        string,
+        ImagesEntryMetadata
+      >;
+    }
+    return new ImageSchema({}, false, false, [], allModules);
+  } else if (args.length > 0) {
+    throw new Error(
+      `When passing a options to s.image(), you cannot pass additional arguments.`,
+    );
+  }
+  return new ImageSchema(options as ImageOptions);
 };
