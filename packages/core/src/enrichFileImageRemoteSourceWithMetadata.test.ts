@@ -33,10 +33,7 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
       test: c.image("/public/val/images/logo.png"),
     });
     const source = Internal.getSource(testModule);
-    const enrichedSource = enrichFileImageRemoteSourceWithMetadata(
-      source,
-      testSchema,
-    );
+    const enrichedSource = enrichFileImageRemoteSourceWithMetadata(source, testSchema);
     expect(enrichedSource).toEqual({
       test: c.image("/public/val/images/logo.png", {
         width: 800,
@@ -76,34 +73,29 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
     // Remote images module - uses c.remote() instead of c.image()
     const productsModule = c.define(
       "/content/products.val.ts",
-      s
-        .images({
-          accept: "image/*",
-          directory: "/public/val/products",
-        })
-        .remote(),
+      s.images({
+        accept: "image/*",
+        directory: "/public/val/products",
+      }).remote(),
       {
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg":
-          {
-            width: 600,
-            height: 400,
-            mimeType: "image/jpeg",
-            alt: "Widget product",
-          },
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg":
-          {
-            width: 800,
-            height: 600,
-            mimeType: "image/jpeg",
-            alt: "Gadget product",
-          },
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png":
-          {
-            width: 100,
-            height: 100,
-            mimeType: "image/png",
-            alt: "Inline product image",
-          },
+        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg": {
+          width: 600,
+          height: 400,
+          mimeType: "image/jpeg",
+          alt: "Widget product",
+        },
+        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg": {
+          width: 800,
+          height: 600,
+          mimeType: "image/jpeg",
+          alt: "Gadget product",
+        },
+        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png": {
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          alt: "Inline product image",
+        },
       } as Record<string, ImagesEntryMetadata>,
     );
 
@@ -252,14 +244,8 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
           details: {
             description: "A useful widget",
             gallery: [
-              c.remote(
-                "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg",
-                { mimeType: "image/jpeg" },
-              ),
-              c.remote(
-                "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg",
-                { mimeType: "image/jpeg" },
-              ),
+              c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg", { mimeType: "image/jpeg" }),
+              c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg", { mimeType: "image/jpeg" }),
             ],
           },
         },
@@ -272,10 +258,7 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
         },
         {
           type: "product" as const,
-          productImage: c.remote(
-            "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg",
-            { mimeType: "image/jpeg" },
-          ),
+          productImage: c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg", { mimeType: "image/jpeg" }),
         },
         {
           type: "document" as const,
@@ -290,10 +273,7 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
                 "Check out this product: ",
                 {
                   tag: "img",
-                  src: c.remote(
-                    "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png",
-                    { mimeType: "image/png" },
-                  ),
+                  src: c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png", { mimeType: "image/png" }),
                 },
               ],
             },
@@ -365,26 +345,20 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
 
     // Verify array -> object -> object -> array -> remote image
     expect(enrichedSource.products[0].details.gallery[0]).toEqual(
-      c.remote(
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg",
-        {
-          width: 600,
-          height: 400,
-          mimeType: "image/jpeg",
-          alt: "Widget product",
-        },
-      ),
+      c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg", {
+        width: 600,
+        height: 400,
+        mimeType: "image/jpeg",
+        alt: "Widget product",
+      }),
     );
     expect(enrichedSource.products[0].details.gallery[1]).toEqual(
-      c.remote(
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg",
-        {
-          width: 800,
-          height: 600,
-          mimeType: "image/jpeg",
-          alt: "Gadget product",
-        },
-      ),
+      c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/gadget456/p/public/val/products/gadget.jpg", {
+        width: 800,
+        height: 600,
+        mimeType: "image/jpeg",
+        alt: "Gadget product",
+      }),
     );
 
     // Verify array -> union variants
@@ -406,15 +380,12 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
       productImage: ReturnType<typeof c.remote>;
     };
     expect(productBlock.productImage).toEqual(
-      c.remote(
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg",
-        {
-          width: 600,
-          height: 400,
-          mimeType: "image/jpeg",
-          alt: "Widget product",
-        },
-      ),
+      c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/widget123/p/public/val/products/widget.jpg", {
+        width: 600,
+        height: 400,
+        mimeType: "image/jpeg",
+        alt: "Widget product",
+      }),
     );
 
     const documentBlock = enrichedSource.contentBlocks[2] as {
@@ -442,15 +413,12 @@ describe("enrichFileImageRemoteSourceWithMetadata", () => {
       src: ReturnType<typeof c.remote>;
     };
     expect(inlineImg.src).toEqual(
-      c.remote(
-        "https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png",
-        {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-          alt: "Inline product image",
-        },
-      ),
+      c.remote("https://example.com/file/p/test/b/default/v/1.0.0/h/abc123/f/inline789/p/public/val/products/inline-product.png", {
+        width: 100,
+        height: 100,
+        mimeType: "image/png",
+        alt: "Inline product image",
+      }),
     );
 
     // Verify sidebar union

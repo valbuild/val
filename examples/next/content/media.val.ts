@@ -8,10 +8,10 @@ export default c.define(
     alt: s.string().minLength(4),
   }),
   {
-    "/public/val/images/foo.webp": {
+    "/public/val/images/logo.png": {
       width: 800,
       height: 600,
-      mimeType: "image/webp",
+      mimeType: "image/png",
       alt: "An example image",
     },
   },
