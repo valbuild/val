@@ -336,7 +336,7 @@ export class FileSchema<
 export const file = (
   options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
   ...args: ValModule<Record<string, FilesEntryMetadata>>[]
-): FileSchema<FileSource<FileMetadata>> => {
+): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
   const isModule = !!Internal.getValPath(
     options as ValModule<Record<string, FilesEntryMetadata>>,
   );

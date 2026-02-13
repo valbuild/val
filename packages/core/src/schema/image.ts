@@ -35,9 +35,10 @@ export type SerializedImageSchema = {
   moduleMetadata?: Record<string, Record<string, ImagesEntryMetadata>>;
 };
 
-export type ImageMetadata = FileMetadata & {
-  width: number;
-  height: number;
+export type ImageMetadata = {
+  width?: number;
+  height?: number;
+  mimeType?: string;
   alt?: string;
   hotspot?: {
     x: number;
@@ -168,7 +169,7 @@ export class ImageSchema<
     }
 
     const { accept } = this.options || {};
-    const { mimeType } = src.metadata || {};
+    const mimeType = src.metadata?.mimeType ?? "";
 
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
@@ -373,7 +374,7 @@ export class ImageSchema<
 export const image = (
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
   ...args: ValModule<Record<string, ImagesEntryMetadata>>[]
-): ImageSchema<ImageSource> => {
+): ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>> => {
   const isModule = !!Internal.getValPath(
     options as ValModule<Record<string, ImagesEntryMetadata>>,
   );

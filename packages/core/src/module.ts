@@ -65,10 +65,9 @@ export function define<T extends Schema<SelectorSource>>(
   } as unknown as ValModule<SelectorOfSchema<T>>;
 }
 
-export function enrichFileImageRemoteSourceWithMetadata(
-  source: SelectorSource,
-  schema: Schema<SelectorSource>,
-): SelectorSource {
+export function enrichFileImageRemoteSourceWithMetadata<
+  T extends SelectorSource,
+>(source: T, schema: Schema<SelectorSource>): T {
   const addedModules = new Set<string>();
   let filesLookup: Record<string, ImageMetadata | FileMetadata> = {};
   function traverseSchema(schema: Schema<SelectorSource>) {
@@ -141,10 +140,10 @@ export function enrichFileImageRemoteSourceWithMetadata(
   return source;
 }
 
-export function getSource(valModule: ValModule<SelectorSource>): Source {
-  const sourceOrExpr = valModule[GetSource];
-  const source = sourceOrExpr;
-  return source;
+export function getSource<T extends SelectorSource>(
+  valModule: ValModule<T>,
+): T {
+  return valModule[GetSource] as T;
 }
 
 export function splitModuleFilePathAndModulePath(
