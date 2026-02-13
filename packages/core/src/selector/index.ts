@@ -45,6 +45,7 @@ export type SelectorSource =
   | {
       [key: string]: SelectorSource;
     }
+  | ImageSource
   | FileSource
   | RemoteSource
   | RichTextSource<AllRichTextOptions>
