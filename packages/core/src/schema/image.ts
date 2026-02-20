@@ -375,9 +375,11 @@ export const image = (
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
   ...args: ValModule<Record<string, ImagesEntryMetadata>>[]
 ): ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>> => {
-  const isModule = !!Internal.getValPath(
-    options as ValModule<Record<string, ImagesEntryMetadata>>,
-  );
+  const isModule =
+    !!options &&
+    !!Internal.getValPath(
+      options as ValModule<Record<string, ImagesEntryMetadata>>,
+    );
   if (isModule) {
     const allModules: Record<string, Record<string, ImagesEntryMetadata>> = {};
     for (const valModule of [
