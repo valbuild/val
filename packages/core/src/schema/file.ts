@@ -337,9 +337,11 @@ export const file = (
   options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
   ...args: ValModule<Record<string, FilesEntryMetadata>>[]
 ): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
-  const isModule = !!Internal.getValPath(
-    options as ValModule<Record<string, FilesEntryMetadata>>,
-  );
+  const isModule =
+    !!options &&
+    !!Internal.getValPath(
+      options as ValModule<Record<string, FilesEntryMetadata>>,
+    );
   if (isModule) {
     const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
     for (const valModule of [
