@@ -1,12 +1,11 @@
 import {
-  Json,
   ModuleFilePath,
   ModuleFilePathSep,
+  Source,
   SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { isJsonArray } from "../utils/isJsonArray";
 
 /**
  * Find all s.route() fields that have a value matching the given route key
@@ -15,7 +14,7 @@ import { isJsonArray } from "../utils/isJsonArray";
  */
 export function getRouteReferences(
   schemas: Record<ModuleFilePath, SerializedSchema>,
-  sources: Record<ModuleFilePath, Json>,
+  sources: Record<ModuleFilePath, Source>,
   routeKey: string,
 ): SourcePath[] {
   const results: SourcePath[] = [];
@@ -23,7 +22,7 @@ export function getRouteReferences(
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
-    source: Json,
+    source: Source | undefined,
   ) => {
     if (schema === undefined) {
       return;
@@ -38,7 +37,7 @@ export function getRouteReferences(
     } else if (schema.type === "object" || schema.type === "record") {
       if (isObjectSource(source)) {
         for (const key in source) {
-          const sourceValue = source?.[key];
+          const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
           if (sourceValue) {
@@ -59,7 +58,7 @@ export function getRouteReferences(
       const schemaKey = schema.key;
       if (typeof schemaKey === "string") {
         if (isObjectSource(source)) {
-          const itemKey = source[schemaKey];
+          const itemKey = (source as Record<string, Source>)[schemaKey];
           if (typeof itemKey === "string") {
             const schemaOfItem = (schema.items as SerializedObjectSchema[])
               .filter((item) => item.type === "object")
@@ -103,10 +102,12 @@ function sourcePathConcat(
   )}` as SourcePath;
 }
 
-function isObjectSource(source: Json): source is Record<string, Json> {
-  return typeof source === "object" && !!source && !isJsonArray(source);
+function isObjectSource(
+  source: Source | undefined,
+): source is Record<string, Source> {
+  return typeof source === "object" && !!source && !Array.isArray(source);
 }
 
-function isArrayOfSource(source: Json): source is Json[] {
-  return typeof source === "object" && !!source && isJsonArray(source);
+function isArrayOfSource(source: Source | undefined): source is Source[] {
+  return typeof source === "object" && !!source && Array.isArray(source);
 }
