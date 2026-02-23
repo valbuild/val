@@ -21,6 +21,15 @@ import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
+import { splitRemoteRef } from "../remote/splitRemoteRef";
+
+type MediaOptions = {
+  type: "files" | "images";
+  accept: string;
+  directory: string;
+  remote: boolean;
+  altSchema?: Schema<SelectorSource>;
+};
 
 export type SerializedRecordSchema = {
   type: "record";
@@ -29,6 +38,12 @@ export type SerializedRecordSchema = {
   opt: boolean;
   router?: string;
   customValidate?: boolean;
+  // Optional media collection marker for files/images that are backed by a record
+  mediaType?: "files" | "images";
+  accept?: string;
+  directory?: string;
+  remote?: boolean;
+  alt?: SerializedSchema;
 };
 
 export class RecordSchema<
@@ -42,6 +57,7 @@ export class RecordSchema<
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly currentRouter: ValRouter | null = null,
     private readonly keySchema: Schema<string> | null = null,
+    private readonly mediaOptions?: MediaOptions,
   ) {
     super();
   }
@@ -55,6 +71,7 @@ export class RecordSchema<
       [...this.customValidateFunctions, validationFunction],
       this.currentRouter,
       this.keySchema,
+      this.mediaOptions,
     );
   }
 
@@ -144,6 +161,16 @@ export class RecordSchema<
           } at key ${elem}`, // Should! never happen
           src,
         );
+      } else if (this.mediaOptions) {
+        // Media collection: validate key (path/URL) and entry (metadata)
+        const keyErr = this.validateMediaKey(subPath, key);
+        if (keyErr) {
+          error = error ? { ...error, ...keyErr } : keyErr;
+        }
+        const entryErr = this.validateMediaEntry(subPath, elem);
+        if (entryErr) {
+          error = error ? { ...error, ...entryErr } : entryErr;
+        }
       } else {
         const subError = this.item["executeValidate"](
           subPath,
@@ -162,6 +189,208 @@ export class RecordSchema<
     return error;
   }
 
+  private isRemoteUrl(url: string): boolean {
+    return url.startsWith("https://") || url.startsWith("http://");
+  }
+
+  private validateMediaKey(path: SourcePath, key: string): ValidationErrors {
+    if (!this.mediaOptions) {
+      return false;
+    }
+    const { directory, remote: isRemote, type } = this.mediaOptions;
+    const mediaLabel = type === "images" ? "images" : "files";
+    const checkRemoteFix =
+      type === "images" ? "images:check-remote" : "files:check-remote";
+
+    const isRemoteUrl = this.isRemoteUrl(key);
+    const isLocalPath = key.startsWith(directory);
+
+    if (isRemote) {
+      // When remote is enabled, accept either remote URLs or local paths
+      if (isRemoteUrl) {
+        // Validate remote URL format using splitRemoteRef
+        const remoteResult = splitRemoteRef(key);
+        if (remoteResult.status === "error") {
+          return {
+            [path]: [
+              {
+                message: `Invalid remote URL format. Use Val tooling (CLI, VS Code extension, or Val Studio) to upload ${mediaLabel}. Got: ${key}`,
+                value: key,
+                fixes: [checkRemoteFix],
+              },
+            ],
+          };
+        }
+        // Check that the file path in the remote URL matches our directory constraint
+        const remotePath = "/" + remoteResult.filePath;
+        if (!remotePath.startsWith(directory)) {
+          return {
+            [path]: [
+              {
+                message: `Remote file path '${remotePath}' is not in expected directory '${directory}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
+                value: key,
+                fixes: [checkRemoteFix],
+              },
+            ],
+          };
+        }
+        return false;
+      }
+      if (!isLocalPath) {
+        return {
+          [path]: [
+            {
+              message: `Expected a remote URL (https://...) or a local path starting with ${directory}/. Got: ${key}`,
+              value: key,
+            },
+          ],
+        };
+      }
+    } else {
+      // When remote is disabled, only accept local paths
+      if (isRemoteUrl) {
+        return {
+          [path]: [
+            {
+              message: `Remote URLs are not allowed. Use .remote() to enable remote ${mediaLabel}. Got: ${key}`,
+              value: key,
+              fixes: [checkRemoteFix],
+            },
+          ],
+        };
+      }
+      if (!isLocalPath) {
+        return {
+          [path]: [
+            {
+              message: `File path must be within the ${directory}/ directory. Got: ${key}`,
+              value: key,
+            },
+          ],
+        };
+      }
+    }
+
+    return false;
+  }
+
+  private validateMediaEntry(
+    path: SourcePath,
+    entry: unknown,
+  ): ValidationErrors {
+    if (!this.mediaOptions) {
+      return false;
+    }
+    const { type, accept, altSchema } = this.mediaOptions;
+
+    if (typeof entry !== "object" || entry === null) {
+      return {
+        [path]: [
+          { message: `Expected 'object', got '${typeof entry}'`, value: entry },
+        ],
+      };
+    }
+
+    const entryObj = entry as Record<string, unknown>;
+    const errors: ValidationError[] = [];
+
+    if (type === "images") {
+      // Validate width
+      if (typeof entryObj.width !== "number" || entryObj.width <= 0) {
+        errors.push({
+          message: `Expected 'width' to be a positive number, got '${entryObj.width}'`,
+          value: entry,
+        });
+      }
+
+      // Validate height
+      if (typeof entryObj.height !== "number" || entryObj.height <= 0) {
+        errors.push({
+          message: `Expected 'height' to be a positive number, got '${entryObj.height}'`,
+          value: entry,
+        });
+      }
+    }
+
+    // Validate mimeType
+    if (typeof entryObj.mimeType !== "string") {
+      errors.push({
+        message: `Expected 'mimeType' to be a string, got '${typeof entryObj.mimeType}'`,
+        value: entry,
+      });
+    } else {
+      const mimeTypeError = this.validateMediaMimeType(entryObj.mimeType, accept);
+      if (mimeTypeError) {
+        errors.push({ message: mimeTypeError, value: entry });
+      }
+    }
+
+    if (type === "images") {
+      // Validate hotspot if present
+      if (entryObj.hotspot !== undefined) {
+        const hs = entryObj.hotspot as Record<string, unknown>;
+        if (
+          typeof entryObj.hotspot !== "object" ||
+          typeof hs.x !== "number" ||
+          typeof hs.y !== "number"
+        ) {
+          errors.push({
+            message: `Hotspot must be an object with x and y as numbers.`,
+            value: entry,
+          });
+        }
+      }
+
+      // Validate alt using the alt schema
+      const altPath = createValPathOfItem(path, "alt");
+      if (altPath && altSchema) {
+        const altError = altSchema["executeValidate"](
+          altPath,
+          entryObj.alt as SelectorSource,
+        );
+        if (altError) {
+          return errors.length > 0
+            ? { ...altError, [path]: errors }
+            : altError;
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      return { [path]: errors };
+    }
+
+    return false;
+  }
+
+  private validateMediaMimeType(mimeType: string, accept: string): string | null {
+    if (!mimeType.includes("/")) {
+      return `Invalid mime type format. Got: '${mimeType}'`;
+    }
+
+    const acceptedTypes = accept.split(",").map((type) => type.trim());
+
+    const isValidMimeType = acceptedTypes.some((acceptedType) => {
+      if (acceptedType === "*/*") {
+        return true;
+      }
+      if (acceptedType === "image/*") {
+        return mimeType.startsWith("image/");
+      }
+      if (acceptedType.endsWith("/*")) {
+        const baseType = acceptedType.slice(0, -2);
+        return mimeType.startsWith(baseType);
+      }
+      return acceptedType === mimeType;
+    });
+
+    if (!isValidMimeType) {
+      return `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`;
+    }
+
+    return null;
+  }
+
   protected executeAssert(
     path: SourcePath,
     src: unknown,
@@ -171,6 +400,16 @@ export class RecordSchema<
         success: true,
         data: src,
       } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
+      };
     }
     if (typeof src !== "object") {
       return {
@@ -208,6 +447,7 @@ export class RecordSchema<
       this.customValidateFunctions,
       this.currentRouter,
       this.keySchema,
+      this.mediaOptions,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -218,6 +458,18 @@ export class RecordSchema<
       this.customValidateFunctions,
       router,
       this.keySchema,
+      this.mediaOptions,
+    );
+  }
+
+  remote(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
     );
   }
 
@@ -284,7 +536,7 @@ export class RecordSchema<
   }
 
   protected executeSerialize(): SerializedRecordSchema {
-    return {
+    const result: SerializedRecordSchema = {
       type: "record",
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
@@ -294,6 +546,16 @@ export class RecordSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
     };
+    if (this.mediaOptions) {
+      result.mediaType = this.mediaOptions.type;
+      result.accept = this.mediaOptions.accept;
+      result.directory = this.mediaOptions.directory;
+      result.remote = this.mediaOptions.remote;
+      if (this.mediaOptions.altSchema) {
+        result.alt = this.mediaOptions.altSchema["executeSerialize"]();
+      }
+    }
+    return result;
   }
 
   private renderInput: {

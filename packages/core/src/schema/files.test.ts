@@ -191,7 +191,8 @@ describe("FilesSchema", () => {
     test("should serialize with correct type", () => {
       const schema = files({ accept: "application/pdf" });
       const serialized = schema["executeSerialize"]();
-      expect(serialized.type).toBe("files");
+      expect(serialized.type).toBe("record");
+      expect((serialized as any).mediaType).toBe("files");
       expect(serialized.accept).toBe("application/pdf");
       expect(serialized.directory).toBe("/public/val");
       expect(serialized.opt).toBe(false);

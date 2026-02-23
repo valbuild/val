@@ -231,7 +231,8 @@ describe("ImagesSchema", () => {
     test("should serialize with correct type", () => {
       const schema = images({ accept: "image/webp" });
       const serialized = schema["executeSerialize"]();
-      expect(serialized.type).toBe("images");
+      expect(serialized.type).toBe("record");
+      expect((serialized as any).mediaType).toBe("images");
       expect(serialized.accept).toBe("image/webp");
       expect(serialized.directory).toBe("/public/val");
       expect(serialized.opt).toBe(false);
