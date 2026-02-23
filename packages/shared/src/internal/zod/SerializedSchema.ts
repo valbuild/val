@@ -157,11 +157,25 @@ export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
 
 export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
   z.lazy(() => {
-    return z.object({
-      type: z.literal("record"),
-      item: SerializedSchema,
-      opt: z.boolean(),
-    });
+    return z
+      .object({
+        type: z.literal("record"),
+        item: SerializedSchema,
+        opt: z.boolean(),
+        // Optional gallery marker for files/images
+        mediaType: z
+          .union([z.literal("files"), z.literal("images")])
+          .optional(),
+        // Optional legacy gallery metadata
+        accept: z.string().optional(),
+        directory: z.string().optional(),
+        remote: z.boolean().optional(),
+        alt: SerializedSchema.optional(),
+        moduleMetadata: z
+          .record(z.string(), z.record(z.string(), z.any()))
+          .optional(),
+      })
+      .passthrough();
   });
 
 export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
