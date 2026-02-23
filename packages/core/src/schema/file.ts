@@ -28,6 +28,7 @@ export type SerializedFileSchema = {
   remote?: boolean;
   opt: boolean;
   customValidate?: boolean;
+  moduleMetadata?: Record<string, Record<string, FilesEntryMetadata>>;
 };
 
 export type FileMetadata = {
@@ -325,6 +326,10 @@ export class FileSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      moduleMetadata:
+        this.moduleMetadata && Object.keys(this.moduleMetadata).length > 0
+          ? this.moduleMetadata
+          : undefined,
     };
   }
 

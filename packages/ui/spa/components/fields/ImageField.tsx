@@ -3,6 +3,8 @@ import {
   Internal,
   SourcePath,
   VAL_EXTENSION,
+  FILE_REF_PROP,
+  FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -27,6 +29,9 @@ import { useEffect, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
 import { Button } from "../designSystem/button";
+import { useValPortal } from "../ValPortalProvider";
+import { MediaPicker } from "../MediaPicker/MediaPicker";
+import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -43,6 +48,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   const [loading, setLoading] = useState(false);
   const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
+  const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
@@ -319,6 +325,38 @@ export function ImageField({ path }: { path: SourcePath }) {
             )}
           </div>
         )}
+        {schemaAtPath.data.moduleMetadata &&
+          Object.keys(schemaAtPath.data.moduleMetadata).length > 0 && (
+            <MediaPicker
+              moduleEntries={
+                schemaAtPath.data.moduleMetadata as Record<
+                  string,
+                  Record<string, Record<string, unknown>>
+                >
+              }
+              selectedRef={source?._ref ?? null}
+              onSelect={(entry: GalleryEntry) => {
+                addPatch(
+                  [
+                    {
+                      op: "replace",
+                      path: patchPath,
+                      value: {
+                        [FILE_REF_PROP]: entry.filePath,
+                        [VAL_EXTENSION]: "file",
+                        [FILE_REF_SUBTYPE_TAG]: "image",
+                        metadata: entry.metadata,
+                      },
+                    },
+                  ],
+                  "image",
+                );
+              }}
+              isImage
+              disabled={disabled}
+              portalContainer={portalContainer}
+            />
+          )}
         <Button asChild variant={"secondary"}>
           <label htmlFor={`img_input:${path}`}>Upload</label>
         </Button>
