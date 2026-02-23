@@ -1,11 +1,10 @@
 import {
   Internal,
-  Json,
   ModuleFilePath,
   SerializedSchema,
-  SelectorSource,
   ValModule,
   initVal,
+  Source,
 } from "@valbuild/core";
 import { createSearchIndex } from "./createSearchIndex";
 import { search } from ".";
@@ -170,10 +169,10 @@ describe("search", () => {
   });
 });
 
-function createTestDate(data: ValModule<SelectorSource>[]) {
+function createTestDate(data: ValModule<Source>[]) {
   const res: Record<
     ModuleFilePath,
-    { source: Json; schema: SerializedSchema }
+    { source: Source; schema: SerializedSchema }
   > = {};
   for (const m of data) {
     res[Internal.getValPath(m) as unknown as ModuleFilePath] = {
