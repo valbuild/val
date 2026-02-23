@@ -7,9 +7,7 @@ import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
 import { DateSchema } from "./date";
 import { FileSchema } from "./file";
-import { FilesSchema } from "./files";
 import { ImageMetadata, ImageSchema } from "./image";
-import { ImagesSchema } from "./images";
 import { KeyOfSchema } from "./keyOf";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
@@ -108,6 +106,17 @@ export function deserializeSchema(
         serialized.key
           ? (deserializeSchema(serialized.key) as Schema<string>)
           : null,
+        serialized.mediaType
+          ? {
+              type: serialized.mediaType,
+              accept: serialized.accept ?? "*/*",
+              directory: serialized.directory ?? "/public/val",
+              remote: serialized.remote ?? false,
+              altSchema: serialized.alt
+                ? deserializeSchema(serialized.alt)
+                : undefined,
+            }
+          : undefined,
       );
     case "keyOf":
       return new KeyOfSchema(
@@ -136,28 +145,8 @@ export function deserializeSchema(
     }
     case "file":
       return new FileSchema(serialized.options, serialized.opt);
-    case "files":
-      return new FilesSchema(
-        {
-          accept: serialized.accept,
-          directory: serialized.directory as "/public" | `/public/${string}`,
-        },
-        serialized.opt,
-        serialized.remote,
-      );
     case "image":
       return new ImageSchema(serialized.options, serialized.opt);
-    case "images":
-      return new ImagesSchema(
-        {
-          accept: serialized.accept as `image/${string}`,
-          directory: serialized.directory as "/public" | `/public/${string}`,
-          // Note: alt schema deserialization would need the alt schema to be deserialized
-          // For now we use the default alt schema
-        },
-        serialized.opt,
-        serialized.remote,
-      );
     case "date":
       return new DateSchema(serialized.options);
     default: {
