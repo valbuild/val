@@ -140,9 +140,7 @@ export function enrichFileImageRemoteSourceWithMetadata<
   return source;
 }
 
-export function getSource<T extends SelectorSource>(
-  valModule: ValModule<T>,
-): T {
+export function getSource<T extends Source>(valModule: ValModule<T>): T {
   return valModule[GetSource] as T;
 }
 

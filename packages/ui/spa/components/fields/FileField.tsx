@@ -10,7 +10,7 @@ import {
   SerializedImageSchema,
   SerializedFileSchema,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
+import { JSONValue, Patch } from "@valbuild/core/patch";
 import { FieldLoading } from "../FieldLoading";
 import { FieldNotFound } from "../FieldNotFound";
 import { FieldSchemaError } from "../FieldSchemaError";
@@ -290,7 +290,7 @@ export function FileField({ path }: { path: SourcePath }) {
                       value: {
                         [FILE_REF_PROP]: entry.filePath,
                         [VAL_EXTENSION]: "file",
-                        metadata: entry.metadata,
+                        metadata: entry.metadata as JSONValue,
                       },
                     },
                   ],

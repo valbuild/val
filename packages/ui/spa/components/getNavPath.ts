@@ -1,9 +1,9 @@
 import {
   SourcePath,
   ModuleFilePath,
-  Json,
   SerializedSchema,
   Internal,
+  Source,
 } from "@valbuild/core";
 import { resolvePatchPath } from "../resolvePatchPath";
 
@@ -28,7 +28,7 @@ function isSchemaNavStop(
 
 export function getNavPathFromAll(
   requestedPath: SourcePath | ModuleFilePath,
-  allSources: Record<ModuleFilePath, Json>,
+  allSources: Record<ModuleFilePath, Source>,
   schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
 ): SourcePath | ModuleFilePath | null {
   if (!schemas) {
