@@ -2,18 +2,18 @@ import {
   Json,
   ModuleFilePath,
   ModuleFilePathSep,
+  Source,
   SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { isJsonArray } from "../utils/isJsonArray";
 
 // TODO: right now we only support keyOf MODULES that are records
 // We are planning to add support for keyOf selectors (i.e. nested properties of modules) that are records
 // In that case, parent no longer has to be ModuleFilePath, but can be SourcePath, etc...
 export function getKeysOf(
   schemas: Record<ModuleFilePath, SerializedSchema>,
-  sources: Record<ModuleFilePath, Json>,
+  sources: Record<ModuleFilePath, Source>,
   parent: ModuleFilePath,
   keyOfRecord?: string, // NOTE: if this is defined we find keys of this specific record, if not we find all potential references
 ): SourcePath[] {
@@ -32,7 +32,7 @@ export function getKeysOf(
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
-    source: Json,
+    source: Source,
   ) => {
     if (schema === undefined) {
       console.error(`Schema not found for ${sourcePath}`);
@@ -64,7 +64,7 @@ export function getKeysOf(
       if (isObjectSource(source) || isRecordSource(source)) {
         for (const key in source) {
           // NOTE: for object we are uncertain if we should use the source or the schema to get the keys. Currently we use the schema.items in other places, but source is more correct perhaps? Or perhaps not? We are not sure...
-          const sourceValue = source?.[key];
+          const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
           if (sourceValue) {
@@ -85,7 +85,7 @@ export function getKeysOf(
       const schemaKey = schema.key;
       if (typeof schemaKey === "string") {
         if (isObjectSource(source)) {
-          const itemKey = source[schemaKey];
+          const itemKey = (source as Record<string, Source>)[schemaKey];
           if (typeof itemKey === "string") {
             const schemaOfItem = (schema.items as SerializedObjectSchema[])
               .filter((item) => item.type === "object")
@@ -144,14 +144,14 @@ function sourcePathConcat(
   )}` as SourcePath;
 }
 
-function isObjectSource(source: Json): source is Record<string, Json> {
+function isObjectSource(source: Source): source is Record<string, Source> {
   return isRecordSource(source);
 }
 
-function isRecordSource(source: Json): source is Record<string, Json> {
-  return typeof source === "object" && !!source && !isJsonArray(source);
+function isRecordSource(source: Source): source is Record<string, Json> {
+  return typeof source === "object" && !!source && !Array.isArray(source);
 }
 
-function isArrayOfSource(source: Json): source is Json[] {
-  return typeof source === "object" && !!source && isJsonArray(source);
+function isArrayOfSource(source: Source): source is Json[] {
+  return typeof source === "object" && !!source && Array.isArray(source);
 }

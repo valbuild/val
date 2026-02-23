@@ -32,6 +32,7 @@ import { Button } from "../designSystem/button";
 import { useValPortal } from "../ValPortalProvider";
 import { MediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
+import { JSONValue } from "@valbuild/core/patch";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -345,7 +346,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                         [FILE_REF_PROP]: entry.filePath,
                         [VAL_EXTENSION]: "file",
                         [FILE_REF_SUBTYPE_TAG]: "image",
-                        metadata: entry.metadata,
+                        metadata: entry.metadata as JSONValue,
                       },
                     },
                   ],
