@@ -34,6 +34,9 @@ import { Button } from "../designSystem/button";
 import { useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
+import { useValPortal } from "../ValPortalProvider";
+import { MediaPicker } from "../MediaPicker/MediaPicker";
+import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
 const textEncoder = new TextEncoder();
 export async function createFilePatch(
@@ -114,7 +117,9 @@ export function FileField({ path }: { path: SourcePath }) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { patchPath, addAndUploadPatchWithFileOps } = useAddPatch(path);
+  const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
+    useAddPatch(path);
+  const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
@@ -266,6 +271,37 @@ export function FileField({ path }: { path: SourcePath }) {
             )}
           </div>
         )}
+        {schemaAtPath.data.moduleMetadata &&
+          Object.keys(schemaAtPath.data.moduleMetadata).length > 0 && (
+            <MediaPicker
+              moduleEntries={
+                schemaAtPath.data.moduleMetadata as Record<
+                  string,
+                  Record<string, Record<string, unknown>>
+                >
+              }
+              selectedRef={source?._ref ?? null}
+              onSelect={(entry: GalleryEntry) => {
+                addPatch(
+                  [
+                    {
+                      op: "replace",
+                      path: patchPath,
+                      value: {
+                        [FILE_REF_PROP]: entry.filePath,
+                        [VAL_EXTENSION]: "file",
+                        metadata: entry.metadata,
+                      },
+                    },
+                  ],
+                  "file",
+                );
+              }}
+              isImage={false}
+              disabled={disabled}
+              portalContainer={portalContainer}
+            />
+          )}
         <div className="flex gap-4 items-center">
           {source &&
             (showAsVideo ? (
