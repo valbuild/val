@@ -22,7 +22,7 @@ export default c.define("/content/authors.val.ts", schema, {
   teddy: {
     name: "Theodor René Carlsen",
     birthdate: null,
-    image: c.image("/public/val/images/logo.png"),
+    image: null,
   },
   freekh: {
     name: "Fredrik Ekholdt",
