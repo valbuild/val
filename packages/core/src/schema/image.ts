@@ -347,7 +347,13 @@ export class ImageSchema<
   }
 
   nullable(): ImageSchema<Src | null> {
-    return new ImageSchema<Src | null>(this.options, true, this.isRemote);
+    return new ImageSchema<Src | null>(
+      this.options,
+      true,
+      this.isRemote,
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
+      this.moduleMetadata,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {

@@ -314,7 +314,13 @@ export class FileSchema<
   }
 
   nullable(): FileSchema<Src | null> {
-    return new FileSchema<Src | null>(this.options, true, this.isRemote);
+    return new FileSchema<Src | null>(
+      this.options,
+      true,
+      this.isRemote,
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
+      this.moduleMetadata,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
