@@ -23,6 +23,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useSchemas,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -117,6 +118,7 @@ export function FileField({ path }: { path: SourcePath }) {
   const config = useValConfig();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const remoteFiles = useRemoteFiles();
+  const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const [showAsVideo, setShowAsVideo] = useState(false);
@@ -234,7 +236,13 @@ export function FileField({ path }: { path: SourcePath }) {
     schemaAtPath.data.type === "file" &&
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
-  const disabled = remoteFileUploadDisabled;
+  const missingModules =
+    schemaAtPath.data.moduleMetadata && schemas.status === "success"
+      ? Object.keys(schemaAtPath.data.moduleMetadata).filter(
+          (modulePath) => !schemas.data[modulePath as ModuleFilePath],
+        )
+      : [];
+  const disabled = remoteFileUploadDisabled || missingModules.length > 0;
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -268,6 +276,13 @@ export function FileField({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
+      {missingModules.length > 0 && (
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+          {missingModules.length === 1
+            ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
+            : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
+        </div>
+      )}
       {error && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
@@ -352,13 +367,13 @@ export function FileField({ path }: { path: SourcePath }) {
                         }).url
                   }
                 />
-                <Button asChild variant={"secondary"}>
+                <Button asChild variant={"secondary"} disabled={disabled}>
                   <label htmlFor={`file_input:${path}`}>Upload</label>
                 </Button>
               </div>
             ) : (
               <>
-                <Button asChild variant={"secondary"}>
+                <Button asChild variant={"secondary"} disabled={disabled}>
                   <label htmlFor={`file_input:${path}`}>Upload</label>
                 </Button>
                 <a
