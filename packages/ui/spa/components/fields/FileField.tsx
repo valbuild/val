@@ -5,6 +5,7 @@ import {
   VAL_EXTENSION,
   ConfigDirectory,
   Internal,
+  ModuleFilePath,
   SourcePath,
   FILE_REF_SUBTYPE_TAG,
   SerializedImageSchema,
@@ -37,6 +38,7 @@ import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { MediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
+import { GalleryUploadTarget } from "../MediaPicker/GalleryUploadTarget";
 
 const textEncoder = new TextEncoder();
 export async function createFilePatch(
@@ -54,7 +56,8 @@ export async function createFilePatch(
     remoteHost: string;
   } | null,
   directory: ConfigDirectory = "/public/val",
-): Promise<Patch> {
+  skipMetadataInReplace: boolean = false,
+): Promise<{ patch: Patch; filePath: string }> {
   const newFilePath = Internal.createFilename(
     data,
     filename,
@@ -62,7 +65,7 @@ export async function createFilePatch(
     fileHash,
   );
   if (!newFilePath || !metadata) {
-    return [];
+    return { patch: [], filePath: "" };
   }
 
   const filePath = `${directory}/${newFilePath}`;
@@ -84,26 +87,29 @@ export async function createFilePatch(
         filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
       })
     : filePath;
-  return [
-    {
-      value: {
-        [FILE_REF_PROP]: ref,
-        [VAL_EXTENSION]: remote ? "remote" : "file",
-        ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
-        metadata,
+  return {
+    patch: [
+      {
+        value: {
+          [FILE_REF_PROP]: ref,
+          [VAL_EXTENSION]: remote ? "remote" : "file",
+          ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
+          ...(skipMetadataInReplace ? {} : { metadata }),
+        },
+        op: "replace",
+        path,
       },
-      op: "replace",
-      path,
-    },
-    {
-      value: data,
-      metadata,
-      op: "file",
-      path,
-      filePath: ref,
-      remote: remote !== null,
-    },
-  ];
+      {
+        value: data,
+        metadata,
+        op: "file",
+        path,
+        filePath: ref,
+        remote: remote !== null,
+      },
+    ],
+    filePath,
+  };
 }
 
 export function FileField({ path }: { path: SourcePath }) {
@@ -117,7 +123,10 @@ export function FileField({ path }: { path: SourcePath }) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
+  const [selectedGalleryModulePath, setSelectedGalleryModulePath] = useState<
+    string | null
+  >(null);
+  const { addPatch, patchPath, addAndUploadPatchWithFileOps, addModuleFilePatch } =
     useAddPatch(path);
   const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
@@ -148,6 +157,18 @@ export function FileField({ path }: { path: SourcePath }) {
       }
     }
   }, [sourceAtPath]);
+  useEffect(() => {
+    if (
+      schemaAtPath.status === "success" &&
+      schemaAtPath.data.type === "file" &&
+      schemaAtPath.data.moduleMetadata
+    ) {
+      const keys = Object.keys(schemaAtPath.data.moduleMetadata);
+      if (keys.length >= 1 && selectedGalleryModulePath === null) {
+        setSelectedGalleryModulePath(keys[0]);
+      }
+    }
+  }, [schemaAtPath]);
   useEffect(() => {
     // We want to show video if only video is accepted
     // If source is defined we also show a video if the mimeType is video
@@ -272,6 +293,15 @@ export function FileField({ path }: { path: SourcePath }) {
           </div>
         )}
         {schemaAtPath.data.moduleMetadata &&
+          Object.keys(schemaAtPath.data.moduleMetadata).length > 1 && (
+            <GalleryUploadTarget
+              modulePaths={Object.keys(schemaAtPath.data.moduleMetadata)}
+              selectedPath={selectedGalleryModulePath ?? undefined}
+              onSelect={setSelectedGalleryModulePath}
+              portalContainer={portalContainer}
+            />
+          )}
+        {schemaAtPath.data.moduleMetadata &&
           Object.keys(schemaAtPath.data.moduleMetadata).length > 0 && (
             <MediaPicker
               moduleEntries={
@@ -375,6 +405,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   };
                 }
                 setError(null);
+                const hasGallery = selectedGalleryModulePath !== null;
                 createFilePatch(
                   patchPath,
                   data.src,
@@ -384,14 +415,17 @@ export function FileField({ path }: { path: SourcePath }) {
                   type,
                   remoteData,
                   config.files?.directory,
+                  hasGallery,
                 )
-                  .then((patch) => {
+                  .then(({ patch, filePath }) => {
                     setLoading(true);
                     setProgressPercentage(0);
+                    let hasError = false;
                     addAndUploadPatchWithFileOps(
                       patch,
                       type,
                       (errorMessage) => {
+                        hasError = true;
                         setUrl(prevUrl);
                         setError(errorMessage);
                       },
@@ -403,10 +437,33 @@ export function FileField({ path }: { path: SourcePath }) {
                           Math.round(overallProgress * 100),
                         );
                       },
-                    ).finally(() => {
-                      setProgressPercentage(null);
-                      setLoading(false);
-                    });
+                    )
+                      .then(() => {
+                        if (
+                          !hasError &&
+                          selectedGalleryModulePath &&
+                          filePath &&
+                          metadata?.mimeType
+                        ) {
+                          addModuleFilePatch(
+                            selectedGalleryModulePath as ModuleFilePath,
+                            [
+                              {
+                                op: "add",
+                                path: [filePath],
+                                value: {
+                                  mimeType: metadata.mimeType,
+                                } as JSONValue,
+                              },
+                            ],
+                            "record",
+                          );
+                        }
+                      })
+                      .finally(() => {
+                        setProgressPercentage(null);
+                        setLoading(false);
+                      });
                   })
                   .catch((err) => {
                     console.error("Failed to create file patch", err);
