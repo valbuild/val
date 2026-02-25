@@ -1,6 +1,7 @@
 import {
   ImageMetadata,
   Internal,
+  ModuleFilePath,
   SourcePath,
   VAL_EXTENSION,
   FILE_REF_PROP,
@@ -32,6 +33,7 @@ import { Button } from "../designSystem/button";
 import { useValPortal } from "../ValPortalProvider";
 import { MediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
+import { GalleryUploadTarget } from "../MediaPicker/GalleryUploadTarget";
 import { JSONValue } from "@valbuild/core/patch";
 
 export function ImageField({ path }: { path: SourcePath }) {
@@ -47,7 +49,10 @@ export function ImageField({ path }: { path: SourcePath }) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
+  const [selectedGalleryModulePath, setSelectedGalleryModulePath] = useState<
+    string | null
+  >(null);
+  const { addPatch, patchPath, addAndUploadPatchWithFileOps, addModuleFilePatch } =
     useAddPatch(path);
   const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
@@ -56,6 +61,18 @@ export function ImageField({ path }: { path: SourcePath }) {
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
+  useEffect(() => {
+    if (
+      schemaAtPath.status === "success" &&
+      schemaAtPath.data.type === "image" &&
+      schemaAtPath.data.moduleMetadata
+    ) {
+      const keys = Object.keys(schemaAtPath.data.moduleMetadata);
+      if (keys.length >= 1 && selectedGalleryModulePath === null) {
+        setSelectedGalleryModulePath(keys[0]);
+      }
+    }
+  }, [schemaAtPath]);
   useEffect(() => {
     if (maybeSourceData) {
       if (maybeSourceData.metadata) {
@@ -327,6 +344,15 @@ export function ImageField({ path }: { path: SourcePath }) {
           </div>
         )}
         {schemaAtPath.data.moduleMetadata &&
+          Object.keys(schemaAtPath.data.moduleMetadata).length > 1 && (
+            <GalleryUploadTarget
+              modulePaths={Object.keys(schemaAtPath.data.moduleMetadata)}
+              selectedPath={selectedGalleryModulePath ?? undefined}
+              onSelect={setSelectedGalleryModulePath}
+              portalContainer={portalContainer}
+            />
+          )}
+        {schemaAtPath.data.moduleMetadata &&
           Object.keys(schemaAtPath.data.moduleMetadata).length > 0 && (
             <MediaPicker
               moduleEntries={
@@ -389,6 +415,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 };
               }
               setError(null);
+              const hasGallery = selectedGalleryModulePath !== null;
               createFilePatch(
                 patchPath,
                 data.src,
@@ -398,14 +425,17 @@ export function ImageField({ path }: { path: SourcePath }) {
                 type,
                 remoteData,
                 config.files?.directory,
+                hasGallery,
               )
-                .then((patch) => {
+                .then(({ patch, filePath }) => {
                   setLoading(true);
                   setProgressPercentage(0);
+                  let hasError = false;
                   addAndUploadPatchWithFileOps(
                     patch,
                     type,
                     (errorMessage) => {
+                      hasError = true;
                       setUrl(prevUrl);
                       setError(errorMessage);
                     },
@@ -415,10 +445,41 @@ export function ImageField({ path }: { path: SourcePath }) {
                         (totalBytes * totalFiles);
                       setProgressPercentage(Math.round(overallProgress * 100));
                     },
-                  ).finally(() => {
-                    setProgressPercentage(null);
-                    setLoading(false);
-                  });
+                  )
+                    .then(() => {
+                      if (
+                        !hasError &&
+                        selectedGalleryModulePath &&
+                        filePath &&
+                        metadata?.mimeType &&
+                        metadata.width !== undefined &&
+                        metadata.height !== undefined
+                      ) {
+                        addModuleFilePatch(
+                          selectedGalleryModulePath as ModuleFilePath,
+                          [
+                            {
+                              op: "add",
+                              path: [filePath],
+                              value: {
+                                width: metadata.width,
+                                height: metadata.height,
+                                mimeType: metadata.mimeType,
+                                alt:
+                                  typeof metadata.alt === "string"
+                                    ? metadata.alt
+                                    : null,
+                              } as JSONValue,
+                            },
+                          ],
+                          "record",
+                        );
+                      }
+                    })
+                    .finally(() => {
+                      setProgressPercentage(null);
+                      setLoading(false);
+                    });
                 })
                 .catch((err) => {
                   console.error("Failed to create file patch", err);
