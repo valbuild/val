@@ -346,7 +346,6 @@ export class FileSchema<
 
 export const file = (
   options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
-  ...args: ValModule<Record<string, FilesEntryMetadata>>[]
 ): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
   const isModule =
     !!options &&
@@ -357,7 +356,6 @@ export const file = (
     const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
     for (const valModule of [
       options as ValModule<Record<string, FilesEntryMetadata>>,
-      ...args,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -371,10 +369,6 @@ export const file = (
       >;
     }
     return new FileSchema({}, false, false, [], allModules);
-  } else if (args.length > 0) {
-    throw new Error(
-      `When passing a options to s.file(), you cannot pass additional arguments.`,
-    );
   }
   return new FileSchema(options as FileOptions);
 };
