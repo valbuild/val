@@ -27,7 +27,7 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { readImage } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../../components/ValidationError";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
 import { Button } from "../designSystem/button";
@@ -54,8 +54,12 @@ export function ImageField({ path }: { path: SourcePath }) {
   const [selectedGalleryModulePath, setSelectedGalleryModulePath] = useState<
     string | null
   >(null);
-  const { addPatch, patchPath, addAndUploadPatchWithFileOps, addModuleFilePatch } =
-    useAddPatch(path);
+  const {
+    addPatch,
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path);
   const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
@@ -182,6 +186,31 @@ export function ImageField({ path }: { path: SourcePath }) {
         )
       : [];
   const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const acceptOptions = useMemo(() => {
+    if (
+      schemaAtPath.data.type !== "image" ||
+      !schemaAtPath.data.moduleMetadata ||
+      schemas.status !== "success"
+    ) {
+      return undefined;
+    }
+    if (schemaAtPath.data.options?.accept) {
+      return schemaAtPath.data.options.accept;
+    }
+    const modulePaths = Object.keys(schemaAtPath.data.moduleMetadata);
+    if (modulePaths.length > 1) {
+      console.error(
+        `Expected at most 1 referenced module, but got ${modulePaths.length}: ${modulePaths.join(", ")}`,
+      );
+    }
+    const [modulePath] = modulePaths;
+    if (!modulePath) return undefined;
+    const moduleSchema = schemas.data[modulePath as ModuleFilePath];
+    if (moduleSchema?.type === "record" && moduleSchema.accept) {
+      return moduleSchema.accept;
+    }
+    return undefined;
+  }, [schemaAtPath.data, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -407,7 +436,7 @@ export function ImageField({ path }: { path: SourcePath }) {
           hidden
           id={`img_input:${path}`}
           type="file"
-          accept={schemaAtPath.data.options?.accept || "image/*"}
+          accept={acceptOptions ?? "image/*"}
           onChange={(ev) => {
             readImage(ev).then((res) => {
               const type = "image";
