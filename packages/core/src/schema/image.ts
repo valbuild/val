@@ -379,7 +379,6 @@ export class ImageSchema<
 
 export const image = (
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
-  ...args: ValModule<Record<string, ImagesEntryMetadata>>[]
 ): ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>> => {
   const isModule =
     !!options &&
@@ -390,7 +389,6 @@ export const image = (
     const allModules: Record<string, Record<string, ImagesEntryMetadata>> = {};
     for (const valModule of [
       options as ValModule<Record<string, ImagesEntryMetadata>>,
-      ...args,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -404,10 +402,6 @@ export const image = (
       >;
     }
     return new ImageSchema({}, false, false, [], allModules);
-  } else if (args.length > 0) {
-    throw new Error(
-      `When passing a options to s.image(), you cannot pass additional arguments.`,
-    );
   }
   return new ImageSchema(options as ImageOptions);
 };
