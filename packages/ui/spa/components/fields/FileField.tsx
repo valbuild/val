@@ -33,7 +33,7 @@ import { PreviewLoading, PreviewNull } from "../Preview";
 import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
@@ -128,8 +128,12 @@ export function FileField({ path }: { path: SourcePath }) {
   const [selectedGalleryModulePath, setSelectedGalleryModulePath] = useState<
     string | null
   >(null);
-  const { addPatch, patchPath, addAndUploadPatchWithFileOps, addModuleFilePatch } =
-    useAddPatch(path);
+  const {
+    addPatch,
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path);
   const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
@@ -243,6 +247,31 @@ export function FileField({ path }: { path: SourcePath }) {
         )
       : [];
   const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const acceptOptions = useMemo(() => {
+    if (
+      schemaAtPath.data.type !== "file" ||
+      !schemaAtPath.data.moduleMetadata ||
+      schemas.status !== "success"
+    ) {
+      return undefined;
+    }
+    if (schemaAtPath.data.options?.accept) {
+      return schemaAtPath.data.options.accept;
+    }
+    const modulePaths = Object.keys(schemaAtPath.data.moduleMetadata);
+    if (modulePaths.length > 1) {
+      console.error(
+        `Expected at most 1 referenced module, but got ${modulePaths.length}: ${modulePaths.join(", ")}`,
+      );
+    }
+    const [modulePath] = modulePaths;
+    if (!modulePath) return undefined;
+    const moduleSchema = schemas.data[modulePath as ModuleFilePath];
+    if (moduleSchema?.type === "record" && moduleSchema.accept) {
+      return moduleSchema.accept;
+    }
+    return undefined;
+  }, [schemaAtPath.data, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -404,7 +433,7 @@ export function FileField({ path }: { path: SourcePath }) {
             hidden
             id={`file_input:${path}`}
             type="file"
-            accept={schemaAtPath.data.options?.accept}
+            accept={acceptOptions}
             onChange={(ev) => {
               readFile(ev).then((res) => {
                 const type = "file";
