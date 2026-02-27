@@ -7,10 +7,16 @@ import {
 } from "../designSystem/popover";
 import { Button } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
-import { Check, ChevronsUpDown, ImageIcon, FileIcon, Search } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  ImageIcon,
+  FileIcon,
+  Search,
+} from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
-import { useSourceAtPath } from "../ValFieldProvider";
+import { useFilePatchIds, useSourceAtPath } from "../ValFieldProvider";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -33,6 +39,8 @@ export interface MediaPickerProps {
   disabled?: boolean;
   /** Portal container for the popover (shadow DOM support) */
   portalContainer?: HTMLElement | null;
+  /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
+  getUrl?: (filePath: string) => string;
 }
 
 const ROW_HEIGHT = 48;
@@ -40,7 +48,12 @@ const ROW_HEIGHT = 48;
 /** A flat row for the virtualized list. Can be a heading or an entry. */
 type PickerRow =
   | { kind: "heading"; modulePath: string }
-  | { kind: "entry"; filePath: string; metadata: Record<string, unknown>; modulePath: string };
+  | {
+      kind: "entry";
+      filePath: string;
+      metadata: Record<string, unknown>;
+      modulePath: string;
+    };
 
 function buildRows(
   moduleEntries: Record<string, Record<string, Record<string, unknown>>>,
@@ -89,6 +102,7 @@ export function MediaPicker({
   isImage = false,
   disabled = false,
   portalContainer,
+  getUrl,
 }: MediaPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [filter, setFilter] = React.useState("");
@@ -279,8 +293,7 @@ export function MediaPicker({
                   );
                 }
 
-                const filename =
-                  row.filePath.split("/").pop() || row.filePath;
+                const filename = row.filePath.split("/").pop() || row.filePath;
                 const isSelected = selectedRef === row.filePath;
                 const isActive = virtualRow.index === activeIndex;
                 const alt =
@@ -316,9 +329,11 @@ export function MediaPicker({
                       <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-bg-secondary">
                         <img
                           src={
-                            row.filePath.startsWith("/public")
-                              ? row.filePath.slice("/public".length)
-                              : row.filePath
+                            getUrl
+                              ? getUrl(row.filePath)
+                              : row.filePath.startsWith("/public")
+                                ? row.filePath.slice("/public".length)
+                                : row.filePath
                           }
                           alt={alt || filename}
                           className="h-full w-full object-cover"
@@ -358,11 +373,30 @@ export function ModuleMediaPicker({
   ...rest
 }: Omit<MediaPickerProps, "moduleEntries"> & { modulePath: ModuleFilePath }) {
   const source = useSourceAtPath(modulePath);
+  const filePatchIds = useFilePatchIds();
+
+  const getUrl = React.useCallback(
+    (filePath: string): string => {
+      const patchId = filePatchIds.get(filePath);
+      if (patchId) {
+        return filePath.startsWith("/public")
+          ? `/api/val/files${filePath}?patch_id=${patchId}`
+          : `${filePath}?patch_id=${patchId}`;
+      }
+      return filePath.startsWith("/public")
+        ? filePath.slice("/public".length)
+        : filePath;
+    },
+    [filePatchIds],
+  );
+
   if (source.status !== "success") {
     return null;
   }
   const moduleEntries = {
     [modulePath]: source.data as Record<string, Record<string, unknown>>,
   };
-  return <MediaPicker moduleEntries={moduleEntries} {...rest} />;
+  return (
+    <MediaPicker moduleEntries={moduleEntries} getUrl={getUrl} {...rest} />
+  );
 }
