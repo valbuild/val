@@ -28,7 +28,7 @@ export type SerializedFileSchema = {
   remote?: boolean;
   opt: boolean;
   customValidate?: boolean;
-  moduleMetadata?: Record<string, Record<string, FilesEntryMetadata>>;
+  referencedModule?: string;
 };
 
 export type FileMetadata = {
@@ -324,6 +324,9 @@ export class FileSchema<
   }
 
   protected executeSerialize(): SerializedSchema {
+    const modulePaths = this.moduleMetadata
+      ? Object.keys(this.moduleMetadata)
+      : [];
     return {
       type: "file",
       options: this.options,
@@ -332,10 +335,8 @@ export class FileSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
-      moduleMetadata:
-        this.moduleMetadata && Object.keys(this.moduleMetadata).length > 0
-          ? this.moduleMetadata
-          : undefined,
+      referencedModule:
+        modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
     };
   }
 

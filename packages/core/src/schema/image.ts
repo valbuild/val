@@ -32,7 +32,7 @@ export type SerializedImageSchema = {
   opt: boolean;
   remote?: boolean;
   customValidate?: boolean;
-  moduleMetadata?: Record<string, Record<string, ImagesEntryMetadata>>;
+  referencedModule?: string;
 };
 
 export type ImageMetadata = {
@@ -357,6 +357,9 @@ export class ImageSchema<
   }
 
   protected executeSerialize(): SerializedSchema {
+    const modulePaths = this.moduleMetadata
+      ? Object.keys(this.moduleMetadata)
+      : [];
     return {
       type: "image",
       options: this.options,
@@ -365,10 +368,8 @@ export class ImageSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
-      moduleMetadata:
-        this.moduleMetadata && Object.keys(this.moduleMetadata).length > 0
-          ? this.moduleMetadata
-          : undefined,
+      referencedModule:
+        modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
     };
   }
 
