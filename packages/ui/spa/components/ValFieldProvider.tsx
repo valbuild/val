@@ -1019,4 +1019,26 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath]);
 }
 
+export function useFilePatchIds(): ReadonlyMap<string, string> {
+  const { syncEngine } = useContext(ValFieldContext);
+  const patchesSnapshot = useSyncExternalStore(
+    syncEngine.subscribe("all-patches"),
+    () => syncEngine.getAllPatchesSnapshot(),
+    () => syncEngine.getAllPatchesSnapshot(),
+  );
+  return useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [patchId, data] of Object.entries(patchesSnapshot ?? {})) {
+      if (data && !data.isCommitted) {
+        for (const op of data.patch) {
+          if (op.op === "file" && "filePath" in op) {
+            map.set(op.filePath as string, patchId);
+          }
+        }
+      }
+    }
+    return map;
+  }, [patchesSnapshot]);
+}
+
 export type { ShallowSource };

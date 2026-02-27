@@ -17,6 +17,7 @@ import {
   useAddPatch,
   useValConfig,
   useSchemas,
+  useFilePatchIds,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -60,6 +61,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
+  const filePatchIds = useFilePatchIds();
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
@@ -68,16 +70,19 @@ export function ImageField({ path }: { path: SourcePath }) {
       if (maybeSourceData.metadata) {
         // We can't set the url before it is server side (since the we will be loading)
         if (!maybeClientSideOnly) {
+          const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
           const nextUrl =
             VAL_EXTENSION in maybeSourceData &&
             maybeSourceData[VAL_EXTENSION] === "remote"
               ? Internal.convertRemoteSource({
                   ...maybeSourceData,
                   [VAL_EXTENSION]: "remote",
+                  ...(patchId ? { patch_id: patchId } : {}),
                 }).url
               : Internal.convertFileSource({
                   ...maybeSourceData,
                   [VAL_EXTENSION]: "file",
+                  ...(patchId ? { patch_id: patchId } : {}),
                 }).url;
           setUrl(nextUrl);
           setLoading(false);
@@ -119,7 +124,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         setHotspot(undefined);
       }
     }
-  }, [sourceAtPath]);
+  }, [sourceAtPath, filePatchIds]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
