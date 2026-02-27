@@ -9,6 +9,8 @@ import { Button } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import { Check, ChevronsUpDown, ImageIcon, FileIcon, Search } from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
+import { ModuleFilePath } from "@valbuild/core";
+import { useSourceAtPath } from "../ValFieldProvider";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -349,4 +351,18 @@ export function MediaPicker({
       </PopoverContent>
     </Popover>
   );
+}
+
+export function ModuleMediaPicker({
+  modulePath,
+  ...rest
+}: Omit<MediaPickerProps, "moduleEntries"> & { modulePath: ModuleFilePath }) {
+  const source = useSourceAtPath(modulePath);
+  if (source.status !== "success") {
+    return null;
+  }
+  const moduleEntries = {
+    [modulePath]: source.data as Record<string, Record<string, unknown>>,
+  };
+  return <MediaPicker moduleEntries={moduleEntries} {...rest} />;
 }
