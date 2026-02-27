@@ -37,9 +37,8 @@ import { useMemo, useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
-import { MediaPicker } from "../MediaPicker/MediaPicker";
+import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
-import { GalleryUploadTarget } from "../MediaPicker/GalleryUploadTarget";
 
 const textEncoder = new TextEncoder();
 export async function createFilePatch(
@@ -125,9 +124,6 @@ export function FileField({ path }: { path: SourcePath }) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedGalleryModulePath, setSelectedGalleryModulePath] = useState<
-    string | null
-  >(null);
   const {
     addPatch,
     patchPath,
@@ -163,18 +159,6 @@ export function FileField({ path }: { path: SourcePath }) {
       }
     }
   }, [sourceAtPath]);
-  useEffect(() => {
-    if (
-      schemaAtPath.status === "success" &&
-      schemaAtPath.data.type === "file" &&
-      schemaAtPath.data.moduleMetadata
-    ) {
-      const keys = Object.keys(schemaAtPath.data.moduleMetadata);
-      if (keys.length >= 1 && selectedGalleryModulePath === null) {
-        setSelectedGalleryModulePath(keys[0]);
-      }
-    }
-  }, [schemaAtPath]);
   useEffect(() => {
     // We want to show video if only video is accepted
     // If source is defined we also show a video if the mimeType is video
@@ -240,17 +224,18 @@ export function FileField({ path }: { path: SourcePath }) {
     schemaAtPath.data.type === "file" &&
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
+  const referencedModule = schemaAtPath.data.referencedModule;
   const missingModules =
-    schemaAtPath.data.moduleMetadata && schemas.status === "success"
-      ? Object.keys(schemaAtPath.data.moduleMetadata).filter(
-          (modulePath) => !schemas.data[modulePath as ModuleFilePath],
-        )
+    referencedModule && schemas.status === "success"
+      ? schemas.data[referencedModule as ModuleFilePath]
+        ? []
+        : [referencedModule]
       : [];
   const disabled = remoteFileUploadDisabled || missingModules.length > 0;
   const acceptOptions = useMemo(() => {
     if (
       schemaAtPath.data.type !== "file" ||
-      !schemaAtPath.data.moduleMetadata ||
+      !referencedModule ||
       schemas.status !== "success"
     ) {
       return undefined;
@@ -258,20 +243,12 @@ export function FileField({ path }: { path: SourcePath }) {
     if (schemaAtPath.data.options?.accept) {
       return schemaAtPath.data.options.accept;
     }
-    const modulePaths = Object.keys(schemaAtPath.data.moduleMetadata);
-    if (modulePaths.length > 1) {
-      console.error(
-        `Expected at most 1 referenced module, but got ${modulePaths.length}: ${modulePaths.join(", ")}`,
-      );
-    }
-    const [modulePath] = modulePaths;
-    if (!modulePath) return undefined;
-    const moduleSchema = schemas.data[modulePath as ModuleFilePath];
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
     if (moduleSchema?.type === "record" && moduleSchema.accept) {
       return moduleSchema.accept;
     }
     return undefined;
-  }, [schemaAtPath.data, schemas]);
+  }, [schemaAtPath.data, referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -336,24 +313,9 @@ export function FileField({ path }: { path: SourcePath }) {
             )}
           </div>
         )}
-        {schemaAtPath.data.moduleMetadata &&
-          Object.keys(schemaAtPath.data.moduleMetadata).length > 1 && (
-            <GalleryUploadTarget
-              modulePaths={Object.keys(schemaAtPath.data.moduleMetadata)}
-              selectedPath={selectedGalleryModulePath ?? undefined}
-              onSelect={setSelectedGalleryModulePath}
-              portalContainer={portalContainer}
-            />
-          )}
-        {schemaAtPath.data.moduleMetadata &&
-          Object.keys(schemaAtPath.data.moduleMetadata).length > 0 && (
-            <MediaPicker
-              moduleEntries={
-                schemaAtPath.data.moduleMetadata as Record<
-                  string,
-                  Record<string, Record<string, unknown>>
-                >
-              }
+        {referencedModule && (
+            <ModuleMediaPicker
+              modulePath={referencedModule as ModuleFilePath}
               selectedRef={source?._ref ?? null}
               onSelect={(entry: GalleryEntry) => {
                 addPatch(
@@ -449,7 +411,6 @@ export function FileField({ path }: { path: SourcePath }) {
                   };
                 }
                 setError(null);
-                const hasGallery = selectedGalleryModulePath !== null;
                 createFilePatch(
                   patchPath,
                   data.src,
@@ -459,7 +420,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   type,
                   remoteData,
                   config.files?.directory,
-                  hasGallery,
+                  false,
                 )
                   .then(({ patch, filePath }) => {
                     setLoading(true);
@@ -485,12 +446,12 @@ export function FileField({ path }: { path: SourcePath }) {
                       .then(() => {
                         if (
                           !hasError &&
-                          selectedGalleryModulePath &&
+                          referencedModule &&
                           filePath &&
                           metadata?.mimeType
                         ) {
                           addModuleFilePatch(
-                            selectedGalleryModulePath as ModuleFilePath,
+                            referencedModule as ModuleFilePath,
                             [
                               {
                                 op: "add",
