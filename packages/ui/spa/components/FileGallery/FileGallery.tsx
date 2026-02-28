@@ -1,11 +1,20 @@
 import * as React from "react";
-import { FolderOpen, Grid, LayoutGrid, List, Search } from "lucide-react";
+import {
+  FolderOpen,
+  Grid,
+  LayoutGrid,
+  List,
+  Loader2,
+  Plus,
+  Search,
+} from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { Skeleton } from "../designSystem/skeleton";
 import { FileGalleryItem } from "./FileGalleryItem";
 import { FileGalleryListView } from "./FileGalleryListView";
 import { FilePropertiesModal } from "./FilePropertiesModal";
+import { useValPortal } from "../ValPortalProvider";
 import type {
   FileGalleryProps,
   SortDirection,
@@ -23,7 +32,10 @@ export function FileGallery({
   imageMode = false,
   loading = false,
   disabled = false,
+  onUploadClick,
+  uploading = false,
 }: FileGalleryProps) {
+  const portalContainer = useValPortal();
   const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<ViewMode>(defaultViewMode);
@@ -147,6 +159,21 @@ export function FileGallery({
           </div>
         )}
         <div className="flex items-center gap-1 ml-auto">
+          {onUploadClick && (
+            <button
+              type="button"
+              onClick={onUploadClick}
+              disabled={uploading}
+              className="rounded p-1.5 transition-colors text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:opacity-50"
+              title="Upload file"
+            >
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setViewMode("masonry")}
@@ -247,6 +274,7 @@ export function FileGallery({
         imageMode={imageMode}
         loading={loading}
         disabled={disabled}
+        container={portalContainer}
       />
     </div>
   );
