@@ -22,6 +22,7 @@ interface FilePropertiesModalProps {
   imageMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
+  container?: HTMLElement | null;
 }
 
 export function FilePropertiesModal({
@@ -34,6 +35,7 @@ export function FilePropertiesModal({
   imageMode,
   loading,
   disabled,
+  container,
 }: FilePropertiesModalProps) {
   const [isEditingAlt, setIsEditingAlt] = React.useState(false);
   const [editedAlt, setEditedAlt] = React.useState("");
@@ -75,7 +77,7 @@ export function FilePropertiesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl" container={container}>
         <DialogHeader>
           <DialogTitle>File Properties</DialogTitle>
         </DialogHeader>
