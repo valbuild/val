@@ -29,4 +29,6 @@ export interface FileGalleryProps {
   imageMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
+  onUploadClick?: () => void;
+  uploading?: boolean;
 }

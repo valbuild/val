@@ -7,6 +7,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValFieldProvider";
+import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -64,6 +65,9 @@ export function RecordFields({ path }: { path: SourcePath }) {
         actualType={schemaAtPath.data.type}
       />
     );
+  }
+  if (schemaAtPath.data.mediaType) {
+    return <ModuleGallery path={path} />;
   }
   const source = sourceAtPath.data;
   const renderListAtPathData =
