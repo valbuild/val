@@ -121,6 +121,7 @@ export function Module({ path }: { path: SourcePath }) {
 
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
+  const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -159,15 +160,17 @@ export function Module({ path }: { path: SourcePath }) {
             {showNumber && (
               <span className="shrink-0">#{Number(last.text)}</span>
             )}
-            <div className="shrink-0 flex gap-2 items-center">
-              {hasPendingPatches && (
-                <FieldPatchAuthors
-                  patchesByAuthorIds={patchesByAuthorIds}
-                  profilesByAuthorIds={profilesByAuthorIds}
-                />
-              )}
-              <ArrayAndRecordTools path={path} variant={"module"} />
-            </div>
+            {!isMediaGallery && (
+              <div className="shrink-0 flex gap-2 items-center">
+                {hasPendingPatches && (
+                  <FieldPatchAuthors
+                    patchesByAuthorIds={patchesByAuthorIds}
+                    profilesByAuthorIds={profilesByAuthorIds}
+                  />
+                )}
+                <ArrayAndRecordTools path={path} variant={"module"} />
+              </div>
+            )}
           </div>
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />

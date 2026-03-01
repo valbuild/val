@@ -26,8 +26,9 @@ export function FileGallery({
   files,
   onFileRename,
   onAltTextChange,
+  onFileDelete,
   className,
-  defaultViewMode = "masonry",
+  defaultViewMode = "list",
   showSearch = true,
   imageMode = false,
   loading = false,
@@ -51,8 +52,10 @@ export function FileGallery({
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      result = result.filter((file) =>
-        file.filename.toLowerCase().includes(query),
+      result = result.filter(
+        (file) =>
+          file.filename.toLowerCase().includes(query) ||
+          (file.metadata.alt ?? "").toLowerCase().includes(query),
       );
     }
 
@@ -64,6 +67,11 @@ export function FileGallery({
         switch (sortField) {
           case "name":
             comparison = a.filename.localeCompare(b.filename);
+            break;
+          case "description":
+            comparison = (a.metadata.alt ?? "").localeCompare(
+              b.metadata.alt ?? "",
+            );
             break;
           case "type":
             comparison = a.metadata.mimeType.localeCompare(b.metadata.mimeType);
@@ -151,10 +159,10 @@ export function FileGallery({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-secondary" />
             <Input
               type="text"
-              placeholder="Filter by name..."
+              placeholder="Filter"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-8"
+              className="pl-8"
             />
           </div>
         )}
@@ -168,13 +176,14 @@ export function FileGallery({
               title="Upload file"
             >
               {uploading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-5 animate-spin" />
               ) : (
-                <Plus className="h-4 w-4" />
+                <Plus className="size-5" />
               )}
             </button>
           )}
-          <button
+          {/* TODO: fix overflow in Masonry */}
+          {/* <button
             type="button"
             onClick={() => setViewMode("masonry")}
             className={cn(
@@ -185,8 +194,8 @@ export function FileGallery({
             )}
             title="Masonry view"
           >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
+            <LayoutGrid className="size-5" />
+          </button> */}
           <button
             type="button"
             onClick={() => setViewMode("grid")}
@@ -198,7 +207,7 @@ export function FileGallery({
             )}
             title="Grid view"
           >
-            <Grid className="h-4 w-4" />
+            <Grid className="size-5" />
           </button>
           <button
             type="button"
@@ -211,7 +220,7 @@ export function FileGallery({
             )}
             title="List view"
           >
-            <List className="h-4 w-4" />
+            <List className="size-5" />
           </button>
         </div>
       </div>
@@ -271,6 +280,7 @@ export function FileGallery({
         onOpenChange={setIsPropertiesOpen}
         onFileRename={onFileRename}
         onAltTextChange={onAltTextChange}
+        onFileDelete={onFileDelete}
         imageMode={imageMode}
         loading={loading}
         disabled={disabled}

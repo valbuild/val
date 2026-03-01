@@ -31,6 +31,7 @@ export const isParentArray = (
   parentSchemaAtPath: SerializedSchema | undefined,
 ) => maybeParentPath !== path && parentSchemaAtPath?.type === "array";
 export const isRecord = (schema: SerializedSchema | undefined) =>
-  schema?.type === "record";
+  schema?.type === "record" &&
+  !(schema.mediaType === "files" || schema.mediaType === "images");
 export const isArray = (schema: SerializedSchema | undefined) =>
   schema?.type === "array";

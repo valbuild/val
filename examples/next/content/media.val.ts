@@ -3,7 +3,7 @@ import { c, s } from "../val.config";
 export default c.define(
   "/content/media.val.ts",
   s.images({
-    accept: "image/webp",
+    accept: "image/*",
     directory: "/public/val/images",
     alt: s.string().minLength(4),
   }),

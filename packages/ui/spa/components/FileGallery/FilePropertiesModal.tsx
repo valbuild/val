@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ExternalLink, Pencil } from "lucide-react";
+import { Check, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import { Input } from "../designSystem/input";
 import { FilePreview } from "./FilePreview";
 import { FilenameInput } from "./FilenameInput";
 import type { GalleryFile } from "./types";
+import { FieldValidationError } from "../FieldValidationError";
 
 interface FilePropertiesModalProps {
   file: GalleryFile | null;
@@ -19,6 +20,7 @@ interface FilePropertiesModalProps {
   onOpenChange: (open: boolean) => void;
   onFileRename?: (index: number, newFilename: string) => void;
   onAltTextChange?: (index: number, newAltText: string) => void;
+  onFileDelete?: (index: number) => void;
   imageMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
@@ -32,41 +34,16 @@ export function FilePropertiesModal({
   onOpenChange,
   onFileRename,
   onAltTextChange,
+  onFileDelete,
   imageMode,
   loading,
   disabled,
   container,
 }: FilePropertiesModalProps) {
-  const [isEditingAlt, setIsEditingAlt] = React.useState(false);
-  const [editedAlt, setEditedAlt] = React.useState("");
-
-  React.useEffect(() => {
-    if (file) {
-      setEditedAlt(file.metadata.alt ?? "");
-      setIsEditingAlt(false);
-    }
-  }, [file]);
-
   if (!file || fileIndex === null) return null;
 
   const handleFilenameChange = (newFilename: string) => {
     onFileRename?.(fileIndex, newFilename);
-  };
-
-  const handleSaveAlt = () => {
-    if (editedAlt !== (file.metadata.alt ?? "")) {
-      onAltTextChange?.(fileIndex, editedAlt);
-    }
-    setIsEditingAlt(false);
-  };
-
-  const handleAltKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleSaveAlt();
-    } else if (e.key === "Escape") {
-      setEditedAlt(file.metadata.alt ?? "");
-      setIsEditingAlt(false);
-    }
   };
 
   const handleOpenInNewTab = () => {
@@ -108,58 +85,39 @@ export function FilePropertiesModal({
 
             {/* Alt Text (only for images in imageMode) */}
             {imageMode && isImage && onAltTextChange && (
-              <div className="flex flex-col gap-1">
+              <div
+                className={cn("flex flex-col gap-1", {
+                  "border-[red] border p-2 rounded":
+                    file.fieldSpecificErrors?.alt &&
+                    file.fieldSpecificErrors.alt.length > 0,
+                })}
+              >
                 <label className="text-xs font-medium text-fg-secondary">
-                  Alt Text
+                  Description
                 </label>
-                {isEditingAlt ? (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      value={editedAlt}
-                      onChange={(e) => setEditedAlt(e.target.value)}
-                      onKeyDown={handleAltKeyDown}
-                      autoFocus
-                      placeholder="Describe this image..."
-                      className="h-8 flex-1 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveAlt}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary"
-                      title="Save"
-                    >
-                      <Check className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <span
-                      className={cn(
-                        "flex-1 truncate rounded px-2 py-1.5 text-sm",
-                        file.metadata.alt
-                          ? "text-fg-primary"
-                          : "text-fg-secondary italic",
-                      )}
-                      title={file.metadata.alt || undefined}
-                    >
-                      {file.metadata.alt || "No alt text"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingAlt(true)}
-                      disabled={disabled || loading}
-                      className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
-                        disabled || loading
-                          ? "cursor-not-allowed text-fg-disabled"
-                          : "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                      )}
-                      title={disabled ? "Editing disabled" : "Edit alt text"}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
+
+                <div>
+                  <Input
+                    value={file.metadata.alt ?? ""}
+                    onChange={(e) => {
+                      onAltTextChange?.(fileIndex, e.target.value);
+                    }}
+                    autoFocus
+                    placeholder="Describe this image..."
+                  />
+                  {file.fieldSpecificErrors?.alt &&
+                    file.fieldSpecificErrors.alt.length > 0 && (
+                      <ul className="list-none p-0 text-sm">
+                        {file.fieldSpecificErrors.alt.map((error, i) => (
+                          <li key={i}>
+                            <FieldValidationError
+                              validationErrors={[{ message: error }]}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
               </div>
             )}
 
@@ -224,6 +182,20 @@ export function FilePropertiesModal({
             <ExternalLink className="h-4 w-4" />
             Open in New Tab
           </button>
+          {onFileDelete && fileIndex !== null && (
+            <button
+              type="button"
+              onClick={() => {
+                onFileDelete(fileIndex);
+                onOpenChange(false);
+              }}
+              disabled={disabled || loading}
+              className="ml-auto inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

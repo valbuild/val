@@ -1590,11 +1590,13 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        console.log("Got patches for save", patches);
         const analysis = serverOps.analyzePatches(
           patches.patches,
           patches.commits,
           commit,
         );
+        console.log("Got analysis for save", analysis);
         const preparedCommit = await serverOps.prepare({
           ...analysis,
           ...patches,

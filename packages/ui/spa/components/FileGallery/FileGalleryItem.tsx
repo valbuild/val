@@ -22,7 +22,12 @@ export function FileGalleryItem({
     ? file.metadata.width / file.metadata.height
     : 1;
 
-  const hasErrors = file.validationErrors && file.validationErrors.length > 0;
+  const hasErrors =
+    (file.validationErrors && file.validationErrors.length > 0) ||
+    (file.fieldSpecificErrors &&
+      Object.values(file.fieldSpecificErrors).some(
+        (errs) => errs && errs.length > 0,
+      ));
 
   const buttonContent = (
     <button
@@ -33,13 +38,13 @@ export function FileGalleryItem({
         "hover:shadow-md",
         "focus:outline-none focus:ring-2 focus:ring-offset-2",
         hasErrors
-          ? "border-destructive ring-destructive/50 hover:border-destructive focus:ring-destructive"
+          ? "border-bg-error-primary ring-bg-error-primary/50 hover:border-bg-error-primary-hover focus:ring-bg-error-primary"
           : "border-border-secondary hover:border-border-primary focus:ring-ring",
       )}
-      title={hasErrors ? file.validationErrors!.join(", ") : undefined}
+      title={hasErrors ? file.validationErrors?.join(", ") : undefined}
     >
       <div
-        className="relative w-full overflow-hidden bg-bg-secondary"
+        className={cn("relative w-full overflow-hidden bg-bg-secondary")}
         style={{
           aspectRatio: viewMode === "masonry" ? aspectRatio : 1,
         }}

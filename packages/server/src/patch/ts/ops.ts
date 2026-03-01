@@ -656,6 +656,10 @@ function removeFromNode(
       result.map((index: number) => removeAt(document, node.elements, index)),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
+    console.log(
+      "ABOUT TO REMOVE FROM NODE",
+      printer.printNode(ts.EmitHint.Unspecified, node, document),
+    );
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap(
@@ -665,7 +669,7 @@ function removeFromNode(
           if (!assignment) {
             return result.err(
               new PatchError(
-                "Cannot replace object element which does not exist",
+                "Cannot remove object element which does not exist",
               ),
             );
           }

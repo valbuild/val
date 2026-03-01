@@ -4,7 +4,6 @@ import { RecordSchema } from "./record";
 import { ObjectSchema } from "./object";
 import { StringSchema, string } from "./string";
 import { NumberSchema } from "./number";
-import { SelectorSource } from "../selector";
 
 /**
  * Alt schema type - can be a string, nullable string, or a record of locale to string
@@ -101,20 +100,20 @@ export const images = <Accept extends `image/${string}`>(
 > => {
   const directory = options.directory ?? "/public/val";
   const altSchema = options.alt ?? string().nullable();
-  const itemSchema = new ObjectSchema<ImagesItemProps, ImagesItemSrc>(
+  const itemSchema = new ObjectSchema(
     {
       width: new NumberSchema<number>(undefined, false),
       height: new NumberSchema<number>(undefined, false),
       mimeType: new StringSchema<string>({}, false),
-      alt: new StringSchema<string | null>({}, true),
+      alt: altSchema,
     },
     false,
-  );
+  ) as ObjectSchema<ImagesItemProps, ImagesItemSrc>;
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "images",
     accept: options.accept,
     directory,
     remote: options.remote ?? false,
-    altSchema: altSchema as Schema<SelectorSource>,
+    altSchema,
   });
 };

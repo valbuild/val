@@ -193,6 +193,11 @@ export function ImageField({ path }: { path: SourcePath }) {
     }
     return undefined;
   }, [schemaAtPath.data, referencedModule, schemas]);
+  const moduleDirectory = useMemo(() => {
+    if (!referencedModule || schemas.status !== "success") return undefined;
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -370,31 +375,31 @@ export function ImageField({ path }: { path: SourcePath }) {
           </div>
         )}
         {referencedModule && (
-            <ModuleMediaPicker
-              modulePath={referencedModule as ModuleFilePath}
-              selectedRef={source?._ref ?? null}
-              onSelect={(entry: GalleryEntry) => {
-                addPatch(
-                  [
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: {
-                        [FILE_REF_PROP]: entry.filePath,
-                        [VAL_EXTENSION]: "file",
-                        [FILE_REF_SUBTYPE_TAG]: "image",
-                        metadata: entry.metadata as JSONValue,
-                      },
+          <ModuleMediaPicker
+            modulePath={referencedModule as ModuleFilePath}
+            selectedRef={source?._ref ?? null}
+            onSelect={(entry: GalleryEntry) => {
+              addPatch(
+                [
+                  {
+                    op: "replace",
+                    path: patchPath,
+                    value: {
+                      [FILE_REF_PROP]: entry.filePath,
+                      [VAL_EXTENSION]: "file",
+                      [FILE_REF_SUBTYPE_TAG]: "image",
+                      metadata: entry.metadata as JSONValue,
                     },
-                  ],
-                  "image",
-                );
-              }}
-              isImage
-              disabled={disabled}
-              portalContainer={portalContainer}
-            />
-          )}
+                  },
+                ],
+                "image",
+              );
+            }}
+            isImage
+            disabled={disabled}
+            portalContainer={portalContainer}
+          />
+        )}
         <Button asChild variant={"secondary"} disabled={disabled}>
           <label htmlFor={`img_input:${path}`}>Upload</label>
         </Button>
@@ -434,7 +439,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 metadata,
                 type,
                 remoteData,
-                config.files?.directory,
+                moduleDirectory ?? config.files?.directory,
                 false,
               )
                 .then(({ patch, filePath }) => {
