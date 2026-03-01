@@ -12,17 +12,21 @@ export interface GalleryFile {
   metadata: FileMetadata;
   createdAt?: Date;
   validationErrors?: string[];
+  fieldSpecificErrors?: {
+    alt?: string[];
+  };
 }
 
 export type ViewMode = "masonry" | "grid" | "list";
 
-export type SortField = "name" | "type";
+export type SortField = "name" | "description" | "type";
 export type SortDirection = "asc" | "desc";
 
 export interface FileGalleryProps {
   files: GalleryFile[];
   onFileRename?: (index: number, newFilename: string) => void;
   onAltTextChange?: (index: number, newAltText: string) => void;
+  onFileDelete?: (index: number) => void;
   className?: string;
   defaultViewMode?: ViewMode;
   showSearch?: boolean;

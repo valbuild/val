@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { FileGallery } from "../FileGallery";
 import type { GalleryFile } from "../types";
+import { ValPortalProvider } from "../../ValPortalProvider";
+import { ValThemeProvider } from "../../ValThemeProvider";
 
 const meta: Meta<typeof FileGallery> = {
   title: "Components/FileGallery",
@@ -10,6 +12,15 @@ const meta: Meta<typeof FileGallery> = {
     layout: "padded",
   },
   tags: ["autodocs"],
+  decorators: [
+    (Story) => (
+      <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
+        <ValPortalProvider>
+          <Story />
+        </ValPortalProvider>
+      </ValThemeProvider>
+    ),
+  ],
 };
 
 export default meta;

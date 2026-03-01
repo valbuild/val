@@ -3,7 +3,6 @@ import {
   ImageMetadata,
   FILE_REF_PROP,
   VAL_EXTENSION,
-  ConfigDirectory,
   Internal,
   ModuleFilePath,
   SourcePath,
@@ -56,7 +55,7 @@ export async function createFilePatch(
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null,
-  directory: ConfigDirectory = "/public/val",
+  directory: string | undefined = "/public/val",
   skipMetadataInReplace: boolean = false,
 ): Promise<{ patch: Patch; filePath: string }> {
   const newFilePath = Internal.createFilename(
@@ -85,7 +84,7 @@ export async function createFilePatch(
           textEncoder,
         ),
         fileHash: remoteFileHash,
-        filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
+        filePath: `${(directory ?? "/public/val").slice(1) as `public/val/${string}`}/${newFilePath}`,
       })
     : filePath;
   return {
@@ -254,6 +253,11 @@ export function FileField({ path }: { path: SourcePath }) {
     }
     return undefined;
   }, [schemaAtPath.data, referencedModule, schemas]);
+  const moduleDirectory = useMemo(() => {
+    if (!referencedModule || schemas.status !== "success") return undefined;
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -424,7 +428,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   metadata,
                   type,
                   remoteData,
-                  config.files?.directory,
+                  moduleDirectory ?? config.files?.directory,
                   false,
                 )
                   .then(({ patch, filePath }) => {
