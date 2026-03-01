@@ -115,6 +115,16 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     if (this.opt && (src === null || src === undefined)) {
       return errors.length > 0 ? { [path]: errors } : false;
     }
+    if (!this.opt && src === null) {
+      return {
+        [path]: [
+          {
+            message: `Expected a non-empty value`,
+            value: src,
+          },
+        ],
+      };
+    }
     if (typeof src !== "string") {
       return {
         [path]: [

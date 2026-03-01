@@ -671,14 +671,19 @@ export class ValOpsFS extends ValOps {
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
-    data: string,
+    data: string | null,
     _type: BinaryFileType,
-    metadata: MetadataOfType<BinaryFileType>,
+    metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
     const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
     try {
+      if (data === null) {
+        this.host.deleteFile(patchFilePath);
+        this.host.deleteFile(metadataFilePath);
+        return { patchId, filePath };
+      }
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
         return {
@@ -1007,7 +1012,11 @@ export class ValOpsFS extends ValOps {
     )) {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
-        this.host.writeUf8File(absPath, data);
+        if (data === null) {
+          this.host.deleteFile(absPath);
+        } else {
+          this.host.writeUf8File(absPath, data);
+        }
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
@@ -1175,6 +1184,12 @@ class FSOpsHost {
       fs.rmSync(dir, {
         recursive: true,
       });
+    }
+  }
+
+  deleteFile(path: string) {
+    if (this.fileExists(path)) {
+      fs.rmSync(path);
     }
   }
 
