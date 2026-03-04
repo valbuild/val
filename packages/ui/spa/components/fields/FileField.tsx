@@ -323,30 +323,30 @@ export function FileField({ path }: { path: SourcePath }) {
           </div>
         )}
         {referencedModule && (
-            <ModuleMediaPicker
-              modulePath={referencedModule as ModuleFilePath}
-              selectedRef={source?._ref ?? null}
-              onSelect={(entry: GalleryEntry) => {
-                addPatch(
-                  [
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: {
-                        [FILE_REF_PROP]: entry.filePath,
-                        [VAL_EXTENSION]: "file",
-                        metadata: entry.metadata as JSONValue,
-                      },
+          <ModuleMediaPicker
+            modulePath={referencedModule as ModuleFilePath}
+            selectedRef={source?._ref ?? null}
+            onSelect={(entry: GalleryEntry) => {
+              addPatch(
+                [
+                  {
+                    op: "replace",
+                    path: patchPath,
+                    value: {
+                      [FILE_REF_PROP]: entry.filePath,
+                      [VAL_EXTENSION]: "file",
+                      metadata: entry.metadata as JSONValue,
                     },
-                  ],
-                  "file",
-                );
-              }}
-              isImage={false}
-              disabled={disabled}
-              portalContainer={portalContainer}
-            />
-          )}
+                  },
+                ],
+                "file",
+              );
+            }}
+            isImage={false}
+            disabled={disabled}
+            portalContainer={portalContainer}
+          />
+        )}
         <div className="flex gap-4 items-center">
           {source &&
             (showAsVideo ? (
@@ -429,7 +429,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   type,
                   remoteData,
                   moduleDirectory ?? config.files?.directory,
-                  false,
+                  !!referencedModule,
                 )
                   .then(({ patch, filePath }) => {
                     setLoading(true);

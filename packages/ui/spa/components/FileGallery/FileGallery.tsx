@@ -24,6 +24,7 @@ import type {
 
 export function FileGallery({
   files,
+  parentPath,
   onFileRename,
   onAltTextChange,
   onFileDelete,
@@ -281,6 +282,7 @@ export function FileGallery({
         onFileRename={onFileRename}
         onAltTextChange={onAltTextChange}
         onFileDelete={onFileDelete}
+        parentPath={parentPath}
         imageMode={imageMode}
         loading={loading}
         disabled={disabled}

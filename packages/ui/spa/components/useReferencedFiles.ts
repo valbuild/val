@@ -5,9 +5,9 @@ import {
   useSchemas,
   useLoadingStatus,
 } from "./ValFieldProvider";
-import { getKeysOf } from "./getKeysOf";
+import { getReferencedFiles } from "./getReferencedFiles";
 
-export function useKeysOf(
+export function useReferencedFiles(
   parentPath: ModuleFilePath | undefined,
   keyValue?: string,
 ) {
@@ -18,11 +18,9 @@ export function useKeysOf(
     if (
       parentPath !== undefined &&
       "data" in schemas &&
-      schemas.data !== undefined &&
-      schemas.data[parentPath] !== undefined
+      schemas.data !== undefined
     ) {
-      console.log(getKeysOf(schemas.data, allSources, parentPath, keyValue));
-      return getKeysOf(schemas.data, allSources, parentPath, keyValue);
+      return getReferencedFiles(schemas.data, allSources, parentPath, keyValue);
     }
     return [];
   }, [

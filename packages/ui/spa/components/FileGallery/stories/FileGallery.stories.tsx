@@ -28,6 +28,7 @@ type Story = StoryObj<typeof FileGallery>;
 
 const imageFiles: GalleryFile[] = [
   {
+    ref: "/images/photos/landscape.jpg",
     url: "/sample-image-1.jpg",
     filename: "landscape.jpg",
     folder: "/images/photos",
@@ -40,6 +41,7 @@ const imageFiles: GalleryFile[] = [
     createdAt: new Date("2025-12-15T10:30:00"),
   },
   {
+    ref: "/images/photos/portrait.jpg",
     url: "/sample-image-2.jpg",
     filename: "portrait.jpg",
     folder: "/images/photos",
@@ -51,6 +53,7 @@ const imageFiles: GalleryFile[] = [
     createdAt: new Date("2025-12-20T14:45:00"),
   },
   {
+    ref: "/images/banners/wide-shot.jpg",
     url: "/sample-image-3.jpg",
     filename: "wide-shot.jpg",
     folder: "/images/banners",
@@ -66,6 +69,7 @@ const imageFiles: GalleryFile[] = [
 const mixedFiles: GalleryFile[] = [
   ...imageFiles,
   {
+    ref: "/videos/demo-video.mp4",
     url: "/sample-video.mp4",
     filename: "demo-video.mp4",
     folder: "/videos",
@@ -77,6 +81,7 @@ const mixedFiles: GalleryFile[] = [
     createdAt: new Date("2025-11-10T09:00:00"),
   },
   {
+    ref: "/audio/background-music.mp3",
     url: "#",
     filename: "background-music.mp3",
     folder: "/audio",
@@ -88,6 +93,7 @@ const mixedFiles: GalleryFile[] = [
     createdAt: new Date("2026-01-05T16:20:00"),
   },
   {
+    ref: "/data/config.json",
     url: "#",
     filename: "config.json",
     folder: "/data",
@@ -99,6 +105,7 @@ const mixedFiles: GalleryFile[] = [
     createdAt: new Date("2025-10-01T12:00:00"),
   },
   {
+    ref: "/docs/readme.txt",
     url: "#",
     filename: "readme.txt",
     folder: "/docs",
@@ -110,6 +117,7 @@ const mixedFiles: GalleryFile[] = [
     createdAt: new Date("2026-02-01T08:30:00"),
   },
   {
+    ref: "/downloads/archive.zip",
     url: "#",
     filename: "archive.zip",
     folder: "/downloads",
@@ -317,9 +325,11 @@ function generateManyFiles(count: number): GalleryFile[] {
 
   return Array.from({ length: count }, (_, i) => {
     const base = baseFiles[i % baseFiles.length];
+    const filename = `${base.filename}-${i + 1}.${base.metadata.mimeType.split("/")[1]}`;
     return {
       ...base,
-      filename: `${base.filename}-${i + 1}.${base.metadata.mimeType.split("/")[1]}`,
+      ref: `${base.folder}/${filename}`,
+      filename,
       createdAt: new Date(Date.now() - i * 1000 * 60 * 60 * 24),
     };
   });

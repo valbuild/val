@@ -38,6 +38,7 @@ function refToUrl(
 }
 
 export function ModuleGallery({ path }: { path: SourcePath }) {
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
   const schemaAtPath = useSchemaAtPath(path);
   const filePatchIds = useFilePatchIds();
@@ -84,6 +85,7 @@ export function ModuleGallery({ path }: { path: SourcePath }) {
         }
 
         return {
+          ref,
           url: refToUrl(ref, filePatchIds),
           filename: ref.split("/").pop() || ref,
           folder: ref.substring(0, ref.lastIndexOf("/")),
@@ -267,6 +269,7 @@ export function ModuleGallery({ path }: { path: SourcePath }) {
       />
       <FileGallery
         files={files}
+        parentPath={moduleFilePath}
         imageMode={imageMode}
         onAltTextChange={imageMode ? handleAltTextChange : undefined}
         onFileDelete={handleFileDelete}

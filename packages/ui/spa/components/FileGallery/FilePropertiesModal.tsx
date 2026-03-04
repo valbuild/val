@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Check, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Check, ExternalLink, Link, Trash2 } from "lucide-react";
+import { Internal, ModuleFilePath } from "@valbuild/core";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +13,23 @@ import { FilePreview } from "./FilePreview";
 import { FilenameInput } from "./FilenameInput";
 import type { GalleryFile } from "./types";
 import { FieldValidationError } from "../FieldValidationError";
+import { useKeysOf } from "../useKeysOf";
+import { useNavigation } from "../ValRouter";
+import { ValPath } from "../ValPath";
+import { prettifyFilename } from "../../utils/prettifyFilename";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../designSystem/command";
 
 interface FilePropertiesModalProps {
   file: GalleryFile | null;
@@ -21,6 +39,7 @@ interface FilePropertiesModalProps {
   onFileRename?: (index: number, newFilename: string) => void;
   onAltTextChange?: (index: number, newAltText: string) => void;
   onFileDelete?: (index: number) => void;
+  parentPath?: string;
   imageMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
@@ -35,11 +54,16 @@ export function FilePropertiesModal({
   onFileRename,
   onAltTextChange,
   onFileDelete,
+  parentPath,
   imageMode,
   loading,
   disabled,
   container,
 }: FilePropertiesModalProps) {
+  const refs = useKeysOf(parentPath as ModuleFilePath | undefined, file?.ref);
+  const { navigate, currentSourcePath } = useNavigation();
+  const [refsOpen, setRefsOpen] = React.useState(false);
+
   if (!file || fileIndex === null) return null;
 
   const handleFilenameChange = (newFilename: string) => {
@@ -183,18 +207,75 @@ export function FilePropertiesModal({
             Open in New Tab
           </button>
           {onFileDelete && fileIndex !== null && (
-            <button
-              type="button"
-              onClick={() => {
-                onFileDelete(fileIndex);
-                onOpenChange(false);
-              }}
-              disabled={disabled || loading}
-              className="ml-auto inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              {refs.length > 0 && (
+                <Popover open={refsOpen} onOpenChange={setRefsOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
+                    >
+                      <Link className="h-4 w-4" />
+                      {refs.length} reference{refs.length !== 1 ? "s" : ""}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[clamp(300px,40vw,400px)] p-0 z-[8999]"
+                    container={container}
+                  >
+                    <Command>
+                      <CommandInput placeholder="Filter" />
+                      <CommandList>
+                        <CommandEmpty>No references found.</CommandEmpty>
+                        <CommandGroup>
+                          {refs.map((ref) => {
+                            const [refModuleFilePath, modulePath] =
+                              Internal.splitModuleFilePathAndModulePath(ref);
+                            const patchPath =
+                              Internal.createPatchPath(modulePath);
+                            const label = `${prettifyFilename(Internal.splitModuleFilePath(refModuleFilePath).pop() || "")}${modulePath ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}` : ""}`;
+                            const isCurrent = currentSourcePath === ref;
+                            return (
+                              <CommandItem
+                                key={ref}
+                                value={label}
+                                onSelect={() => {
+                                  navigate(ref);
+                                  setRefsOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    isCurrent ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                                <ValPath
+                                  moduleFilePath={refModuleFilePath}
+                                  patchPath={patchPath}
+                                />
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  onFileDelete(fileIndex);
+                  onOpenChange(false);
+                }}
+                disabled={disabled || loading || refs.length > 0}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            </div>
           )}
         </div>
       </DialogContent>

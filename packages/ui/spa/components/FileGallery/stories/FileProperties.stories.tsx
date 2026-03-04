@@ -21,6 +21,7 @@ export default meta;
 type Story = StoryObj<typeof FileProperties>;
 
 const sampleImageFile: GalleryFile = {
+  ref: "/public/val/images/sample-landscape.jpg",
   url: "/sample-landscape.jpg",
   filename: "sample-landscape.jpg",
   folder: "/public/val/images",
@@ -34,6 +35,7 @@ const sampleImageFile: GalleryFile = {
 };
 
 const sampleVideoFile: GalleryFile = {
+  ref: "/public/val/videos/promotional-video.mp4",
   url: "/sample-video.mp4",
   filename: "promotional-video.mp4",
   folder: "/public/val/videos",
@@ -46,6 +48,7 @@ const sampleVideoFile: GalleryFile = {
 };
 
 const sampleDocumentFile: GalleryFile = {
+  ref: "/public/val/documents/annual-report-2024.pdf",
   url: "/document.pdf",
   filename: "annual-report-2024.pdf",
   folder: "/public/val/documents",
@@ -57,6 +60,7 @@ const sampleDocumentFile: GalleryFile = {
 };
 
 const fileWithoutAlt: GalleryFile = {
+  ref: "/public/val/images/no-alt-image.png",
   url: "/no-alt-image.png",
   filename: "no-alt-image.png",
   folder: "/public/val/images",
