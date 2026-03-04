@@ -67,27 +67,26 @@ export function ImageField({ path }: { path: SourcePath }) {
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
     if (maybeSourceData) {
+      // We can't set the url before it is server side (since the we will be loading)
+      if (!maybeClientSideOnly) {
+        const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
+        const nextUrl =
+          VAL_EXTENSION in maybeSourceData &&
+          maybeSourceData[VAL_EXTENSION] === "remote"
+            ? Internal.convertRemoteSource({
+                ...maybeSourceData,
+                [VAL_EXTENSION]: "remote",
+                ...(patchId ? { patch_id: patchId } : {}),
+              }).url
+            : Internal.convertFileSource({
+                ...maybeSourceData,
+                [VAL_EXTENSION]: "file",
+                ...(patchId ? { patch_id: patchId } : {}),
+              }).url;
+        setUrl(nextUrl);
+        setLoading(false);
+      }
       if (maybeSourceData.metadata) {
-        // We can't set the url before it is server side (since the we will be loading)
-        if (!maybeClientSideOnly) {
-          const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
-          const nextUrl =
-            VAL_EXTENSION in maybeSourceData &&
-            maybeSourceData[VAL_EXTENSION] === "remote"
-              ? Internal.convertRemoteSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "remote",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url
-              : Internal.convertFileSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "file",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url;
-          setUrl(nextUrl);
-          setLoading(false);
-        }
-        //
         const metadata = maybeSourceData.metadata;
         if (
           typeof metadata.width !== "number" ||
@@ -236,9 +235,9 @@ export function ImageField({ path }: { path: SourcePath }) {
           </div>
         )}
       <div className="flex flex-col gap-2">
-        {source && (
+        {source && !moduleDirectory && (
           <div className="">
-            <span id={altPath}>Alt text</span>
+            <span id={altPath}>Description</span>
             <Input
               value={
                 source.metadata?.alt
@@ -440,7 +439,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 type,
                 remoteData,
                 moduleDirectory ?? config.files?.directory,
-                false,
+                !!referencedModule,
               )
                 .then(({ patch, filePath }) => {
                   setLoading(true);
@@ -464,31 +463,32 @@ export function ImageField({ path }: { path: SourcePath }) {
                     .then(() => {
                       if (
                         !hasError &&
-                        referencedModule &&
                         filePath &&
                         metadata?.mimeType &&
                         metadata.width !== undefined &&
                         metadata.height !== undefined
                       ) {
-                        addModuleFilePatch(
-                          referencedModule as ModuleFilePath,
-                          [
-                            {
-                              op: "add",
-                              path: [filePath],
-                              value: {
-                                width: metadata.width,
-                                height: metadata.height,
-                                mimeType: metadata.mimeType,
-                                alt:
-                                  typeof metadata.alt === "string"
-                                    ? metadata.alt
-                                    : null,
-                              } as JSONValue,
-                            },
-                          ],
-                          "record",
-                        );
+                        if (referencedModule) {
+                          addModuleFilePatch(
+                            referencedModule as ModuleFilePath,
+                            [
+                              {
+                                op: "add",
+                                path: [filePath],
+                                value: {
+                                  width: metadata.width,
+                                  height: metadata.height,
+                                  mimeType: metadata.mimeType,
+                                  alt:
+                                    typeof metadata.alt === "string"
+                                      ? metadata.alt
+                                      : null,
+                                } as JSONValue,
+                              },
+                            ],
+                            "record",
+                          );
+                        }
                       }
                     })
                     .finally(() => {

@@ -269,6 +269,16 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
+    const isReferencedModule = Object.keys(this.moduleMetadata).length > 0;
+    if (src.metadata === undefined && isReferencedModule) {
+      if (customValidationErrors.length === 0) {
+        return false;
+      }
+      return {
+        [path]: [...customValidationErrors],
+      } as ValidationErrors;
+    }
+
     return {
       [path]: [
         ...customValidationErrors,
