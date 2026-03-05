@@ -1,12 +1,5 @@
-import {
-  Json,
-  ModuleFilePath,
-  ModuleFilePathSep,
-  Source,
-  SerializedObjectSchema,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { ModuleFilePath, SerializedSchema, Source, SourcePath } from "@valbuild/core";
+import { traverseSchemas } from "./traverseSchemas";
 
 // TODO: right now we only support keyOf MODULES that are records
 // We are planning to add support for keyOf selectors (i.e. nested properties of modules) that are records
@@ -29,15 +22,7 @@ export function getKeysOf(
   }
   const parentSourcePath = parent as unknown as SourcePath;
   const results: SourcePath[] = [];
-  const go = (
-    sourcePath: SourcePath,
-    schema: SerializedSchema | undefined,
-    source: Source,
-  ) => {
-    if (schema === undefined) {
-      console.error(`Schema not found for ${sourcePath}`);
-      return;
-    }
+  traverseSchemas(schemas, sources, (sourcePath, schema, source) => {
     if (schema.type === "keyOf") {
       if (schema.path === parentSourcePath) {
         if (keyOfRecord) {
@@ -60,47 +45,6 @@ export function getKeysOf(
           }
         }
       }
-    } else if (schema.type === "object" || schema.type === "record") {
-      if (isObjectSource(source) || isRecordSource(source)) {
-        for (const key in source) {
-          // NOTE: for object we are uncertain if we should use the source or the schema to get the keys. Currently we use the schema.items in other places, but source is more correct perhaps? Or perhaps not? We are not sure...
-          const sourceValue = (source as Record<string, Source>)[key];
-          const schemaValue =
-            schema.type === "object" ? schema.items?.[key] : schema.item;
-          if (sourceValue) {
-            go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
-          }
-        }
-      }
-    } else if (schema.type === "array") {
-      if (isArrayOfSource(source)) {
-        let i = 0;
-        for (const sourceValue of source) {
-          go(sourcePathConcat(sourcePath, i), schema.item, sourceValue);
-          i++;
-        }
-      }
-    } else if (schema.type === "union") {
-      // ignore string unions
-      const schemaKey = schema.key;
-      if (typeof schemaKey === "string") {
-        if (isObjectSource(source)) {
-          const itemKey = (source as Record<string, Source>)[schemaKey];
-          if (typeof itemKey === "string") {
-            const schemaOfItem = (schema.items as SerializedObjectSchema[])
-              .filter((item) => item.type === "object")
-              .find((item) => {
-                const itemKeySchema = item.items[schemaKey];
-                if (itemKeySchema?.type === "literal") {
-                  return itemKeySchema.value === itemKey;
-                }
-              });
-            if (schemaOfItem) {
-              go(sourcePath, schemaOfItem, source);
-            }
-          }
-        }
-      }
     } else if (
       schema.type === "string" ||
       schema.type === "number" ||
@@ -120,38 +64,6 @@ export function getKeysOf(
         exhaustiveCheck,
       );
     }
-  };
-  for (const moduleFilePathS in schemas) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    go(
-      moduleFilePathS as SourcePath,
-      schemas[moduleFilePath],
-      sources[moduleFilePath],
-    );
-  }
+  });
   return results;
-}
-
-function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
-}
-
-function isObjectSource(source: Source): source is Record<string, Source> {
-  return isRecordSource(source);
-}
-
-function isRecordSource(source: Source): source is Record<string, Json> {
-  return typeof source === "object" && !!source && !Array.isArray(source);
-}
-
-function isArrayOfSource(source: Source): source is Json[] {
-  return typeof source === "object" && !!source && Array.isArray(source);
 }
