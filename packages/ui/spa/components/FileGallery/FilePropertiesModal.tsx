@@ -13,7 +13,7 @@ import { FilePreview } from "./FilePreview";
 import { FilenameInput } from "./FilenameInput";
 import type { GalleryFile } from "./types";
 import { FieldValidationError } from "../FieldValidationError";
-import { useKeysOf } from "../useKeysOf";
+import { useReferencedFiles } from "../useReferencedFiles";
 import { useNavigation } from "../ValRouter";
 import { ValPath } from "../ValPath";
 import { prettifyFilename } from "../../utils/prettifyFilename";
@@ -60,7 +60,7 @@ export function FilePropertiesModal({
   disabled,
   container,
 }: FilePropertiesModalProps) {
-  const refs = useKeysOf(parentPath as ModuleFilePath | undefined, file?.ref);
+  const refs = useReferencedFiles(parentPath as ModuleFilePath | undefined, file?.ref);
   const { navigate, currentSourcePath } = useNavigation();
   const [refsOpen, setRefsOpen] = React.useState(false);
 
