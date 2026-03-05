@@ -14,6 +14,12 @@ import { FilenameInput } from "./FilenameInput";
 import type { GalleryFile } from "./types";
 import { FieldValidationError } from "../FieldValidationError";
 import { useReferencedFiles } from "../useReferencedFiles";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../designSystem/tooltip";
 import { useNavigation } from "../ValRouter";
 import { ValPath } from "../ValPath";
 import { prettifyFilename } from "../../utils/prettifyFilename";
@@ -263,18 +269,32 @@ export function FilePropertiesModal({
                   </PopoverContent>
                 </Popover>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  onFileDelete(fileIndex);
-                  onOpenChange(false);
-                }}
-                disabled={disabled || loading || refs.length > 0}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onFileDelete(fileIndex);
+                          onOpenChange(false);
+                        }}
+                        disabled={disabled || loading || refs.length > 0}
+                        className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  {refs.length > 0 && (
+                    <TooltipContent>
+                      Cannot delete: referenced in {refs.length}{" "}
+                      {refs.length === 1 ? "place" : "places"}
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
             </div>
           )}
         </div>
