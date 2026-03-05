@@ -27,7 +27,7 @@ export function ExplorerSection({
   maxHeight = "100%",
 }: ExplorerSectionProps) {
   return (
-    <AccordionItem value="explorer" className="">
+    <AccordionItem value="explorer" className="border-b-0">
       <AccordionTrigger
         className={cn(
           "flex items-center justify-between w-full h-12 px-4 py-0",
