@@ -3,6 +3,7 @@ import picocolors from "picocolors";
 import fs from "fs/promises";
 import { glob } from "fast-glob";
 import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
+import { getSettings, uploadRemoteFile } from "@valbuild/server";
 import { evalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 
@@ -55,10 +56,21 @@ export async function validate({
     root: projectRoot,
     fix: !!fix,
     valFiles,
-    valConfigFile: resolvedValConfigFile,
-    hosts: {
+    project: resolvedValConfigFile?.project,
+    remote: {
       remoteHost: process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
-      contentUrl: process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST,
+      getSettings: (projectName, options) =>
+        getSettings(projectName, options),
+      uploadFile: (project, bucket, fileHash, fileExt, fileBuffer, options) =>
+        uploadRemoteFile(
+          process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST,
+          project,
+          bucket,
+          fileHash,
+          fileExt ?? "",
+          fileBuffer,
+          options,
+        ),
     },
     fs: createDefaultValFSHost(),
   })) {
