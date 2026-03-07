@@ -27,6 +27,13 @@ export const createModuleLoader = (
       );
     },
     rmFile: fs.rmSync,
+    readBuffer: (fileName) => {
+      try {
+        return fs.readFileSync(fileName);
+      } catch {
+        return undefined;
+      }
+    },
   },
 ): ValModuleLoader => {
   const compilerOptions = getCompilerOptions(rootDir, host);
@@ -66,6 +73,13 @@ export class ValModuleLoader {
         );
       },
       rmFile: fs.rmSync,
+      readBuffer: (fileName) => {
+        try {
+          return fs.readFileSync(fileName);
+        } catch {
+          return undefined;
+        }
+      },
     },
     private readonly disableCache: boolean = false,
   ) {
