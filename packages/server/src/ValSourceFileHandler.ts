@@ -18,6 +18,13 @@ export class ValSourceFileHandler {
         );
       },
       rmFile: fs.rmSync,
+      readBuffer: (fileName) => {
+        try {
+          return fs.readFileSync(fileName);
+        } catch {
+          return undefined;
+        }
+      },
     },
   ) {}
 

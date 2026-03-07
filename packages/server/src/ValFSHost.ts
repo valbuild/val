@@ -17,6 +17,7 @@ export interface IValFSHost
     encoding: "binary" | "utf8",
   ): void;
   rmFile(fileName: string): void;
+  readBuffer(fileName: string): Buffer | undefined;
 }
 
 export class ValFSHost implements IValFSHost {
@@ -71,6 +72,10 @@ export class ValFSHost implements IValFSHost {
 
   readFile(fileName: string): string | undefined {
     return this.valFS.readFile(fileName);
+  }
+
+  readBuffer(fileName: string): Buffer | undefined {
+    return this.valFS.readBuffer(fileName);
   }
 
   realpath(path: string): string {

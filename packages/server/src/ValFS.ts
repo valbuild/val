@@ -22,6 +22,8 @@ export interface ValFS {
 
   readFile(filePath: string): string | undefined;
 
+  readBuffer(filePath: string): Buffer | undefined;
+
   rmFile(filePath: string): void;
 
   realpath(path: string): string;
