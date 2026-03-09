@@ -58,9 +58,9 @@ export function Field({
     }
   }, [sourceAtPath, schemaAtPath]);
   const source = "data" in sourceAtPath ? sourceAtPath.data : undefined;
-  const isBoolean =
-    "data" in schemaAtPath && schemaAtPath.data?.type === "boolean";
-  const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
+  const schema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const isBoolean = schema?.type === "boolean";
+  const isNullable = schema?.opt === true;
   return (
     <div
       className={classNames("px-4 pt-6 pb-4 border rounded-lg", {
@@ -70,14 +70,13 @@ export function Field({
     >
       <div className="flex justify-between items-center pb-2">
         <div className="flex gap-4 items-center">
-          {!isBoolean && isNullable && (
+          {schema && !isBoolean && (isNullable || source === null) && (
             <Checkbox
               disabled={loadingStatus === "loading"}
               checked={source !== null || showEmptyFileOrImage}
               onCheckedChange={() => {
                 if (
-                  (schemaAtPath.data.type === "image" ||
-                    schemaAtPath.data.type === "file") &&
+                  (schema.type === "image" || schema.type === "file") &&
                   source === null
                 ) {
                   setShowEmptyFileOrImage(true);
@@ -89,12 +88,12 @@ export function Field({
                           op: "replace",
                           path: patchPath,
                           value: emptyOf({
-                            ...schemaAtPath.data,
+                            ...schema,
                             opt: false, // empty of nullable is null, so we override
                           }) as JSONValue,
                         },
                       ],
-                      schemaAtPath.data.type,
+                      schema.type,
                     );
                   } else {
                     addPatch(
@@ -105,7 +104,7 @@ export function Field({
                           value: null,
                         },
                       ],
-                      schemaAtPath.data.type,
+                      schema.type,
                     );
                   }
                 }

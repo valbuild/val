@@ -70,5 +70,6 @@ export function parseAndValidateArrayIndex(
 
 export function sourceToPatchPath(sourcePath: SourcePath) {
   const [, modulePath] = splitModuleFilePathAndModulePath(sourcePath);
+  if (!modulePath) return [];
   return modulePath.split(".").map((p) => JSON.parse(p).toString());
 }
