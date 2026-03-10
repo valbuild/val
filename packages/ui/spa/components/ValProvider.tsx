@@ -28,7 +28,11 @@ import {
   getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
-import { AuthenticationState, useStatus } from "../hooks/useStatus";
+import {
+  AuthenticationState,
+  useStatus,
+  WsMessageHandler,
+} from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -83,6 +87,8 @@ type ValContextValue = {
           | "unauthorized-personal-access-token-error"
           | "unauthorized";
       };
+  subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
+  sendWsMessage: (data: unknown) => void;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -126,6 +132,8 @@ export function ValProvider({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setIsAuthenticated,
     serviceUnavailable,
+    subscribeToWsMessages,
+    sendWsMessage,
   ] = useStatus(client);
 
   const syncEngine = useMemo(
@@ -465,6 +473,8 @@ export function ValProvider({
         profiles:
           "data" in profilesData && profilesData.data ? profilesData.data : {},
         remoteFiles,
+        subscribeToWsMessages,
+        sendWsMessage,
       }}
     >
       <TooltipProvider>
@@ -604,6 +614,11 @@ export function useDeletePatches() {
     [syncEngine],
   );
   return { deletePatches };
+}
+
+export function useWsMessages() {
+  const { subscribeToWsMessages, sendWsMessage } = useContext(ValContext);
+  return { subscribeToWsMessages, sendWsMessage };
 }
 
 export function useDeployments() {
