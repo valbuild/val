@@ -16,6 +16,39 @@ const PatchId = z
   .uuid()
   .refine((p): p is PatchId => true);
 
+export const MCPServerMessage = z.object({
+  type: z.literal("mcp_tool_request"),
+  id: z.string(),
+  tool: z.string(),
+  params: z.record(z.string(), z.unknown()),
+});
+export const AIServerMessage = z.union([
+  z.object({
+    type: z.literal("ai_response"),
+    id: z.string(),
+    sessionId: z.string(),
+    response: z.string(),
+    metadata: z
+      .object({
+        model: z.string().optional(),
+        tokensUsed: z.number().optional(),
+      })
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("ai_streaming"),
+    id: z.string(),
+    chunk: z.string(),
+    done: z.boolean(),
+  }),
+]);
+
+export type WsExtendedMessage =
+  | z.infer<typeof MCPServerMessage>
+  | z.infer<typeof AIServerMessage>;
+
+export type WsMessageHandler = (message: WsExtendedMessage) => void;
+
 const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("patches"),
@@ -32,9 +65,12 @@ const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("subscribed"),
   }),
+  MCPServerMessage,
+  AIServerMessage,
   z.object({
     type: z.literal("error"),
     message: z.string(),
+    id: z.string().optional(),
     reconnect: z.boolean().optional(),
   }),
 ]);
@@ -122,6 +158,28 @@ export function useStatus(client: ValClient) {
     boolean | boolean
   >();
 
+  const wsMessageHandlersRef = useRef<Set<WsMessageHandler>>(new Set());
+  const subscribeToWsMessages = useCallback(
+    (handler: WsMessageHandler): (() => void) => {
+      wsMessageHandlersRef.current.add(handler);
+      return () => {
+        wsMessageHandlersRef.current.delete(handler);
+      };
+    },
+    [],
+  );
+  const sendWsMessage = useCallback((data: unknown): void => {
+    console.log("sendWsMessage called with", data);
+    if (webSocketRef.current?.readyState === WebSocket.OPEN) {
+      webSocketRef.current.send(JSON.stringify(data));
+    } else {
+      console.warn(
+        "sendWsMessage: WebSocket not open",
+        webSocketRef.current?.readyState,
+      );
+    }
+  }, []);
+
   const statIdRef = useRef(0);
   useEffect(() => {
     if (
@@ -129,6 +187,9 @@ export function useStatus(client: ValClient) {
       stat.status === "error" ||
       stat.status === "ws-message-received"
     ) {
+      if (stat.status === "error") {
+        console.error("Stat error", stat.status, "error:", stat.error);
+      }
       if (stat.wait === 0) {
         console.debug(
           "Executing stat immediately",
@@ -140,6 +201,7 @@ export function useStatus(client: ValClient) {
         execStat(
           client,
           webSocketRef,
+          wsMessageHandlersRef,
           statIdRef,
           stat,
           setStat,
@@ -160,6 +222,7 @@ export function useStatus(client: ValClient) {
           execStat(
             client,
             webSocketRef,
+            wsMessageHandlersRef,
             statIdRef,
             stat,
             setStat,
@@ -182,6 +245,7 @@ export function useStatus(client: ValClient) {
       execStat(
         client,
         webSocketRef,
+        wsMessageHandlersRef,
         statIdRef,
         stat,
         setStat,
@@ -199,6 +263,8 @@ export function useStatus(client: ValClient) {
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
     serviceUnavailable,
+    subscribeToWsMessages,
+    sendWsMessage,
   ] as const;
 }
 
@@ -206,6 +272,7 @@ const WebSocketStatInterval = 10 * 1000;
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
+  wsMessageHandlersRef: React.MutableRefObject<Set<WsMessageHandler>>,
   statIdRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
@@ -369,6 +436,14 @@ async function execStat(
                   }
                   return prev;
                 });
+              } else if (
+                message.type === "mcp_tool_request" ||
+                message.type === "ai_response" ||
+                message.type === "ai_streaming"
+              ) {
+                for (const handler of wsMessageHandlersRef.current) {
+                  handler(message);
+                }
               } else {
                 const exhaustiveCheck: never = message;
                 console.warn("Unknown WebSocket message", exhaustiveCheck);
