@@ -6,7 +6,7 @@
 export interface ValFS {
   readDirectory(
     rootDir: string,
-    extensions: readonly string[],
+    extensions: readonly string[] | undefined,
     excludes: readonly string[] | undefined,
     includes: readonly string[],
     depth?: number | undefined,

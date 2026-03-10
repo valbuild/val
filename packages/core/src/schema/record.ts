@@ -123,6 +123,46 @@ export class RecordSchema<
         customValidationError.schemaError,
       );
     }
+    if (this.mediaOptions) {
+      const checkFix =
+        this.mediaOptions.type === "images"
+          ? ("images:check-unique-folder" as const)
+          : ("files:check-unique-folder" as const);
+      const uniqueCheckError: ValidationError = {
+        message: `Gallery directory '${this.mediaOptions.directory}' must be unique across all galleries`,
+        value: {
+          directory: this.mediaOptions.directory,
+          type: this.mediaOptions.type,
+        },
+        fixes: [checkFix],
+      };
+      if (error) {
+        if (error[path]) {
+          error[path] = [...error[path], uniqueCheckError];
+        } else {
+          error = { ...error, [path]: [uniqueCheckError] };
+        }
+      } else {
+        error = { [path]: [uniqueCheckError] };
+      }
+      const allFilesCheckFix =
+        this.mediaOptions.type === "images"
+          ? ("images:check-all-files" as const)
+          : ("files:check-all-files" as const);
+      const allFilesCheckError: ValidationError = {
+        message: `Directory '${this.mediaOptions.directory}' may have files not tracked by this gallery`,
+        value: {
+          directory: this.mediaOptions.directory,
+          type: this.mediaOptions.type,
+        },
+        fixes: [allFilesCheckFix],
+      };
+      if (error[path]) {
+        error[path] = [...error[path], allFilesCheckError];
+      } else {
+        error = { ...error, [path]: [allFilesCheckError] };
+      }
+    }
     Object.entries(src).forEach(([key, elem]) => {
       if (this.keySchema) {
         const keyPath = createValPathOfItem(path, key);
@@ -319,7 +359,10 @@ export class RecordSchema<
         value: entry,
       });
     } else {
-      const mimeTypeError = this.validateMediaMimeType(entryObj.mimeType, accept);
+      const mimeTypeError = this.validateMediaMimeType(
+        entryObj.mimeType,
+        accept,
+      );
       if (mimeTypeError) {
         errors.push({ message: mimeTypeError, value: entry });
       }
@@ -349,9 +392,7 @@ export class RecordSchema<
           entryObj.alt as SelectorSource,
         );
         if (altError) {
-          return errors.length > 0
-            ? { ...altError, [path]: errors }
-            : altError;
+          return errors.length > 0 ? { ...altError, [path]: errors } : altError;
         }
       }
     }
@@ -363,7 +404,10 @@ export class RecordSchema<
     return false;
   }
 
-  private validateMediaMimeType(mimeType: string, accept: string): string | null {
+  private validateMediaMimeType(
+    mimeType: string,
+    accept: string,
+  ): string | null {
     if (!mimeType.includes("/")) {
       return `Invalid mime type format. Got: '${mimeType}'`;
     }
