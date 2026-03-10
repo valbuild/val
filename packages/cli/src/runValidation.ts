@@ -683,6 +683,100 @@ export async function handleRouteCheck(
   return { success: true };
 }
 
+export async function handleUniqueFolderCheck(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const value = ctx.validationError.value as
+    | { directory: string; type: string }
+    | undefined;
+  if (!value || typeof value.directory !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected value in unique folder check for ${ctx.sourcePath}`,
+    };
+  }
+  const { directory } = value;
+  const conflicts: string[] = [];
+  for (const file of ctx.valFiles) {
+    const otherModuleFilePath = `/${file}` as ModuleFilePath;
+    if (otherModuleFilePath === ctx.moduleFilePath) continue;
+    const otherModule = await ctx.service.get(
+      otherModuleFilePath,
+      "" as ModulePath,
+      { source: false, schema: true, validate: false },
+    );
+    const schema = otherModule.schema as
+      | { type?: string; directory?: string; mediaType?: string }
+      | undefined;
+    if (
+      schema?.type === "record" &&
+      schema.directory === directory &&
+      schema.mediaType
+    ) {
+      conflicts.push(otherModuleFilePath);
+    }
+  }
+  if (conflicts.length > 0) {
+    return {
+      success: false,
+      errorMessage: `Gallery directory '${directory}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique directory.`,
+    };
+  }
+  return { success: true };
+}
+
+export async function handleCheckAllFiles(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const value = ctx.validationError.value as
+    | { directory: string; type: string }
+    | undefined;
+  if (!value || typeof value.directory !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected value in check-all-files for ${ctx.sourcePath}`,
+    };
+  }
+  const { directory } = value;
+
+  const source = ctx.valModule.source;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return {
+      success: false,
+      errorMessage: `Could not get source for ${ctx.sourcePath}`,
+    };
+  }
+  const trackedFiles = new Set(
+    Object.keys(source as Record<string, unknown>),
+  );
+
+  const dirPath = path.join(ctx.projectRoot, directory);
+
+  const filesInDir: string[] = [];
+  try {
+    const entries = ctx.fs.readDirectory(dirPath, undefined, undefined, [
+      "**/*",
+    ]);
+    for (const entry of entries) {
+      const relPath =
+        "/" +
+        path.relative(ctx.projectRoot, entry).split(path.sep).join("/");
+      filesInDir.push(relPath);
+    }
+  } catch {
+    return { success: true };
+  }
+
+  const untrackedFiles = filesInDir.filter((f) => !trackedFiles.has(f));
+  if (untrackedFiles.length > 0) {
+    return {
+      success: false,
+      errorMessage: `Gallery in ${ctx.moduleFilePath} has files not tracked: ${untrackedFiles.join(", ")}. Add these files to the gallery or remove them from the directory.`,
+    };
+  }
+  return { success: true };
+}
+
 // Fix handler registry
 export const currentFixHandlers: Record<ValidationFix, FixHandler> = {
   "image:check-metadata": handleFileMetadata,
@@ -699,6 +793,10 @@ export const currentFixHandlers: Record<ValidationFix, FixHandler> = {
   "images:check-remote": handleRemoteFileCheck,
   "file:check-remote": handleRemoteFileCheck,
   "files:check-remote": handleRemoteFileCheck,
+  "images:check-unique-folder": handleUniqueFolderCheck,
+  "files:check-unique-folder": handleUniqueFolderCheck,
+  "images:check-all-files": handleCheckAllFiles,
+  "files:check-all-files": handleCheckAllFiles,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,

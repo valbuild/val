@@ -1203,8 +1203,8 @@ class FSOpsHost {
 
   readDirectory(
     path: string,
-    extensions: readonly string[],
-    exclude: readonly string[],
+    extensions: readonly string[] | undefined,
+    exclude: readonly string[] | undefined,
     include: readonly string[],
   ): readonly string[] {
     return ts.sys.readDirectory(path, extensions, exclude, include);

@@ -148,7 +148,11 @@ describe("runValidation", () => {
     for await (const event of runValidation({
       root: tmpDir,
       fix: false,
-      valFiles: ["content/basic-image-from-galleries.val.ts"],
+      valFiles: [
+        "content/basic-image-from-galleries.val.ts",
+        "content/basic-gallery.val.ts",
+        "content/basic-gallery-2.val.ts",
+      ],
       project: undefined,
       remote: mockRemote,
       fs: createDefaultValFSHost(),
@@ -158,6 +162,65 @@ describe("runValidation", () => {
 
     const lastEvent = events.at(-1);
     expect(["summary-success", "summary-errors"]).toContain(lastEvent?.type);
+  });
+
+  test("basic-gallery-fail-on-non-unique-dir returns error for duplicate directory", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: [
+        "content/basic-gallery.val.ts",
+        "content/basic-gallery-fail-on-non-unique-dir.val.ts",
+      ],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const errors = events.filter((e) => e.type === "validation-error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some(
+        (e) =>
+          "message" in e &&
+          (e.message as string).includes("/public/val/images"),
+      ),
+    ).toBe(true);
+  });
+
+  test("returns validation-error for s.files gallery with untracked file in directory", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-files.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const errors = events.filter((e) => e.type === "validation-error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some(
+        (e) => "message" in e && (e.message as string).includes("untracked.txt"),
+      ),
+    ).toBe(true);
   });
 
   test("image has metadata after applying fix", async () => {

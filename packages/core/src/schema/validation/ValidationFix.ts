@@ -13,6 +13,10 @@ export const ValidationFix = [
   "files:check-remote",
   "keyof:check-keys",
   "router:check-route",
+  "images:check-unique-folder",
+  "files:check-unique-folder",
+  "images:check-all-files",
+  "files:check-all-files",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];
