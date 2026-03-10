@@ -95,6 +95,32 @@ describe("runValidation", () => {
     });
   });
 
+  test("reports fixable error for image without metadata when fix is false", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-image.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    const fixableErrors = events.filter(
+      (e) => e.type === "validation-fixable-error",
+    );
+    expect(fixableErrors).toHaveLength(1);
+    expect(fixableErrors[0]).toMatchObject({
+      type: "validation-fixable-error",
+      sourcePath: "/content/basic-image.val.ts",
+      fixable: true,
+    });
+  });
+
   test("image has metadata after applying fix", async () => {
     const gen = runValidation({
       root: tmpDir,
