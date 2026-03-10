@@ -876,6 +876,18 @@ export async function* runValidation({
                   await service.patch(moduleFilePath, fixPatch.patch);
                   fixedErrors += 1;
                   yield { type: "fix-applied", file, sourcePath };
+                } else if (
+                  !fix &&
+                  fixPatch?.patch &&
+                  fixPatch?.patch.length > 0
+                ) {
+                  fileErrors += 1;
+                  yield {
+                    type: "validation-fixable-error",
+                    sourcePath,
+                    message: v.message,
+                    fixable: true,
+                  };
                 }
 
                 for (const e of fixPatch?.remainingErrors ?? []) {
