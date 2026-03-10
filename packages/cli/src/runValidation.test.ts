@@ -1,7 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import path from "path";
 import fs from "fs";
-import { DEFAULT_VAL_REMOTE_HOST, type ModuleFilePath, type ModulePath } from "@valbuild/core";
+import {
+  DEFAULT_VAL_REMOTE_HOST,
+  type ModuleFilePath,
+  type ModulePath,
+} from "@valbuild/core";
 import { createService } from "@valbuild/server";
 import {
   createDefaultValFSHost,
@@ -119,6 +123,26 @@ describe("runValidation", () => {
       sourcePath: "/content/basic-image.val.ts",
       fixable: true,
     });
+  });
+
+  test("handles module with both s.image and s.images", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-image-from-gallery.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    console.log(events);
+
+    const lastEvent = events.at(-1);
+    expect(["summary-success", "summary-errors"]).toContain(lastEvent?.type);
   });
 
   test("image has metadata after applying fix", async () => {
