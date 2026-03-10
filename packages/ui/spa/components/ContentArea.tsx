@@ -22,6 +22,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
+import { AIChat } from "./AIChat";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
@@ -215,9 +216,10 @@ export function SearchBar() {
 }
 
 function SourceFields() {
-  const { currentSourcePath } = useNavigation();
-  const path = currentSourcePath;
-  return <Module path={path} showModuleGalleryChild={null} />;
+  return <AIChat />;
+  // const { currentSourcePath } = useNavigation();
+  // const path = currentSourcePath;
+  // return <Module path={path} showModuleGalleryChild={null} />;
 }
 
 // export function PathBar() {
