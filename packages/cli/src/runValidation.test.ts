@@ -138,8 +138,23 @@ describe("runValidation", () => {
     })) {
       events.push(event);
     }
+    const lastEvent = events.at(-1);
+    expect(["summary-success", "summary-errors"]).toContain(lastEvent?.type);
+  });
 
-    console.log(events);
+  test("handles module with two gallery val files", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-image-from-galleries.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
 
     const lastEvent = events.at(-1);
     expect(["summary-success", "summary-errors"]).toContain(lastEvent?.type);
