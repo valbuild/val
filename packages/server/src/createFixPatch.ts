@@ -356,6 +356,89 @@ export async function createFixPatch(
             }
           : value,
       });
+    } else if (
+      fix === "images:check-all-files" ||
+      fix === "files:check-all-files"
+    ) {
+      if (!moduleSource || typeof moduleSource !== "object") {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Unexpected error while checking gallery metadata (no moduleSource)",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const gallerySource = moduleSource as Record<string, unknown>;
+      for (const [entryKey, storedEntry] of Object.entries(gallerySource)) {
+        const filename = path.join(config.projectRoot, entryKey);
+        let buffer: Buffer;
+        try {
+          buffer = fs.readFileSync(filename);
+        } catch {
+          remainingErrors.push({
+            ...validationError,
+            message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
+            fixes: undefined,
+          });
+          continue;
+        }
+        if (fix === "images:check-all-files") {
+          const actualMetadata = await extractImageMetadata(filename, buffer);
+          const stored = storedEntry as Record<string, unknown>;
+          const metadataIsCorrect =
+            stored.width === actualMetadata.width &&
+            stored.height === actualMetadata.height &&
+            stored.mimeType === actualMetadata.mimeType;
+          if (!metadataIsCorrect) {
+            if (apply) {
+              patch.push({
+                op: "replace",
+                path: sourceToPatchPath(sourcePath).concat([entryKey]),
+                value: {
+                  ...stored,
+                  width: actualMetadata.width ?? 0,
+                  height: actualMetadata.height ?? 0,
+                  mimeType:
+                    actualMetadata.mimeType ?? "application/octet-stream",
+                },
+              });
+            } else {
+              remainingErrors.push({
+                ...validationError,
+                message: `Image metadata for '${entryKey}' is incorrect (width: ${stored.width ?? "<empty>"} vs ${actualMetadata.width}, height: ${stored.height ?? "<empty>"} vs ${actualMetadata.height}, mimeType: ${stored.mimeType ?? "<empty>"} vs ${actualMetadata.mimeType}). Use --fix to update.`,
+              });
+            }
+          }
+        } else if (fix === "files:check-all-files") {
+          const actualMetadata = await extractFileMetadata(filename, buffer);
+          const stored = storedEntry as Record<string, unknown>;
+          const metadataIsCorrect = stored.mimeType === actualMetadata.mimeType;
+          if (!metadataIsCorrect) {
+            if (apply) {
+              patch.push({
+                op: "replace",
+                path: sourceToPatchPath(sourcePath).concat([entryKey]),
+                value: {
+                  ...stored,
+                  mimeType:
+                    actualMetadata.mimeType ?? "application/octet-stream",
+                },
+              });
+            } else {
+              remainingErrors.push({
+                ...validationError,
+                message: `File metadata for '${entryKey}' has incorrect mimeType: '${stored.mimeType ?? "<empty>"}' vs '${actualMetadata.mimeType}'. Use --fix to update.`,
+              });
+            }
+          }
+        } else {
+          const exhaustiveCheck: never = fix;
+          throw new Error(
+            `Internal error: unhandled fix type ${exhaustiveCheck}`,
+          );
+        }
+      }
     } else if (fix === "file:check-remote" || fix === "image:check-remote") {
       const v = getRemoteValueFromValidationError(validationError);
       if (!v.success) {

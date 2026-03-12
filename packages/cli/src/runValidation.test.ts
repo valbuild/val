@@ -223,6 +223,95 @@ describe("runValidation", () => {
     ).toBe(true);
   });
 
+  test("returns validation-error for gallery with tracked file missing from disk", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-missing-tracked.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const errors = events.filter((e) => e.type === "validation-error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some(
+        (e) =>
+          "message" in e && (e.message as string).includes("missing.png"),
+      ),
+    ).toBe(true);
+  });
+
+  test("returns validation-fixable-error for gallery with wrong stored metadata", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-wrong-metadata.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const fixableErrors = events.filter(
+      (e) => e.type === "validation-fixable-error",
+    );
+    expect(fixableErrors.length).toBeGreaterThan(0);
+    expect(fixableErrors[0]).toMatchObject({
+      type: "validation-fixable-error",
+      fixable: true,
+    });
+  });
+
+  test("fixes wrong metadata for gallery entry when fix is true", async () => {
+    const gen = runValidation({
+      root: tmpDir,
+      fix: true,
+      valFiles: ["content/basic-gallery-wrong-metadata.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    });
+    let next = await gen.next();
+    while (!next.done) {
+      next = await gen.next();
+    }
+
+    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    try {
+      const result = await service.get(
+        "/content/basic-gallery-wrong-metadata.val.ts" as ModuleFilePath,
+        "" as ModulePath,
+        { source: true, schema: true, validate: true },
+      );
+      expect(result.source).toMatchObject({
+        "/public/val/images3/image.png": {
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
+        },
+      });
+    } finally {
+      service.dispose();
+    }
+  });
+
   test("image has metadata after applying fix", async () => {
     const gen = runValidation({
       root: tmpDir,
