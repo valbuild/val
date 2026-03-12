@@ -251,6 +251,35 @@ describe("runValidation", () => {
     ).toBe(true);
   });
 
+  test("removes missing tracked file entry from gallery when fix is true", async () => {
+    const gen = runValidation({
+      root: tmpDir,
+      fix: true,
+      valFiles: ["content/basic-gallery-missing-tracked.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    });
+    let next = await gen.next();
+    while (!next.done) {
+      next = await gen.next();
+    }
+
+    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    try {
+      const result = await service.get(
+        "/content/basic-gallery-missing-tracked.val.ts" as ModuleFilePath,
+        "" as ModulePath,
+        { source: true, schema: true, validate: true },
+      );
+      expect(result.source).not.toHaveProperty(
+        "/public/val/images4/missing.png",
+      );
+    } finally {
+      service.dispose();
+    }
+  });
+
   test("returns validation-fixable-error for gallery with wrong stored metadata", async () => {
     const events: ValidationEvent[] = [];
 
