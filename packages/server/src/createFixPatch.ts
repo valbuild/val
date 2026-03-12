@@ -10,7 +10,12 @@ import {
   VAL_EXTENSION,
   ValidationError,
 } from "@valbuild/core";
-import { JSONValue, Patch, sourceToPatchPath } from "@valbuild/core/patch";
+import {
+  isNotRoot,
+  JSONValue,
+  Patch,
+  sourceToPatchPath,
+} from "@valbuild/core/patch";
 import fs from "fs";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
@@ -376,11 +381,18 @@ export async function createFixPatch(
         try {
           buffer = fs.readFileSync(filename);
         } catch {
-          remainingErrors.push({
-            ...validationError,
-            message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
-            fixes: undefined,
-          });
+          if (apply) {
+            const removePath = sourceToPatchPath(sourcePath).concat([entryKey]);
+            if (isNotRoot(removePath)) {
+              patch.push({ op: "remove", path: removePath });
+            }
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
+              fixes: undefined,
+            });
+          }
           continue;
         }
         if (fix === "images:check-all-files") {
