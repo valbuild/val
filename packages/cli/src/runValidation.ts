@@ -746,9 +746,22 @@ export async function handleCheckAllFiles(
       errorMessage: `Could not get source for ${ctx.sourcePath}`,
     };
   }
-  const trackedFiles = new Set(
-    Object.keys(source as Record<string, unknown>),
-  );
+  const trackedFiles = new Set(Object.keys(source as Record<string, unknown>));
+
+  // Check that all tracked files exist on disk
+  const missingTrackedFiles = [...trackedFiles].filter((f) => {
+    return !ctx.fs.fileExists(path.join(ctx.projectRoot, f));
+  });
+  if (missingTrackedFiles.length > 0) {
+    if (!ctx.fix) {
+      return {
+        success: false,
+        errorMessage: `Gallery in ${ctx.moduleFilePath} has tracked files that do not exist on disk: ${missingTrackedFiles.join(", ")}. Add the files or remove them from the gallery.`,
+      };
+    }
+    // fix: true — let createFixPatch remove the missing entries
+    return { success: true, shouldApplyPatch: true };
+  }
 
   const dirPath = path.join(ctx.projectRoot, directory);
 
@@ -759,12 +772,11 @@ export async function handleCheckAllFiles(
     ]);
     for (const entry of entries) {
       const relPath =
-        "/" +
-        path.relative(ctx.projectRoot, entry).split(path.sep).join("/");
+        "/" + path.relative(ctx.projectRoot, entry).split(path.sep).join("/");
       filesInDir.push(relPath);
     }
   } catch {
-    return { success: true };
+    // directory doesn't exist — no untracked files possible
   }
 
   const untrackedFiles = filesInDir.filter((f) => !trackedFiles.has(f));
@@ -774,7 +786,9 @@ export async function handleCheckAllFiles(
       errorMessage: `Gallery in ${ctx.moduleFilePath} has files not tracked: ${untrackedFiles.join(", ")}. Add these files to the gallery or remove them from the directory.`,
     };
   }
-  return { success: true };
+
+  // All files accounted for — trigger metadata verification via createFixPatch
+  return { success: true, shouldApplyPatch: true };
 }
 
 // Fix handler registry
