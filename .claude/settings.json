@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls -la /home/freekh/Code/valbuild/val/packages/server/src/*.ts)",
-      "Bash(find /home/freekh/Code/valbuild/val/examples/next/app -type f -name *.ts -o -name *.tsx)"
-    ]
-  }
-}

@@ -22,6 +22,23 @@ export const MCPServerMessage = z.object({
   tool: z.string(),
   params: z.record(z.string(), z.unknown()),
 });
+
+export const AIToolResultMessage = z.object({
+  type: z.literal("ai_tool_result"),
+  toolCallId: z.string(),
+  result: z.unknown(),
+  isError: z.boolean().optional(),
+});
+
+export type AIToolResultMessage = z.infer<typeof AIToolResultMessage>;
+
+export const AIToolCallMessage = z.object({
+  type: z.literal("ai_tool_call"),
+  id: z.string(),
+  toolCallId: z.string(),
+  name: z.string(),
+  arguments: z.unknown(),
+});
 export const AIServerMessage = z.union([
   z.object({
     type: z.literal("ai_response"),
@@ -40,6 +57,8 @@ export const AIServerMessage = z.union([
     id: z.string(),
     chunk: z.string(),
   }),
+  AIToolCallMessage,
+  AIToolResultMessage,
 ]);
 
 export type WsExtendedMessage =
@@ -359,6 +378,7 @@ async function execStat(
           };
           webSocketRef.current.onmessage = (event) => {
             try {
+              console.log("Received WebSocket message", event.data);
               const messageRes = WebSocketServerMessage.safeParse(
                 JSON.parse(event.data),
               );
@@ -445,7 +465,9 @@ async function execStat(
               } else if (
                 message.type === "mcp_tool_request" ||
                 message.type === "ai_response" ||
-                message.type === "ai_streaming"
+                message.type === "ai_streaming" ||
+                message.type === "ai_tool_call" ||
+                message.type === "ai_tool_result"
               ) {
                 for (const handler of wsMessageHandlersRef.current) {
                   handler(message);

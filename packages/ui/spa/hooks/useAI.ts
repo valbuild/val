@@ -1,11 +1,23 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AIChatHandle } from "../components/AIChat";
-import { useWsMessages } from "../components/ValProvider";
+import {
+  AITool,
+  useSyncEngine,
+  useWsMessages,
+} from "../components/ValProvider";
 import type { WsExtendedMessage } from "./useStatus";
+
+const GET_ALL_SCHEMA_TOOL: AITool = {
+  name: "get_all_schema",
+  description:
+    "Get all val schemas — returns the complete schema definitions for all val modules",
+  parameters: { type: "object", properties: {} },
+};
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useWsMessages();
+  const syncEngine = useSyncEngine();
   const [isStreaming, setIsStreaming] = useState(false);
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
@@ -29,20 +41,37 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         chatRef.current.completeAssistantMessage(message.id);
         activeIdRef.current = null;
         setIsStreaming(false);
+      } else if (message.type === "ai_tool_call") {
+        console.log("Received ai_tool_call message", message);
+        if (message.name === "get_all_schema") {
+          const schemas = syncEngine.getAllSchemasSnapshot();
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: schemas ?? {},
+          });
+        }
+      } else {
+        console.error("Received unknown message type in useAI", message);
       }
       // mcp_tool_request: ignored here, handled by a future useMCP hook
     };
 
     return subscribeToWsMessages(handler);
-  }, [subscribeToWsMessages, chatRef]);
+  }, [subscribeToWsMessages, sendWsMessage, syncEngine, chatRef]);
 
   const sendMessage = useCallback(
     (text: string) => {
       console.log("Sending AI message in useAI", text);
+
       sendWsMessage({
         type: "ai_prompt",
         message: text,
+        context: `You are a helpful AI assistant for a content management system called Val.
+- Users are working in another code base where they have Val installed, and are using you to ask questions about their content schemas, and to get help writing content.
+- Be concise, accurate, and helpful.`,
         id: crypto.randomUUID(),
+        tools: [GET_ALL_SCHEMA_TOOL],
       });
     },
     [sendWsMessage],

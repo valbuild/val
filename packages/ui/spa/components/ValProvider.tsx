@@ -29,6 +29,7 @@ import {
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import {
+  AIToolResultMessage,
   AuthenticationState,
   useStatus,
   WsMessageHandler,
@@ -48,6 +49,27 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+
+export const AITool = z.object({
+  name: z.string(),
+  description: z.string(),
+  parameters: z.object({
+    type: z.literal("object"),
+    properties: z.record(z.unknown()),
+    required: z.array(z.string()).optional(),
+  }),
+});
+
+export type AITool = z.infer<typeof AITool>;
+
+export const AIPromptMessage = z.object({
+  type: z.literal("ai_prompt"),
+  id: z.string(),
+  sessionId: z.string().uuid().optional(),
+  message: z.string(),
+  context: z.string().optional(),
+  tools: z.array(AITool).optional(),
+});
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
@@ -88,7 +110,7 @@ type ValContextValue = {
           | "unauthorized";
       };
   subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
-  sendWsMessage: (data: unknown) => void;
+  sendWsMessage: (data: z.infer<typeof AIPromptMessage> | AIToolResultMessage) => void;
   isWsConnected: boolean;
 };
 const ValContext = React.createContext<ValContextValue>(
@@ -623,6 +645,10 @@ export function useWsMessages() {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useContext(ValContext);
   return { subscribeToWsMessages, sendWsMessage, isWsConnected };
+}
+
+export function useSyncEngine() {
+  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {
