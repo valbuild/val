@@ -39,7 +39,6 @@ export const AIServerMessage = z.union([
     type: z.literal("ai_streaming"),
     id: z.string(),
     chunk: z.string(),
-    done: z.boolean(),
   }),
 ]);
 
