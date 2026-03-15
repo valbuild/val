@@ -21,11 +21,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           setIsStreaming(true);
         }
         chatRef.current.appendAssistantChunk(message.id, message.chunk);
-        if (message.done) {
-          chatRef.current.completeAssistantMessage(message.id);
-          activeIdRef.current = null;
-          setIsStreaming(false);
-        }
       } else if (message.type === "ai_response") {
         if (!chatRef.current) return;
         chatRef.current.startAssistantMessage(message.id);
