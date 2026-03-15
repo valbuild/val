@@ -26,6 +26,11 @@ export type ChatMessage = {
   error?: string;
 };
 
+type CurrentMessage = {
+  message: ChatMessage;
+  startedAt: number;
+};
+
 export type AIChatHandle = {
   /** Create a new empty assistant message in streaming state */
   startAssistantMessage: (id: string) => void;
@@ -83,12 +88,19 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   },
   ref,
 ) {
-  const [messages, setMessages] = useState<ChatMessage[]>(
+  const [completedMessages, setCompletedMessages] = useState<ChatMessage[]>(
     initialMessages ?? [],
   );
+  const [currentMessage, setCurrentMessage] =
+    useState<CurrentMessage | null>(null);
   const [inputValue, setInputValue] = useState("");
   const viewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Derive combined list for rendering
+  const messages: ChatMessage[] = currentMessage
+    ? [...completedMessages, currentMessage.message]
+    : completedMessages;
 
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
@@ -101,41 +113,84 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     }
   }, [messages]);
 
+  // 2-minute timeout for in-progress assistant messages
+  useEffect(() => {
+    if (!currentMessage) return;
+    const remaining =
+      2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
+    if (remaining <= 0) {
+      setCompletedMessages((prev) => [
+        ...prev,
+        { ...currentMessage.message, status: "error", error: "Response timed out" },
+      ]);
+      setCurrentMessage(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCurrentMessage((prev) => {
+        if (!prev) return null;
+        setCompletedMessages((msgs) => [
+          ...msgs,
+          { ...prev.message, status: "error", error: "Response timed out" },
+        ]);
+        return null;
+      });
+    }, remaining);
+    return () => clearTimeout(timer);
+  }, [currentMessage]);
+
   // ---- Imperative handle for WebSocket layer ----
 
   useImperativeHandle(ref, () => ({
     startAssistantMessage(id: string) {
-      setMessages((prev) => [
-        ...prev,
-        { id, role: "assistant", content: "", status: "streaming" },
-      ]);
+      console.log("Starting assistant message with id", id);
+      setCurrentMessage({
+        message: { id, role: "assistant", content: "", status: "streaming" },
+        startedAt: Date.now(),
+      });
     },
     appendAssistantChunk(id: string, chunk: string) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, content: m.content + chunk } : m,
-        ),
+      console.log(
+        "Appending chunk to assistant message with id",
+        id,
+        "chunk:",
+        chunk,
+      );
+      setCurrentMessage((prev) =>
+        prev?.message.id === id
+          ? {
+              ...prev,
+              message: { ...prev.message, content: prev.message.content + chunk },
+            }
+          : prev,
       );
     },
     completeAssistantMessage(id: string) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, status: "complete" as const } : m,
-        ),
-      );
+      console.log("Completing assistant message with id", id);
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== id) return prev;
+        setCompletedMessages((msgs) => [
+          ...msgs,
+          { ...prev.message, status: "complete" },
+        ]);
+        return null;
+      });
     },
     errorAssistantMessage(id: string, error: string) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, status: "error" as const, error } : m,
-        ),
-      );
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== id) return prev;
+        setCompletedMessages((msgs) => [
+          ...msgs,
+          { ...prev.message, status: "error", error },
+        ]);
+        return null;
+      });
     },
   }));
 
   // ---- Derived state ----
 
-  const isStreaming = messages.some((m) => m.status === "streaming");
+  const isStreaming = currentMessage !== null;
   const isEmpty = messages.length === 0;
 
   // ---- Handlers ----
@@ -151,7 +206,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         content,
         status: "complete",
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setCompletedMessages((prev) => [...prev, userMsg]);
       setInputValue("");
       onSendMessage?.(content);
 
@@ -174,7 +229,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       if (!prevUserMsg) return;
 
       // Remove the errored assistant message
-      setMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
+      setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
       onSendMessage?.(prevUserMsg.content);
     },
     [messages, onSendMessage],
