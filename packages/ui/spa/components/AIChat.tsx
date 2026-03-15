@@ -49,6 +49,8 @@ export type AIChatProps = {
   suggestions?: string[];
   /** Extra class names on the root container */
   className?: string;
+  /** Whether the underlying WebSocket connection is ready */
+  isConnected: boolean;
   /**
    * @internal – seed messages for Storybook / testing only.
    * Not part of the public API.
@@ -84,6 +86,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onSendMessage,
     suggestions = DEFAULT_SUGGESTIONS,
     className,
+    isConnected,
     initialMessages,
   },
   ref,
@@ -95,8 +98,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [inputValue, setInputValue] = useState("");
-  const viewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -105,13 +108,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
-    const el = viewportRef.current;
-    if (el) {
-      // requestAnimationFrame so the DOM has rendered the new content
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    });
   }, [messages]);
 
   // 2-minute timeout for in-progress assistant messages
@@ -262,7 +261,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       )}
     >
       {/* Message list */}
-      <ScrollArea className="flex-1 min-h-0" innerRef={viewportRef}>
+      <ScrollArea className="flex-1 min-h-0 max-h-[calc(100svh-128px)]">
         <div className="flex flex-col gap-4 p-4">
           {isEmpty ? (
             <EmptyState
@@ -274,11 +273,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble key={msg.id} message={msg} onRetry={handleRetry} />
             ))
           )}
+          <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
+        {!isConnected && (
+          <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-fg-secondary justify-center absolute top-0 left-0 right-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+            Connecting…
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <div className="flex-1 grid">
             <textarea
@@ -286,16 +292,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask something…"
-              disabled={isStreaming}
+              placeholder={isConnected ? "Ask something…" : ""}
               rows={1}
               className={cn(
                 "resize-none overflow-hidden",
                 "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-sm text-fg-primary",
+                "text-fg-primary",
                 "ring-offset-background placeholder:text-muted-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                "disabled:cursor-not-allowed disabled:opacity-50",
               )}
               style={{ gridArea: "1 / 1 / 2 / 2" }}
             />
@@ -314,7 +318,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           <Button
             variant="ghost"
             size="icon-sm"
-            disabled={isStreaming || !inputValue.trim()}
+            disabled={!isConnected || isStreaming || !inputValue.trim()}
             onClick={() => handleSend()}
             aria-label="Send message"
             className="mb-1"

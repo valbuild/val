@@ -4,7 +4,8 @@ import { useWsMessages } from "../components/ValProvider";
 import type { WsExtendedMessage } from "./useStatus";
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
-  const { subscribeToWsMessages, sendWsMessage } = useWsMessages();
+  const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
+    useWsMessages();
   const [isStreaming, setIsStreaming] = useState(false);
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
@@ -47,5 +48,5 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     [sendWsMessage],
   );
 
-  return { sendMessage, isStreaming };
+  return { sendMessage, isStreaming, isConnected: isWsConnected };
 }
