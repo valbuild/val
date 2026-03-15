@@ -157,6 +157,7 @@ export function useStatus(client: ValClient) {
     boolean | boolean
   >();
 
+  const [isWsConnected, setIsWsConnected] = useState(false);
   const wsMessageHandlersRef = useRef<Set<WsMessageHandler>>(new Set());
   const subscribeToWsMessages = useCallback(
     (handler: WsMessageHandler): (() => void) => {
@@ -207,6 +208,7 @@ export function useStatus(client: ValClient) {
           setAuthenticationLoadingIfNotAuthenticated,
           setIsAuthenticated,
           setServiceUnavailable,
+          setIsWsConnected,
         );
       } else {
         console.debug(
@@ -228,6 +230,7 @@ export function useStatus(client: ValClient) {
             setAuthenticationLoadingIfNotAuthenticated,
             setIsAuthenticated,
             setServiceUnavailable,
+            setIsWsConnected,
           );
         }, stat.wait);
         return () => clearTimeout(timeout);
@@ -251,6 +254,7 @@ export function useStatus(client: ValClient) {
         setAuthenticationLoadingIfNotAuthenticated,
         setIsAuthenticated,
         setServiceUnavailable,
+        setIsWsConnected,
       );
     }
   }, [client, stat.status]);
@@ -264,6 +268,7 @@ export function useStatus(client: ValClient) {
     serviceUnavailable,
     subscribeToWsMessages,
     sendWsMessage,
+    isWsConnected,
   ] as const;
 }
 
@@ -278,6 +283,7 @@ async function execStat(
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
+  setIsWsConnected: Dispatch<SetStateAction<boolean>>,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -349,6 +355,7 @@ async function execStat(
             webSocketRef.current?.send(
               JSON.stringify({ nonce, type: "subscribe" }),
             );
+            setIsWsConnected(true);
           };
           webSocketRef.current.onmessage = (event) => {
             try {
@@ -455,11 +462,13 @@ async function execStat(
           webSocketRef.current.onclose = () => {
             if (currentWebSocket === webSocketRef.current) {
               console.debug("WebSocket closed");
+              setIsWsConnected(false);
               setStat((prev) => createError(prev, "WebSocket closed"));
             }
           };
           webSocketRef.current.onerror = () => {
             console.warn("WebSocket error");
+            setIsWsConnected(false);
             setStat((prev) =>
               createError(
                 prev,

@@ -88,6 +88,7 @@ type ValContextValue = {
       };
   subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
   sendWsMessage: (data: unknown) => void;
+  isWsConnected: boolean;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -133,6 +134,7 @@ export function ValProvider({
     serviceUnavailable,
     subscribeToWsMessages,
     sendWsMessage,
+    isWsConnected,
   ] = useStatus(client);
 
   const syncEngine = useMemo(
@@ -474,6 +476,7 @@ export function ValProvider({
         remoteFiles,
         subscribeToWsMessages,
         sendWsMessage,
+        isWsConnected,
       }}
     >
       <TooltipProvider>
@@ -616,8 +619,9 @@ export function useDeletePatches() {
 }
 
 export function useWsMessages() {
-  const { subscribeToWsMessages, sendWsMessage } = useContext(ValContext);
-  return { subscribeToWsMessages, sendWsMessage };
+  const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
+    useContext(ValContext);
+  return { subscribeToWsMessages, sendWsMessage, isWsConnected };
 }
 
 export function useDeployments() {
