@@ -316,6 +316,58 @@
   .val-rich-text-editor a {
     @apply underline text-fg-brand-primary;
   }
+
+  .prose {
+    @apply text-fg-primary leading-relaxed;
+  }
+  .prose h1 {
+    @apply text-2xl font-bold mt-4 mb-2;
+  }
+  .prose h2 {
+    @apply text-xl font-bold mt-4 mb-2;
+  }
+  .prose h3 {
+    @apply text-lg font-bold mt-3 mb-1;
+  }
+  .prose h4 {
+    @apply text-base font-bold mt-3 mb-1;
+  }
+  .prose p {
+    @apply mb-3;
+  }
+  .prose ul {
+    @apply list-disc pl-5 mb-3;
+  }
+  .prose ol {
+    @apply list-decimal pl-5 mb-3;
+  }
+  .prose li {
+    @apply mb-1;
+  }
+  .prose a {
+    @apply underline text-fg-brand-primary;
+  }
+  .prose strong {
+    @apply font-semibold;
+  }
+  .prose em {
+    @apply italic;
+  }
+  .prose code {
+    @apply bg-bg-secondary text-fg-primary rounded px-1 py-0.5 text-[0.875em] font-[Monaco,Monospace];
+  }
+  .prose pre {
+    @apply bg-bg-secondary rounded p-3 mb-3 overflow-x-auto;
+  }
+  .prose pre code {
+    @apply bg-transparent p-0;
+  }
+  .prose blockquote {
+    @apply border-l-4 border-border-primary pl-4 italic text-fg-secondary mb-3;
+  }
+  .prose hr {
+    @apply border-border-primary my-4;
+  }
 }
 
 #val-overlay-container {
