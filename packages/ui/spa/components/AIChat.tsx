@@ -91,8 +91,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [completedMessages, setCompletedMessages] = useState<ChatMessage[]>(
     initialMessages ?? [],
   );
-  const [currentMessage, setCurrentMessage] =
-    useState<CurrentMessage | null>(null);
+  const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
+    null,
+  );
   const [inputValue, setInputValue] = useState("");
   const viewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -116,12 +117,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // 2-minute timeout for in-progress assistant messages
   useEffect(() => {
     if (!currentMessage) return;
-    const remaining =
-      2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
+    const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
     if (remaining <= 0) {
       setCompletedMessages((prev) => [
         ...prev,
-        { ...currentMessage.message, status: "error", error: "Response timed out" },
+        {
+          ...currentMessage.message,
+          status: "error",
+          error: "Response timed out",
+        },
       ]);
       setCurrentMessage(null);
       return;
@@ -160,7 +164,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         prev?.message.id === id
           ? {
               ...prev,
-              message: { ...prev.message, content: prev.message.content + chunk },
+              message: {
+                ...prev.message,
+                content: prev.message.content + chunk,
+              },
             }
           : prev,
       );
@@ -380,9 +387,9 @@ function MessageBubble({
         className={cn(
           "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
           isUser
-            ? "bg-accent text-accent-foreground max-w-[80%]"
-            : "bg-bg-secondary text-fg-primary w-full max-w-full",
-          isError && "border border-bg-error-primary",
+            ? "bg-bg-secondary text-fg-primary max-w-[80%]"
+            : "bg-bg-tertiary text-fg-primary w-full max-w-full",
+          isError && "border border-border-error-primary",
         )}
       >
         {isUser ? (
