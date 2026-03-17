@@ -48,13 +48,14 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import { toolNames } from "../utils/toolNames";
 
 export const AITool = z.object({
-  name: z.string(),
+  name: z.enum(toolNames),
   description: z.string(),
   parameters: z.object({
     type: z.literal("object"),
-    properties: z.record(z.unknown()),
+    properties: z.record(z.string(), z.unknown()),
     required: z.array(z.string()).optional(),
   }),
 });
@@ -109,7 +110,9 @@ type ValContextValue = {
           | "unauthorized";
       };
   subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
-  sendWsMessage: (data: z.infer<typeof AIPromptMessage> | AIToolResultMessage) => void;
+  sendWsMessage: (
+    data: z.infer<typeof AIPromptMessage> | AIToolResultMessage,
+  ) => void;
   isWsConnected: boolean;
 };
 const ValContext = React.createContext<ValContextValue>(
