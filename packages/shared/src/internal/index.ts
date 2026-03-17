@@ -13,3 +13,4 @@ export * from "./parseRoutePattern";
 export * from "./getNextAppRouterSourceFolder";
 export * from "./routeValidation";
 export * from "./getErrorMessageFromUnknownJson";
+export * from "./zod/SerializedSchema";

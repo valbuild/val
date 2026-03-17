@@ -6,18 +6,37 @@ import {
   useWsMessages,
 } from "../components/ValProvider";
 import type { WsExtendedMessage } from "./useStatus";
+import { useAISearch } from "./useAISearch";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
   description:
     "Get all val schemas — returns the complete schema definitions for all val modules",
-  parameters: { type: "object", properties: {} },
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
 };
+const SEARCH_CONTENT_TOOL: AITool = {
+  name: "search_content",
+  description:
+    "Search content — accepts a query and returns a list of matching content items",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "The search query" },
+    },
+    required: ["query"],
+  },
+};
+const ALL_TOOLS: AITool[] = [GET_ALL_SCHEMA_TOOL, SEARCH_CONTENT_TOOL];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useWsMessages();
   const syncEngine = useSyncEngine();
+  const aiSearch = useAISearch();
   const [isStreaming, setIsStreaming] = useState(false);
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
@@ -50,6 +69,13 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             toolCallId: message.toolCallId,
             result: schemas ?? {},
           });
+        } else if (message.name === "search_content") {
+          const args = message.arguments as { query: string };
+
+          aiSearch.query(args.query, message.toolCallId);
+        } else {
+          const exhaustiveCheck: never = message.name;
+          console.error("Received unknown tool call in useAI", exhaustiveCheck);
         }
       } else {
         console.error("Received unknown message type in useAI", message);
@@ -58,7 +84,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     };
 
     return subscribeToWsMessages(handler);
-  }, [subscribeToWsMessages, sendWsMessage, syncEngine, chatRef]);
+  }, [subscribeToWsMessages, sendWsMessage, syncEngine, aiSearch, chatRef]);
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -71,7 +97,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 - Users are working in another code base where they have Val installed, and are using you to ask questions about their content schemas, and to get help writing content.
 - Be concise, accurate, and helpful.`,
         id: crypto.randomUUID(),
-        tools: [GET_ALL_SCHEMA_TOOL],
+        tools: ALL_TOOLS,
       });
     },
     [sendWsMessage],

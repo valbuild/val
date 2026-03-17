@@ -10,6 +10,7 @@ import React, {
   useCallback,
 } from "react";
 import { z } from "zod";
+import { toolNames } from "../utils/toolNames";
 
 const PatchId = z
   .string()
@@ -36,7 +37,7 @@ export const AIToolCallMessage = z.object({
   type: z.literal("ai_tool_call"),
   id: z.string(),
   toolCallId: z.string(),
-  name: z.string(),
+  name: z.enum(toolNames),
   arguments: z.unknown(),
 });
 export const AIServerMessage = z.union([
