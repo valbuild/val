@@ -1145,6 +1145,7 @@ export class ValSyncEngine {
         lastOp.updatedAt = now;
         this.invalidatePendingOps();
         this.patchDataByPatchId[lastPatchId]!.patch = patch;
+        this.invalidateAllPatches();
         this.patchSetInsert(moduleFilePath, lastPatchId, patch, now);
 
         this.invalidateSyncStatus(sourcePath);
@@ -1176,6 +1177,7 @@ export class ValSyncEngine {
           createdAt: new Date(now).toISOString(),
           authorId: this.authorId,
         };
+        this.invalidateAllPatches();
         this.patchSetInsert(moduleFilePath, patchId, patch, now);
 
         this.invalidateSyncStatus(sourcePath);
@@ -1206,6 +1208,7 @@ export class ValSyncEngine {
         createdAt: new Date(now).toISOString(),
         authorId: this.authorId,
       };
+      this.invalidateAllPatches();
       this.patchSetInsert(moduleFilePath, patchId, patch, now);
 
       this.invalidateSyncStatus(sourcePath);
@@ -1389,6 +1392,7 @@ export class ValSyncEngine {
       patchId: PatchId;
     }[] = [];
     const newPatchIds: PatchId[] = [];
+    let didUpdatePatchData = false;
     for (const [path, patchesData] of Object.entries(op.data)) {
       const moduleFilePath = path as ModuleFilePath;
       for (const patchData of patchesData) {
@@ -1461,6 +1465,7 @@ export class ValSyncEngine {
           ...this.patchDataByPatchId,
           [patchId]: undefined,
         };
+        didUpdatePatchData = true;
       }
       const newPatchIdsSet = new Set(newPatchIds);
       this.pendingClientPatchIds = this.pendingClientPatchIds.filter(
@@ -1475,8 +1480,12 @@ export class ValSyncEngine {
         this.savedButNotYetGlobalServerSidePatchIds.push(patchId);
         if (this.patchDataByPatchId[patchId]) {
           this.patchDataByPatchId[patchId]!.isPending = false;
+          didUpdatePatchData = true;
         }
       }
+    }
+    if (didUpdatePatchData) {
+      this.invalidateAllPatches();
     }
     return {
       status: "done",
