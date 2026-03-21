@@ -38,6 +38,7 @@ import {
 } from "./designSystem/hover-card";
 import { Globe } from "lucide-react";
 import { Search } from "./Search";
+import { usePendingPatches } from "./ValProvider";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -46,6 +47,10 @@ export function Module({ path }: { path: SourcePath }) {
   const sources = useAllSources();
   const schemasRes = useSchemas();
   const validationErrors = useValidationErrors(path);
+  const pendingPatchesRes = usePendingPatches(path);
+  const hasPendingPatches = pendingPatchesRes
+    ? pendingPatchesRes.length > 0
+    : false;
   const portalContainer = useValPortal();
   const onNavigate = useCallback(
     (path: SourcePath) => {
@@ -154,6 +159,8 @@ export function Module({ path }: { path: SourcePath }) {
           className={cn({
             "border rounded-lg border-bg-error-secondary p-4 mt-4":
               nonKeyErrors.length > 0,
+            "border rounded-lg border-bg-brand-secondary p-4 mt-4":
+              hasPendingPatches && nonKeyErrors.length === 0,
           })}
         >
           <AnyField key={path} path={path} schema={schema} />
