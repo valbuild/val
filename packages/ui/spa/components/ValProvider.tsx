@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import {
   FILE_REF_PROP,
+  Internal,
   Json,
   ModuleFilePath,
   ModuleFilePathSep,
@@ -710,6 +711,70 @@ export function useCurrentPatchIds(): PatchId[] {
     savedServerSidePatchIds,
   ]);
   return currentPatchIds;
+}
+
+type PendingPatch = {
+  moduleFilePath: ModuleFilePath;
+  patch: Patch;
+  isPending: boolean;
+  createdAt: string;
+  authorId: string | null;
+  isCommitted?: {
+    commitSha: string;
+  };
+};
+export function usePendingPatches(
+  sourcePath: SourcePath | ModuleFilePath,
+): PendingPatch[] | null {
+  const { syncEngine } = useContext(ValContext);
+
+  const currentPatchIds = useCurrentPatchIds();
+  const cachedSourcePathsByPatchId = useRef<
+    Record<PatchId, Set<SourcePath | ModuleFilePath>>
+  >({});
+  console.log(
+    "ALl patches length",
+    Object.keys(syncEngine.getAllPatchesSnapshot()).length,
+  );
+  const patchesMetadata = useMemo((): PendingPatch[] | null => {
+    const allPatches = syncEngine.getAllPatchesSnapshot();
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const patches: PendingPatch[] = [];
+    for (const patchId of currentPatchIds) {
+      const patchData = allPatches[patchId];
+      if (patchData?.moduleFilePath !== moduleFilePath) {
+        continue;
+      }
+      const cachedSourcePaths = cachedSourcePathsByPatchId.current[patchId];
+      if (cachedSourcePathsByPatchId.current[patchId]) {
+        if (cachedSourcePaths.has(sourcePath)) {
+          const patchData = allPatches[patchId];
+          if (patchData) {
+            patches.push(patchData);
+          }
+        }
+        continue;
+      }
+      const ops = patchData.patch;
+      for (const op of ops) {
+        const opModulePath = Internal.patchPathToModulePath(op.path);
+        if (modulePath && opModulePath === modulePath) {
+          if (!cachedSourcePathsByPatchId.current[patchId]) {
+            cachedSourcePathsByPatchId.current[patchId] = new Set();
+          }
+          cachedSourcePathsByPatchId.current[patchId].add(sourcePath);
+          const patchData = allPatches[patchId];
+          if (patchData) {
+            patches.push(patchData);
+          }
+          break;
+        }
+      }
+    }
+    return patches;
+  }, [currentPatchIds.join("-"), sourcePath]);
+  return patchesMetadata;
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {

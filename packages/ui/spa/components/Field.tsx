@@ -21,6 +21,7 @@ import {
   AccordionItem,
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
+import { usePendingPatches } from "./ValProvider";
 
 export function Field({
   label,
@@ -42,6 +43,8 @@ export function Field({
   const { patchPath, addPatch } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
+  const pendingPatches = usePendingPatches(path);
+  const hasPendingPatches = pendingPatches ? pendingPatches.length > 0 : false;
 
   const [isExpanded, setIsExpanded] = useState(true);
   const [showEmptyFileOrImage, setShowEmptyFileOrImage] = useState(false);
@@ -66,6 +69,8 @@ export function Field({
       className={classNames("px-4 pt-6 pb-4 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
         "border-bg-error-secondary": validationErrors.length > 0,
+        "border-border-brand-primary":
+          hasPendingPatches && validationErrors.length === 0,
       })}
     >
       <div className="flex justify-between items-center pb-2">
