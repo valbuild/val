@@ -218,7 +218,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
       <div className="shrink-0 border-t border-border-primary">
         <Popover>
           <PopoverTrigger asChild>
-            <button className="flex items-center gap-3 w-full p-4 text-left hover:bg-bg-secondary transition-colors">
+            <button className="flex items-center justify-between gap-3 w-full p-4 text-left hover:bg-bg-secondary transition-colors">
               {profile ? (
                 <>
                   <ProfileImage profile={profile} />
@@ -247,7 +247,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
           </PopoverTrigger>
           <PopoverContent
             container={portalContainer}
-            align="start"
+            align="end"
             side="top"
             className="w-56"
           >
