@@ -89,6 +89,7 @@ const initFetchValStega =
             query: {
               validate_sources: true,
               validate_binary_files: false,
+              exclude_patches: false,
             },
             cookies: {
               [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
