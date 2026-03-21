@@ -11,5 +11,6 @@ export default c.define(
     "https://www.instagram.com": { title: "Instagram" },
     "https://www.linkedin.com": { title: "LinkedIn" },
     "https://www.github.com": { title: "GitHub" },
+    "https://val.build": { title: "Val Homepage" },
   },
 );
