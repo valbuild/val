@@ -93,7 +93,9 @@ describe("RecordSchema", () => {
   });
 
   test("record: externalPageRouter router", () => {
-    const schema = record(object({ title: string() })).router(externalPageRouter);
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
+    );
     expect(
       schema["executeValidate"]("/external.val.ts" as SourcePath, {
         "https://www.google.com": { title: "Test" },
