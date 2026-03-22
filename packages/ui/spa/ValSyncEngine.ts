@@ -1586,6 +1586,7 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds?.filter(
           (id) => !deletePatchIdsSet.has(id),
         ) ?? null;
+      this.deleteSavedButNotYetGlobalServerSidePatchIds(deletePatchIdsSet);
     }
     return {
       status: "done",
