@@ -158,9 +158,12 @@ export function Field({
           {source !== null && !isBoolean && (
             <button
               onClick={() => setIsExpanded((prev) => !prev)}
-              className={classNames("transform transition-transform", {
-                "rotate-180": isExpanded,
-              })}
+              className={classNames(
+                "transform transition-transform size-6 flex items-center justify-center",
+                {
+                  "rotate-180": isExpanded,
+                },
+              )}
             >
               {foldLevel === "1" && <ChevronDown size={16} />}
               {foldLevel === "2" && <ChevronsDown size={16} />}
