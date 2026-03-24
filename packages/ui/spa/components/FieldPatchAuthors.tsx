@@ -107,7 +107,7 @@ export function FieldPatchAuthorsPure({
           className="flex items-center"
           aria-label="Pending patch authors"
         >
-          <span className="flex items-center">
+          <span className="flex items-center border border-border-brand-primary rounded-full">
             {visibleAuthorIds.map((authorId, i) => (
               <AuthorAvatar
                 key={authorId}

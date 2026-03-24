@@ -7,6 +7,7 @@ import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
 import { Fragment, useCallback, useMemo } from "react";
+import { FieldPatchAuthors } from "./FieldPatchAuthors";
 import { useNavigation } from "./ValRouter";
 import {
   ArrayAndRecordTools,
@@ -38,7 +39,11 @@ import {
 } from "./designSystem/hover-card";
 import { Globe } from "lucide-react";
 import { Search } from "./Search";
-import { usePendingPatches } from "./ValProvider";
+import {
+  usePendingPatches,
+  useProfilesByAuthorId,
+  PendingPatch,
+} from "./ValProvider";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -51,6 +56,18 @@ export function Module({ path }: { path: SourcePath }) {
   const hasPendingPatches = pendingPatchesRes
     ? pendingPatchesRes.length > 0
     : false;
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
+    const byAuthors: Record<string, PendingPatch[]> = {};
+    for (const patch of pendingPatchesRes || []) {
+      const author = patch.authorId ?? "unknown";
+      if (!byAuthors[author]) {
+        byAuthors[author] = [];
+      }
+      byAuthors[author].push(patch);
+    }
+    return byAuthors;
+  }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
   const onNavigate = useCallback(
     (path: SourcePath) => {
@@ -142,7 +159,13 @@ export function Module({ path }: { path: SourcePath }) {
             {showNumber && (
               <span className="shrink-0">#{Number(last.text)}</span>
             )}
-            <div className="shrink-0">
+            <div className="shrink-0 flex gap-2 items-center">
+              {hasPendingPatches && (
+                <FieldPatchAuthors
+                  patchesByAuthorIds={patchesByAuthorIds}
+                  profilesByAuthorIds={profilesByAuthorIds}
+                />
+              )}
               <ArrayAndRecordTools path={path} variant={"module"} />
             </div>
           </div>
@@ -159,8 +182,6 @@ export function Module({ path }: { path: SourcePath }) {
           className={cn({
             "border rounded-lg border-bg-error-secondary p-4 mt-4":
               nonKeyErrors.length > 0,
-            "border rounded-lg border-bg-brand-secondary p-4 mt-4":
-              hasPendingPatches && nonKeyErrors.length === 0,
           })}
         >
           <AnyField key={path} path={path} schema={schema} />
