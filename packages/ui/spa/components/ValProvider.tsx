@@ -713,7 +713,7 @@ export function useCurrentPatchIds(): PatchId[] {
   return currentPatchIds;
 }
 
-type PendingPatch = {
+export type PendingPatch = {
   moduleFilePath: ModuleFilePath;
   patch: Patch;
   isPending: boolean;
