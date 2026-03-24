@@ -2,7 +2,7 @@ import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAddPatch,
   useSchemaAtPath,
@@ -21,7 +21,12 @@ import {
   AccordionItem,
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
-import { usePendingPatches } from "./ValProvider";
+import {
+  PendingPatch,
+  usePendingPatches,
+  useProfilesByAuthorId,
+} from "./ValProvider";
+import { FieldPatchAuthors } from "./FieldPatchAuthors";
 
 export function Field({
   label,
@@ -44,6 +49,18 @@ export function Field({
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const pendingPatches = usePendingPatches(path);
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
+    const byAuthors: Record<string, PendingPatch[]> = {};
+    for (const patch of pendingPatches || []) {
+      const author = patch.authorId ?? "unknown";
+      if (!byAuthors[author]) {
+        byAuthors[author] = [];
+      }
+      byAuthors[author].push(patch);
+    }
+    return byAuthors;
+  }, [pendingPatches]);
   const hasPendingPatches = pendingPatches ? pendingPatches.length > 0 : false;
 
   const [isExpanded, setIsExpanded] = useState(true);
@@ -129,6 +146,12 @@ export function Field({
           {label && typeof label !== "string" && label}
         </div>
         <div className="flex gap-2 items-center">
+          {hasPendingPatches && (
+            <FieldPatchAuthors
+              patchesByAuthorIds={patchesByAuthorIds}
+              profilesByAuthorIds={profilesByAuthorIds}
+            />
+          )}
           {source !== null && (
             <ArrayAndRecordTools path={path} variant={"field"} />
           )}
