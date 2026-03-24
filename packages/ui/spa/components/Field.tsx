@@ -86,8 +86,6 @@ export function Field({
       className={classNames("px-4 pt-6 pb-4 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
         "border-bg-error-secondary": validationErrors.length > 0,
-        "border-border-brand-primary":
-          hasPendingPatches && validationErrors.length === 0,
       })}
     >
       <div className="flex justify-between items-center pb-2">
