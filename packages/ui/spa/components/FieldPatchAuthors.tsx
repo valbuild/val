@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
+import { ScrollArea } from "./designSystem/scroll-area";
 import { useValPortal } from "./ValPortalProvider";
 import { getInitials } from "../utils/getInitials";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
@@ -102,7 +103,10 @@ export function FieldPatchAuthorsPure({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center" aria-label="Pending patch authors">
+        <button
+          className="flex items-center"
+          aria-label="Pending patch authors"
+        >
           <span className="flex items-center">
             {visibleAuthorIds.map((authorId, i) => (
               <AuthorAvatar
@@ -123,47 +127,52 @@ export function FieldPatchAuthorsPure({
       <PopoverContent
         container={portalContainer}
         align="end"
-        className="z-[9001] flex flex-col gap-3 min-w-[220px]"
+        className="z-[9001] min-w-[220px] p-0"
       >
-        {authorIds.map((authorId) => {
-          const profile = profilesByAuthorIds[authorId] ?? null;
-          const authorName = profile?.fullName ?? "Unknown";
-          const patches = [...patchesByAuthorIds[authorId]].sort(
-            (a, b) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-          );
-          return (
-            <div key={authorId} className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 font-semibold text-xs text-fg-secondary">
-                <AuthorAvatar
-                  profile={profile}
-                  isFirst={true}
-                  stacked={false}
-                />
-                <span>{authorName}</span>
-              </div>
-              <div className="flex flex-col gap-1 pl-8">
-                {patches.map((patch, i) => {
-                  const op =
-                    patch.patch.length > 0
-                      ? (patch.patch[0] as Operation).op
-                      : "replace";
-                  return (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-xs text-fg-tertiary"
-                    >
-                      <span className="text-fg-secondary">
-                        <OpIcon op={op} />
-                      </span>
-                      <span>{relativeLocalDate(now, patch.createdAt)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+        <ScrollArea className="h-40">
+          <div className="flex flex-col gap-3 p-3">
+            {authorIds.map((authorId) => {
+              const profile = profilesByAuthorIds[authorId] ?? null;
+              const authorName = profile?.fullName ?? "Unknown";
+              const patches = [...patchesByAuthorIds[authorId]].sort(
+                (a, b) =>
+                  new Date(b.createdAt).getTime() -
+                  new Date(a.createdAt).getTime(),
+              );
+              return (
+                <div key={authorId} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 font-semibold text-xs text-fg-secondary">
+                    <AuthorAvatar
+                      profile={profile}
+                      isFirst={true}
+                      stacked={false}
+                    />
+                    <span>{authorName}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 pl-8">
+                    {patches.map((patch, i) => {
+                      const op =
+                        patch.patch.length > 0
+                          ? (patch.patch[0] as Operation).op
+                          : "replace";
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 text-xs text-fg-tertiary"
+                        >
+                          <span className="text-fg-secondary">
+                            <OpIcon op={op} />
+                          </span>
+                          <span>{relativeLocalDate(now, patch.createdAt)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   );

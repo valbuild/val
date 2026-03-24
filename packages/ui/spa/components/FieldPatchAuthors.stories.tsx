@@ -105,6 +105,28 @@ export const ManyAuthors: Story = {
   ),
 };
 
+const manyPatches = (authorId: string): PendingPatch[] =>
+  Array.from({ length: 20 }, (_, i) => ({
+    moduleFilePath: "/content/articles.val.ts" as ModuleFilePath,
+    patch: [{ op: "replace" as const, path: ["title"], value: `Edit ${i + 1}` }],
+    isPending: true,
+    createdAt: new Date(now.getTime() - i * 5 * 60 * 1000).toISOString(),
+    authorId,
+    isCommitted: undefined,
+  }));
+
+export const ManyPatches: Story = {
+  name: "Many Patches (scroll)",
+  render: () => (
+    <FieldPatchAuthorsPure
+      patchesByAuthorIds={{ alice: manyPatches("alice"), bob: manyPatches("bob") }}
+      profilesByAuthorIds={{ alice, bob }}
+      now={now}
+      portalContainer={null}
+    />
+  ),
+};
+
 export const UnknownAuthor: Story = {
   name: "Unknown Author (fallback icon)",
   render: () => (
