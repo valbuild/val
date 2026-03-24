@@ -145,6 +145,8 @@ const commonTheme: {
     lineHighlight: "transparent",
     gutterBackground: "var(--bg-primary)",
     gutterForeground: "var(--fg-primary-alt)",
+    fontSize: "16px",
+    fontFamily: "var(--font-mono)",
   },
   styles: [
     { tag: t.invalid, color: "var(--fg-error-primary)" },
