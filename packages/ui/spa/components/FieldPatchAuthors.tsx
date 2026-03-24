@@ -82,16 +82,17 @@ function AuthorAvatar({
   );
 }
 
-export function FieldPatchAuthors({
+export function FieldPatchAuthorsPure({
   patchesByAuthorIds,
   profilesByAuthorIds,
+  now,
+  portalContainer,
 }: {
   patchesByAuthorIds: Record<string, PendingPatch[]>;
   profilesByAuthorIds: Record<string, Profile>;
+  now: Date;
+  portalContainer: HTMLElement | null;
 }) {
-  const portalContainer = useValPortal();
-  const [now] = useState(() => new Date());
-
   const authorIds = Object.keys(patchesByAuthorIds);
   if (authorIds.length === 0) return null;
 
@@ -165,5 +166,24 @@ export function FieldPatchAuthors({
         })}
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function FieldPatchAuthors({
+  patchesByAuthorIds,
+  profilesByAuthorIds,
+}: {
+  patchesByAuthorIds: Record<string, PendingPatch[]>;
+  profilesByAuthorIds: Record<string, Profile>;
+}) {
+  const portalContainer = useValPortal();
+  const [now] = useState(() => new Date());
+  return (
+    <FieldPatchAuthorsPure
+      patchesByAuthorIds={patchesByAuthorIds}
+      profilesByAuthorIds={profilesByAuthorIds}
+      now={now}
+      portalContainer={portalContainer}
+    />
   );
 }
