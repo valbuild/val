@@ -732,10 +732,6 @@ export function usePendingPatches(
   const cachedSourcePathsByPatchId = useRef<
     Record<PatchId, Set<SourcePath | ModuleFilePath>>
   >({});
-  console.log(
-    "ALl patches length",
-    Object.keys(syncEngine.getAllPatchesSnapshot()).length,
-  );
   const patchesMetadata = useMemo((): PendingPatch[] | null => {
     const allPatches = syncEngine.getAllPatchesSnapshot();
     const [moduleFilePath, modulePath] =
