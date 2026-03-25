@@ -769,7 +769,7 @@ export function usePendingPatches(
       }
     }
     return patches;
-  }, [currentPatchIds.join("-"), sourcePath]);
+  }, [currentPatchIds, sourcePath]);
   return patchesMetadata;
 }
 
