@@ -44,6 +44,7 @@ function AuthorAvatar({
 }) {
   const baseClass = classNames(
     "flex-shrink-0 w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-semibold overflow-hidden",
+    "border border-border-brand-primary",
     { "-ml-2": stacked && !isFirst },
   );
 
@@ -52,7 +53,7 @@ function AuthorAvatar({
       <span
         className={classNames(
           baseClass,
-          "bg-bg-tertiary text-fg-disabled border border-border-primary",
+          "bg-bg-tertiary text-fg-disabled border border-border-brand-primary",
         )}
       >
         <User size={12} />
@@ -107,7 +108,7 @@ export function FieldPatchAuthorsPure({
           className="flex items-center"
           aria-label="Pending patch authors"
         >
-          <span className="flex items-center border border-border-brand-primary rounded-full">
+          <span className="flex items-center rounded-full">
             {visibleAuthorIds.map((authorId, i) => (
               <AuthorAvatar
                 key={authorId}

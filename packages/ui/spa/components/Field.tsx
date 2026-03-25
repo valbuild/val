@@ -157,7 +157,7 @@ export function Field({
             <button
               onClick={() => setIsExpanded((prev) => !prev)}
               className={classNames(
-                "transform transition-transform size-6 flex items-center justify-center",
+                "transform transition-transform size-6 m-[1px] flex items-center justify-center",
                 {
                   "rotate-180": isExpanded,
                 },
