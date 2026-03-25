@@ -101,6 +101,13 @@ export function FieldPatchAuthorsPure({
   const visibleAuthorIds = authorIds.slice(0, 3);
   const overflowCount = authorIds.length - visibleAuthorIds.length;
 
+  const allPatches = Object.values(patchesByAuthorIds).flat();
+  const mostRecentCreatedAt = allPatches.reduce(
+    (latest, patch) =>
+      new Date(patch.createdAt) > new Date(latest) ? patch.createdAt : latest,
+    allPatches[0].createdAt,
+  );
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -108,6 +115,9 @@ export function FieldPatchAuthorsPure({
           className="flex items-center"
           aria-label="Pending patch authors"
         >
+          <span className="text-xs text-fg-tertiary mr-1">
+            {relativeLocalDate(now, mostRecentCreatedAt)}
+          </span>
           <span className="flex items-center rounded-full">
             {visibleAuthorIds.map((authorId, i) => (
               <AuthorAvatar
