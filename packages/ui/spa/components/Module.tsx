@@ -7,6 +7,7 @@ import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
 import { Fragment, useCallback, useMemo } from "react";
+import { FieldPatchAuthors } from "./FieldPatchAuthors";
 import { useNavigation } from "./ValRouter";
 import {
   ArrayAndRecordTools,
@@ -38,6 +39,11 @@ import {
 } from "./designSystem/hover-card";
 import { Globe } from "lucide-react";
 import { Search } from "./Search";
+import {
+  usePendingPatches,
+  useProfilesByAuthorId,
+  PendingPatch,
+} from "./ValProvider";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -46,6 +52,22 @@ export function Module({ path }: { path: SourcePath }) {
   const sources = useAllSources();
   const schemasRes = useSchemas();
   const validationErrors = useValidationErrors(path);
+  const pendingPatchesRes = usePendingPatches(path);
+  const hasPendingPatches = pendingPatchesRes
+    ? pendingPatchesRes.length > 0
+    : false;
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
+    const byAuthors: Record<string, PendingPatch[]> = {};
+    for (const patch of pendingPatchesRes || []) {
+      const author = patch.authorId ?? "unknown";
+      if (!byAuthors[author]) {
+        byAuthors[author] = [];
+      }
+      byAuthors[author].push(patch);
+    }
+    return byAuthors;
+  }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
   const onNavigate = useCallback(
     (path: SourcePath) => {
@@ -137,7 +159,13 @@ export function Module({ path }: { path: SourcePath }) {
             {showNumber && (
               <span className="shrink-0">#{Number(last.text)}</span>
             )}
-            <div className="shrink-0">
+            <div className="shrink-0 flex gap-2 items-center">
+              {hasPendingPatches && (
+                <FieldPatchAuthors
+                  patchesByAuthorIds={patchesByAuthorIds}
+                  profilesByAuthorIds={profilesByAuthorIds}
+                />
+              )}
               <ArrayAndRecordTools path={path} variant={"module"} />
             </div>
           </div>
