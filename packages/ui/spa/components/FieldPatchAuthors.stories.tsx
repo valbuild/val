@@ -108,7 +108,9 @@ export const ManyAuthors: Story = {
 const manyPatches = (authorId: string): PendingPatch[] =>
   Array.from({ length: 20 }, (_, i) => ({
     moduleFilePath: "/content/articles.val.ts" as ModuleFilePath,
-    patch: [{ op: "replace" as const, path: ["title"], value: `Edit ${i + 1}` }],
+    patch: [
+      { op: "replace" as const, path: ["title"], value: `Edit ${i + 1}` },
+    ],
     isPending: true,
     createdAt: new Date(now.getTime() - i * 5 * 60 * 1000).toISOString(),
     authorId,
@@ -119,7 +121,10 @@ export const ManyPatches: Story = {
   name: "Many Patches (scroll)",
   render: () => (
     <FieldPatchAuthorsPure
-      patchesByAuthorIds={{ alice: manyPatches("alice"), bob: manyPatches("bob") }}
+      patchesByAuthorIds={{
+        alice: manyPatches("alice"),
+        bob: manyPatches("bob"),
+      }}
       profilesByAuthorIds={{ alice, bob }}
       now={now}
       portalContainer={null}
