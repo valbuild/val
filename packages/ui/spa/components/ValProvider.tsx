@@ -753,8 +753,8 @@ export function usePendingPatches(
           if (patchData) {
             patches.push(patchData);
           }
+          continue;
         }
-        continue;
       }
       const ops = patchData.patch;
       for (const op of ops) {
