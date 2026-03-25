@@ -728,12 +728,16 @@ export function usePendingPatches(
 ): PendingPatch[] | null {
   const { syncEngine } = useContext(ValContext);
 
+  const allPatches = useSyncExternalStore(
+    syncEngine.subscribe("all-patches"),
+    () => syncEngine.getAllPatchesSnapshot(),
+    () => syncEngine.getAllPatchesSnapshot(),
+  );
   const currentPatchIds = useCurrentPatchIds();
   const cachedSourcePathsByPatchId = useRef<
     Record<PatchId, Set<SourcePath | ModuleFilePath>>
   >({});
   const patchesMetadata = useMemo((): PendingPatch[] | null => {
-    const allPatches = syncEngine.getAllPatchesSnapshot();
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(sourcePath);
     const patches: PendingPatch[] = [];
@@ -769,7 +773,7 @@ export function usePendingPatches(
       }
     }
     return patches;
-  }, [currentPatchIds, sourcePath]);
+  }, [allPatches, currentPatchIds, sourcePath]);
   return patchesMetadata;
 }
 
