@@ -50,7 +50,7 @@ const addValPathIfFound = (type: any, props: any) => {
         valSources.add(valPath);
       }
 
-      if (isIntrinsicElement(type)) {
+      if (isIntrinsicElement(type) && !Object.isFrozen(container)) {
         // clean values before adding them to the props
         // we cannot do this
         const cleanValue = vercelStegaSplit(value).cleaned;
