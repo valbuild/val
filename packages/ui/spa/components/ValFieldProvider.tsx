@@ -542,6 +542,9 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
     if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
       return { status: "not-found" };
     }
+    if (resolvedSchemaAtPathRes.status === "error") {
+      return { status: "error", error: resolvedSchemaAtPathRes.error };
+    }
     return {
       status: "loading",
     };
