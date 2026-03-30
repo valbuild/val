@@ -5,6 +5,7 @@ import { fallbackRender } from "./fallbackRender";
 import { useMemo, useState } from "react";
 import {
   createValClient,
+  VAL_CONFIG_SESSION_STORAGE_KEY,
   VAL_THEME_SESSION_STORAGE_KEY,
 } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
@@ -28,11 +29,25 @@ function App() {
   // Theme is initialized by ValNextProvider in session storage
   // We just read it once on init and then rely on React state
   const [theme, setTheme] = useState<Themes | null>(() => {
-    const storedTheme = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);
-    if (storedTheme === "light" || storedTheme === "dark") {
-      return storedTheme;
+    try {
+      const stored = sessionStorage.getItem(VAL_THEME_SESSION_STORAGE_KEY);
+      if (stored === "light" || stored === "dark") return stored;
+      const configRaw = sessionStorage.getItem(VAL_CONFIG_SESSION_STORAGE_KEY);
+      const config = configRaw ? JSON.parse(configRaw) : null;
+      const local = localStorage.getItem(
+        "val-theme-" + (config?.project || "unknown"),
+      );
+      if (local === "light" || local === "dark") return local;
+      if (
+        config?.defaultTheme === "light" ||
+        config?.defaultTheme === "dark"
+      ) {
+        return config.defaultTheme;
+      }
+    } catch {
+      // ignore storage errors
     }
-    return null;
+    return "dark";
   });
   return (
     <>
