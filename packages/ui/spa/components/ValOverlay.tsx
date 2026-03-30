@@ -828,6 +828,13 @@ function WindowField({
   const schemaAtPath = useSchemaAtPath(path);
   const studioUrl = window.origin + "/val/~" + path;
 
+  if (schemaAtPath.status === "error") {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="text-fg-error text-sm">{schemaAtPath.error}</div>
+      </div>
+    );
+  }
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     return (
       <div className="flex flex-col gap-4">
