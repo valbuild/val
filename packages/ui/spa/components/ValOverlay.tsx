@@ -1383,8 +1383,20 @@ function useValRouterSourcePathFromCurrentPathname() {
       setCurrentPathname(window.location.pathname);
     };
     window.addEventListener("popstate", listener);
+    const customEventListener = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        if (
+          typeof event.detail === "string" &&
+          event.detail !== currentPathname
+        ) {
+          setCurrentPathname(event.detail);
+        }
+      }
+    };
+    window.addEventListener("val-provider:pathname", customEventListener);
     return () => {
       window.removeEventListener("popstate", listener);
+      window.removeEventListener("val-provider:pathname", customEventListener);
     };
   }, []);
   const sourcePathResult = useMemo(() => {

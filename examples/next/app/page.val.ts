@@ -9,6 +9,10 @@ export const schema = s.object({
   hero: s.object({
     title: s.string(),
     image: s.image(),
+    link: s.object({
+      text: s.string(),
+      href: s.route(),
+    }),
   }),
   /**
    * Arrays and string:
@@ -67,6 +71,10 @@ export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
         mimeType: "image/png",
         alt: "Val logo",
       }),
+      link: {
+        text: "Example blog article",
+        href: "/blogs/blog1",
+      },
     },
     tags: ["CMS", "react", "github", "NextJS"],
     author: "freekh",

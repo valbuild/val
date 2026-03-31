@@ -11,9 +11,9 @@ import {
   VAL_OVERLAY_ID,
   VERSION as UIVersion,
 } from "@valbuild/ui";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Script from "next/script";
-import React from "react";
+import React, { useEffect } from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
@@ -49,6 +49,14 @@ export const ValNextProvider = (props: {
   const [, startTransition] = React.useTransition();
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
+  const pathname = usePathname();
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("val-provider:pathname", {
+        detail: pathname,
+      }),
+    );
+  }, [pathname]);
 
   useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
