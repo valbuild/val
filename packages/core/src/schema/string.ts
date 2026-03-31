@@ -115,6 +115,16 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     if (this.opt && (src === null || src === undefined)) {
       return errors.length > 0 ? { [path]: errors } : false;
     }
+    if (!this.opt && (src === null || src === undefined)) {
+      return {
+        [path]: [
+          {
+            message: `Expected 'string', got '${src === null ? "null" : "undefined"}'`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
     if (typeof src !== "string") {
       return {
         [path]: [
