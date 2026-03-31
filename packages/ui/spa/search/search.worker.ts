@@ -1,5 +1,6 @@
 import {
   FILE_REF_PROP,
+  Internal,
   Json,
   ModuleFilePath,
   SerializedSchema,
@@ -80,13 +81,42 @@ function buildIndex(
 
       // Add to index if we have search text
       if (searchText) {
-        newIndex.add(path, searchText + " " + path);
+        const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+        const cleanPath = fastRemoveNonWordChars(modulePath) + " ";
+        newIndex.add(path, cleanPath + " " + path + " " + searchText);
         newPathToLabel.set(path, label);
       }
     });
   }
 
   return { index: newIndex, pathToLabel: newPathToLabel };
+}
+
+const NON_CHARS = new Set([
+  "/",
+  "-",
+  "_",
+  ".",
+  ":",
+  "?",
+  "&",
+  "=",
+  "@",
+  '"',
+  "'",
+]);
+function fastRemoveNonWordChars(str: string): string {
+  let result = "";
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (!NON_CHARS.has(char)) {
+      result += char;
+    } else {
+      result += " ";
+    }
+  }
+  console.log("Original path:", str, "Cleaned path:", result);
+  return result;
 }
 
 function performSearch(
@@ -123,7 +153,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       self.postMessage(response);
     } else if (request.type === "search") {
       const results = performSearch(request.query, request.limit);
-
       const response: WorkerResponse = {
         type: "search-results",
         id: request.id,
