@@ -3,6 +3,8 @@ import { fetchVal, fetchValRoute } from "../val/rsc";
 import pageVal from "./page.val";
 import { ValImage, ValRichText } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
+import Link from "next/link";
+import { val } from "../val.config";
 
 export default async function Home({ params }: { params: unknown }) {
   const page = await fetchValRoute(pageVal, params);
@@ -24,6 +26,11 @@ export default async function Home({ params }: { params: unknown }) {
         />
         {author?.name && <aside>Author: {author.name}</aside>}
         <div>{page.tags.join(", ")}</div>
+        <div>
+          <Link {...val.attrs(page.hero.link)} href={page.hero.link.href}>
+            {page.hero.link.text}
+          </Link>
+        </div>
       </section>
       <section>
         {page.text && (
