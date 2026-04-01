@@ -56,6 +56,7 @@ export const SingleAuthor: Story = {
       patchesByAuthorIds={{ alice: basePatches("alice") }}
       profilesByAuthorIds={{ alice }}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
@@ -67,6 +68,7 @@ export const SingleAuthorWithAvatar: Story = {
       patchesByAuthorIds={{ bob: basePatches("bob") }}
       profilesByAuthorIds={{ bob }}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
@@ -82,6 +84,7 @@ export const MultipleAuthors: Story = {
       }}
       profilesByAuthorIds={{ alice, bob, carol }}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
@@ -100,6 +103,7 @@ export const ManyAuthors: Story = {
       }}
       profilesByAuthorIds={{ alice, bob, carol, dave, eve }}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
@@ -127,6 +131,7 @@ export const ManyPatches: Story = {
       }}
       profilesByAuthorIds={{ alice, bob }}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
@@ -139,6 +144,7 @@ export const UnknownAuthor: Story = {
       patchesByAuthorIds={{ unknown42: basePatches("unknown42") }}
       profilesByAuthorIds={{}}
       now={now}
+      mode="http"
       portalContainer={null}
     />
   ),
