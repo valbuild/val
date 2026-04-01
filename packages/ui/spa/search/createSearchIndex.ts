@@ -1,17 +1,16 @@
 import {
   FILE_REF_PROP,
   Internal,
-  Json,
   ModuleFilePath,
   ModulePath,
+  Source,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import FlexSearch, { Index } from "flexsearch";
-import { isJsonArray } from "../utils/isJsonArray";
 
 function rec(
-  source: Json,
+  source: Source,
   schema: SerializedSchema,
   path: SourcePath,
   sourceIndex: Index,
@@ -79,7 +78,7 @@ function rec(
               subPath,
           );
         } else if (source && typeof source === "object") {
-          if (isJsonArray(source)) {
+          if (Array.isArray(source)) {
             throw new Error(
               `Object schema does not have source of correct type: array, key: ${key} for ${path}`,
             );
@@ -88,7 +87,13 @@ function rec(
               `Object schema does is missing required key: ${key} in ${path}`,
             );
           } else {
-            rec(source[key], subSchema, subPath, sourceIndex, sourcePathIndex);
+            rec(
+              (source as { [key: string]: Source })[key],
+              subSchema,
+              subPath,
+              sourceIndex,
+              sourcePathIndex,
+            );
           }
         } else {
           throw new Error(
@@ -117,10 +122,13 @@ function rec(
           } else if (
             source &&
             typeof source === "object" &&
-            !isJsonArray(source) &&
+            !Array.isArray(source) &&
             schemaKey in source
           ) {
-            return schemaAtKey.value === source[schemaKey];
+            return (
+              schemaAtKey.value ===
+              (source as { [key: string]: unknown })[schemaKey]
+            );
           } else {
             throw new Error(
               `Union schema must have sub object with literal key but has: ${item.items[schemaKey]} for ${path}`,
@@ -237,9 +245,9 @@ function rec(
   }
 }
 
-function stringifyRichText(source: Json): string {
+function stringifyRichText(source: Source): string {
   let res = "";
-  function rec(child: Json): void {
+  function rec(child: Source): void {
     if (typeof child === "string") {
       res += child;
     } else {
@@ -353,7 +361,7 @@ function addTokenizedSourcePath(
 }
 const debugPerf = true;
 export function createSearchIndex(
-  modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
+  modules: Record<ModuleFilePath, { source: Source; schema: SerializedSchema }>,
 ): Index {
   if (debugPerf) {
     console.time("indexing");

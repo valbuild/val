@@ -1,8 +1,11 @@
 import {
   ImageMetadata,
   Internal,
+  ModuleFilePath,
   SourcePath,
   VAL_EXTENSION,
+  FILE_REF_PROP,
+  FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -13,6 +16,8 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
   useValConfig,
+  useSchemas,
+  useFilePatchIds,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -23,16 +28,21 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { readImage } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../../components/ValidationError";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
 import { Button } from "../designSystem/button";
+import { useValPortal } from "../ValPortalProvider";
+import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
+import type { GalleryEntry } from "../MediaPicker/MediaPicker";
+import { JSONValue } from "@valbuild/core/patch";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
+  const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
@@ -41,34 +51,42 @@ export function ImageField({ path }: { path: SourcePath }) {
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
-    useAddPatch(path);
+  const {
+    addPatch,
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path);
+  const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
+  const filePatchIds = useFilePatchIds();
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
     if (maybeSourceData) {
+      // We can't set the url before it is server side (since the we will be loading)
+      if (!maybeClientSideOnly) {
+        const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
+        const nextUrl =
+          VAL_EXTENSION in maybeSourceData &&
+          maybeSourceData[VAL_EXTENSION] === "remote"
+            ? Internal.convertRemoteSource({
+                ...maybeSourceData,
+                [VAL_EXTENSION]: "remote",
+                ...(patchId ? { patch_id: patchId } : {}),
+              }).url
+            : Internal.convertFileSource({
+                ...maybeSourceData,
+                [VAL_EXTENSION]: "file",
+                ...(patchId ? { patch_id: patchId } : {}),
+              }).url;
+        setUrl(nextUrl);
+        setLoading(false);
+      }
       if (maybeSourceData.metadata) {
-        // We can't set the url before it is server side (since the we will be loading)
-        if (!maybeClientSideOnly) {
-          const nextUrl =
-            VAL_EXTENSION in maybeSourceData &&
-            maybeSourceData[VAL_EXTENSION] === "remote"
-              ? Internal.convertRemoteSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "remote",
-                }).url
-              : Internal.convertFileSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "file",
-                }).url;
-          setUrl(nextUrl);
-          setLoading(false);
-        }
-        //
         const metadata = maybeSourceData.metadata;
         if (
           typeof metadata.width !== "number" ||
@@ -105,7 +123,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         setHotspot(undefined);
       }
     }
-  }, [sourceAtPath]);
+  }, [sourceAtPath, filePatchIds]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -149,7 +167,36 @@ export function ImageField({ path }: { path: SourcePath }) {
     schemaAtPath.data.type === "image" &&
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
-  const disabled = remoteFileUploadDisabled;
+  const referencedModule = schemaAtPath.data.referencedModule;
+  const missingModules =
+    referencedModule && schemas.status === "success"
+      ? schemas.data[referencedModule as ModuleFilePath]
+        ? []
+        : [referencedModule]
+      : [];
+  const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const acceptOptions = useMemo(() => {
+    if (
+      schemaAtPath.data.type !== "image" ||
+      !referencedModule ||
+      schemas.status !== "success"
+    ) {
+      return undefined;
+    }
+    if (schemaAtPath.data.options?.accept) {
+      return schemaAtPath.data.options.accept;
+    }
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    if (moduleSchema?.type === "record" && moduleSchema.accept) {
+      return moduleSchema.accept;
+    }
+    return undefined;
+  }, [schemaAtPath.data, referencedModule, schemas]);
+  const moduleDirectory = useMemo(() => {
+    if (!referencedModule || schemas.status !== "success") return undefined;
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -168,6 +215,13 @@ export function ImageField({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
+      {missingModules.length > 0 && (
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+          {missingModules.length === 1
+            ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
+            : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
+        </div>
+      )}
       {error && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
@@ -181,9 +235,9 @@ export function ImageField({ path }: { path: SourcePath }) {
           </div>
         )}
       <div className="flex flex-col gap-2">
-        {source && (
+        {source && !moduleDirectory && (
           <div className="">
-            <span id={altPath}>Alt text</span>
+            <span id={altPath}>Description</span>
             <Input
               value={
                 source.metadata?.alt
@@ -319,15 +373,41 @@ export function ImageField({ path }: { path: SourcePath }) {
             )}
           </div>
         )}
-        <Button asChild variant={"secondary"}>
+        {referencedModule && (
+          <ModuleMediaPicker
+            modulePath={referencedModule as ModuleFilePath}
+            selectedRef={source?._ref ?? null}
+            onSelect={(entry: GalleryEntry) => {
+              addPatch(
+                [
+                  {
+                    op: "replace",
+                    path: patchPath,
+                    value: {
+                      [FILE_REF_PROP]: entry.filePath,
+                      [VAL_EXTENSION]: "file",
+                      [FILE_REF_SUBTYPE_TAG]: "image",
+                      metadata: entry.metadata as JSONValue,
+                    },
+                  },
+                ],
+                "image",
+              );
+            }}
+            isImage
+            disabled={disabled}
+            portalContainer={portalContainer}
+          />
+        )}
+        <Button asChild variant={"secondary"} disabled={disabled}>
           <label htmlFor={`img_input:${path}`}>Upload</label>
         </Button>
         <input
-          disabled={sourceAtPath.status === "loading"}
+          disabled={disabled}
           hidden
           id={`img_input:${path}`}
           type="file"
-          accept={schemaAtPath.data.options?.accept || "image/*"}
+          accept={acceptOptions ?? "image/*"}
           onChange={(ev) => {
             readImage(ev).then((res) => {
               const type = "image";
@@ -358,15 +438,18 @@ export function ImageField({ path }: { path: SourcePath }) {
                 metadata,
                 type,
                 remoteData,
-                config.files?.directory,
+                moduleDirectory ?? config.files?.directory,
+                !!referencedModule,
               )
-                .then((patch) => {
+                .then(({ patch, filePath }) => {
                   setLoading(true);
                   setProgressPercentage(0);
+                  let hasError = false;
                   addAndUploadPatchWithFileOps(
                     patch,
                     type,
                     (errorMessage) => {
+                      hasError = true;
                       setUrl(prevUrl);
                       setError(errorMessage);
                     },
@@ -376,10 +459,42 @@ export function ImageField({ path }: { path: SourcePath }) {
                         (totalBytes * totalFiles);
                       setProgressPercentage(Math.round(overallProgress * 100));
                     },
-                  ).finally(() => {
-                    setProgressPercentage(null);
-                    setLoading(false);
-                  });
+                  )
+                    .then(() => {
+                      if (
+                        !hasError &&
+                        filePath &&
+                        metadata?.mimeType &&
+                        metadata.width !== undefined &&
+                        metadata.height !== undefined
+                      ) {
+                        if (referencedModule) {
+                          addModuleFilePatch(
+                            referencedModule as ModuleFilePath,
+                            [
+                              {
+                                op: "add",
+                                path: [filePath],
+                                value: {
+                                  width: metadata.width,
+                                  height: metadata.height,
+                                  mimeType: metadata.mimeType,
+                                  alt:
+                                    typeof metadata.alt === "string"
+                                      ? metadata.alt
+                                      : null,
+                                } as JSONValue,
+                              },
+                            ],
+                            "record",
+                          );
+                        }
+                      }
+                    })
+                    .finally(() => {
+                      setProgressPercentage(null);
+                      setLoading(false);
+                    });
                 })
                 .catch((err) => {
                   console.error("Failed to create file patch", err);

@@ -11,9 +11,11 @@ import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
+import { files } from "./schema/files";
 import { date } from "./schema/date";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
+import { images } from "./schema/images";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -200,6 +202,44 @@ export type InitSchema = {
    * @returns A RecordSchema configured as a router
    */
   readonly router: typeof router;
+  /**
+   * Define a collection of images.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.images({
+   *   accept: "image/webp",
+   *   directory: "/public/val/images",
+   *   alt: s.string().minLength(4),
+   * });
+   * export default c.define("/content/images.val.ts", schema, {
+   *   "/public/val/images/hero.webp": {
+   *     width: 1920,
+   *     height: 1080,
+   *     mimeType: "image/webp",
+   *     alt: "Hero image",
+   *   },
+   * });
+   * ```
+   */
+  readonly images: typeof images;
+  /**
+   * Define a collection of files.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.files({
+   *   accept: "application/pdf",
+   *   directory: "/public/val/documents",
+   * });
+   * export default c.define("/content/documents.val.ts", schema, {
+   *   "/public/val/documents/report.pdf": {
+   *     mimeType: "application/pdf",
+   *   },
+   * });
+   * ```
+   */
+  readonly files: typeof files;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -220,9 +260,11 @@ export function initSchema() {
     keyOf,
     record,
     file,
+    files,
     date,
     route,
     router,
+    images,
     // i18n: i18n(locales),
   };
 }

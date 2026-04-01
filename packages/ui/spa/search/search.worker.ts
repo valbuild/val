@@ -45,8 +45,8 @@ function buildIndex(
         schema.type === "keyOf" ||
         schema.type === "route"
       ) {
-        searchText = source.toString();
-        label = source.toString();
+        searchText = source?.toString() ?? "";
+        label = source?.toString() ?? "";
       } else if (schema.type === "literal") {
         searchText = schema.value.toString();
         label = schema.value.toString();
