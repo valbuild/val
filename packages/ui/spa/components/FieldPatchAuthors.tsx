@@ -8,10 +8,11 @@ import {
   Minus,
   Pencil,
   Plus,
+  Save,
   User,
 } from "lucide-react";
 import { Operation } from "@valbuild/core/patch";
-import { PendingPatch, Profile } from "./ValProvider";
+import { PendingPatch, Profile, useValMode } from "./ValProvider";
 import {
   Popover,
   PopoverContent,
@@ -37,26 +38,24 @@ function AuthorAvatar({
   profile,
   isFirst,
   stacked,
+  mode,
 }: {
   profile: Profile | null;
   isFirst: boolean;
   stacked: boolean;
+  mode: "fs" | "http" | "unknown";
 }) {
   const baseClass = classNames(
     "flex-shrink-0 w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-semibold overflow-hidden",
-    "border border-border-brand-primary",
     { "-ml-2": stacked && !isFirst },
   );
 
   if (!profile) {
     return (
       <span
-        className={classNames(
-          baseClass,
-          "bg-bg-tertiary text-fg-disabled border border-border-brand-primary",
-        )}
+        className={classNames(baseClass, "bg-bg-secondary text-fg-disabled")}
       >
-        <User size={12} />
+        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
       </span>
     );
   }
@@ -89,11 +88,13 @@ export function FieldPatchAuthorsPure({
   profilesByAuthorIds,
   now,
   portalContainer,
+  mode,
 }: {
   patchesByAuthorIds: Record<string, PendingPatch[]>;
   profilesByAuthorIds: Record<string, Profile>;
   now: Date;
   portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
 }) {
   const authorIds = Object.keys(patchesByAuthorIds);
   if (authorIds.length === 0) return null;
@@ -125,6 +126,7 @@ export function FieldPatchAuthorsPure({
                 profile={profilesByAuthorIds[authorId] ?? null}
                 isFirst={i === 0}
                 stacked={authorIds.length > 1}
+                mode={mode}
               />
             ))}
             {overflowCount > 0 && (
@@ -144,7 +146,9 @@ export function FieldPatchAuthorsPure({
           <div className="flex flex-col gap-3 p-3">
             {authorIds.map((authorId) => {
               const profile = profilesByAuthorIds[authorId] ?? null;
-              const authorName = profile?.fullName ?? "Unknown";
+              const authorName =
+                profile?.fullName ??
+                (mode === "fs" ? "Local changes" : "Unknown author");
               const patches = [...patchesByAuthorIds[authorId]].sort(
                 (a, b) =>
                   new Date(b.createdAt).getTime() -
@@ -157,6 +161,7 @@ export function FieldPatchAuthorsPure({
                       profile={profile}
                       isFirst={true}
                       stacked={false}
+                      mode={mode}
                     />
                     <span>{authorName}</span>
                   </div>
@@ -198,12 +203,14 @@ export function FieldPatchAuthors({
 }) {
   const portalContainer = useValPortal();
   const [now] = useState(() => new Date());
+  const mode = useValMode();
   return (
     <FieldPatchAuthorsPure
       patchesByAuthorIds={patchesByAuthorIds}
       profilesByAuthorIds={profilesByAuthorIds}
       now={now}
       portalContainer={portalContainer}
+      mode={mode}
     />
   );
 }
