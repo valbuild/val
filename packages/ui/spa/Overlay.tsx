@@ -32,10 +32,7 @@ function Overlay() {
         "val-theme-" + (config?.project || "unknown"),
       );
       if (local === "light" || local === "dark") return local;
-      if (
-        config?.defaultTheme === "light" ||
-        config?.defaultTheme === "dark"
-      ) {
+      if (config?.defaultTheme === "light" || config?.defaultTheme === "dark") {
         return config.defaultTheme;
       }
     } catch {
