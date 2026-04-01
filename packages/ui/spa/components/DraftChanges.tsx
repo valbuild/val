@@ -519,7 +519,12 @@ function Deployments({
         <Loader2 size={16} className="inline animate-spin" />
       </div>
       <div>
-        {deployments.reverse().map((deployment) => {
+        {[...deployments]
+          .sort(
+            (a, b) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          )
+          .map((deployment) => {
           return (
             <Deployment
               key={deployment.commitSha}
