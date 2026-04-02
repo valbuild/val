@@ -688,6 +688,27 @@ export abstract class ValOps {
     const files: Record<SourcePath, FileSource> = {};
     const remoteFiles: Record<SourcePath, RemoteSource> = {};
     const entries = Object.entries(schemas);
+    // Build a map of gallery directory → [ModuleFilePath, ...] across ALL modules
+    // (must include all modules, not just those being validated, since conflicts can come from any module)
+    const galleryDirectoryToModules = new Map<string, ModuleFilePath[]>();
+    for (const [moduleFilePathS, schema] of entries) {
+      const serialized = schema["executeSerialize"]();
+      if (
+        serialized.type === "record" &&
+        serialized.mediaType &&
+        serialized.directory
+      ) {
+        const dir = serialized.directory;
+        const existing = galleryDirectoryToModules.get(dir);
+        if (existing) {
+          existing.push(moduleFilePathS as ModuleFilePath);
+        } else {
+          galleryDirectoryToModules.set(dir, [
+            moduleFilePathS as ModuleFilePath,
+          ]);
+        }
+      }
+    }
     const modulePathsToValidate =
       patchesByModule && Object.keys(patchesByModule);
     for (const [pathS, schema] of entries) {
@@ -852,6 +873,49 @@ export abstract class ValOps {
                   }
                 }
               }
+            } else if (
+              validationError.fixes?.includes("images:check-unique-folder") ||
+              validationError.fixes?.includes("files:check-unique-folder")
+            ) {
+              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
+              if (
+                !validationError.value ||
+                typeof validationError.value !== "object"
+              ) {
+                addError({
+                  message: `Could not find a directory value for gallery at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
+                  typeError: true,
+                });
+              } else {
+                const directory =
+                  "directory" in validationError.value &&
+                  validationError.value.directory;
+                if (typeof directory !== "string") {
+                  addError({
+                    message: `Expected gallery validation error 'value' to have property 'directory' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
+                    typeError: true,
+                  });
+                } else {
+                  const modulesUsingDir =
+                    galleryDirectoryToModules.get(directory) ?? [];
+                  const conflictingModules = modulesUsingDir.filter(
+                    (m) => m !== path,
+                  );
+                  if (conflictingModules.length > 0) {
+                    addError({
+                      message: `Gallery directory '${directory}' in ${path} conflicts with: ${conflictingModules.join(", ")}. Each gallery must use a unique directory.`,
+                    });
+                  }
+                  // If conflictingModules is empty, directory is unique — silently drop the error.
+                }
+              }
+            } else if (
+              validationError.fixes?.includes("images:check-all-files") ||
+              validationError.fixes?.includes("files:check-all-files")
+            ) {
+              // Requires filesystem access to enumerate the gallery directory.
+              // validateSources() does not have filesystem access, so this is suppressed.
+              // The actual check + fix is applied via createFixPatch.ts when explicitly requested.
             } else {
               addError(validationError);
             }
