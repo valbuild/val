@@ -50,6 +50,7 @@ interface FilePropertiesModalProps {
   loading?: boolean;
   disabled?: boolean;
   container?: HTMLElement | null;
+  onClose?: () => void;
 }
 
 export function FilePropertiesModal({
@@ -66,7 +67,10 @@ export function FilePropertiesModal({
   disabled,
   container,
 }: FilePropertiesModalProps) {
-  const refs = useReferencedFiles(parentPath as ModuleFilePath | undefined, file?.ref);
+  const refs = useReferencedFiles(
+    parentPath as ModuleFilePath | undefined,
+    file?.ref,
+  );
   const { navigate, currentSourcePath } = useNavigation();
   const [refsOpen, setRefsOpen] = React.useState(false);
 

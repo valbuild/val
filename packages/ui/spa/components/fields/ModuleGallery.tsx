@@ -37,7 +37,13 @@ function refToUrl(
     : filePath;
 }
 
-export function ModuleGallery({ path }: { path: SourcePath }) {
+export function ModuleGallery({
+  path,
+  showChildPath: showChild,
+}: {
+  path: SourcePath;
+  showChildPath?: SourcePath;
+}) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
   const schemaAtPath = useSchemaAtPath(path);
@@ -248,6 +254,14 @@ export function ModuleGallery({ path }: { path: SourcePath }) {
     [imageMode, directory, patchPath, addAndUploadPatchWithFileOps],
   );
 
+  const showChildRef = React.useMemo(() => {
+    if (!showChild) return null;
+    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(showChild);
+    const childKey = Internal.splitModulePath(modulePath)[0];
+    if (typeof childKey !== "string") return null;
+    return childKey;
+  }, [showChild]);
+
   if (source.status !== "success") {
     return <FieldLoading path={path} type="record" />;
   }
@@ -275,6 +289,7 @@ export function ModuleGallery({ path }: { path: SourcePath }) {
         onFileDelete={handleFileDelete}
         onUploadClick={() => inputRef.current?.click()}
         uploading={uploading}
+        defaultOpenFileRef={showChildRef ?? undefined}
       />
     </div>
   );
