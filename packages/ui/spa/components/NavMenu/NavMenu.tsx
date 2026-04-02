@@ -18,7 +18,7 @@ import { NavMenuData } from "./types";
 import { SitemapSection } from "./SitemapSection";
 import { ExplorerSection } from "./ExplorerSection";
 import { ExternalButton } from "./ExternalButton";
-import { Accordion, AccordionItem } from "../designSystem/accordion";
+import { Accordion } from "../designSystem/accordion";
 import { MOBILE_BREAKPOINT } from "../hooks/use-mobile";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = MOBILE_BREAKPOINT;
@@ -108,11 +108,11 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
 
   const handleExternalClick = useCallback(() => {
     if (data.external) {
-      // Close all accordion sections when external is selected
       setIsExternalSelected(true);
+      setAccordionValue("");
       handleNavigate(data.external.moduleFilePath as unknown as string, true);
     }
-  }, [data.external, handleNavigate]);
+  }, [data.external, handleNavigate, setAccordionValue]);
 
   const handleAddPage = useCallback(
     (moduleFilePath: string, urlPath: string) => {
@@ -192,13 +192,12 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
 
             {/* External URLs Button - between Site Map and Explorer */}
             {data.external && (
-              <AccordionItem value="external" onClick={handleExternalClick}>
-                <ExternalButton
-                  external={data.external}
-                  isActive={isExternalSelected || isExternalPath}
-                  onClick={handleExternalClick}
-                />
-              </AccordionItem>
+              <ExternalButton
+                external={data.external}
+                isActive={isExternalSelected || isExternalPath}
+                onClick={handleExternalClick}
+                showButtonBorder={!!data.explorer}
+              />
             )}
 
             {/* Explorer Section */}

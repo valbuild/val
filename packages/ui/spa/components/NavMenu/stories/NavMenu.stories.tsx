@@ -16,7 +16,6 @@ import { ExplorerSection } from "../ExplorerSection";
 import { ExternalButton } from "../ExternalButton";
 import { Accordion } from "../../designSystem/accordion";
 import { Loader2 } from "lucide-react";
-import { AccordionItem } from "@radix-ui/react-accordion";
 
 // Mock NavMenu that renders the actual components without needing providers
 function MockedNavMenu({
@@ -91,13 +90,12 @@ function MockedNavMenu({
 
               {/* External Button - between Site Map and Explorer */}
               {data.external && (
-                <AccordionItem value="external" onClick={handleExternalClick}>
-                  <ExternalButton
-                    external={data.external}
-                    isActive={false}
-                    onClick={handleExternalClick}
-                  />
-                </AccordionItem>
+                <ExternalButton
+                  external={data.external}
+                  isActive={false}
+                  onClick={handleExternalClick}
+                  showButtonBorder={!!data.explorer}
+                />
               )}
 
               {/* Explorer Section */}
