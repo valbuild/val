@@ -37,4 +37,5 @@ export interface FileGalleryProps {
   disabled?: boolean;
   onUploadClick?: () => void;
   uploading?: boolean;
+  defaultOpenFileRef?: string;
 }
