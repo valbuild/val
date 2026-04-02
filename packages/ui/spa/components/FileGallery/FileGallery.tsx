@@ -1,13 +1,5 @@
 import * as React from "react";
-import {
-  FolderOpen,
-  Grid,
-  LayoutGrid,
-  List,
-  Loader2,
-  Plus,
-  Search,
-} from "lucide-react";
+import { FolderOpen, Grid, List, Loader2, Plus, Search } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { Skeleton } from "../designSystem/skeleton";
@@ -21,6 +13,8 @@ import type {
   SortField,
   ViewMode,
 } from "./types";
+import { useNavigation } from "../ValRouter";
+import { Internal, SourcePath } from "@valbuild/core";
 
 export function FileGallery({
   files,
@@ -36,10 +30,21 @@ export function FileGallery({
   disabled = false,
   onUploadClick,
   uploading = false,
+  defaultOpenFileRef,
 }: FileGalleryProps) {
+  const navigation = useNavigation();
   const portalContainer = useValPortal();
   const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (defaultOpenFileRef) {
+      const index = files.findIndex((f) => f.ref === defaultOpenFileRef);
+      if (index !== -1) {
+        setSelectedIndex(index);
+        setIsPropertiesOpen(true);
+      }
+    }
+  }, [defaultOpenFileRef, files]);
   const [viewMode, setViewMode] = React.useState<ViewMode>(defaultViewMode);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [sortField, setSortField] = React.useState<SortField>("name");
@@ -115,6 +120,14 @@ export function FileGallery({
     const originalIndex = getOriginalIndex(filteredIndex);
     setSelectedIndex(originalIndex);
     setIsPropertiesOpen(true);
+    if (parentPath) {
+      const sourcePath = parentPath as SourcePath;
+      const fileRef = files[originalIndex].ref;
+      const childPath = Internal.createValPathOfItem(sourcePath, fileRef);
+      if (childPath) {
+        navigation.navigate(childPath);
+      }
+    }
   };
 
   // Empty state content - shown inside the main layout to preserve toolbar
@@ -278,7 +291,13 @@ export function FileGallery({
         file={selectedFile}
         fileIndex={selectedIndex}
         open={isPropertiesOpen}
-        onOpenChange={setIsPropertiesOpen}
+        onOpenChange={() => {
+          setIsPropertiesOpen((prev) => !prev);
+          if (isPropertiesOpen && parentPath) {
+            setSelectedIndex(null);
+            navigation.navigate(parentPath as SourcePath);
+          }
+        }}
         onFileRename={onFileRename}
         onAltTextChange={onAltTextChange}
         onFileDelete={onFileDelete}

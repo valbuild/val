@@ -44,8 +44,15 @@ import {
   useProfilesByAuthorId,
   PendingPatch,
 } from "./ValProvider";
+import { ModuleGallery } from "./fields/ModuleGallery";
 
-export function Module({ path }: { path: SourcePath }) {
+export function Module({
+  path,
+  showModuleGalleryChild,
+}: {
+  path: SourcePath;
+  showModuleGalleryChild: SourcePath | null;
+}) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
   const { navigate } = useNavigation();
@@ -87,7 +94,23 @@ export function Module({ path }: { path: SourcePath }) {
     },
     [schemasRes, sources, navigate],
   );
+  const parent = useParent(path);
+  const isParentGallery = useMemo(() => {
+    if (
+      parent.path !== path &&
+      parent.schema?.type === "record" &&
+      parent.schema.mediaType
+    ) {
+      return true;
+    }
+    return false;
+  }, [path, parent]);
 
+  if (isParentGallery) {
+    return (
+      <Module key={path} path={parent.path} showModuleGalleryChild={path} />
+    );
+  }
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
@@ -187,7 +210,15 @@ export function Module({ path }: { path: SourcePath }) {
               nonKeyErrors.length > 0,
           })}
         >
-          <AnyField key={path} path={path} schema={schema} />
+          {showModuleGalleryChild ? (
+            <ModuleGallery
+              key={path}
+              path={path}
+              showChildPath={showModuleGalleryChild}
+            />
+          ) : (
+            <AnyField key={path} path={path} schema={schema} />
+          )}
         </div>
       </div>
     </div>
