@@ -1,3 +1,5 @@
+import type { PendingPatch, Profile } from "../ValProvider";
+
 export interface FileMetadata {
   width: number;
   height: number;
@@ -16,6 +18,8 @@ export interface GalleryFile {
   fieldSpecificErrors?: {
     alt?: string[];
   };
+  patchesByAuthorIds?: Record<string, PendingPatch[]>;
+  profilesByAuthorIds?: Record<string, Profile>;
 }
 
 export type ViewMode = "masonry" | "grid" | "list";

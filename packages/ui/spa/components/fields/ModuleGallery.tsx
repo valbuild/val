@@ -13,6 +13,10 @@ import {
   useSchemaAtPath,
   useSourceAtPath,
 } from "../ValFieldProvider";
+import {
+  usePendingPatchesForModule,
+  useProfilesByAuthorId,
+} from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { ValidationErrors } from "../ValidationError";
@@ -50,6 +54,8 @@ export function ModuleGallery({
   const filePatchIds = useFilePatchIds();
   const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
+  const allModulePatches = usePendingPatchesForModule(moduleFilePath);
+  const profilesByAuthorIds = useProfilesByAuthorId();
   const allValidationErrors = useAllValidationErrors() || {};
 
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -90,6 +96,27 @@ export function ModuleGallery({
           }
         }
 
+        const fileModulePath = Internal.patchPathToModulePath([
+          ...patchPath,
+          ref,
+        ]);
+        const filePatches = allModulePatches.filter((patch) =>
+          patch.patch.some(
+            (op) => Internal.patchPathToModulePath(op.path) === fileModulePath,
+          ),
+        );
+        const filePatchesByAuthorIds: Record<
+          string,
+          (typeof allModulePatches)[number][]
+        > = {};
+        for (const patch of filePatches) {
+          const author = patch.authorId ?? "unknown";
+          if (!filePatchesByAuthorIds[author]) {
+            filePatchesByAuthorIds[author] = [];
+          }
+          filePatchesByAuthorIds[author].push(patch);
+        }
+
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
@@ -106,6 +133,8 @@ export function ModuleGallery({
             genericValidationErrors.length > 0
               ? genericValidationErrors
               : undefined,
+          patchesByAuthorIds: filePatchesByAuthorIds,
+          profilesByAuthorIds,
         };
       })
     : [];
