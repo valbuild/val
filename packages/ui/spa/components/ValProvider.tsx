@@ -777,6 +777,28 @@ export function usePendingPatches(
   return patchesMetadata;
 }
 
+export function usePendingPatchesForModule(
+  moduleFilePath: ModuleFilePath,
+): PendingPatch[] {
+  const { syncEngine } = useContext(ValContext);
+  const allPatches = useSyncExternalStore(
+    syncEngine.subscribe("all-patches"),
+    () => syncEngine.getAllPatchesSnapshot(),
+    () => syncEngine.getAllPatchesSnapshot(),
+  );
+  const currentPatchIds = useCurrentPatchIds();
+  return useMemo((): PendingPatch[] => {
+    const patches: PendingPatch[] = [];
+    for (const patchId of currentPatchIds) {
+      const patchData = allPatches[patchId];
+      if (patchData?.moduleFilePath === moduleFilePath) {
+        patches.push(patchData);
+      }
+    }
+    return patches;
+  }, [allPatches, currentPatchIds, moduleFilePath]);
+}
+
 export function useValMode(): "http" | "fs" | "unknown" {
   const { mode } = useContext(ValContext);
   return mode;
