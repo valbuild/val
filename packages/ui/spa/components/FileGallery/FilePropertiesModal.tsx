@@ -13,6 +13,7 @@ import { FilePreview } from "./FilePreview";
 import { FilenameInput } from "./FilenameInput";
 import type { GalleryFile } from "./types";
 import { FieldValidationError } from "../FieldValidationError";
+import { FieldPatchAuthors } from "../FieldPatchAuthors";
 import { useReferencedFiles } from "../useReferencedFiles";
 import {
   Tooltip,
@@ -126,9 +127,19 @@ export function FilePropertiesModal({
                     file.fieldSpecificErrors.alt.length > 0,
                 })}
               >
-                <label className="text-xs font-medium text-fg-secondary">
-                  Description
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-fg-secondary">
+                    Description
+                  </label>
+                  {file.patchesByAuthorIds &&
+                    file.profilesByAuthorIds &&
+                    Object.keys(file.patchesByAuthorIds).length > 0 && (
+                      <FieldPatchAuthors
+                        patchesByAuthorIds={file.patchesByAuthorIds}
+                        profilesByAuthorIds={file.profilesByAuthorIds}
+                      />
+                    )}
+                </div>
 
                 <div>
                   <Input
