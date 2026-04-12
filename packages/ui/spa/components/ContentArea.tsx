@@ -104,13 +104,19 @@ function RemoteFilesErrorDialog({
                 <AccordionTrigger>Why a personal token file?</AccordionTrigger>
                 <AccordionContent>
                   <p>
-                    Remote files are stored in a remote file server that
-                    requires authentication. A personal access token (PAT) is a
-                    secure way to authenticate and update remote files.
+                    You are using remote files, which require authentication. In
+                    local development, Val uses a personal access token (PAT) to
+                    authenticate and allow you to update remote files.
                   </p>
                   <p>
-                    Note: this is only required in local development. In
-                    production, users are authenticated through the application.
+                    You can create it by running the command shown above, which
+                    will create a PAT file.
+                  </p>
+                  <p>
+                    If you have the PAT already, check that you have internet
+                    access and that the project is setup correctly in
+                    https://admin.val.build, as issues with either of those
+                    could also cause this error.
                   </p>
                 </AccordionContent>
               </AccordionItem>
