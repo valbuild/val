@@ -43,6 +43,8 @@ type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
   assert?: never;
   /** Cannot create object with key: fold. It is a reserved name */
   fold?: never;
+  /** Cannot create object with key: patch_id. It is a reserved name */
+  patch_id?: never;
 };
 type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
   [key in keyof Props]: SelectorOfSchema<Props[key]>;

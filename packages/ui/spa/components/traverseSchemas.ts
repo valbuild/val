@@ -42,6 +42,9 @@ export function traverseSchemas(
     if (schema.type === "object" || schema.type === "record") {
       if (isObjectOrRecordSource(source)) {
         for (const key in source) {
+          if (key === "patch_id") {
+            continue; // skip patch_id as it's not part of the schema and causes issues with remote sources
+          }
           // NOTE: for object we are uncertain if we should use the source or the schema to get the keys. Currently we use the schema.items in other places, but source is more correct perhaps? Or perhaps not? We are not sure...
           const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
@@ -106,7 +109,9 @@ export function sourcePathConcat(
   )}` as SourcePath;
 }
 
-function isObjectOrRecordSource(source: Source): source is Record<string, Json> {
+function isObjectOrRecordSource(
+  source: Source,
+): source is Record<string, Json> {
   return typeof source === "object" && !!source && !Array.isArray(source);
 }
 
