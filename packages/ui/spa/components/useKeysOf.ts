@@ -21,7 +21,6 @@ export function useKeysOf(
       schemas.data !== undefined &&
       schemas.data[parentPath] !== undefined
     ) {
-      console.log(getKeysOf(schemas.data, allSources, parentPath, keyValue));
       return getKeysOf(schemas.data, allSources, parentPath, keyValue);
     }
     return [];
