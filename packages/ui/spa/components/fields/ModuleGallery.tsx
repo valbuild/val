@@ -1,9 +1,13 @@
 import * as React from "react";
 import {
+  FILE_REF_PROP,
+  FILE_REF_SUBTYPE_TAG,
   FileMetadata,
   ImageMetadata,
   Internal,
+  SerializedImageSchema,
   SourcePath,
+  VAL_EXTENSION,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue, Patch } from "@valbuild/core/patch";
@@ -12,7 +16,12 @@ import {
   useFilePatchIds,
   useSchemaAtPath,
   useSourceAtPath,
+  useValConfig,
 } from "../ValFieldProvider";
+import {
+  useCurrentRemoteFileBucket,
+  useRemoteFiles,
+} from "../ValRemoteProvider";
 import {
   usePendingPatchesForModule,
   useProfilesByAuthorId,
@@ -25,20 +34,26 @@ import { FileGallery } from "../FileGallery/FileGallery";
 import type { GalleryFile } from "../FileGallery/types";
 import { readImage } from "../../utils/readImage";
 import { readFile } from "../../utils/readFile";
+import { getFileExt } from "../../utils/getFileExt";
+
+const textEncoder = new TextEncoder();
 
 function refToUrl(
-  filePath: string,
+  ref: string,
   filePatchIds: ReadonlyMap<string, string>,
 ): string {
-  const patchId = filePatchIds.get(filePath);
+  const patchId = filePatchIds.get(ref);
+  let filePath = ref;
+  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
+  if (remoteRefRes.status === "success") {
+    filePath = `/${remoteRefRes.filePath}`;
+  }
   if (patchId) {
     return filePath.startsWith("/public")
       ? `/api/val/files${filePath}?patch_id=${patchId}`
       : `${filePath}?patch_id=${patchId}`;
   }
-  return filePath.startsWith("/public")
-    ? filePath.slice("/public".length)
-    : filePath;
+  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
 }
 
 export function ModuleGallery({
@@ -58,6 +73,10 @@ export function ModuleGallery({
   const profilesByAuthorIds = useProfilesByAuthorId();
   const allValidationErrors = useAllValidationErrors() || {};
 
+  const config = useValConfig();
+  const remoteFiles = useRemoteFiles();
+  const currentRemoteFileBucket = useCurrentRemoteFileBucket();
+
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
@@ -75,6 +94,20 @@ export function ModuleGallery({
   const imageMode = schema?.mediaType === "images";
   const directory = schema?.directory ?? "/public/val";
   const accept = schema?.accept;
+
+  const requireRemote = schema?.remote;
+  const remoteData =
+    schema?.remote &&
+    remoteFiles.status === "ready" &&
+    currentRemoteFileBucket &&
+    config
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          bucket: currentRemoteFileBucket,
+          coreVersion: remoteFiles.coreVersion,
+          remoteHost: config.remoteHost,
+        }
+      : null;
 
   const files: GalleryFile[] = rawSource
     ? Object.entries(rawSource).map(([ref, meta]) => {
@@ -117,11 +150,15 @@ export function ModuleGallery({
           filePatchesByAuthorIds[author].push(patch);
         }
 
+        const remoteRefRes = Internal.remote.splitRemoteRef(ref);
+        const cleanFilePath =
+          remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
+
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
-          filename: ref.split("/").pop() || ref,
-          folder: ref.substring(0, ref.lastIndexOf("/")),
+          filename: cleanFilePath.split("/").pop() || cleanFilePath,
+          folder: cleanFilePath.replace("/public/val", ""),
           metadata: { mimeType, width, height, alt },
           fieldSpecificErrors: {
             alt:
@@ -154,7 +191,7 @@ export function ModuleGallery({
           path: [...patchPath, ref],
           filePath: ref,
           value: null,
-          remote: false,
+          remote: Internal.remote.splitRemoteRef(ref).status === "success",
         },
       ];
       setUploading(true);
@@ -188,6 +225,24 @@ export function ModuleGallery({
   const handleUpload = React.useCallback(
     (ev: React.ChangeEvent<HTMLInputElement>) => {
       setUploadError(null);
+      if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
+        if (!currentRemoteFileBucket) {
+          console.error("Current remote file bucket is not available", {
+            remoteFiles,
+            currentRemoteFileBucket,
+          });
+          setUploadError(
+            "Remote uploads are not available. Please try again later. Val server responded with result, but no remote file buckets were available. This could be a temporary issue with the Val server. If the problem persists, please contact support.",
+          );
+          ev.target.value = "";
+          return;
+        }
+        setUploadError(
+          "Remote uploads are not available. Please try again later.",
+        );
+        ev.target.value = "";
+        return;
+      }
       if (imageMode) {
         readImage(ev)
           .then(async (res) => {
@@ -205,10 +260,42 @@ export function ModuleGallery({
             );
             if (!newFilename) return;
             const filePath = `${directory}/${newFilename}`;
+            let ref: string;
+            let isRemote: boolean;
+            if (remoteData) {
+              const remoteFileHash = Internal.remote.hashToRemoteFileHash(
+                res.fileHash,
+              );
+              const syntheticSchema: SerializedImageSchema = {
+                type: "image",
+                opt: false,
+                options: schema?.accept ? { accept: schema.accept } : undefined,
+              };
+              const validationHash = Internal.remote.getValidationHash(
+                remoteData.coreVersion,
+                syntheticSchema,
+                getFileExt(newFilename),
+                metadata,
+                remoteFileHash,
+                textEncoder,
+              );
+              ref = Internal.remote.createRemoteRef(remoteData.remoteHost, {
+                publicProjectId: remoteData.publicProjectId,
+                coreVersion: remoteData.coreVersion,
+                bucket: remoteData.bucket,
+                validationHash,
+                fileHash: remoteFileHash,
+                filePath: `${directory.slice(1) as `public/val/${string}`}/${newFilename}`,
+              });
+              isRemote = true;
+            } else {
+              ref = filePath;
+              isRemote = false;
+            }
             const patch: Patch = [
               {
                 op: "add",
-                path: [...patchPath, filePath],
+                path: [...patchPath, ref],
                 value: {
                   width: metadata.width,
                   height: metadata.height,
@@ -218,11 +305,11 @@ export function ModuleGallery({
               },
               {
                 op: "file",
-                path: [...patchPath, filePath],
-                filePath,
+                path: [...patchPath, ref],
+                filePath: ref,
                 value: res.src,
                 metadata,
-                remote: false,
+                remote: isRemote,
               },
             ];
             setUploading(true);
@@ -280,7 +367,17 @@ export function ModuleGallery({
       }
       ev.target.value = "";
     },
-    [imageMode, directory, patchPath, addAndUploadPatchWithFileOps],
+    [
+      imageMode,
+      directory,
+      patchPath,
+      addAndUploadPatchWithFileOps,
+      requireRemote,
+      remoteData,
+      currentRemoteFileBucket,
+      schema,
+      remoteFiles,
+    ],
   );
 
   const showChildRef = React.useMemo(() => {
