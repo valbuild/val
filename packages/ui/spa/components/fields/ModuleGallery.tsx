@@ -31,6 +31,7 @@ import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { ValidationErrors } from "../ValidationError";
 import { FieldLoading } from "../FieldLoading";
+import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
 import type { GalleryFile } from "../FileGallery/types";
 import { readImage } from "../../utils/readImage";
@@ -81,6 +82,31 @@ export function ModuleGallery({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [progressPercentage, setProgressPercentage] = React.useState<
+    number | null
+  >(null);
+
+  const handleProgress = React.useCallback(
+    (
+      bytesUploaded: number,
+      totalBytes: number,
+      currentFile: number,
+      totalFiles: number,
+    ) => {
+      const pct = Math.round(
+        ((currentFile * totalBytes + bytesUploaded) /
+          (totalFiles * totalBytes)) *
+          100,
+      );
+      setProgressPercentage(pct);
+      if (pct === 100) {
+        setTimeout(() => {
+          setProgressPercentage(null);
+        }, 1000);
+      }
+    },
+    [],
+  );
 
   const rawSource =
     source.status === "success"
@@ -368,13 +394,16 @@ export function ModuleGallery({
               patch,
               "image",
               (msg) => setUploadError(msg),
-              () => {},
+              handleProgress,
             );
           })
           .catch(() =>
             setUploadError("Could not upload image. Please try again."),
           )
-          .finally(() => setUploading(false));
+          .finally(() => {
+            setUploading(false);
+            setProgressPercentage(null);
+          });
       } else {
         readFile(ev)
           .then(async (res) => {
@@ -421,13 +450,16 @@ export function ModuleGallery({
               patch,
               "file",
               (msg) => setUploadError(msg),
-              () => {},
+              handleProgress,
             );
           })
           .catch(() =>
             setUploadError("Could not upload file. Please try again."),
           )
-          .finally(() => setUploading(false));
+          .finally(() => {
+            setUploading(false);
+            setProgressPercentage(null);
+          });
       }
       ev.target.value = "";
     },
@@ -463,6 +495,15 @@ export function ModuleGallery({
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
           {uploadError}
         </div>
+      )}
+      {progressPercentage === null ? (
+        <div className="h-[2px] mb-2" />
+      ) : (
+        <Progress
+          className="h-[2px] mb-2 transition-opacity duration-300 z-[1000]"
+          style={{ opacity: 1 }}
+          value={progressPercentage ?? 0}
+        />
       )}
       <input
         ref={inputRef}
