@@ -34,8 +34,8 @@ import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
 import type { GalleryFile } from "../FileGallery/types";
-import { readImage } from "../../utils/readImage";
-import { readFile } from "../../utils/readFile";
+import { readImage, readImageFromFile } from "../../utils/readImage";
+import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 
 const textEncoder = new TextEncoder();
@@ -80,6 +80,8 @@ export function ModuleGallery({
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const dragCounterRef = React.useRef(0);
+  const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [progressPercentage, setProgressPercentage] = React.useState<
@@ -476,6 +478,141 @@ export function ModuleGallery({
     ],
   );
 
+  const handleDrop = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDraggingOver(false);
+      if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
+        setUploadError(
+          "Remote uploads are not available. Please try again later.",
+        );
+        return;
+      }
+      const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => {
+        if (!accept) return true;
+        return accept
+          .split(",")
+          .map((s) => s.trim())
+          .some((pattern) => {
+            if (pattern.endsWith("/*"))
+              return file.type.startsWith(pattern.slice(0, -1));
+            return file.type === pattern;
+          });
+      });
+      if (droppedFiles.length === 0) return;
+      setUploadError(null);
+      setUploading(true);
+      (async () => {
+        for (const file of droppedFiles) {
+          if (imageMode) {
+            const res = await readImageFromFile(file).catch(() => null);
+            if (!res || !res.width || !res.height || !res.mimeType) continue;
+            const metadata: ImageMetadata = {
+              width: res.width,
+              height: res.height,
+              mimeType: res.mimeType,
+            };
+            const refRes = computeRef(
+              res,
+              {
+                type: "image",
+                opt: false,
+                options: schema?.accept ? { accept: schema.accept } : undefined,
+              },
+              metadata,
+            );
+            if (refRes.status === "error") {
+              setUploadError(refRes.error);
+              continue;
+            }
+            const { ref, isRemote } = refRes;
+            const patch: Patch = [
+              {
+                op: "add",
+                path: [...patchPath, ref],
+                value: {
+                  width: metadata.width,
+                  height: metadata.height,
+                  mimeType: metadata.mimeType,
+                  alt: null,
+                } as JSONValue,
+              },
+              {
+                op: "file",
+                path: [...patchPath, ref],
+                filePath: ref,
+                value: res.src,
+                metadata,
+                remote: isRemote,
+              },
+            ];
+            await addAndUploadPatchWithFileOps(
+              patch,
+              "image",
+              (msg) => setUploadError(msg),
+              handleProgress,
+            );
+          } else {
+            const res = await readFileFromFile(file).catch(() => null);
+            if (!res || !res.mimeType) continue;
+            const metadata: FileMetadata = { mimeType: res.mimeType };
+            const refRes = computeRef(
+              res,
+              {
+                type: "file",
+                opt: false,
+                options: schema?.accept ? { accept: schema.accept } : undefined,
+              },
+              metadata,
+            );
+            if (refRes.status === "error") {
+              setUploadError(refRes.error);
+              continue;
+            }
+            const { ref, isRemote } = refRes;
+            const patch: Patch = [
+              {
+                op: "add",
+                path: [...patchPath, ref],
+                value: { mimeType: metadata.mimeType } as JSONValue,
+              },
+              {
+                op: "file",
+                path: [...patchPath, ref],
+                filePath: ref,
+                value: res.src,
+                metadata,
+                remote: isRemote,
+              },
+            ];
+            await addAndUploadPatchWithFileOps(
+              patch,
+              "file",
+              (msg) => setUploadError(msg),
+              handleProgress,
+            );
+          }
+        }
+      })().finally(() => {
+        setUploading(false);
+        setProgressPercentage(null);
+      });
+    },
+    [
+      imageMode,
+      patchPath,
+      addAndUploadPatchWithFileOps,
+      requireRemote,
+      remoteData,
+      currentRemoteFileBucket,
+      accept,
+      schema,
+      computeRef,
+      handleProgress,
+    ],
+  );
+
   const showChildRef = React.useMemo(() => {
     if (!showChild) return null;
     const [, modulePath] = Internal.splitModuleFilePathAndModulePath(showChild);
@@ -489,7 +626,20 @@ export function ModuleGallery({
   }
 
   return (
-    <div id={path}>
+    <div
+      id={path}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        dragCounterRef.current++;
+        setIsDraggingOver(true);
+      }}
+      onDragLeave={() => {
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) setIsDraggingOver(false);
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+    >
       <ValidationErrors path={path} />
       {uploadError && (
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
@@ -521,6 +671,7 @@ export function ModuleGallery({
         onUploadClick={() => inputRef.current?.click()}
         uploading={uploading}
         defaultOpenFileRef={showChildRef ?? undefined}
+        isDraggingOver={isDraggingOver}
       />
     </div>
   );
