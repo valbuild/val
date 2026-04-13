@@ -127,8 +127,8 @@
     /* Error secondary */
     --bg-error-secondary: var(--colors-error-red-100);
     --bg-error-secondary-hover: var(--colors-error-red-200);
-    --fg-error-secondary: var(--colors-error-red-500);
-    --fg-error-secondary-alt: var(--colors-error-red-400);
+    --fg-error-secondary: var(--colors-error-red-100);
+    --fg-error-secondary-alt: var(--colors-error-red-200);
     --border-error-secondary: var(--colors-error-red-300);
 
     /* Disabled colors */
