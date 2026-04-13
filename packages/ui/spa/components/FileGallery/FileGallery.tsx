@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FolderOpen, Grid, List, Loader2, Plus, Search } from "lucide-react";
+import { FolderOpen, Grid, List, Loader2, Plus, Search, UploadCloud } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { Skeleton } from "../designSystem/skeleton";
@@ -31,6 +31,7 @@ export function FileGallery({
   onUploadClick,
   uploading = false,
   defaultOpenFileRef,
+  isDraggingOver = false,
 }: FileGalleryProps) {
   const navigation = useNavigation();
   const portalContainer = useValPortal();
@@ -240,7 +241,15 @@ export function FileGallery({
       </div>
 
       {/* Gallery content */}
-      <div>
+      <div className="relative">
+        {isDraggingOver && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-border-primary bg-bg-primary/80 pointer-events-none">
+            <div className="flex flex-col items-center gap-2 text-fg-secondary">
+              <UploadCloud className="size-10" />
+              <p className="text-sm font-medium">Drop files here</p>
+            </div>
+          </div>
+        )}
         {loading ? (
           loadingContent
         ) : files.length === 0 ? (

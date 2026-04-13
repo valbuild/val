@@ -2,15 +2,14 @@ import { Internal } from "@valbuild/core";
 import { base64DataUrlToUint8Array } from "@valbuild/shared";
 import { ChangeEvent } from "react";
 
-export function readFile(ev: ChangeEvent<HTMLInputElement>) {
-  return new Promise<{
-    src: string;
-    fileHash: string;
-    mimeType?: string;
-    fileExt?: string;
-    filename?: string;
-  }>((resolve, reject) => {
-    const uploadedFile = ev.currentTarget.files?.[0];
+export function readFileFromFile(file: File): Promise<{
+  src: string;
+  fileHash: string;
+  mimeType?: string;
+  fileExt?: string;
+  filename?: string;
+}> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const result = reader.result;
@@ -20,7 +19,7 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
         const mimeType = Internal.getMimeType(result);
         resolve({
           src: result,
-          filename: uploadedFile?.name,
+          filename: file.name,
           fileHash,
           mimeType,
           fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
@@ -31,8 +30,23 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
         reject({ message: "Unexpected file result type", result });
       }
     });
-    if (uploadedFile) {
-      reader.readAsDataURL(uploadedFile);
+    reader.readAsDataURL(file);
+  });
+}
+
+export function readFile(ev: ChangeEvent<HTMLInputElement>) {
+  return new Promise<{
+    src: string;
+    fileHash: string;
+    mimeType?: string;
+    fileExt?: string;
+    filename?: string;
+  }>((resolve, reject) => {
+    const uploadedFile = ev.currentTarget.files?.[0];
+    if (!uploadedFile) {
+      reject({ message: "No file selected" });
+      return;
     }
+    readFileFromFile(uploadedFile).then(resolve).catch(reject);
   });
 }

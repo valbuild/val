@@ -42,4 +42,5 @@ export interface FileGalleryProps {
   onUploadClick?: () => void;
   uploading?: boolean;
   defaultOpenFileRef?: string;
+  isDraggingOver?: boolean;
 }
