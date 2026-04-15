@@ -1,5 +1,4 @@
 import {
-  Json,
   ModuleFilePath,
   ModuleFilePathSep,
   SerializedArraySchema,
@@ -49,7 +48,7 @@ export function traverseSchemas(
           const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
-          if (sourceValue) {
+          if (sourceValue !== undefined) {
             go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
           }
         }
@@ -111,10 +110,10 @@ export function sourcePathConcat(
 
 function isObjectOrRecordSource(
   source: Source,
-): source is Record<string, Json> {
+): source is Record<string, Source> {
   return typeof source === "object" && !!source && !Array.isArray(source);
 }
 
-function isArraySource(source: Source): source is Json[] {
+function isArraySource(source: Source): source is Source[] {
   return typeof source === "object" && !!source && Array.isArray(source);
 }
