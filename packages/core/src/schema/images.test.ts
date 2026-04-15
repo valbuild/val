@@ -4,7 +4,10 @@ import { string } from "./string";
 
 // Strip deferred-check errors (require CLI/filesystem context, not schema validation)
 function filterCheckErrors(
-  result: false | Record<string, { message: string; fixes?: string[] }[]> | undefined,
+  result:
+    | false
+    | Record<string, { message: string; fixes?: string[] }[]>
+    | undefined,
 ) {
   if (!result) return result;
   const checkFixes = ["images:check-unique-folder", "images:check-all-files"];

@@ -3,7 +3,10 @@ import { files, FilesEntryMetadata, SerializedFilesSchema } from "./files";
 
 // Strip deferred-check errors (require CLI/filesystem context, not schema validation)
 function filterCheckErrors(
-  result: false | Record<string, { message: string; fixes?: string[] }[]> | undefined,
+  result:
+    | false
+    | Record<string, { message: string; fixes?: string[] }[]>
+    | undefined,
 ) {
   if (!result) return result;
   const checkFixes = ["files:check-unique-folder", "files:check-all-files"];
