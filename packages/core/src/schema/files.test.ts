@@ -1,6 +1,22 @@
 import { SourcePath } from "../val";
 import { files, FilesEntryMetadata, SerializedFilesSchema } from "./files";
 
+// Strip deferred-check errors (require CLI/filesystem context, not schema validation)
+function filterCheckErrors(
+  result: false | Record<string, { message: string; fixes?: string[] }[]> | undefined,
+) {
+  if (!result) return result;
+  const checkFixes = ["files:check-unique-folder", "files:check-all-files"];
+  const filtered: Record<string, { message: string; fixes?: string[] }[]> = {};
+  for (const [key, errors] of Object.entries(result)) {
+    const nonCheck = errors.filter(
+      (e) => !e.fixes?.some((f) => checkFixes.includes(f)),
+    );
+    if (nonCheck.length > 0) filtered[key] = nonCheck;
+  }
+  return Object.keys(filtered).length > 0 ? filtered : false;
+}
+
 describe("FilesSchema", () => {
   describe("assert", () => {
     test("should return success if src is a valid files object", () => {
@@ -56,7 +72,12 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       expect(result).toBeTruthy();
-      expect(Object.values(result as object)[0][0].message).toContain(
+      const allErrors = Object.values(result as object).flat();
+      const dirError = allErrors.find((e: { message: string }) =>
+        e.message.includes("must be within"),
+      );
+      expect(dirError).toBeTruthy();
+      expect((dirError as { message: string }).message).toContain(
         "must be within the /public/val/documents/ directory",
       );
     });
@@ -73,8 +94,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have directory error
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult0 = filterCheckErrors(result);
+      if (filteredResult0) {
+        const errors = Object.values(filteredResult0 as object).flat();
         const hasDirError = errors.some((e: { message: string }) =>
           e.message.includes("directory"),
         );
@@ -92,7 +114,12 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       expect(result).toBeTruthy();
-      expect(Object.values(result as object)[0][0].message).toContain(
+      const allErrors = Object.values(result as object).flat();
+      const mimeError = allErrors.find((e: { message: string }) =>
+        e.message.includes("Mime type mismatch"),
+      );
+      expect(mimeError).toBeTruthy();
+      expect((mimeError as { message: string }).message).toContain(
         "Mime type mismatch",
       );
     });
@@ -142,8 +169,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have directory error
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult1 = filterCheckErrors(result);
+      if (filteredResult1) {
+        const errors = Object.values(filteredResult1 as object).flat();
         const hasDirError = errors.some((e: { message: string }) =>
           e.message.includes("directory"),
         );
@@ -163,8 +191,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have directory error
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult2 = filterCheckErrors(result);
+      if (filteredResult2) {
+        const errors = Object.values(filteredResult2 as object).flat();
         const hasDirError = errors.some((e: { message: string }) =>
           e.message.includes("directory"),
         );
@@ -254,7 +283,7 @@ describe("FilesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(result).toBeFalsy();
+      expect(filterCheckErrors(result)).toBeFalsy();
     });
 
     test("should accept local paths when remote is enabled", () => {
@@ -269,8 +298,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have path errors
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult3 = filterCheckErrors(result);
+      if (filteredResult3) {
+        const errors = Object.values(filteredResult3 as object).flat();
         const hasPathError = errors.some(
           (e: { message: string }) =>
             e.message.includes("directory") || e.message.includes("Remote"),
@@ -294,7 +324,7 @@ describe("FilesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(result).toBeFalsy();
+      expect(filterCheckErrors(result)).toBeFalsy();
     });
 
     test("should reject invalid remote URLs", () => {
@@ -341,7 +371,7 @@ describe("FilesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(result).toBeFalsy();
+      expect(filterCheckErrors(result)).toBeFalsy();
     });
 
     test("should reject non-Val remote URLs", () => {
@@ -414,8 +444,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have directory error
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult4 = filterCheckErrors(result);
+      if (filteredResult4) {
+        const errors = Object.values(filteredResult4 as object).flat();
         const hasDirError = errors.some((e: { message: string }) =>
           e.message.includes("directory"),
         );
@@ -435,8 +466,9 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
       // Should not have directory error
-      if (result) {
-        const errors = Object.values(result as object).flat();
+      const filteredResult5 = filterCheckErrors(result);
+      if (filteredResult5) {
+        const errors = Object.values(filteredResult5 as object).flat();
         const hasDirError = errors.some((e: { message: string }) =>
           e.message.includes("directory"),
         );
