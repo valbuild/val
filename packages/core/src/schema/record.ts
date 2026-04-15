@@ -243,7 +243,7 @@ export class RecordSchema<
       type === "images" ? "images:check-remote" : "files:check-remote";
 
     const isRemoteUrl = this.isRemoteUrl(key);
-    const isLocalPath = key.startsWith(directory);
+    const isLocalPath = key === directory || key.startsWith(directory + "/");
 
     if (isRemote) {
       // When remote is enabled, accept either remote URLs or local paths
@@ -263,7 +263,10 @@ export class RecordSchema<
         }
         // Check that the file path in the remote URL matches our directory constraint
         const remotePath = "/" + remoteResult.filePath;
-        if (!remotePath.startsWith(directory)) {
+        if (
+          remotePath !== directory &&
+          !remotePath.startsWith(directory + "/")
+        ) {
           return {
             [path]: [
               {
