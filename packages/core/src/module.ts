@@ -121,8 +121,8 @@ export function enrichFileImageRemoteSourceWithMetadata<
     ) {
       const fileRef = source[FILE_REF_PROP];
       const metadata = filesLookup[fileRef];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (source as any).metadata = metadata;
+      (source as { [FILE_REF_PROP]: string; metadata?: unknown }).metadata =
+        metadata;
     } else if (typeof source === "object") {
       if (Array.isArray(source)) {
         for (const item of source) {
