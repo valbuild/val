@@ -1,14 +1,11 @@
 import * as React from "react";
 import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
   FileMetadata,
   ImageMetadata,
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
   SourcePath,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue, Patch } from "@valbuild/core/patch";
