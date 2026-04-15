@@ -118,9 +118,7 @@ export const ImageGallery: Story = {
           isImage
         />
         {selected && (
-          <p className="mt-2 text-xs text-fg-secondary">
-            Selected: {selected}
-          </p>
+          <p className="mt-2 text-xs text-fg-secondary">Selected: {selected}</p>
         )}
       </div>
     );
@@ -178,9 +176,7 @@ export const FileGallery: Story = {
           isImage={false}
         />
         {selected && (
-          <p className="mt-2 text-xs text-fg-secondary">
-            Selected: {selected}
-          </p>
+          <p className="mt-2 text-xs text-fg-secondary">Selected: {selected}</p>
         )}
       </div>
     );

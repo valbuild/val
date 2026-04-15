@@ -59,9 +59,7 @@ export function FileGalleryListView({
 
   const showAltColumn = files.some((f) => f.metadata.alt !== undefined);
   const showAuthorsColumn = files.some(
-    (f) =>
-      f.patchesByAuthorIds &&
-      Object.keys(f.patchesByAuthorIds).length > 0,
+    (f) => f.patchesByAuthorIds && Object.keys(f.patchesByAuthorIds).length > 0,
   );
   // Without alt, without authors: icon(56px) | name(1fr) | type(96px)
   // With alt, without authors:    icon(56px) | description(1fr) | name(192px) | type(96px)
@@ -98,9 +96,7 @@ export function FileGalleryListView({
               </button>
             </div>
           )}
-          {showAuthorsColumn && (
-            <div className="px-3 py-2">Last change</div>
-          )}
+          {showAuthorsColumn && <div className="px-3 py-2">Last change</div>}
           <div className="px-3 py-2">
             <button
               type="button"

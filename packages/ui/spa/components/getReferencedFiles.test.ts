@@ -217,9 +217,7 @@ describe("getReferencedFiles", () => {
       sources,
       "/images.val.ts" as ModuleFilePath,
     );
-    expect(result).toEqual([
-      '/page.val.ts?p="section"."items".0."img"',
-    ]);
+    expect(result).toEqual(['/page.val.ts?p="section"."items".0."img"']);
   });
 });
 

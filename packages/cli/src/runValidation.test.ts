@@ -218,7 +218,8 @@ describe("runValidation", () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(
       errors.some(
-        (e) => "message" in e && (e.message as string).includes("untracked.txt"),
+        (e) =>
+          "message" in e && (e.message as string).includes("untracked.txt"),
       ),
     ).toBe(true);
   });
@@ -245,8 +246,7 @@ describe("runValidation", () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(
       errors.some(
-        (e) =>
-          "message" in e && (e.message as string).includes("missing.png"),
+        (e) => "message" in e && (e.message as string).includes("missing.png"),
       ),
     ).toBe(true);
   });

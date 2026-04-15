@@ -20,16 +20,11 @@ export const TwoModules: Story = {
     return (
       <div className="w-96">
         <GalleryUploadTarget
-          modulePaths={[
-            "/content/media.val.ts",
-            "/content/blog-images.val.ts",
-          ]}
+          modulePaths={["/content/media.val.ts", "/content/blog-images.val.ts"]}
           selectedPath={selected}
           onSelect={setSelected}
         />
-        <p className="mt-2 text-xs text-fg-secondary">
-          Raw path: {selected}
-        </p>
+        <p className="mt-2 text-xs text-fg-secondary">Raw path: {selected}</p>
       </div>
     );
   },
@@ -82,10 +77,7 @@ export const DefaultSelection: Story = {
   render: () => (
     <div className="w-96">
       <GalleryUploadTarget
-        modulePaths={[
-          "/content/media.val.ts",
-          "/content/blog-images.val.ts",
-        ]}
+        modulePaths={["/content/media.val.ts", "/content/blog-images.val.ts"]}
       />
     </div>
   ),

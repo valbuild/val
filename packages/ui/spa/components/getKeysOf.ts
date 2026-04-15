@@ -1,4 +1,9 @@
-import { ModuleFilePath, SerializedSchema, Source, SourcePath } from "@valbuild/core";
+import {
+  ModuleFilePath,
+  SerializedSchema,
+  Source,
+  SourcePath,
+} from "@valbuild/core";
 import { traverseSchemas } from "./traverseSchemas";
 
 // TODO: right now we only support keyOf MODULES that are records

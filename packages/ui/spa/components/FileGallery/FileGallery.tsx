@@ -1,5 +1,13 @@
 import * as React from "react";
-import { FolderOpen, Grid, List, Loader2, Plus, Search, UploadCloud } from "lucide-react";
+import {
+  FolderOpen,
+  Grid,
+  List,
+  Loader2,
+  Plus,
+  Search,
+  UploadCloud,
+} from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { Skeleton } from "../designSystem/skeleton";
