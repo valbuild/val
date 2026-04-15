@@ -13,6 +13,9 @@ export function findRequiredRemoteFiles(schema: SerializedSchema) {
   } else if (schema.type === "array") {
     return findRequiredRemoteFiles(schema.item);
   } else if (schema.type === "record") {
+    if (schema.mediaType && schema.remote) {
+      return true;
+    }
     return findRequiredRemoteFiles(schema.item);
   } else if (schema.type === "union") {
     for (const item of schema.items) {

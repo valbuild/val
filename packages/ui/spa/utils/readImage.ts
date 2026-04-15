@@ -2,17 +2,16 @@ import { Internal } from "@valbuild/core";
 import { base64DataUrlToUint8Array } from "@valbuild/shared";
 import { ChangeEvent } from "react";
 
-export function readImage(ev: ChangeEvent<HTMLInputElement>) {
-  return new Promise<{
-    src: string;
-    fileHash: string;
-    width?: number;
-    height?: number;
-    mimeType?: string;
-    fileExt?: string;
-    filename?: string;
-  }>((resolve, reject) => {
-    const imageFile = ev.currentTarget.files?.[0];
+export function readImageFromFile(file: File): Promise<{
+  src: string;
+  fileHash: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  fileExt?: string;
+  filename?: string;
+}> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const result = reader.result;
@@ -27,7 +26,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
               src: result,
               width: image.naturalWidth,
               height: image.naturalHeight,
-              filename: imageFile?.name,
+              filename: file.name,
               fileHash,
               mimeType,
               fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
@@ -35,7 +34,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
           } else {
             resolve({
               src: result,
-              filename: imageFile?.name,
+              filename: file.name,
               fileHash,
             });
           }
@@ -47,8 +46,25 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
         reject({ message: "Unexpected image result type", result });
       }
     });
-    if (imageFile) {
-      reader.readAsDataURL(imageFile);
+    reader.readAsDataURL(file);
+  });
+}
+
+export function readImage(ev: ChangeEvent<HTMLInputElement>) {
+  return new Promise<{
+    src: string;
+    fileHash: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    fileExt?: string;
+    filename?: string;
+  }>((resolve, reject) => {
+    const imageFile = ev.currentTarget.files?.[0];
+    if (!imageFile) {
+      reject({ message: "No file selected" });
+      return;
     }
+    readImageFromFile(imageFile).then(resolve).catch(reject);
   });
 }

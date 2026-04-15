@@ -19,7 +19,7 @@ export type RemoteSource<
 export const initRemote = (config?: ValConfig) => {
   function remote<Metadata extends FileMetadata | ImageMetadata>(
     ref: RemoteRef,
-    metadata: Metadata,
+    metadata?: Metadata,
   ): RemoteSource<Metadata> {
     return {
       [FILE_REF_PROP]: ref,

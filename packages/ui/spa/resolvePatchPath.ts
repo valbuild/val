@@ -1,28 +1,27 @@
 import {
   SerializedSchema,
-  Json,
   ModulePath,
   JsonObject,
   SerializedObjectSchema,
   SerializedObjectUnionSchema,
   SerializedStringUnionSchema,
+  Source,
 } from "@valbuild/core";
-import { isJsonArray } from "./utils/isJsonArray";
 
 export function resolvePatchPath(
   patchPath: string[],
   schema: SerializedSchema | undefined,
-  source: Json | undefined,
+  source: Source | undefined,
 ):
   | {
       success: true;
       modulePath: ModulePath;
-      source: Json;
+      source: Source;
       schema: SerializedSchema;
       allResolved: {
         modulePath: ModulePath;
         schema: SerializedSchema;
-        source: Json;
+        source: Source;
       }[];
     }
   | { success: false; error: string } {
@@ -52,11 +51,11 @@ export function resolvePatchPath(
     };
   }
   let currentSchema: SerializedSchema = schema;
-  let currentSource: Json = source;
+  let currentSource: Source = source;
   const allResolved: {
     modulePath: ModulePath;
     schema: SerializedSchema;
-    source: Json;
+    source: Source;
   }[] = [
     {
       modulePath: current as ModulePath,
@@ -278,7 +277,7 @@ export function resolvePatchPath(
           };
         } else if (
           typeof currentSource === "object" &&
-          isJsonArray(currentSource)
+          Array.isArray(currentSource)
         ) {
           if (!Number.isSafeInteger(Number(part))) {
             return {
@@ -295,7 +294,7 @@ export function resolvePatchPath(
           typeof currentSource === "object" &&
           !Array.isArray(currentSource)
         ) {
-          currentSource = currentSource[part];
+          currentSource = (currentSource as Record<string, Source>)[part];
         } else if (
           typeof currentSource === "string" ||
           typeof currentSource === "number" ||
@@ -348,7 +347,7 @@ function getObjectSourceOrError(
   patchPath: string[],
   part: string,
   i: number,
-  source: Json,
+  source: Source,
   expectedType: string,
 ):
   | {

@@ -11,12 +11,21 @@ export interface IValFSHost
   extends ts.ParseConfigHost, ts.ModuleResolutionHost {
   useCaseSensitiveFileNames: boolean;
 
+  readDirectory(
+    rootDir: string,
+    extensions: readonly string[] | undefined,
+    excludes: readonly string[] | undefined,
+    includes: readonly string[],
+    depth?: number | undefined,
+  ): readonly string[];
+
   writeFile(
     fileName: string,
     data: string | Buffer,
     encoding: "binary" | "utf8",
   ): void;
   rmFile(fileName: string): void;
+  readBuffer(fileName: string): Buffer | undefined;
 }
 
 export class ValFSHost implements IValFSHost {
@@ -28,7 +37,7 @@ export class ValFSHost implements IValFSHost {
   useCaseSensitiveFileNames = true;
   readDirectory(
     rootDir: string,
-    extensions: readonly string[],
+    extensions: readonly string[] | undefined,
     excludes: readonly string[] | undefined,
     includes: readonly string[],
     depth?: number | undefined,
@@ -71,6 +80,10 @@ export class ValFSHost implements IValFSHost {
 
   readFile(fileName: string): string | undefined {
     return this.valFS.readFile(fileName);
+  }
+
+  readBuffer(fileName: string): Buffer | undefined {
+    return this.valFS.readBuffer(fileName);
   }
 
   realpath(path: string): string {

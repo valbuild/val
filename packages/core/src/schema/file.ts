@@ -8,13 +8,15 @@ import {
   SerializedSchema,
 } from ".";
 import { VAL_EXTENSION } from "../source";
-import { SourcePath } from "../val";
+import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { Internal, RemoteSource } from "..";
+import { Internal, RemoteSource, ValModule } from "..";
 import { ReifiedRender } from "../render";
+import { FilesEntryMetadata } from "./files";
+import { getSource } from "../module";
 
 export type FileOptions = {
   accept?: string;
@@ -26,6 +28,7 @@ export type SerializedFileSchema = {
   remote?: boolean;
   opt: boolean;
   customValidate?: boolean;
+  referencedModule?: string;
 };
 
 export type FileMetadata = {
@@ -42,19 +45,32 @@ export class FileSchema<
     private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly moduleMetadata: Record<
+      ModulePath,
+      Record<string, FilesEntryMetadata>
+    > = {},
   ) {
     super();
   }
 
   remote(): FileSchema<Src | RemoteSource<FileMetadata | undefined>> {
-    return new FileSchema(this.options, this.opt, true);
+    return new FileSchema(
+      this.options,
+      this.opt,
+      true,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+    ) as FileSchema<Src | RemoteSource<FileMetadata | undefined>>;
   }
 
   validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
-    return new FileSchema(this.options, this.opt, this.isRemote, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new FileSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      [...this.customValidateFunctions, validationFunction],
+      this.moduleMetadata,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -298,10 +314,19 @@ export class FileSchema<
   }
 
   nullable(): FileSchema<Src | null> {
-    return new FileSchema<Src | null>(this.options, true);
+    return new FileSchema<Src | null>(
+      this.options,
+      true,
+      this.isRemote,
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
+      this.moduleMetadata,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
+    const modulePaths = this.moduleMetadata
+      ? Object.keys(this.moduleMetadata)
+      : [];
     return {
       type: "file",
       options: this.options,
@@ -310,6 +335,8 @@ export class FileSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      referencedModule:
+        modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
     };
   }
 
@@ -319,9 +346,32 @@ export class FileSchema<
 }
 
 export const file = (
-  options?: FileOptions,
-): FileSchema<FileSource<FileMetadata>> => {
-  return new FileSchema(options);
+  options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
+): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
+  const isModule =
+    !!options &&
+    !!Internal.getValPath(
+      options as ValModule<Record<string, FilesEntryMetadata>>,
+    );
+  if (isModule) {
+    const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
+    for (const valModule of [
+      options as ValModule<Record<string, FilesEntryMetadata>>,
+    ]) {
+      const modulePath = getValPath(valModule) as ModulePath | undefined;
+      if (modulePath === undefined) {
+        throw new Error(
+          `Invalid argument passed to s.file(). Expected a ValModule constructed through c.define, but got an object without a valid module path.`,
+        );
+      }
+      allModules[modulePath] = getSource(valModule) as Record<
+        string,
+        FilesEntryMetadata
+      >;
+    }
+    return new FileSchema({}, false, false, [], allModules);
+  }
+  return new FileSchema(options as FileOptions);
 };
 
 export function convertFileSource<

@@ -3,7 +3,9 @@ import {
   Json,
   ModuleFilePath,
   ReifiedRender,
+  Source,
   SerializedSchema,
+  ValModule,
   initVal,
 } from "@valbuild/core";
 
@@ -464,7 +466,7 @@ function createMockData() {
   );
 
   // Extract schemas and sources from the modules
-  const modules = [
+  const modules: ValModule<Source>[] = [
     blogPages,
     articles,
     settings,
@@ -474,7 +476,7 @@ function createMockData() {
     config,
   ];
   const schemas: Record<string, SerializedSchema> = {};
-  const sources: Record<string, Json> = {};
+  const sources: Record<string, Source> = {};
   const renders: Record<string, ReifiedRender> = {};
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);

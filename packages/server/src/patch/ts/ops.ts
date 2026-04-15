@@ -665,7 +665,7 @@ function removeFromNode(
           if (!assignment) {
             return result.err(
               new PatchError(
-                "Cannot replace object element which does not exist",
+                "Cannot remove object element which does not exist",
               ),
             );
           }

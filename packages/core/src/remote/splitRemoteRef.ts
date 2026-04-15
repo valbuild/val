@@ -16,6 +16,12 @@ export function splitRemoteRef(ref: string):
       status: "error";
       error: string;
     } {
+  if (ref[0] === "/") {
+    return {
+      status: "error",
+      error: "Not a remote ref: " + ref,
+    };
+  }
   const match = ref.match(RegEx);
   if (!match) {
     return {

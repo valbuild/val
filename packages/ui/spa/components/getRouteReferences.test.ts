@@ -1,12 +1,11 @@
 import {
   Internal,
-  Json,
   ModuleFilePath,
   SerializedSchema,
   ValModule,
+  Source,
   initVal,
 } from "@valbuild/core";
-import { SelectorSource } from "@valbuild/core";
 import { getRouteReferences } from "./getRouteReferences";
 
 const { s, c } = initVal();
@@ -326,9 +325,9 @@ describe("getRouteReferences", () => {
   });
 });
 
-function getTestData(valModules: ValModule<SelectorSource>[]) {
+function getTestData(valModules: ValModule<Source>[]) {
   const schemas: Record<ModuleFilePath, SerializedSchema> = {};
-  const sources: Record<ModuleFilePath, Json> = {};
+  const sources: Record<ModuleFilePath, Source> = {};
   for (const valModule of valModules) {
     const moduleFilePath = getModuleFilePath(valModule);
     schemas[moduleFilePath] = getSchema(valModule);
@@ -337,13 +336,11 @@ function getTestData(valModules: ValModule<SelectorSource>[]) {
   return { schemas, sources };
 }
 
-function getModuleFilePath(
-  valModule: ValModule<SelectorSource>,
-): ModuleFilePath {
+function getModuleFilePath(valModule: ValModule<Source>): ModuleFilePath {
   return Internal.getValPath(valModule) as unknown as ModuleFilePath;
 }
 
-function getSchema(valModule: ValModule<SelectorSource>): SerializedSchema {
+function getSchema(valModule: ValModule<Source>): SerializedSchema {
   const schema = Internal.getSchema(valModule)?.["executeSerialize"]();
   if (!schema) {
     throw new Error("Schema not found");
@@ -351,7 +348,7 @@ function getSchema(valModule: ValModule<SelectorSource>): SerializedSchema {
   return schema;
 }
 
-function getSource(valModule: ValModule<SelectorSource>): Json {
+function getSource(valModule: ValModule<Source>): Source {
   const source = Internal.getSource(valModule);
   if (!source) {
     throw new Error("Source not found");

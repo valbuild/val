@@ -65,10 +65,10 @@ export function SitemapItemNode({
   }, [item.children]);
 
   const handleClick = () => {
-    if (isNavigable && item.sourcePath && onNavigate) {
+    if (item.sourcePath && onNavigate) {
       onNavigate(item.sourcePath);
     } else if (hasChildren) {
-      setIsOpen(!isOpen);
+      setIsOpen((isOpen) => !isOpen);
     }
   };
 
@@ -94,11 +94,13 @@ export function SitemapItemNode({
         onMouseEnter={() => setShowActions(true)}
         onMouseLeave={() => setShowActions(false)}
       >
-        <button
-          className="flex items-center gap-1.5 flex-1 min-w-0 py-1.5 text-sm text-left"
-          onClick={handleClick}
-        >
-          {hasChildren && (
+        {hasChildren && (
+          <button
+            onClick={() => {
+              setIsOpen((isOpen) => !isOpen);
+            }}
+            className="pr-1.5"
+          >
             <ChevronRight
               size={14}
               className={cn(
@@ -108,7 +110,12 @@ export function SitemapItemNode({
                 },
               )}
             />
-          )}
+          </button>
+        )}
+        <button
+          className="flex items-center gap-1.5 flex-1 min-w-0 py-1.5 text-sm text-left"
+          onClick={handleClick}
+        >
           {!hasChildren && <span className="w-3.5" />}
 
           {isFolder ? (
