@@ -104,11 +104,7 @@ export function FileGallery({
   const getOriginalIndex = React.useCallback(
     (filteredIndex: number) => {
       const filteredFile = filteredFiles[filteredIndex];
-      return files.findIndex(
-        (f) =>
-          f.folder === filteredFile.folder &&
-          f.filename === filteredFile.filename,
-      );
+      return files.findIndex((f) => f.ref === filteredFile.ref);
     },
     [files, filteredFiles],
   );
@@ -127,6 +123,7 @@ export function FileGallery({
 
   const handleItemClick = (filteredIndex: number) => {
     const originalIndex = getOriginalIndex(filteredIndex);
+    if (originalIndex === -1) return;
     setSelectedIndex(originalIndex);
     setIsPropertiesOpen(true);
     if (parentPath) {
@@ -308,9 +305,9 @@ export function FileGallery({
         file={selectedFile}
         fileIndex={selectedIndex}
         open={isPropertiesOpen}
-        onOpenChange={() => {
-          setIsPropertiesOpen((prev) => !prev);
-          if (isPropertiesOpen && parentPath) {
+        onOpenChange={(open) => {
+          setIsPropertiesOpen(open);
+          if (!open && parentPath) {
             setSelectedIndex(null);
             navigation.navigate(parentPath as SourcePath);
           }
