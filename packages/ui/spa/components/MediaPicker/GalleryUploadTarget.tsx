@@ -54,13 +54,16 @@ export function GalleryUploadTarget({
   onSelect,
   portalContainer,
 }: GalleryUploadTargetProps) {
-  const [value, setValue] = React.useState(selectedPath || modulePaths[0]);
+  const [value, setValue] = React.useState(
+    selectedPath ?? modulePaths[0] ?? "",
+  );
 
   return (
     <div className="flex items-center gap-2 text-xs text-fg-secondary">
       <span className="shrink-0">Add uploads to:</span>
       <Select
         value={value}
+        disabled={modulePaths.length === 0}
         onValueChange={(v) => {
           setValue(v);
           onSelect?.(v);
