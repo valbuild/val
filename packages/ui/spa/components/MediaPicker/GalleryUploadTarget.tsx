@@ -27,9 +27,7 @@ export interface GalleryUploadTargetProps {
  */
 export function prettyModuleName(modulePath: string): string {
   // Strip leading slash and the .val.ts (or .val.js) suffix
-  const stripped = modulePath
-    .replace(/^\//, "")
-    .replace(/\.val\.(ts|js)$/, "");
+  const stripped = modulePath.replace(/^\//, "").replace(/\.val\.(ts|js)$/, "");
 
   // Split on "/" to get folder segments
   const segments = stripped.split("/");

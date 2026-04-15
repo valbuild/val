@@ -612,7 +612,10 @@ function augmentWithReferencedModuleMetadata(
   let fileRef: string | null = ref in moduleSource ? ref : null;
   if (!fileRef) {
     const splitResult = Internal.remote.splitRemoteRef(ref);
-    if (splitResult.status === "success" && splitResult.filePath in moduleSource) {
+    if (
+      splitResult.status === "success" &&
+      splitResult.filePath in moduleSource
+    ) {
       fileRef = splitResult.filePath;
     }
   }

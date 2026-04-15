@@ -59,8 +59,7 @@ export async function validate({
     project: resolvedValConfigFile?.project,
     remote: {
       remoteHost: process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
-      getSettings: (projectName, options) =>
-        getSettings(projectName, options),
+      getSettings: (projectName, options) => getSettings(projectName, options),
       uploadFile: (project, bucket, fileHash, fileExt, fileBuffer, options) =>
         uploadRemoteFile(
           process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST,
