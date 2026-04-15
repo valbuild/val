@@ -1,5 +1,5 @@
 import { SourcePath } from "../val";
-import { files, FilesEntryMetadata } from "./files";
+import { files, FilesEntryMetadata, SerializedFilesSchema } from "./files";
 
 describe("FilesSchema", () => {
   describe("assert", () => {
@@ -192,7 +192,7 @@ describe("FilesSchema", () => {
       const schema = files({ accept: "application/pdf" });
       const serialized = schema["executeSerialize"]();
       expect(serialized.type).toBe("record");
-      expect((serialized as any).mediaType).toBe("files");
+      expect((serialized as SerializedFilesSchema).mediaType).toBe("files");
       expect(serialized.accept).toBe("application/pdf");
       expect(serialized.directory).toBe("/public/val");
       expect(serialized.opt).toBe(false);

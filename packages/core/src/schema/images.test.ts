@@ -1,5 +1,5 @@
 import { SourcePath } from "../val";
-import { images, ImagesEntryMetadata } from "./images";
+import { images, ImagesEntryMetadata, SerializedImagesSchema } from "./images";
 import { string } from "./string";
 
 describe("ImagesSchema", () => {
@@ -232,7 +232,7 @@ describe("ImagesSchema", () => {
       const schema = images({ accept: "image/webp" });
       const serialized = schema["executeSerialize"]();
       expect(serialized.type).toBe("record");
-      expect((serialized as any).mediaType).toBe("images");
+      expect((serialized as SerializedImagesSchema).mediaType).toBe("images");
       expect(serialized.accept).toBe("image/webp");
       expect(serialized.directory).toBe("/public/val");
       expect(serialized.opt).toBe(false);
