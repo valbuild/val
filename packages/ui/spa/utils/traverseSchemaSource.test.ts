@@ -1,6 +1,5 @@
 import {
   Internal,
-  Json,
   ModuleFilePath,
   SourcePath,
   ValModule,
@@ -18,7 +17,7 @@ describe("traverseSchemaSource", () => {
         value: "hello world",
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -32,7 +31,7 @@ describe("traverseSchemaSource", () => {
         value: 42,
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -46,7 +45,7 @@ describe("traverseSchemaSource", () => {
         { value: true },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -92,7 +91,7 @@ describe("traverseSchemaSource", () => {
         file: c.file("/public/val/test.pdf"),
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; source: Json }> = [];
+      const visited: Array<{ path: SourcePath; source: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, source });
       });
@@ -106,7 +105,7 @@ describe("traverseSchemaSource", () => {
         image: c.image("/public/val/test.jpg"),
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; source: Json }> = [];
+      const visited: Array<{ path: SourcePath; source: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, source });
       });
@@ -132,7 +131,7 @@ describe("traverseSchemaSource", () => {
         },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -156,7 +155,7 @@ describe("traverseSchemaSource", () => {
         },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -175,7 +174,7 @@ describe("traverseSchemaSource", () => {
         { items: ["foo", "bar", "baz"] },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -201,7 +200,7 @@ describe("traverseSchemaSource", () => {
         { item: { type: "text", content: "Hello" } },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -220,7 +219,7 @@ describe("traverseSchemaSource", () => {
         { value: "foo" },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -236,7 +235,7 @@ describe("traverseSchemaSource", () => {
         date: "2021-01-01",
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -257,7 +256,7 @@ describe("traverseSchemaSource", () => {
         { key: "key1" },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -273,7 +272,7 @@ describe("traverseSchemaSource", () => {
         { value: "fixed" },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -287,7 +286,7 @@ describe("traverseSchemaSource", () => {
         route: "/home",
       });
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; value: Json }> = [];
+      const visited: Array<{ path: SourcePath; value: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, value: source });
       });
@@ -384,7 +383,7 @@ describe("traverseSchemaSource", () => {
         },
       );
       const { schema, source, path } = getTestData(module);
-      const visited: Array<{ path: SourcePath; source: Json }> = [];
+      const visited: Array<{ path: SourcePath; source: SelectorSource }> = [];
       traverseSchemaSource(source, schema, path, ({ source, path }) => {
         visited.push({ path, source });
       });

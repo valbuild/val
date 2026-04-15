@@ -403,6 +403,7 @@ export abstract class ValOps {
       {
         patchId: PatchId;
         remote: boolean;
+        isDelete: boolean;
       }
     > = {};
     for (const patch of sortedPatches) {
@@ -415,7 +416,9 @@ export abstract class ValOps {
           fileLastUpdatedByPatchId[filePath] = {
             patchId: patch.patchId,
             remote: op.remote,
+            isDelete: op.value === null,
           };
+          continue;
         }
         const path = patch.path;
         if (!patchesByModule[path]) {
@@ -508,19 +511,23 @@ export abstract class ValOps {
         const fileFixOps: Record<string, Patch> = {};
         for (const op of patchData.patch) {
           if (op.op === "file") {
-            // NOTE: We insert the last patch_id that modify a file
-            // when constructing the url we use the patch id (and the file path)
-            // to fetch the right file
-            // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-            fileFixOps[op.path.join("/")] = [
-              {
-                op: "add",
-                path: op.path
-                  .concat(...(op.nestedFilePath || []))
-                  .concat("patch_id"),
-                value: patchId,
-              },
-            ];
+            if (op.value !== null) {
+              // NOTE: We insert the last patch_id that modify a file
+              // when constructing the url we use the patch id (and the file path)
+              // to fetch the right file
+              // NOTE: overwrite and use last patch_id if multiple patches modify the same file
+              fileFixOps[op.path.join("/")] = [
+                {
+                  op: "add",
+                  path: op.path
+                    .concat(...(op.nestedFilePath || []))
+                    .concat("patch_id"),
+                  value: patchId,
+                },
+              ];
+            }
+            // null value = delete: no patch_id to inject; the "remove" op in
+            // the patch already removes the metadata entry from the source
           } else {
             applicableOps.push(op);
           }
@@ -681,6 +688,27 @@ export abstract class ValOps {
     const files: Record<SourcePath, FileSource> = {};
     const remoteFiles: Record<SourcePath, RemoteSource> = {};
     const entries = Object.entries(schemas);
+    // Build a map of gallery directory → [ModuleFilePath, ...] across ALL modules
+    // (must include all modules, not just those being validated, since conflicts can come from any module)
+    const galleryDirectoryToModules = new Map<string, ModuleFilePath[]>();
+    for (const [moduleFilePathS, schema] of entries) {
+      const serialized = schema["executeSerialize"]();
+      if (
+        serialized.type === "record" &&
+        serialized.mediaType &&
+        serialized.directory
+      ) {
+        const dir = serialized.directory;
+        const existing = galleryDirectoryToModules.get(dir);
+        if (existing) {
+          existing.push(moduleFilePathS as ModuleFilePath);
+        } else {
+          galleryDirectoryToModules.set(dir, [
+            moduleFilePathS as ModuleFilePath,
+          ]);
+        }
+      }
+    }
     const modulePathsToValidate =
       patchesByModule && Object.keys(patchesByModule);
     for (const [pathS, schema] of entries) {
@@ -845,6 +873,49 @@ export abstract class ValOps {
                   }
                 }
               }
+            } else if (
+              validationError.fixes?.includes("images:check-unique-folder") ||
+              validationError.fixes?.includes("files:check-unique-folder")
+            ) {
+              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
+              if (
+                !validationError.value ||
+                typeof validationError.value !== "object"
+              ) {
+                addError({
+                  message: `Could not find a directory value for gallery at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
+                  typeError: true,
+                });
+              } else {
+                const directory =
+                  "directory" in validationError.value &&
+                  validationError.value.directory;
+                if (typeof directory !== "string") {
+                  addError({
+                    message: `Expected gallery validation error 'value' to have property 'directory' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
+                    typeError: true,
+                  });
+                } else {
+                  const modulesUsingDir =
+                    galleryDirectoryToModules.get(directory) ?? [];
+                  const conflictingModules = modulesUsingDir.filter(
+                    (m) => m !== path,
+                  );
+                  if (conflictingModules.length > 0) {
+                    addError({
+                      message: `Gallery directory '${directory}' in ${path} conflicts with: ${conflictingModules.join(", ")}. Each gallery must use a unique directory.`,
+                    });
+                  }
+                  // If conflictingModules is empty, directory is unique — silently drop the error.
+                }
+              }
+            } else if (
+              validationError.fixes?.includes("images:check-all-files") ||
+              validationError.fixes?.includes("files:check-all-files")
+            ) {
+              // Requires filesystem access to enumerate the gallery directory.
+              // validateSources() does not have filesystem access, so this is suppressed.
+              // The actual check + fix is applied via createFixPatch.ts when explicitly requested.
             } else {
               addError(validationError);
             }
@@ -1061,7 +1132,7 @@ export abstract class ValOps {
     patchAnalysis: PatchAnalysis & OrderedPatches,
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
-    const patchedSourceFiles: Record<ModuleFilePath, string> = {};
+    const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
 
     const applySourceFilePatches = async (
@@ -1233,15 +1304,20 @@ export abstract class ValOps {
     await Promise.all(
       Object.entries(fileLastUpdatedByPatchId).map(
         async ([filePath, patchData]) => {
-          const { patchId, remote } = patchData;
+          const { patchId, remote, isDelete } = patchData;
           if (globalAppliedPatches.includes(patchId)) {
-            // TODO: do we want to make sure the file is there? Then again, it should be rare that it happens (unless there's a Val bug) so it might be enough to fail later (at commit)
-            // TODO: include sha256? This way we can make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
-            // or is that the case? We are picking the latest file by path so, that should be enough?
-            patchedBinaryFilesDescriptors[filePath] = {
-              patchId,
-              remote,
-            };
+            if (isDelete) {
+              // Signal file deletion via patchedSourceFiles null entry
+              patchedSourceFiles[filePath] = null;
+            } else {
+              // TODO: do we want to make sure the file is there? Then again, it should be rare that it happens (unless there's a Val bug) so it might be enough to fail later (at commit)
+              // TODO: include sha256? This way we can make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
+              // or is that the case? We are picking the latest file by path so, that should be enough?
+              patchedBinaryFilesDescriptors[filePath] = {
+                patchId,
+                remote,
+              };
+            }
           } else {
             hasErrors = true;
             binaryFilePatchErrors[filePath] = {
@@ -1338,9 +1414,9 @@ export abstract class ValOps {
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
-    data: string,
+    data: string | null,
     type: "file" | "image",
-    metadata: MetadataOfType<"file" | "image">,
+    metadata: MetadataOfType<"file" | "image"> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
@@ -1431,7 +1507,7 @@ export type PatchAnalysis = {
   };
   fileLastUpdatedByPatchId: Record<
     string,
-    { patchId: PatchId; remote: boolean }
+    { patchId: PatchId; remote: boolean; isDelete: boolean }
   >;
 };
 
@@ -1467,9 +1543,10 @@ export type BinaryFileType = "file" | "image";
 
 export type PreparedCommit = {
   /**
-   * Updated / new source files that are ready to be committed / saved
+   * Updated / new source files that are ready to be committed / saved.
+   * A null value signals that the file at that path should be deleted.
    */
-  patchedSourceFiles: Record<ModuleFilePath, string>;
+  patchedSourceFiles: Record<string, string | null>;
   /**
    * Previous source files that were patched
    */

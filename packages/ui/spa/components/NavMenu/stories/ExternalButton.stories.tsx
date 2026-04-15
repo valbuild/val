@@ -26,6 +26,7 @@ export const Default: Story = {
     external: mockExternal,
     isActive: false,
     onClick: () => console.log("External button clicked"),
+    showButtonBorder: true,
   },
 };
 
@@ -33,6 +34,7 @@ export const Active: Story = {
   args: {
     external: mockExternal,
     isActive: true,
+    showButtonBorder: true,
     onClick: () => console.log("External button clicked"),
   },
 };

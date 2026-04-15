@@ -106,6 +106,17 @@ export function deserializeSchema(
         serialized.key
           ? (deserializeSchema(serialized.key) as Schema<string>)
           : null,
+        serialized.mediaType
+          ? {
+              type: serialized.mediaType,
+              accept: serialized.accept ?? "*/*",
+              directory: serialized.directory ?? "/public/val",
+              remote: serialized.remote ?? false,
+              altSchema: serialized.alt
+                ? deserializeSchema(serialized.alt)
+                : undefined,
+            }
+          : undefined,
       );
     case "keyOf":
       return new KeyOfSchema(

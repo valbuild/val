@@ -29,7 +29,11 @@ export type RichTextOptions = Partial<{
   }>;
   inline: Partial<{
     a: boolean | RouteSchema<string> | StringSchema<string>;
-    img: boolean | ImageSchema<ImageSource | RemoteSource<ImageMetadata>>;
+    img:
+      | boolean
+      | ImageSchema<ImageSource>
+      | ImageSchema<RemoteSource<ImageMetadata | undefined>>
+      | ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>>;
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
 }>;
@@ -142,7 +146,7 @@ export type ImageNode<O extends RichTextOptions> = NonNullable<
 >["img"] extends true
   ? { tag: "img"; src: ImageSource | RemoteSource<ImageMetadata> }
   : NonNullable<O["inline"]>["img"] extends ImageSchema<infer Src>
-    ? Src extends RemoteSource | FileSource
+    ? Src extends RemoteSource | FileSource | ImageSource
       ? { tag: "img"; src: Src }
       : never
     : never;

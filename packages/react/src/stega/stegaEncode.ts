@@ -10,6 +10,8 @@ import {
   SerializedObjectSchema,
   SerializedUnionSchema,
   SerializedLiteralSchema,
+  SerializedFileSchema,
+  SerializedImageSchema,
   ImageMetadata,
   FileMetadata,
   RichTextOptions,
@@ -417,14 +419,30 @@ export function stegaEncode(
           sourceOrSelector[VAL_EXTENSION] === "file" &&
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
         ) {
-          const fileSelector = Internal.convertFileSource(sourceOrSelector);
+          const source =
+            recOpts?.schema && opts.getModule
+              ? augmentWithReferencedModuleMetadata(
+                  sourceOrSelector,
+                  recOpts.schema,
+                  opts.getModule,
+                )
+              : sourceOrSelector;
+          const fileSelector = Internal.convertFileSource(source);
           const url = fileSelector.url;
           return {
             ...fileSelector,
             url: rec(url, recOpts),
           };
         } else if (sourceOrSelector[VAL_EXTENSION] === "remote") {
-          const remoteSelector = Internal.convertFileSource(sourceOrSelector);
+          const source =
+            recOpts?.schema && opts.getModule
+              ? augmentWithReferencedModuleMetadata(
+                  sourceOrSelector,
+                  recOpts.schema,
+                  opts.getModule,
+                )
+              : sourceOrSelector;
+          const remoteSelector = Internal.convertFileSource(source);
           const url = remoteSelector.url;
           return {
             ...remoteSelector,
@@ -556,6 +574,78 @@ function isObjectSchema(
   return schema?.type === "object";
 }
 
+function isFileSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedFileSchema {
+  return schema?.type === "file";
+}
+
+function isImageSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedImageSchema {
+  return schema?.type === "image";
+}
+
+function augmentWithReferencedModuleMetadata(
+  source: any,
+  schema: SerializedSchema,
+  getModule: (path: string) => any,
+): any {
+  if (
+    source.metadata ||
+    !(isFileSchema(schema) || isImageSchema(schema)) ||
+    !schema.referencedModule
+  ) {
+    return source;
+  }
+  const moduleSource = getModule(schema.referencedModule);
+  if (
+    !moduleSource ||
+    typeof moduleSource !== "object" ||
+    Array.isArray(moduleSource)
+  ) {
+    return source;
+  }
+  const ref: string = source[FILE_REF_PROP];
+  // For local files the ref is the file path directly; for remote refs we
+  // need to extract the file path from the remote URL.
+  let fileRef: string | null = ref in moduleSource ? ref : null;
+  if (!fileRef) {
+    const splitResult = Internal.remote.splitRemoteRef(ref);
+    if (
+      splitResult.status === "success" &&
+      splitResult.filePath in moduleSource
+    ) {
+      fileRef = splitResult.filePath;
+    }
+  }
+  if (!fileRef) {
+    return source;
+  }
+  return { ...source, metadata: moduleSource[fileRef] };
+}
+
+function collectReferencedModulesFromSchema(
+  schema: SerializedSchema,
+  acc: Set<string>,
+): void {
+  if (isFileSchema(schema) || isImageSchema(schema)) {
+    if (schema.referencedModule) {
+      acc.add(schema.referencedModule);
+    }
+  } else if (schema.type === "object") {
+    for (const v of Object.values(schema.items)) {
+      collectReferencedModulesFromSchema(v, acc);
+    }
+  } else if (schema.type === "array" || schema.type === "record") {
+    collectReferencedModulesFromSchema(schema.item, acc);
+  } else if (schema.type === "union") {
+    for (const item of schema.items) {
+      collectReferencedModulesFromSchema(item, acc);
+    }
+  }
+}
+
 export function stegaClean(source: string) {
   return vercelStegaSplit(source).cleaned;
 }
@@ -570,6 +660,13 @@ export function getModuleIds(input: any): string[] {
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         modules.add(selectorPath);
+        const schema = Internal.getSchema(sourceOrSelector);
+        if (schema) {
+          const serialized = schema["executeSerialize"]();
+          if (serialized) {
+            collectReferencedModulesFromSchema(serialized, modules);
+          }
+        }
         return;
       }
 

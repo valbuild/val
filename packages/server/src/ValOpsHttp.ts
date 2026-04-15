@@ -850,9 +850,9 @@ export class ValOpsHttp extends ValOps {
     filePathOrRef: string,
     parentRef: ParentRef,
     patchId: PatchId,
-    data: string,
+    data: string | null,
     type: BinaryFileType,
-    metadata: MetadataOfType<BinaryFileType>,
+    metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const filePath: string = filePathOrRef;
 

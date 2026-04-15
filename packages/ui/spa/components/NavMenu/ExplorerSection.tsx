@@ -27,13 +27,12 @@ export function ExplorerSection({
   maxHeight = "100%",
 }: ExplorerSectionProps) {
   return (
-    <AccordionItem value="explorer" className="">
+    <AccordionItem value="explorer" className="border-b-0">
       <AccordionTrigger
         className={cn(
           "flex items-center justify-between w-full h-12 px-4 py-0",
-          "text-sm font-medium uppercase tracking-wide text-fg-secondary",
+          "text-sm font-medium text-fg-secondary",
           "hover:bg-bg-secondary hover:no-underline transition-colors",
-          "[&[data-state=open]]:bg-bg-secondary",
         )}
       >
         <div className="flex items-center gap-2">

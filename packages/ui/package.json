@@ -176,5 +176,8 @@
   "files": [
     "dist",
     "server"
-  ]
+  ],
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.18"
+  }
 }

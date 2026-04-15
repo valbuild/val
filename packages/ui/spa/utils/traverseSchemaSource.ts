@@ -1,12 +1,11 @@
 import {
   FILE_REF_PROP,
-  Json,
   ModuleFilePathSep,
+  Source,
   SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { isJsonArray } from "./isJsonArray";
 
 /**
  * Traverses a schema and source pair, calling a callback for each leaf node.
@@ -18,11 +17,11 @@ import { isJsonArray } from "./isJsonArray";
  * @param callback - Function called for each traversable node with { source, schema, path }
  */
 export function traverseSchemaSource(
-  source: Json,
+  source: Source,
   schema: SerializedSchema,
   path: SourcePath,
   callback: (opts: {
-    source: Json;
+    source: Source;
     schema: SerializedSchema;
     path: SourcePath;
   }) => void,
@@ -125,7 +124,11 @@ export function traverseSchemaSource(
 
   // Handle object and record
   if (schema.type === "object" || schema.type === "record") {
-    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+    if (
+      typeof source !== "object" ||
+      source === null ||
+      Array.isArray(source)
+    ) {
       return;
     }
     for (const key in source) {
@@ -135,7 +138,12 @@ export function traverseSchemaSource(
         continue;
       }
       const subPath = sourcePathConcat(path, key);
-      traverseSchemaSource(source[key], subSchema, subPath, callback);
+      traverseSchemaSource(
+        (source as Record<string, Source>)[key],
+        subSchema,
+        subPath,
+        callback,
+      );
     }
     return;
   }
@@ -148,10 +156,10 @@ export function traverseSchemaSource(
       if (
         source &&
         typeof source === "object" &&
-        !isJsonArray(source) &&
+        !Array.isArray(source) &&
         schemaKey in source
       ) {
-        const itemKey = source[schemaKey];
+        const itemKey = (source as Record<string, Source>)[schemaKey];
         if (typeof itemKey === "string") {
           const schemaOfItem = (schema.items as SerializedObjectSchema[])
             .filter((item) => item.type === "object")
@@ -205,9 +213,9 @@ function sourcePathConcat(
  * Flattens richtext source to a plain string, extracting only text content.
  * Used for indexing richtext content in search.
  */
-export function flattenRichText(source: Json): string {
+export function flattenRichText(source: Source): string {
   let res = "";
-  function rec(child: Json): void {
+  function rec(child: Source): void {
     if (typeof child === "string") {
       res += child;
     } else {

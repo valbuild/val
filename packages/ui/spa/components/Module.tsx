@@ -44,8 +44,15 @@ import {
   useProfilesByAuthorId,
   PendingPatch,
 } from "./ValProvider";
+import { ModuleGallery } from "./fields/ModuleGallery";
 
-export function Module({ path }: { path: SourcePath }) {
+export function Module({
+  path,
+  showModuleGalleryChild,
+}: {
+  path: SourcePath;
+  showModuleGalleryChild: SourcePath | null;
+}) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
   const { navigate } = useNavigation();
@@ -87,7 +94,23 @@ export function Module({ path }: { path: SourcePath }) {
     },
     [schemasRes, sources, navigate],
   );
+  const parent = useParent(path);
+  const isParentGallery = useMemo(() => {
+    if (
+      parent.path !== path &&
+      parent.schema?.type === "record" &&
+      parent.schema.mediaType
+    ) {
+      return true;
+    }
+    return false;
+  }, [path, parent]);
 
+  if (isParentGallery) {
+    return (
+      <Module key={path} path={parent.path} showModuleGalleryChild={path} />
+    );
+  }
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
@@ -121,6 +144,7 @@ export function Module({ path }: { path: SourcePath }) {
 
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
+  const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -159,15 +183,17 @@ export function Module({ path }: { path: SourcePath }) {
             {showNumber && (
               <span className="shrink-0">#{Number(last.text)}</span>
             )}
-            <div className="shrink-0 flex gap-2 items-center">
-              {hasPendingPatches && (
-                <FieldPatchAuthors
-                  patchesByAuthorIds={patchesByAuthorIds}
-                  profilesByAuthorIds={profilesByAuthorIds}
-                />
-              )}
-              <ArrayAndRecordTools path={path} variant={"module"} />
-            </div>
+            {!isMediaGallery && (
+              <div className="shrink-0 flex gap-2 items-center">
+                {hasPendingPatches && (
+                  <FieldPatchAuthors
+                    patchesByAuthorIds={patchesByAuthorIds}
+                    profilesByAuthorIds={profilesByAuthorIds}
+                  />
+                )}
+                <ArrayAndRecordTools path={path} variant={"module"} />
+              </div>
+            )}
           </div>
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
@@ -184,7 +210,15 @@ export function Module({ path }: { path: SourcePath }) {
               nonKeyErrors.length > 0,
           })}
         >
-          <AnyField key={path} path={path} schema={schema} />
+          {showModuleGalleryChild ? (
+            <ModuleGallery
+              key={path}
+              path={path}
+              showChildPath={showModuleGalleryChild}
+            />
+          ) : (
+            <AnyField key={path} path={path} schema={schema} />
+          )}
         </div>
       </div>
     </div>

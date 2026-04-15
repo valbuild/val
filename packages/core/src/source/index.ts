@@ -1,4 +1,5 @@
 import { FileSource } from "./file";
+import { ImageSource } from "./image";
 import { RemoteSource } from "./remote";
 import { RichTextOptions, RichTextSource } from "./richtext";
 
@@ -8,6 +9,7 @@ export type Source =
   | SourceArray
   | RemoteSource
   | FileSource
+  | ImageSource
   | RichTextSource<RichTextOptions>;
 
 export type SourceObject = { [key in string]: Source } & {

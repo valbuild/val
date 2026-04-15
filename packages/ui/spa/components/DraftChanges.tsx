@@ -525,17 +525,17 @@ function Deployments({
               new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
           )
           .map((deployment) => {
-          return (
-            <Deployment
-              key={deployment.commitSha}
-              deployment={deployment}
-              isFinished={observedCommitShas.has(deployment.commitSha)}
-              onDismiss={() => {
-                onDismiss(deployment.commitSha);
-              }}
-            />
-          );
-        })}
+            return (
+              <Deployment
+                key={deployment.commitSha}
+                deployment={deployment}
+                isFinished={observedCommitShas.has(deployment.commitSha)}
+                onDismiss={() => {
+                  onDismiss(deployment.commitSha);
+                }}
+              />
+            );
+          })}
       </div>
     </div>
   );
