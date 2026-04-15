@@ -656,10 +656,6 @@ function removeFromNode(
       result.map((index: number) => removeAt(document, node.elements, index)),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
-    console.log(
-      "ABOUT TO REMOVE FROM NODE",
-      printer.printNode(ts.EmitHint.Unspecified, node, document),
-    );
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap(
