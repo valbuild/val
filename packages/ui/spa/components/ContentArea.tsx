@@ -217,7 +217,7 @@ export function SearchBar() {
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
   const path = currentSourcePath;
-  return <Module path={path} />;
+  return <Module path={path} showModuleGalleryChild={null} />;
 }
 
 // export function PathBar() {
