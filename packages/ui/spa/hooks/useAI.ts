@@ -8,8 +8,9 @@ import {
 import type { WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
-import type { ModuleFilePath } from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
+import { useNavigation } from "../components/ValRouter";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -111,12 +112,34 @@ const CREATE_PATCH_TOOL: AITool = {
     required: ["module_file_path", "patch"],
   },
 };
+const NAVIGATE_TO_TOOL: AITool = {
+  name: "navigate_to",
+  description:
+    "Navigate the user's view to a specific location in the content tree. " +
+    "Use ONLY when the user explicitly asks to be shown or navigated to something, " +
+    "or immediately after creating/modifying content when navigating there is clearly the expected next step. " +
+    "Do NOT call this tool during normal information gathering.",
+  parameters: {
+    type: "object",
+    properties: {
+      source_path: {
+        type: "string",
+        description:
+          "The SourcePath to navigate to. " +
+          "Format: '/path/to/file.val.ts' for a module root, or '/path/to/file.val.ts?p=key.\"subkey\"' for a specific field. " +
+          "String keys in the ModulePath are JSON-quoted (e.g. \"title\"), array indices are plain numbers (e.g. 0).",
+      },
+    },
+    required: ["source_path"],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
+  NAVIGATE_TO_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -125,6 +148,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const syncEngine = useSyncEngine();
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
+  const { navigate } = useNavigation();
   const [isStreaming, setIsStreaming] = useState(false);
   const sessionIdRef = useRef(crypto.randomUUID());
   // Track active streaming ID — startAssistantMessage always appends a new
@@ -319,6 +343,15 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             }
           })();
+        } else if (message.name === "navigate_to") {
+          const args = message.arguments as { source_path: string };
+          navigate(args.source_path as SourcePath);
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: { success: true },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
