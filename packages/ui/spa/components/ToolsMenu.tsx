@@ -53,7 +53,7 @@ export function ToolsMenu() {
     return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
   }, [validationErrors]);
   const chatRef = useRef<AIChatHandle | null>(null);
-  const { sendMessage, isConnected } = useAI(chatRef);
+  const { sendMessage, isConnected, newSession } = useAI(chatRef);
   return (
     <div
       className="flex flex-col h-[100svh] bg-bg-primary"
@@ -147,6 +147,7 @@ export function ToolsMenu() {
           <AIChat
             ref={chatRef}
             onSendMessage={sendMessage}
+            onNewSession={newSession}
             isConnected={isConnected}
           />
         </div>
