@@ -7,7 +7,7 @@ export const schema = s.object({
    * Objects:
    */
   hero: s.object({
-    title: s.string(),
+    title: s.string().minLength(4),
     image: s.image(),
     link: s.object({
       text: s.string(),
