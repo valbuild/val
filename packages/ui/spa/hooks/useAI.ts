@@ -9,9 +9,10 @@ import {
 import type { WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
-import type { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { ModuleFilePath, Source, SourcePath } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
+import { getNavPathFromAll } from "../components/getNavPath";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -370,13 +371,33 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           })();
         } else if (message.name === "navigate_to") {
           const args = message.arguments as { source_path: string };
-          navigate(args.source_path as SourcePath);
-          sendWsMessage({
-            type: "ai_tool_result",
-            toolCallId: message.toolCallId,
-            result: { success: true },
-          });
-          chatRef.current?.completeToolCall(message.id, message.toolCallId);
+          const sourcePath = args.source_path as SourcePath;
+          const allSources = syncEngine.getAllSourcesSnapshot() as Record<
+            ModuleFilePath,
+            Source
+          >;
+          const schemas = syncEngine.getAllSchemasSnapshot();
+          const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
+          if (navPath === null) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Invalid source path: '${args.source_path}'. Could not resolve navigation path.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          } else {
+            navigate(navPath as SourcePath);
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: true },
+            });
+            chatRef.current?.completeToolCall(message.id, message.toolCallId);
+          }
         } else if (message.name === "get_current_author") {
           const result = currentProfile
             ? {
