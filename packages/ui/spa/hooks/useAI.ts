@@ -77,6 +77,14 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
         }
+      } else if (message.type === "error") {
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          chatRef.current.startAssistantMessage(message.id);
+        }
+        chatRef.current.errorAssistantMessage(message.id, message.message);
+        activeIdRef.current = null;
+        setIsStreaming(false);
       } else {
         console.error("Received unknown message type in useAI", message);
       }

@@ -62,9 +62,17 @@ export const AIServerMessage = z.union([
   AIToolResultMessage,
 ]);
 
+export const AIErrorMessage = z.object({
+  type: z.literal("error"),
+  message: z.string(),
+  id: z.string(),
+  reconnect: z.boolean().optional(),
+});
+
 export type WsExtendedMessage =
   | z.infer<typeof MCPServerMessage>
-  | z.infer<typeof AIServerMessage>;
+  | z.infer<typeof AIServerMessage>
+  | z.infer<typeof AIErrorMessage>;
 
 export type WsMessageHandler = (message: WsExtendedMessage) => void;
 
@@ -392,7 +400,19 @@ async function execStat(
               }
               const message = messageRes.data;
               if (message.type === "error") {
-                setStat((prev) => createError(prev, message.message));
+                if (message.id) {
+                  // AI-specific error — dispatch to handlers (useAI shows it in chat)
+                  for (const handler of wsMessageHandlersRef.current) {
+                    handler({
+                      type: "error",
+                      message: message.message,
+                      id: message.id,
+                      reconnect: message.reconnect,
+                    });
+                  }
+                } else {
+                  setStat((prev) => createError(prev, message.message));
+                }
               } else if (message.type === "patches") {
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
