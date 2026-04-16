@@ -86,7 +86,7 @@ const CREATE_PATCH_TOOL: AITool = {
       patch: {
         type: "array",
         description:
-          "Array of RFC 6902 patch operations. Each item: { op, path, value? }",
+          "Array of a format that is RFC 6902 patch operations, except that path is array of strings. Each item: { op, path, value? }",
         items: {
           type: "object",
           properties: {
