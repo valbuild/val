@@ -10,7 +10,7 @@ import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
-import { Send, RotateCcw, Sparkles } from "lucide-react";
+import { Send, RotateCcw, Sparkles, Check } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,8 +43,8 @@ export type AIChatHandle = {
 };
 
 export type AIChatProps = {
-  /** Called when the user submits a message (via input or suggestion chip) */
-  onSendMessage?: (text: string) => void;
+  /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
+  onSendMessage?: (text: string) => boolean;
   /** Prompt suggestion chips shown on the empty state */
   suggestions?: string[];
   /** Extra class names on the root container */
@@ -206,15 +206,26 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const content = (text ?? inputValue).trim();
       if (!content || isStreaming) return;
 
+      const msgId = nextId();
       const userMsg: ChatMessage = {
-        id: nextId(),
+        id: msgId,
         role: "user",
         content,
         status: "complete",
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
       setInputValue("");
-      onSendMessage?.(content);
+
+      const sent = onSendMessage ? onSendMessage(content) : true;
+      if (!sent) {
+        setCompletedMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? { ...m, status: "error", error: "Failed to send" }
+              : m,
+          ),
+        );
+      }
 
       // Refocus textarea after send
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -224,6 +235,30 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   const handleRetry = useCallback(
     (errorMsgId: string) => {
+      const errorMsg = messages.find((m) => m.id === errorMsgId);
+
+      // Retry a failed user message (WebSocket send error)
+      if (errorMsg?.role === "user") {
+        setCompletedMessages((prev) =>
+          prev.map((m) =>
+            m.id === errorMsgId
+              ? { ...m, status: "complete", error: undefined }
+              : m,
+          ),
+        );
+        const sent = onSendMessage ? onSendMessage(errorMsg.content) : true;
+        if (!sent) {
+          setCompletedMessages((prev) =>
+            prev.map((m) =>
+              m.id === errorMsgId
+                ? { ...m, status: "error", error: "Failed to send" }
+                : m,
+            ),
+          );
+        }
+        return;
+      }
+
       // Find the user message right before the errored assistant message
       const idx = messages.findIndex((m) => m.id === errorMsgId);
       if (idx <= 0) return;
@@ -397,7 +432,17 @@ function MessageBubble({
         )}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          <>
+            <p className="whitespace-pre-wrap">{message.content}</p>
+            {message.status === "complete" && (
+              <div className="mt-1 flex justify-end">
+                <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
+                  <Check className="h-2.5 w-2.5" />
+                  Sent
+                </span>
+              </div>
+            )}
+          </>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             {message.content ? (
