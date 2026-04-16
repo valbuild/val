@@ -3,6 +3,7 @@ import type { AIChatHandle } from "../components/AIChat";
 import {
   AITool,
   useCurrentProfile,
+  useProfilesByAuthorId,
   useSyncEngine,
   useWsMessages,
 } from "../components/ValProvider";
@@ -156,6 +157,38 @@ const GET_CURRENT_SOURCE_PATH_TOOL: AITool = {
     required: [],
   },
 };
+const GET_PATCHES_TOOL: AITool = {
+  name: "get_patches",
+  description:
+    "List pending (unpublished) patches — changes that have been made but not yet published. " +
+    "Returns patches sorted by date descending (newest first), paginated. " +
+    "Each patch includes the module it affects, when it was made, and the author's name and email if available. " +
+    "Use this to answer questions like 'what changed recently', 'who made changes', or 'what is waiting to be published'.",
+  parameters: {
+    type: "object",
+    properties: {
+      limit: {
+        type: "number",
+        description: "Max patches to return (default 20)",
+      },
+      offset: {
+        type: "number",
+        description: "Number of patches to skip for pagination (default 0)",
+      },
+    },
+    required: [],
+  },
+};
+const GET_CURRENT_DATE_TIME_TOOL: AITool = {
+  name: "get_current_date_time",
+  description:
+    "Get the current date and time — returns an ISO 8601 timestamp of the user's current local date and time.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -165,6 +198,8 @@ const ALL_TOOLS: AITool[] = [
   NAVIGATE_TO_TOOL,
   GET_CURRENT_AUTHOR_TOOL,
   GET_CURRENT_SOURCE_PATH_TOOL,
+  GET_PATCHES_TOOL,
+  GET_CURRENT_DATE_TIME_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -175,6 +210,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const aiValidation = useAIValidation();
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
+  const profiles = useProfilesByAuthorId();
   const [isStreaming, setIsStreaming] = useState(false);
   const sessionIdRef = useRef(crypto.randomUUID());
   // Track active streaming ID — startAssistantMessage always appends a new
@@ -424,6 +460,49 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             result: { sourcePath: currentSourcePath },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_current_date_time") {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: { dateTime: new Date().toISOString() },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_patches") {
+          const args = message.arguments as {
+            limit?: number;
+            offset?: number;
+          };
+          const limit = args.limit ?? 20;
+          const offset = args.offset ?? 0;
+          const allPatches = syncEngine.getAllPatchesSnapshot() ?? {};
+          const patches = Object.entries(allPatches)
+            .filter(([, data]) => data !== undefined)
+            .map(([patchId, data]) => {
+              const profile = data!.authorId ? profiles[data!.authorId] : null;
+              return {
+                patchId,
+                moduleFilePath: data!.moduleFilePath,
+                createdAt: data!.createdAt,
+                isPending: data!.isPending,
+                author: profile
+                  ? { fullName: profile.fullName, email: profile.email }
+                  : null,
+              };
+            })
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() -
+                new Date(a.createdAt).getTime(),
+            );
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              patches: patches.slice(offset, offset + limit),
+              total: patches.length,
+            },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
@@ -450,8 +529,10 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     aiSearch,
     aiValidation,
     chatRef,
+    navigate,
     currentProfile,
     currentSourcePath,
+    profiles,
   ]);
 
   const sendMessage = useCallback(
@@ -462,51 +543,50 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         type: "ai_prompt",
         message: text,
         sessionId: sessionIdRef.current,
-        context: ` — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", "source path", or "RFC 6902". Explain everything in plain language. If you must refer to a content file, use its friendly name or path (e.g. "the Blog Posts content").
+        context: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
-## How to use your tools efficiently
-Always start by calling get_all_schema to understand what content exists. Then:
-- Use get_source to read the current content of a specific file before making changes.
-- Use search_content to find content by keyword across all files.
-- Use validate_content to check if content is valid — do this after every change.
-- Use create_patch to make changes to text, numbers, dates, true/false values, and lists. Do NOT use it for images, files, or rich text — those cannot be changed through this assistant.
-- Use navigate_to to guide the user to a specific location in the content tree when relevant, e.g. after making a change or when they ask to be shown something. Always use it when the user explicitly asks to be shown or navigated to something, or immediately after creating/modifying content when navigating there is clearly the expected next step. Do NOT call navigate_to during normal information gathering.
+## Who you are talking to
+Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
 
-Call get_all_schema first, before anything else, unless the user's question clearly does not require it.
+## Tools
+Always call get_all_schema first unless the question clearly does not require it. Then:
+- get_source: read the current content of a module before making changes.
+- search_content: find content by keyword across all modules.
+- validate_content: check for errors — call this after every change.
+- create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
+- get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
+- navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering.
+- get_current_author: get the currently logged-in user's name and email.
+- get_current_source_path: get the location the user is currently viewing.
+- get_current_date_time: get the user's current local date and time.
 
-## Understanding the schema
-Val content is organized into modules (files ending in .val.ts). Each module has a schema that describes its structure:
-- s.object / object: a group of fields (like a form with multiple fields)
-- s.record / record: a collection of items, each with the same shape (like a list of pages, products, ...)
-  - s.record may have a router property that is next-app-router : a collection of pages in a Next.js website — these appear under "Pages" in the left navigation menu
-  - s.record may have a router property that is external-url-router : a collection of external links — these appear under "External Sites" in the left navigation menu
-  - s.record may have a mediaType property that is "image" or "file": it means that this a collections of images grouped by a directory. 
-- Other modules (not routers) appear under "Explorer" in the left navigation menu
-- s.string: plain text
-- s.number: a number
-- s.boolean: yes/no toggle
-- s.date: a date (stored as ISO 8601, e.g. "2024-01-15")
-- s.array: a list of items
-- s.richtext: formatted text (bold, italic, headings etc.) 
-- s.image / s.file: an image or file — cannot be changed through this assistant. If a user needs to add an image and they have a media gallery, navigate to the media gallery that matches their request based on the schema of the file / image.
+## navigate_to: how to build a source path
+A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
+Example: /content/authors.val.ts?p="jane" navigates to the "jane" entry in the authors module.
+Example: /content/posts.val.ts?p=0."title" navigates to the title of the first post.
+When the user wants to see something inside a module, navigate directly to the relevant field.
+Never tell the user to navigate manually — offer to navigate for them instead. After navigating, do not repeat what you already described.
+
+## Understanding content types
+- object: a group of fields
+- record: a collection of items with the same shape (e.g. blog posts, products)
+  - router: next-app-router — pages in a Next.js site, shown under "Pages" in the left menu
+  - router: external-url-router — external links, shown under "External Sites" in the left menu
+  - mediaType: "image" or "file" — a media gallery grouped by directory
+- array: an ordered list of items
+- string / number / boolean / date: plain values
+- richtext: formatted text — cannot be changed through this assistant
+- image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
 
 ## When you cannot make a change
-If you are unable to change something (e.g. images, files, rich text, or you get an error), guide the user to make the change themselves using the left navigation menu:
-- If the content is a router with next-app-router (router ID: "next-app-router"): tell the user to find it under "Pages" in the left menu
-- If the content is a router with external-url-router (router ID: "external-url-router"): tell the user to find it under "External Sites" in the left menu
-- For all other content: tell the user to find it under "Explorer" in the left menu
-Never ask the user to write or apply a patch themselves — they cannot do that.
-
-Instead of telling the user where to navigate ask them if you should navigate there for them using the navigate_to tool. Always offer to navigate for them, especially if they seem unsure or are asking to be shown something. 
-If users seems to want to something inside of a module, navigate directly to the correct field by constructing a source path. A source path is the module file path plus a module path. This shows the authors module of the user freekh: /content/authors.val.ts?p="freekh". 
-
-When it comes to images and files, remember that you do not have access to file system.
-
-Do not re-iterate what you wrote if when you either way has shown the user what it is by navigating to the new content.
+Never ask the user to apply changes themselves. Instead:
+- For images, files, or rich text: navigate to the relevant location and explain what to do there.
+- For errors you cannot fix: explain clearly and ask the user for clarification.
 
 ## Style
 - Be concise and friendly.
-- If something goes wrong, explain clearly what happened and what the user should do next.`,
+- Confirm changes in plain language after every successful update.
+- If something goes wrong, explain what happened and what to do next.`,
         id: crypto.randomUUID(),
         tools: ALL_TOOLS,
       });

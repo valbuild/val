@@ -25,6 +25,9 @@ import {
   XCircle,
   Plus,
   Navigation,
+  User,
+  Clock,
+  MapPin,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -632,6 +635,18 @@ const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
   navigate_to: {
     label: "Navigating to content",
     icon: <Navigation className="h-3 w-3" />,
+  },
+  get_patches: {
+    label: "Loading changes",
+    icon: <Clock className="h-3 w-3" />,
+  },
+  get_current_author: {
+    label: "Getting current user",
+    icon: <User className="h-3 w-3" />,
+  },
+  get_current_source_path: {
+    label: "Getting current location",
+    icon: <MapPin className="h-3 w-3" />,
   },
 };
 
