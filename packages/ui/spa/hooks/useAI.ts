@@ -8,8 +8,8 @@ import {
 import type { WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
-import { parsePatch } from "@valbuild/core/patch";
 import type { ModuleFilePath } from "@valbuild/core";
+import { Patch } from "@valbuild/shared/internal";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -19,6 +19,23 @@ const GET_ALL_SCHEMA_TOOL: AITool = {
     type: "object",
     properties: {},
     required: [],
+  },
+};
+const GET_SOURCE_TOOL: AITool = {
+  name: "get_source",
+  description:
+    "Get the current source content of a Val module by its file path. " +
+    "The 'module_file_path' must exactly match one of the keys returned by get_all_schema.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description:
+          "The Val module file path, e.g. '/content/homepage.val.ts'. Can be obtained from the keys of get_all_schema.",
+      },
+    },
+    required: ["module_file_path"],
   },
 };
 const SEARCH_CONTENT_TOOL: AITool = {
@@ -45,29 +62,36 @@ const VALIDATE_CONTENT_TOOL: AITool = {
 };
 const CREATE_PATCH_TOOL: AITool = {
   name: "create_patch",
-  description:
-    "Create a Val patch — applies RFC 6902 JSON Patch operations to a Val module. " +
-    "Use ONLY for string, number, boolean, null, object, array, and date (ISO 8601) fields. " +
-    "DO NOT use for image, file, or richtext fields — those require dedicated tools. " +
-    "Supported ops: 'replace', 'add', 'remove'. " +
-    "The 'path' must be a JSON Pointer (e.g. '/title', '/items/0/name'). " +
-    "The 'module_file_path' must exactly match a key returned by get_all_schema. " +
-    "After applying a patch, always call validate_content to check for validation errors and fix them if found.",
+  description: `Create a Val patch — applies RFC 6902 JSON Patch operations to a Val module. 
+    Use ONLY for string, number, boolean, null, object, array, and date (ISO 8601) fields. 
+    DO NOT use for image, file, or richtext fields — those require dedicated tools. 
+    Supported ops: 'replace', 'add', 'remove'. 
+    The 'path' must be a JSON Pointer AS AN ARRAY: (e.g. ['title'], ['items', '0', 'name']).
+    NOTE: If it is a record, the key might be a url ('/foo/bar'), in this case it should be represented as ['foo/bar'] in the path array, not ['foo', 'bar'].
+
+    The 'module_file_path' must exactly match a key returned by get_all_schema. 
+    After applying a patch, always call validate_content to check for validation errors and fix them if found.
+    
+    Example 'patch' value that changes the title of a record item called '/blog/blog-10' to 'Test':
+    {"patch":[{"op":"replace","path":["/blogs/blog-10","title"],"value":"Test"}]},
+    `,
   parameters: {
     type: "object",
     properties: {
       module_file_path: {
         type: "string",
-        description: "The Val module file path, e.g. '/content/homepage.val.ts'",
+        description:
+          "The Val module file path, e.g. '/content/homepage.val.ts'",
       },
       patch: {
         type: "array",
-        description: "Array of RFC 6902 patch operations. Each item: { op, path, value? }",
+        description:
+          "Array of RFC 6902 patch operations. Each item: { op, path, value? }",
         items: {
           type: "object",
           properties: {
             op: { type: "string", enum: ["replace", "add", "remove"] },
-            path: { type: "string" },
+            path: { type: "array", items: { type: "string" } },
             value: {},
           },
           required: ["op", "path"],
@@ -79,6 +103,7 @@ const CREATE_PATCH_TOOL: AITool = {
 };
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
+  GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
@@ -122,6 +147,30 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             toolCallId: message.toolCallId,
             result: schemas ?? {},
           });
+        } else if (message.name === "get_source") {
+          const args = message.arguments as { module_file_path: string };
+          const moduleFilePath = args.module_file_path as ModuleFilePath;
+          const snapshot = syncEngine.getSourceSnapshot(moduleFilePath);
+          if (snapshot.status === "success") {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: true, source: snapshot.data },
+            });
+          } else {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  snapshot.status === "no-schemas"
+                    ? "Schemas not loaded yet. Try again shortly."
+                    : `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+              },
+              isError: true,
+            });
+          }
         } else if (message.name === "search_content") {
           const args = message.arguments as { query: string };
 
@@ -153,27 +202,20 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               });
               return;
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const parseResult = parsePatch(args.patch as any);
-            if (parseResult.kind === "err") {
-              const issues = parseResult.error
-                .map(
-                  (issue: { path: string[]; message: string }) =>
-                    `[${issue.path.join("/")}] ${issue.message}`,
-                )
-                .join("; ");
+            const parseResult = Patch.safeParse(args.patch);
+            if (!parseResult.success) {
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `Invalid patch operations: ${issues}`,
+                  error: `Invalid patch operations. Zod error: ${JSON.stringify(parseResult.error)}`,
                 },
                 isError: true,
               });
               return;
             }
-            const patch = parseResult.value;
+            const patch = parseResult.data;
             const moduleFilePath = args.module_file_path as ModuleFilePath;
             const schemas = syncEngine.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
@@ -251,7 +293,14 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     };
 
     return subscribeToWsMessages(handler);
-  }, [subscribeToWsMessages, sendWsMessage, syncEngine, aiSearch, aiValidation, chatRef]);
+  }, [
+    subscribeToWsMessages,
+    sendWsMessage,
+    syncEngine,
+    aiSearch,
+    aiValidation,
+    chatRef,
+  ]);
 
   const sendMessage = useCallback(
     (text: string): boolean => {
