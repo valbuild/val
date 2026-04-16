@@ -1,5 +1,5 @@
 import { useSyncExternalStore, useCallback } from "react";
-import { SourcePath, splitModuleFilePathAndModulePath } from "@valbuild/core";
+import { SourcePath, Internal } from "@valbuild/core";
 import { useWsMessages, useSyncEngine } from "../components/ValProvider";
 
 type ValidationErrorEntry = {
@@ -33,7 +33,8 @@ export function useAIValidation() {
 
         for (const sourcePathS in snapshot) {
           const sourcePath = sourcePathS as SourcePath;
-          const [modulePath] = splitModuleFilePathAndModulePath(sourcePath);
+          const [modulePath] =
+            Internal.splitModuleFilePathAndModulePath(sourcePath);
           const errorsForPath = snapshot[sourcePath] ?? [];
 
           const entry: ValidationErrorEntry = {
