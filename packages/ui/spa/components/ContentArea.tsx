@@ -219,18 +219,23 @@ export function SearchBar() {
 }
 
 function SourceFields() {
+  const { currentSourcePath } = useNavigation();
+  const { aiChat } = useLayout();
   const chatRef = useRef<AIChatHandle | null>(null);
   const { sendMessage, isConnected } = useAI(chatRef);
-  return (
-    <AIChat
-      ref={chatRef}
-      onSendMessage={sendMessage}
-      isConnected={isConnected}
-    />
-  );
-  // const { currentSourcePath } = useNavigation();
-  // const path = currentSourcePath;
-  // return <Module path={path} showModuleGalleryChild={null} />;
+
+  const showAIChat = !currentSourcePath || aiChat.show;
+
+  if (showAIChat) {
+    return (
+      <AIChat
+        ref={chatRef}
+        onSendMessage={sendMessage}
+        isConnected={isConnected}
+      />
+    );
+  }
+  return <Module path={currentSourcePath} showModuleGalleryChild={null} />;
 }
 
 // export function PathBar() {

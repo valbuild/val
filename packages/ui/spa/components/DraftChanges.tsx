@@ -17,7 +17,6 @@ import {
   useProfilesByAuthorId,
   useValMode,
   usePatchSets,
-  usePublishSummary,
   useAutoPublish,
   useGlobalTransientErrors,
   useAllPatchErrors,
@@ -32,7 +31,7 @@ import {
   ChevronDown,
   Download,
   Loader2,
-  Sparkles,
+  MessageSquare,
   TriangleAlert,
   Undo2,
   X,
@@ -40,7 +39,7 @@ import {
 import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
-import { Operation, deepEqual } from "@valbuild/core/patch";
+import { Operation } from "@valbuild/core/patch";
 import { Button } from "./designSystem/button";
 import {
   Popover,
@@ -48,7 +47,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
-import { PublishSummary } from "./PublishSummary";
+import { useLayout } from "./Layout";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
   Accordion,
@@ -79,9 +78,7 @@ export function DraftChanges({
   const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
   const portalContainer = useValPortal();
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const { canGenerate, generateSummary, setSummary, summary } =
-    usePublishSummary();
+  const { aiChat } = useLayout();
   const allValidationErrors = useAllValidationErrors();
   const { autoPublish } = useAutoPublish();
   const validationErrorsCount = useMemo(() => {
@@ -341,76 +338,16 @@ export function DraftChanges({
       )}
       {mode === "http" && (
         <div className="flex justify-end items-center p-4 border-b z-5 border-border-primary">
-          <Popover
-            open={summaryOpen}
-            onOpenChange={(open) => {
-              setSummaryOpen(open);
+          <Button
+            variant="secondary"
+            className="flex gap-2 items-center text-sm"
+            onClick={() => {
+              aiChat.setShow(true);
             }}
           >
-            <PopoverTrigger asChild>
-              <Button
-                variant="secondary"
-                className="flex gap-2 items-center text-sm"
-                onClick={() => {
-                  // Auto-generate summary if:
-                  // 1. No summary exists, OR
-                  // 2. Summary is AI-generated and patches have changed
-                  const isStaleAiSummary =
-                    summary.type === "ai" &&
-                    !deepEqual(summary.patchIds, currentPatchIds);
-
-                  if (
-                    canGenerate &&
-                    (summary.type === "not-asked" || isStaleAiSummary)
-                  ) {
-                    const timeoutPromise = new Promise<{ type: "timeout" }>(
-                      (resolve) =>
-                        setTimeout(() => resolve({ type: "timeout" }), 20000),
-                    );
-
-                    Promise.race([generateSummary(), timeoutPromise]).then(
-                      (result) => {
-                        if (result.type === "timeout") {
-                          console.warn(
-                            "Val: Summary generation timed out after 20s",
-                          );
-                        } else if (result.type === "ai") {
-                          setSummary({ type: "ai", text: result.text.trim() });
-                        } else if (result.type === "error") {
-                          console.warn(
-                            "Val: Summary generation failed:",
-                            result.message,
-                          );
-                        }
-                      },
-                    );
-                  }
-                }}
-              >
-                <span>
-                  {summary.isGenerating ? "Generating..." : "Summary"}
-                </span>
-                {canGenerate && !summary.isGenerating && <Sparkles size={14} />}
-                {summary.isGenerating && (
-                  <Loader2 size={14} className="animate-spin" />
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              container={portalContainer}
-              align="end"
-              className="z-[9001] flex flex-col gap-4"
-            >
-              <PopoverClose asChild className="self-end cursor-pointer">
-                <X size={12} />
-              </PopoverClose>
-              <PublishSummary
-                onClose={() => {
-                  setSummaryOpen(false);
-                }}
-              />
-            </PopoverContent>
-          </Popover>
+            <span>AI Chat</span>
+            <MessageSquare size={14} />
+          </Button>
         </div>
       )}
       <div className="p-4 z-5">
