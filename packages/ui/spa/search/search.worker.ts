@@ -121,17 +121,23 @@ function fastRemoveNonWordChars(str: string): string {
 
 function performSearch(
   query: string,
-  limit = 10,
-): Array<{ path: SourcePath; label: string }> {
+  limit = 50,
+  offset = 0,
+): { results: Array<{ path: SourcePath; label: string }>; total: number } {
   if (!index || !query.trim()) {
-    return [];
+    return { results: [], total: 0 };
   }
 
-  const searchResults = index.search(query, { limit });
-  return searchResults.map((id) => ({
-    path: id as SourcePath,
-    label: pathToLabel.get(id as string) || (id as string),
-  }));
+  const searchResults = index.search(query, { limit: offset + limit });
+  const total = searchResults.length;
+  const paged = searchResults.slice(offset, offset + limit);
+  return {
+    results: paged.map((id) => ({
+      path: id as SourcePath,
+      label: pathToLabel.get(id as string) || (id as string),
+    })),
+    total,
+  };
 }
 
 // Handle messages from main thread
@@ -152,11 +158,16 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       };
       self.postMessage(response);
     } else if (request.type === "search") {
-      const results = performSearch(request.query, request.limit);
+      const { results, total } = performSearch(
+        request.query,
+        request.limit,
+        request.offset,
+      );
       const response: WorkerResponse = {
         type: "search-results",
         id: request.id,
         results,
+        total,
       };
       self.postMessage(response);
     }

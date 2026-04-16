@@ -49,7 +49,7 @@ export function useAISearch() {
         isIndexBuiltRef.current = true;
         pending.resolve(null);
       } else if (response.type === "search-results") {
-        pending.resolve(response.results);
+        pending.resolve({ results: response.results, total: response.total });
       } else if (response.type === "error") {
         pending.reject(new Error(response.error));
       }
@@ -62,7 +62,12 @@ export function useAISearch() {
   }, []);
 
   const query = useCallback(
-    async (searchQuery: string, toolCallId: string) => {
+    async (
+      searchQuery: string,
+      toolCallId: string,
+      limit?: number,
+      offset?: number,
+    ) => {
       if (!workerRef.current) return;
       try {
         if (!isIndexBuiltRef.current) {
@@ -91,7 +96,10 @@ export function useAISearch() {
           });
         }
 
-        const results = await new Promise<SearchResult[]>((resolve, reject) => {
+        const { results, total } = await new Promise<{
+          results: SearchResult[];
+          total: number;
+        }>((resolve, reject) => {
           pendingRequests.current.set(toolCallId, {
             resolve: resolve as (value: unknown) => void,
             reject,
@@ -100,13 +108,19 @@ export function useAISearch() {
             type: "search",
             id: toolCallId,
             query: searchQuery,
+            limit,
+            offset,
           } satisfies WorkerRequest);
         });
 
         console.log("Search results for query", searchQuery, results, {
           toolCallId,
         });
-        sendWsMessage({ type: "ai_tool_result", toolCallId, result: results });
+        sendWsMessage({
+          type: "ai_tool_result",
+          toolCallId,
+          result: { results, total },
+        });
       } catch (error) {
         sendWsMessage({
           type: "ai_tool_result",
