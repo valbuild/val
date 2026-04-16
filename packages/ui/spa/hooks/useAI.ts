@@ -111,7 +111,6 @@ const ALL_TOOLS: AITool[] = [
   CREATE_PATCH_TOOL,
 ];
 
-const sessionId = crypto.randomUUID();
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useWsMessages();
@@ -119,6 +118,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
   const [isStreaming, setIsStreaming] = useState(false);
+  const sessionIdRef = useRef(crypto.randomUUID());
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
@@ -342,7 +342,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       return sendWsMessage({
         type: "ai_prompt",
         message: text,
-        sessionId,
+        sessionId: sessionIdRef.current,
         context: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
@@ -390,5 +390,10 @@ Never ask the user to write or apply a patch themselves — they cannot do that.
     [sendWsMessage],
   );
 
-  return { sendMessage, isStreaming, isConnected: isWsConnected };
+  const newSession = useCallback(() => {
+    sessionIdRef.current = crypto.randomUUID();
+    chatRef.current?.clearMessages();
+  }, [chatRef]);
+
+  return { sendMessage, isStreaming, isConnected: isWsConnected, newSession };
 }

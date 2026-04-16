@@ -23,6 +23,7 @@ import {
   Pencil,
   CheckCircle2,
   XCircle,
+  Plus,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -72,11 +73,15 @@ export type AIChatHandle = {
   completeToolCall: (messageId: string, toolCallId: string) => void;
   /** Mark a tool call as errored */
   errorToolCall: (messageId: string, toolCallId: string) => void;
+  /** Clear all messages (used when starting a new session) */
+  clearMessages: () => void;
 };
 
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (text: string) => boolean;
+  /** Called when the user clicks "New Chat" to start a fresh session */
+  onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
   suggestions?: string[];
   /** Extra class names on the root container */
@@ -116,6 +121,7 @@ function nextId(): string {
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
     onSendMessage,
+    onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
     className,
     isConnected,
@@ -278,6 +284,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         };
       });
     },
+    clearMessages() {
+      setCompletedMessages([]);
+      setCurrentMessage(null);
+    },
   }));
 
   // ---- Derived state ----
@@ -381,6 +391,22 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         className,
       )}
     >
+      {/* Header with New Chat button */}
+      {!isEmpty && onNewSession && (
+        <div className="shrink-0 flex justify-end p-2 border-b border-border-primary">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onNewSession}
+            disabled={isStreaming}
+            className="text-xs gap-1"
+          >
+            <Plus className="h-3 w-3" />
+            New chat
+          </Button>
+        </div>
+      )}
+
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col gap-4 p-4">
