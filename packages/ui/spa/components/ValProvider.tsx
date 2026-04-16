@@ -113,7 +113,7 @@ type ValContextValue = {
   subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
   sendWsMessage: (
     data: z.infer<typeof AIPromptMessage> | AIToolResultMessage,
-  ) => void;
+  ) => boolean;
   isWsConnected: boolean;
 };
 const ValContext = React.createContext<ValContextValue>(

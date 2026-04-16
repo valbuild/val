@@ -95,10 +95,10 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   }, [subscribeToWsMessages, sendWsMessage, syncEngine, aiSearch, chatRef]);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string): boolean => {
       console.log("Sending AI message in useAI", text);
 
-      sendWsMessage({
+      return sendWsMessage({
         type: "ai_prompt",
         message: text,
         context: `You are a helpful AI assistant for a content management system called Val.

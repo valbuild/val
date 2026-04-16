@@ -196,15 +196,17 @@ export function useStatus(client: ValClient) {
     },
     [],
   );
-  const sendWsMessage = useCallback((data: unknown): void => {
+  const sendWsMessage = useCallback((data: unknown): boolean => {
     console.log("sendWsMessage called with", data);
     if (webSocketRef.current?.readyState === WebSocket.OPEN) {
       webSocketRef.current.send(JSON.stringify(data));
+      return true;
     } else {
       console.warn(
         "sendWsMessage: WebSocket not open",
         webSocketRef.current?.readyState,
       );
+      return false;
     }
   }, []);
 
