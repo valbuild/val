@@ -302,7 +302,7 @@ export function useStatus(client: ValClient) {
   ] as const;
 }
 
-const WebSocketStatInterval = 10 * 1000;
+const WebSocketStatInterval = 2 * 60 * 10 * 1000;
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
