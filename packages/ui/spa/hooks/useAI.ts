@@ -7,6 +7,7 @@ import {
 } from "../components/ValProvider";
 import type { WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
+import { useAIValidation } from "./useAIValidation";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -30,13 +31,28 @@ const SEARCH_CONTENT_TOOL: AITool = {
     required: ["query"],
   },
 };
-const ALL_TOOLS: AITool[] = [GET_ALL_SCHEMA_TOOL, SEARCH_CONTENT_TOOL];
+const VALIDATE_CONTENT_TOOL: AITool = {
+  name: "validate_content",
+  description:
+    "Get all current validation errors — returns a list of modules with their validation errors, grouped by module path",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
+const ALL_TOOLS: AITool[] = [
+  GET_ALL_SCHEMA_TOOL,
+  SEARCH_CONTENT_TOOL,
+  VALIDATE_CONTENT_TOOL,
+];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useWsMessages();
   const syncEngine = useSyncEngine();
   const aiSearch = useAISearch();
+  const aiValidation = useAIValidation();
   const [isStreaming, setIsStreaming] = useState(false);
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
@@ -73,6 +89,8 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           const args = message.arguments as { query: string };
 
           aiSearch.query(args.query, message.toolCallId);
+        } else if (message.name === "validate_content") {
+          aiValidation.getErrors(message.toolCallId);
         } else {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
@@ -92,7 +110,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     };
 
     return subscribeToWsMessages(handler);
-  }, [subscribeToWsMessages, sendWsMessage, syncEngine, aiSearch, chatRef]);
+  }, [subscribeToWsMessages, sendWsMessage, syncEngine, aiSearch, aiValidation, chatRef]);
 
   const sendMessage = useCallback(
     (text: string): boolean => {
