@@ -18,7 +18,6 @@ export function Layout() {
   const [didInitialize, setDidInitialize] = useState(false);
   const [isNavMenuOpen, setIsNavMenuOpenState] = useState(false);
   const [isToolsMenuOpen, setIsToolsMenuOpenState] = useState(false);
-  const [showAIChat, setShowAIChatState] = useState(false);
   const { currentSourcePath, ready: navigationReady } = useNavigation();
   useEffect(() => {
     if (!didInitialize && navigationReady) {
@@ -34,11 +33,6 @@ export function Layout() {
       }
     }
   }, [didInitialize, navigationReady, currentSourcePath]);
-  useEffect(() => {
-    if (currentSourcePath) {
-      setShowAIChatState(false);
-    }
-  }, [currentSourcePath]);
   const authenticationState = useAuthenticationState();
   const setNavMenuOpen = useCallback(() => {
     setIsNavMenuOpenState((prev) => {
@@ -79,10 +73,6 @@ export function Layout() {
           isOpen: isToolsMenuOpen,
           setOpen: setToolsMenuOpen,
         },
-        aiChat: {
-          show: showAIChat,
-          setShow: setShowAIChatState,
-        },
       }}
     >
       <main className="flex">
@@ -121,14 +111,12 @@ export function Layout() {
 type LayoutContextValue = {
   navMenu: { isOpen: boolean; setOpen: (open: boolean) => void };
   toolsMenu: { isOpen: boolean; setOpen: (open: boolean) => void };
-  aiChat: { show: boolean; setShow: (show: boolean) => void };
 };
 
 // No-op default value for when context is used outside of provider (e.g., Storybook)
 const defaultLayoutValue: LayoutContextValue = {
   navMenu: { isOpen: false, setOpen: () => {} },
   toolsMenu: { isOpen: false, setOpen: () => {} },
-  aiChat: { show: false, setShow: () => {} },
 };
 
 const LayoutContext =

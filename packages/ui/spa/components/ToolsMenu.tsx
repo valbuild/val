@@ -9,7 +9,6 @@ import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
-import classNames from "classnames";
 import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -19,8 +18,11 @@ import {
   Accordion,
   AccordionItem,
 } from "./designSystem/accordion";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
+import { AIChat } from "./AIChat";
+import type { AIChatHandle } from "./AIChat";
+import { useAI } from "../hooks/useAI";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
@@ -50,26 +52,28 @@ export function ToolsMenu() {
     }
     return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
   }, [validationErrors]);
+  const chatRef = useRef<AIChatHandle | null>(null);
+  const { sendMessage, isConnected } = useAI(chatRef);
   return (
     <div
-      className="min-h-[100svh] bg-bg-primary"
+      className="flex flex-col h-[100svh] bg-bg-primary"
       style={
         {
           "--menu-width": "320px",
         } as React.CSSProperties
       }
     >
-      <div className="h-16 border-b border-border-primary">
+      <div className="shrink-0 h-16 border-b border-border-primary">
         <ToolsMenuButtons />
       </div>
       {isPublishing && (
-        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
+        <div className="shrink-0 flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
           <span>Publishing changes </span>
           <Loader2 size={16} className="animate-spin" />
         </div>
       )}
-      <ScrollArea>
-        <div className="max-h-[calc(100svh-64px)]">
+      <div className="shrink-0 overflow-auto">
+        <div className="max-h-[50svh]">
           {globalErrors &&
             globalErrors.length > 0 &&
             globalErrors.length !== sumValidationErrors && (
@@ -84,7 +88,7 @@ export function ToolsMenu() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <ScrollArea>
-                      <div className="max-h-[calc(100svh-128px)] max-w-[var(--menu-width)]">
+                      <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
                         {globalErrors?.map((error, i) => {
                           return (
                             <ShortenedErrorMessage key={i} error={error} />
@@ -110,7 +114,7 @@ export function ToolsMenu() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <ScrollArea>
-                      <div className="max-h-[calc(100svh-64px)] max-w-[var(--menu-width)]">
+                      <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
                         {errorModules?.map((error, i) => {
                           return <ModuleError key={i} moduleFilePath={error} />;
                         })}
@@ -121,16 +125,32 @@ export function ToolsMenu() {
               </Accordion>
             )}
           {loadingStatus !== "not-asked" && (
-            <div className={classNames("", {})}>
-              <ScrollArea>
-                <div className="max-h-[calc(100svh-64px)] border-b border-border-primary">
-                  <DraftChanges loadingStatus={loadingStatus} />
-                </div>
-              </ScrollArea>
-            </div>
+            <Accordion type="single" collapsible>
+              <AccordionItem value="draft-changes" className="border-b-0">
+                <AccordionTrigger className="p-4 font-normal text-left">
+                  Show changes
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ScrollArea>
+                    <div className="max-h-[calc(50svh-128px)] border-b border-border-primary">
+                      <DraftChanges loadingStatus={loadingStatus} />
+                    </div>
+                  </ScrollArea>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           )}
         </div>
-      </ScrollArea>
+      </div>
+      {mode === "http" && (
+        <div className="flex-1 min-h-0 border-t border-border-primary">
+          <AIChat
+            ref={chatRef}
+            onSendMessage={sendMessage}
+            isConnected={isConnected}
+          />
+        </div>
+      )}
     </div>
   );
 }
