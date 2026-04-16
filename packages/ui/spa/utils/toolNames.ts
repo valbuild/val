@@ -5,4 +5,6 @@ export const toolNames = [
   "validate_content",
   "create_patch",
   "navigate_to",
+  "get_current_author",
+  "get_current_source_path",
 ] as const;

@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   XCircle,
   Plus,
+  Navigation,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -627,6 +628,10 @@ const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
   create_patch: {
     label: "Updating content",
     icon: <Pencil className="h-3 w-3" />,
+  },
+  navigate_to: {
+    label: "Navigating to content",
+    icon: <Navigation className="h-3 w-3" />,
   },
 };
 

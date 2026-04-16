@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AIChatHandle } from "../components/AIChat";
 import {
   AITool,
+  useCurrentProfile,
   useSyncEngine,
   useWsMessages,
 } from "../components/ValProvider";
@@ -127,10 +128,31 @@ const NAVIGATE_TO_TOOL: AITool = {
         description:
           "The SourcePath to navigate to. " +
           "Format: '/path/to/file.val.ts' for a module root, or '/path/to/file.val.ts?p=key.\"subkey\"' for a specific field. " +
-          "String keys in the ModulePath are JSON-quoted (e.g. \"title\"), array indices are plain numbers (e.g. 0).",
+          'String keys in the ModulePath are JSON-quoted (e.g. "title"), array indices are plain numbers (e.g. 0).',
       },
     },
     required: ["source_path"],
+  },
+};
+const GET_CURRENT_AUTHOR_TOOL: AITool = {
+  name: "get_current_author",
+  description:
+    "Get information about the currently logged-in user/author — returns their name, email, and avatar if available.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
+const GET_CURRENT_SOURCE_PATH_TOOL: AITool = {
+  name: "get_current_source_path",
+  description:
+    "Get the source path the user is currently viewing in the UI. " +
+    "Returns the full SourcePath including module file path and any module path the user has navigated to.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
   },
 };
 const ALL_TOOLS: AITool[] = [
@@ -140,6 +162,8 @@ const ALL_TOOLS: AITool[] = [
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
   NAVIGATE_TO_TOOL,
+  GET_CURRENT_AUTHOR_TOOL,
+  GET_CURRENT_SOURCE_PATH_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -148,7 +172,8 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const syncEngine = useSyncEngine();
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
-  const { navigate } = useNavigation();
+  const { navigate, currentSourcePath } = useNavigation();
+  const currentProfile = useCurrentProfile();
   const [isStreaming, setIsStreaming] = useState(false);
   const sessionIdRef = useRef(crypto.randomUUID());
   // Track active streaming ID — startAssistantMessage always appends a new
@@ -352,6 +377,32 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             result: { success: true },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_current_author") {
+          const result = currentProfile
+            ? {
+                fullName: currentProfile.fullName,
+                email: currentProfile.email,
+                avatar: currentProfile.avatar,
+              }
+            : { error: "No user is currently logged in." };
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result,
+            isError: !currentProfile,
+          });
+          if (currentProfile) {
+            chatRef.current?.completeToolCall(message.id, message.toolCallId);
+          } else {
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          }
+        } else if (message.name === "get_current_source_path") {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: { sourcePath: currentSourcePath },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
@@ -378,6 +429,8 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     aiSearch,
     aiValidation,
     chatRef,
+    currentProfile,
+    currentSourcePath,
   ]);
 
   const sendMessage = useCallback(
@@ -388,10 +441,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         type: "ai_prompt",
         message: text,
         sessionId: sessionIdRef.current,
-        context: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
-
-## Who you are talking to
-Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", "source path", or "RFC 6902". Explain everything in plain language. If you must refer to a content file, use its friendly name or path (e.g. "the Blog Posts content").
+        context: ` — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", "source path", or "RFC 6902". Explain everything in plain language. If you must refer to a content file, use its friendly name or path (e.g. "the Blog Posts content").
 
 ## How to use your tools efficiently
 Always start by calling get_all_schema to understand what content exists. Then:
@@ -399,23 +449,25 @@ Always start by calling get_all_schema to understand what content exists. Then:
 - Use search_content to find content by keyword across all files.
 - Use validate_content to check if content is valid — do this after every change.
 - Use create_patch to make changes to text, numbers, dates, true/false values, and lists. Do NOT use it for images, files, or rich text — those cannot be changed through this assistant.
+- Use navigate_to to guide the user to a specific location in the content tree when relevant, e.g. after making a change or when they ask to be shown something. Always use it when the user explicitly asks to be shown or navigated to something, or immediately after creating/modifying content when navigating there is clearly the expected next step. Do NOT call navigate_to during normal information gathering.
 
 Call get_all_schema first, before anything else, unless the user's question clearly does not require it.
 
 ## Understanding the schema
 Val content is organized into modules (files ending in .val.ts). Each module has a schema that describes its structure:
 - s.object / object: a group of fields (like a form with multiple fields)
-- s.record / record: a collection of items, each with the same shape (like a list of blog posts)
+- s.record / record: a collection of items, each with the same shape (like a list of pages, products, ...)
   - s.record may have a router property that is next-app-router : a collection of pages in a Next.js website — these appear under "Pages" in the left navigation menu
   - s.record may have a router property that is external-url-router : a collection of external links — these appear under "External Sites" in the left navigation menu
+  - s.record may have a mediaType property that is "image" or "file": it means that this a collections of images grouped by a directory. 
 - Other modules (not routers) appear under "Explorer" in the left navigation menu
 - s.string: plain text
 - s.number: a number
 - s.boolean: yes/no toggle
 - s.date: a date (stored as ISO 8601, e.g. "2024-01-15")
 - s.array: a list of items
-- s.richtext: formatted text (bold, italic, headings etc.) — cannot be changed through this assistant
-- s.image / s.file: an image or file — cannot be changed through this assistant
+- s.richtext: formatted text (bold, italic, headings etc.) 
+- s.image / s.file: an image or file — cannot be changed through this assistant. If a user needs to add an image and they have a media gallery, navigate to the media gallery that matches their request based on the schema of the file / image.
 
 ## When you cannot make a change
 If you are unable to change something (e.g. images, files, rich text, or you get an error), guide the user to make the change themselves using the left navigation menu:
@@ -424,9 +476,15 @@ If you are unable to change something (e.g. images, files, rich text, or you get
 - For all other content: tell the user to find it under "Explorer" in the left menu
 Never ask the user to write or apply a patch themselves — they cannot do that.
 
+Instead of telling the user where to navigate ask them if you should navigate there for them using the navigate_to tool. Always offer to navigate for them, especially if they seem unsure or are asking to be shown something. 
+If users seems to want to something inside of a module, navigate directly to the correct field by constructing a source path. A source path is the module file path plus a module path. This shows the authors module of the user freekh: /content/authors.val.ts?p="freekh". 
+
+When it comes to images and files, remember that you do not have access to file system.
+
+Do not re-iterate what you wrote if when you either way has shown the user what it is by navigating to the new content.
+
 ## Style
 - Be concise and friendly.
-- Confirm what changed in plain language after every successful update.
 - If something goes wrong, explain clearly what happened and what the user should do next.`,
         id: crypto.randomUUID(),
         tools: ALL_TOOLS,
