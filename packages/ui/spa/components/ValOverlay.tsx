@@ -36,7 +36,6 @@ import { AnyField } from "./AnyField";
 import {
   useAuthenticationState,
   useCurrentPatchIds,
-  useLoadingStatus,
   useValMode,
   usePublishSummary,
   useShallowModulesAtPaths,
@@ -980,7 +979,6 @@ function ValMenu({
     }, 200);
   };
   const { theme, setTheme } = useTheme();
-  const loadingStatus = useLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
@@ -1217,7 +1215,7 @@ function ValMenu({
               )}
               <ScrollArea>
                 <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px]">
-                  <DraftChanges loadingStatus={loadingStatus} />
+                  <DraftChanges />
                 </div>
               </ScrollArea>
               {!publishDisabled && (

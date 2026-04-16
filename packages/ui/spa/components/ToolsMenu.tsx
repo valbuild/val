@@ -4,6 +4,8 @@ import {
   useLoadingStatus,
   usePublishSummary,
   useValMode,
+  useCurrentPatchIds,
+  useCommittedPatches,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
@@ -52,6 +54,9 @@ export function ToolsMenu() {
     }
     return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
   }, [validationErrors]);
+  const currentPatchIds = useCurrentPatchIds();
+  const committedPatchIds = useCommittedPatches();
+  const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const chatRef = useRef<AIChatHandle | null>(null);
   const { sendMessage, isConnected, newSession } = useAI(chatRef);
   return (
@@ -77,63 +82,59 @@ export function ToolsMenu() {
           {globalErrors &&
             globalErrors.length > 0 &&
             globalErrors.length !== sumValidationErrors && (
-              <Accordion type="single" collapsible>
-                <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
-                    Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
-                    {globalErrors?.length} errors in all.{" "}
-                    {globalErrors.length - sumValidationErrors} were
-                    non-validation errors. A developer might need to fix these
-                    issues.
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <ScrollArea>
-                      <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
-                        {globalErrors?.map((error, i) => {
-                          return (
-                            <ShortenedErrorMessage key={i} error={error} />
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
+              <div className="p-4 bg-bg-error-primary text-fg-error-primary">
+                <div>
+                  Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
+                  {globalErrors?.length} errors in all.{" "}
+                  {globalErrors.length - sumValidationErrors} were
+                  non-validation errors. A developer might need to fix these
+                  issues.
+                </div>
+                <ScrollArea>
+                  <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
+                    {globalErrors?.map((error, i) => {
+                      return <ShortenedErrorMessage key={i} error={error} />;
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
             )}
           {globalErrors?.length === sumValidationErrors &&
             errorModules.length > 0 && (
-              <Accordion type="single" collapsible>
-                <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
-                    <div>
-                      <div>
-                        Cannot {mode === "fs" ? "save" : "publish"} now.
-                      </div>
-                      <div>Found errors in modules</div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <ScrollArea>
-                      <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
-                        {errorModules?.map((error, i) => {
-                          return <ModuleError key={i} moduleFilePath={error} />;
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
+              <div className="p-4 bg-bg-error-primary text-fg-error-primary">
+                <div>
+                  <div>Cannot {mode === "fs" ? "save" : "publish"} now.</div>
+                  <div>Found errors in modules</div>
+                </div>
+                <ScrollArea>
+                  <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
+                    {errorModules?.map((error, i) => {
+                      return <ModuleError key={i} moduleFilePath={error} />;
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
             )}
           {loadingStatus !== "not-asked" && (
             <Accordion type="single" collapsible>
               <AccordionItem value="draft-changes" className="border-b-0">
                 <AccordionTrigger className="p-4 font-normal text-left">
-                  Show changes
+                  <div className="flex items-center flex-1 mr-2">
+                    <div className="flex gap-2 items-center">
+                      <span>
+                        {pendingChanges <= 0 ? "No" : pendingChanges} change
+                        {pendingChanges === 1 ? "" : "s"}
+                      </span>
+                      {loadingStatus === "loading" && (
+                        <Loader2 size={14} className="animate-spin" />
+                      )}
+                    </div>
+                  </div>
                 </AccordionTrigger>
-                <AccordionContent>
+                <AccordionContent className="[&>div]:pt-0 [&>div]:pb-0">
                   <ScrollArea>
                     <div className="max-h-[calc(50svh-128px)] border-b border-border-primary">
-                      <DraftChanges loadingStatus={loadingStatus} />
+                      <DraftChanges />
                     </div>
                   </ScrollArea>
                 </AccordionContent>

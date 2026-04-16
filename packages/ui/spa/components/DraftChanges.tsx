@@ -65,13 +65,7 @@ import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { ValPath } from "./ValPath";
 import { getInitials } from "../utils/getInitials";
 
-export function DraftChanges({
-  className,
-  loadingStatus,
-}: {
-  className?: string;
-  loadingStatus: LoadingStatus;
-}) {
+export function DraftChanges({ className }: { className?: string }) {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
@@ -87,7 +81,6 @@ export function DraftChanges({
     }
     return count;
   }, [allValidationErrors]);
-  const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const { deployments, dismissDeployment, observedCommitShas } =
     useDeployments();
   const { globalTransientErrors, removeGlobalTransientErrors } =
@@ -335,19 +328,7 @@ export function DraftChanges({
         </div>
       )}
       <div className="p-4 z-5">
-        <div className="flex justify-between items-center">
-          <div className="flex gap-2 items-center">
-            <div className="font-bold">
-              {pendingChanges <= 0 ? "No " : `${pendingChanges} `}
-              pending change
-              {pendingChanges === 1 ? "" : "s"}
-            </div>
-            {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
-              <div className="">
-                <Loader2 size={16} className="animate-spin" />
-              </div>
-            )}
-          </div>
+        <div className="flex justify-end items-center">
           <Popover>
             <PopoverTrigger asChild>
               <Button
