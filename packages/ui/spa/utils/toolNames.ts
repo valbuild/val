@@ -4,4 +4,5 @@ export const toolNames = [
   "search_content",
   "validate_content",
   "create_patch",
+  "navigate_to",
 ] as const;
