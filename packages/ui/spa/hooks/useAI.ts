@@ -111,6 +111,7 @@ const ALL_TOOLS: AITool[] = [
   CREATE_PATCH_TOOL,
 ];
 
+const sessionId = crypto.randomUUID();
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
     useWsMessages();
@@ -311,6 +312,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       return sendWsMessage({
         type: "ai_prompt",
         message: text,
+        sessionId,
         context: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
