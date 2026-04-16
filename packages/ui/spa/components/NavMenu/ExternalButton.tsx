@@ -31,7 +31,7 @@ export function ExternalButton({
       onClick={onClick}
     >
       <Earth size={16} />
-      <span>External Page</span>
+      <span>External sites</span>
       <ChevronRight size={16} className="ml-auto" />
     </button>
   );
