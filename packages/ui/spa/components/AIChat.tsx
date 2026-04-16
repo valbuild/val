@@ -296,7 +296,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       )}
     >
       {/* Message list */}
-      <ScrollArea className="flex-1 min-h-0 max-h-[calc(100svh-128px)]">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col gap-4 p-4">
           {isEmpty ? (
             <EmptyState

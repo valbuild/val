@@ -22,10 +22,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
-import { AIChat } from "./AIChat";
-import type { AIChatHandle } from "./AIChat";
-import { useAI } from "../hooks/useAI";
-import { useRef } from "react";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
@@ -220,20 +216,9 @@ export function SearchBar() {
 
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
-  const { aiChat } = useLayout();
-  const chatRef = useRef<AIChatHandle | null>(null);
-  const { sendMessage, isConnected } = useAI(chatRef);
 
-  const showAIChat = !currentSourcePath || aiChat.show;
-
-  if (showAIChat) {
-    return (
-      <AIChat
-        ref={chatRef}
-        onSendMessage={sendMessage}
-        isConnected={isConnected}
-      />
-    );
+  if (!currentSourcePath) {
+    return null;
   }
   return <Module path={currentSourcePath} showModuleGalleryChild={null} />;
 }

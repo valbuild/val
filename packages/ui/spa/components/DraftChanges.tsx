@@ -31,7 +31,6 @@ import {
   ChevronDown,
   Download,
   Loader2,
-  MessageSquare,
   TriangleAlert,
   Undo2,
   X,
@@ -47,7 +46,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
-import { useLayout } from "./Layout";
+
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
   Accordion,
@@ -74,11 +73,10 @@ export function DraftChanges({
   loadingStatus: LoadingStatus;
 }) {
   const currentPatchIds = useCurrentPatchIds();
-  const mode = useValMode();
   const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
   const portalContainer = useValPortal();
-  const { aiChat } = useLayout();
+
   const allValidationErrors = useAllValidationErrors();
   const { autoPublish } = useAutoPublish();
   const validationErrorsCount = useMemo(() => {
@@ -334,20 +332,6 @@ export function DraftChanges({
             observedCommitShas={observedCommitShas}
             onDismiss={dismissDeployment}
           />
-        </div>
-      )}
-      {mode === "http" && (
-        <div className="flex justify-end items-center p-4 border-b z-5 border-border-primary">
-          <Button
-            variant="secondary"
-            className="flex gap-2 items-center text-sm"
-            onClick={() => {
-              aiChat.setShow(true);
-            }}
-          >
-            <span>AI Chat</span>
-            <MessageSquare size={14} />
-          </Button>
         </div>
       )}
       <div className="p-4 z-5">
