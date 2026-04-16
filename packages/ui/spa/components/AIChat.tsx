@@ -10,7 +10,20 @@ import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
-import { Send, RotateCcw, Sparkles, Check } from "lucide-react";
+import {
+  Send,
+  RotateCcw,
+  Sparkles,
+  Check,
+  Loader2,
+  Search,
+  FileText,
+  Database,
+  ShieldCheck,
+  Pencil,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,12 +31,21 @@ import { Send, RotateCcw, Sparkles, Check } from "lucide-react";
 
 export type ChatMessageStatus = "complete" | "streaming" | "error";
 
+export type ToolActivityStatus = "pending" | "complete" | "error";
+
+export type ToolActivity = {
+  toolCallId: string;
+  name: string;
+  status: ToolActivityStatus;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   status: ChatMessageStatus;
   error?: string;
+  toolActivities?: ToolActivity[];
 };
 
 type CurrentMessage = {
@@ -40,6 +62,16 @@ export type AIChatHandle = {
   completeAssistantMessage: (id: string) => void;
   /** Mark the assistant message as errored */
   errorAssistantMessage: (id: string, error: string) => void;
+  /** Add a tool call indicator to the current assistant message */
+  addToolCall: (
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+  ) => void;
+  /** Mark a tool call as complete */
+  completeToolCall: (messageId: string, toolCallId: string) => void;
+  /** Mark a tool call as errored */
+  errorToolCall: (messageId: string, toolCallId: string) => void;
 };
 
 export type AIChatProps = {
@@ -190,6 +222,60 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           { ...prev.message, status: "error", error },
         ]);
         return null;
+      });
+    },
+    addToolCall(messageId: string, toolCallId: string, toolName: string) {
+      const activity: ToolActivity = {
+        toolCallId,
+        name: toolName,
+        status: "pending",
+      };
+      setCurrentMessage((prev) => {
+        if (prev && prev.message.id === messageId) {
+          return {
+            ...prev,
+            message: {
+              ...prev.message,
+              toolActivities: [
+                ...(prev.message.toolActivities ?? []),
+                activity,
+              ],
+            },
+          };
+        }
+        return prev;
+      });
+    },
+    completeToolCall(messageId: string, toolCallId: string) {
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          ...prev,
+          message: {
+            ...prev.message,
+            toolActivities: (prev.message.toolActivities ?? []).map((t) =>
+              t.toolCallId === toolCallId
+                ? { ...t, status: "complete" as const }
+                : t,
+            ),
+          },
+        };
+      });
+    },
+    errorToolCall(messageId: string, toolCallId: string) {
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          ...prev,
+          message: {
+            ...prev.message,
+            toolActivities: (prev.message.toolActivities ?? []).map((t) =>
+              t.toolCallId === toolCallId
+                ? { ...t, status: "error" as const }
+                : t,
+            ),
+          },
+        };
       });
     },
   }));
@@ -445,6 +531,9 @@ function MessageBubble({
           </>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
+            {message.toolActivities && message.toolActivities.length > 0 && (
+              <ToolActivitiesIndicator activities={message.toolActivities} />
+            )}
             {message.content ? (
               <ReactMarkdown>{message.content}</ReactMarkdown>
             ) : isStreamingMsg ? null : (
@@ -488,5 +577,76 @@ function StreamingCursor() {
         style={{ animationDelay: "300ms" }}
       />
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tool activity display
+// ---------------------------------------------------------------------------
+
+const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
+  get_all_schema: {
+    label: "Reading schemas",
+    icon: <Database className="h-3 w-3" />,
+  },
+  get_source: {
+    label: "Reading content",
+    icon: <FileText className="h-3 w-3" />,
+  },
+  search_content: { label: "Searching", icon: <Search className="h-3 w-3" /> },
+  validate_content: {
+    label: "Validating",
+    icon: <ShieldCheck className="h-3 w-3" />,
+  },
+  create_patch: {
+    label: "Updating content",
+    icon: <Pencil className="h-3 w-3" />,
+  },
+};
+
+function ToolActivitiesIndicator({
+  activities,
+}: {
+  activities: ToolActivity[];
+}) {
+  return (
+    <div className="not-prose flex flex-col gap-1 mb-2">
+      {activities.map((activity) => {
+        const display = TOOL_DISPLAY[activity.name] ?? {
+          label: activity.name,
+          icon: <Loader2 className="h-3 w-3" />,
+        };
+        const isPending = activity.status === "pending";
+        const isError = activity.status === "error";
+        return (
+          <div
+            key={activity.toolCallId}
+            className={cn(
+              "flex items-center gap-1.5 text-xs py-0.5",
+              isPending
+                ? "text-fg-secondary"
+                : isError
+                  ? "text-fg-error-primary"
+                  : "text-fg-secondary",
+            )}
+          >
+            {isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : isError ? (
+              <XCircle className="h-3 w-3" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3 text-fg-success" />
+            )}
+            <span className="flex items-center gap-1">
+              {display.icon}
+              <span>
+                {display.label}
+                {isPending ? "…" : ""}
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }

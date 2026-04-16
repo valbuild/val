@@ -143,6 +143,19 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
         console.log("Received ai_tool_call message", message);
+        // Ensure assistant message is active so tool indicators can be shown
+        if (chatRef.current) {
+          if (activeIdRef.current !== message.id) {
+            activeIdRef.current = message.id;
+            chatRef.current.startAssistantMessage(message.id);
+            setIsStreaming(true);
+          }
+          chatRef.current.addToolCall(
+            message.id,
+            message.toolCallId,
+            message.name,
+          );
+        }
         if (message.name === "get_all_schema") {
           const schemas = syncEngine.getAllSchemasSnapshot();
           sendWsMessage({
@@ -150,6 +163,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             toolCallId: message.toolCallId,
             result: schemas ?? {},
           });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source") {
           const args = message.arguments as { module_file_path: string };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
@@ -160,6 +174,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               toolCallId: message.toolCallId,
               result: { success: true, source: snapshot.data },
             });
+            chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
             sendWsMessage({
               type: "ai_tool_result",
@@ -173,13 +188,22 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               },
               isError: true,
             });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
           }
         } else if (message.name === "search_content") {
           const args = message.arguments as { query: string };
 
-          aiSearch.query(args.query, message.toolCallId);
+          aiSearch
+            .query(args.query, message.toolCallId)
+            .then(() => {
+              chatRef.current?.completeToolCall(message.id, message.toolCallId);
+            })
+            .catch(() => {
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            });
         } else if (message.name === "validate_content") {
           aiValidation.getErrors(message.toolCallId);
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "create_patch") {
           const args = message.arguments as {
             module_file_path: string;
@@ -203,6 +227,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
             const parseResult = Patch.safeParse(args.patch);
@@ -216,6 +241,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
             const patch = parseResult.data;
@@ -232,6 +258,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
             if (
@@ -248,6 +275,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
             const patchId = syncEngine.createPatchId();
@@ -268,6 +296,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                   message: "Patch applied successfully.",
                 },
               });
+              chatRef.current?.completeToolCall(message.id, message.toolCallId);
             } else {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -275,6 +304,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 result: { success: false, error: res.message },
                 isError: true,
               });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
             }
           })();
         } else {
