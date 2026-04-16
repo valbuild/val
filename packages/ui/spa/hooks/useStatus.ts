@@ -176,6 +176,7 @@ export function useStatus(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
+  const connectionIdRef = useRef<string>(crypto.randomUUID());
   const {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
@@ -231,6 +232,7 @@ export function useStatus(client: ValClient) {
         execStat(
           client,
           webSocketRef,
+          connectionIdRef,
           wsMessageHandlersRef,
           statIdRef,
           stat,
@@ -253,6 +255,7 @@ export function useStatus(client: ValClient) {
           execStat(
             client,
             webSocketRef,
+            connectionIdRef,
             wsMessageHandlersRef,
             statIdRef,
             stat,
@@ -277,6 +280,7 @@ export function useStatus(client: ValClient) {
       execStat(
         client,
         webSocketRef,
+        connectionIdRef,
         wsMessageHandlersRef,
         statIdRef,
         stat,
@@ -306,6 +310,7 @@ const WebSocketStatInterval = 2 * 60 * 10 * 1000;
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
+  connectionIdRef: React.MutableRefObject<string>,
   wsMessageHandlersRef: React.MutableRefObject<Set<WsMessageHandler>>,
   statIdRef: React.MutableRefObject<number>,
   stat: StatState,
@@ -383,7 +388,7 @@ async function execStat(
           const nonce = res.json.nonce;
           webSocketRef.current.onopen = () => {
             webSocketRef.current?.send(
-              JSON.stringify({ nonce, type: "subscribe" }),
+              JSON.stringify({ nonce, type: "subscribe", connectionId: connectionIdRef.current }),
             );
             setIsWsConnected(true);
           };
