@@ -41,11 +41,19 @@ const GET_SOURCE_TOOL: AITool = {
 const SEARCH_CONTENT_TOOL: AITool = {
   name: "search_content",
   description:
-    "Search content — accepts a query and returns a list of matching content items",
+    "Search content — accepts a query and returns matching content items. Returns { results, total } where total is the number of matches found. Use offset to page through results if total exceeds the returned results count.",
   parameters: {
     type: "object",
     properties: {
       query: { type: "string", description: "The search query" },
+      limit: {
+        type: "number",
+        description: "Max results to return (default 50)",
+      },
+      offset: {
+        type: "number",
+        description: "Number of results to skip for pagination (default 0)",
+      },
     },
     required: ["query"],
   },
@@ -191,10 +199,14 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
           }
         } else if (message.name === "search_content") {
-          const args = message.arguments as { query: string };
+          const args = message.arguments as {
+            query: string;
+            limit?: number;
+            offset?: number;
+          };
 
           aiSearch
-            .query(args.query, message.toolCallId)
+            .query(args.query, message.toolCallId, args.limit, args.offset)
             .then(() => {
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })

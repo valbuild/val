@@ -20,6 +20,7 @@ export type WorkerRequest =
       id: string;
       query: string;
       limit?: number;
+      offset?: number;
     };
 
 // Messages sent from worker to main thread
@@ -33,6 +34,7 @@ export type WorkerResponse =
       type: "search-results";
       id: string;
       results: Array<{ path: SourcePath; label: string }>;
+      total: number;
     }
   | {
       type: "error";
