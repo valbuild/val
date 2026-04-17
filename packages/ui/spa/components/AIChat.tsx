@@ -28,7 +28,10 @@ import {
   User,
   Clock,
   MapPin,
+  History,
+  ChevronLeft,
 } from "lucide-react";
+import type { AISession } from "../hooks/useStatus";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,6 +95,16 @@ export type AIChatProps = {
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
   isConnected: boolean;
+  /** List of past sessions (fetched on demand) */
+  sessions?: AISession[];
+  /** The currently active session ID */
+  currentSessionId?: string;
+  /** Called to load a previous session */
+  onLoadSession?: (sessionId: string) => void;
+  /** Called to trigger a sessions fetch */
+  onFetchSessions?: () => void;
+  /** Called to rename a session */
+  onSetSessionName?: (sessionId: string, name: string) => void;
   /**
    * @internal – seed messages for Storybook / testing only.
    * Not part of the public API.
@@ -129,6 +142,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     suggestions = DEFAULT_SUGGESTIONS,
     className,
     isConnected,
+    sessions,
+    currentSessionId,
+    onLoadSession,
+    onFetchSessions,
+    onSetSessionName,
     initialMessages,
   },
   ref,
@@ -142,6 +160,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [inputValue, setInputValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [showSessions, setShowSessions] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
+    null,
+  );
+  const [renameValue, setRenameValue] = useState("");
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -391,23 +414,155 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   return (
     <div
       className={cn(
-        "flex flex-col h-full w-full bg-bg-primary text-fg-primary",
+        "flex flex-col h-full w-full bg-bg-primary text-fg-primary relative overflow-hidden",
         className,
       )}
     >
-      {/* Header with New Chat button */}
-      {!isEmpty && onNewSession && (
-        <div className="shrink-0 flex justify-end p-2 border-b border-border-primary">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onNewSession}
-            disabled={isStreaming}
-            className="text-xs gap-1"
-          >
-            <Plus className="h-3 w-3" />
-            New chat
-          </Button>
+      {/* Header with New Chat + History buttons */}
+      {(!isEmpty || onFetchSessions) && (
+        <div className="shrink-0 flex justify-between items-center p-2 border-b border-border-primary">
+          <div>
+            {onFetchSessions && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onFetchSessions();
+                  setShowSessions(true);
+                }}
+                className="text-xs gap-1"
+              >
+                <History className="h-3 w-3" />
+                History
+              </Button>
+            )}
+          </div>
+          <div>
+            {!isEmpty && onNewSession && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onNewSession}
+                disabled={isStreaming}
+                className="text-xs gap-1"
+              >
+                <Plus className="h-3 w-3" />
+                New chat
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sessions panel overlay */}
+      {showSessions && (
+        <div className="absolute inset-0 z-overlay flex flex-col bg-bg-primary">
+          <div className="shrink-0 flex items-center gap-2 p-2 border-b border-border-primary">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                setShowSessions(false);
+                setRenamingSessionId(null);
+              }}
+              aria-label="Back to chat"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium flex-1">Chat history</span>
+            {onNewSession && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onNewSession();
+                  setShowSessions(false);
+                }}
+                className="text-xs gap-1"
+              >
+                <Plus className="h-3 w-3" />
+                New chat
+              </Button>
+            )}
+          </div>
+          <ScrollArea className="flex-1 min-h-0">
+            {!sessions || sessions.length === 0 ? (
+              <div className="p-6 text-center text-sm text-fg-secondary">
+                No previous sessions
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-border-primary">
+                {sessions.map((session) => {
+                  const isActive = session.id === currentSessionId;
+                  const isRenaming = renamingSessionId === session.id;
+                  const displayName =
+                    session.name ??
+                    `Chat, ${new Date(session.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+                  return (
+                    <div
+                      key={session.id}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2.5 group",
+                        isActive && "bg-bg-secondary",
+                      )}
+                    >
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const trimmed = renameValue.trim();
+                              if (trimmed && onSetSessionName) {
+                                onSetSessionName(session.id, trimmed);
+                              }
+                              setRenamingSessionId(null);
+                            } else if (e.key === "Escape") {
+                              setRenamingSessionId(null);
+                            }
+                          }}
+                          onBlur={() => {
+                            const trimmed = renameValue.trim();
+                            if (trimmed && onSetSessionName) {
+                              onSetSessionName(session.id, trimmed);
+                            }
+                            setRenamingSessionId(null);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          className="flex-1 text-left text-sm truncate"
+                          onClick={() => {
+                            onLoadSession?.(session.id);
+                            setShowSessions(false);
+                          }}
+                        >
+                          {displayName}
+                        </button>
+                      )}
+                      {!isRenaming && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="opacity-0 group-hover:opacity-100 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenameValue(session.name ?? "");
+                            setRenamingSessionId(session.id);
+                          }}
+                          aria-label="Rename session"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </ScrollArea>
         </div>
       )}
 
@@ -647,6 +802,10 @@ const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
   get_current_source_path: {
     label: "Getting current location",
     icon: <MapPin className="h-3 w-3" />,
+  },
+  set_session_name: {
+    label: "Naming session",
+    icon: <Pencil className="h-3 w-3" />,
   },
 };
 

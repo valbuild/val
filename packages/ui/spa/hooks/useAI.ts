@@ -7,7 +7,7 @@ import {
   useSyncEngine,
   useWsMessages,
 } from "../components/ValProvider";
-import type { WsExtendedMessage } from "./useStatus";
+import type { AISession, WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type { ModuleFilePath, Source, SourcePath } from "@valbuild/core";
@@ -189,6 +189,23 @@ const GET_CURRENT_DATE_TIME_TOOL: AITool = {
     required: [],
   },
 };
+const SET_SESSION_NAME_TOOL: AITool = {
+  name: "set_session_name",
+  description:
+    "Give the current chat session a short, descriptive name once the topic is clear. " +
+    "Call this exactly once per session, early in the conversation when the topic becomes clear. " +
+    "Max 5 words, plain language (e.g. 'Update homepage hero text').",
+  parameters: {
+    type: "object",
+    properties: {
+      name: {
+        type: "string",
+        description: "Short session name, max 60 characters",
+      },
+    },
+    required: ["name"],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -200,6 +217,7 @@ const ALL_TOOLS: AITool[] = [
   GET_CURRENT_SOURCE_PATH_TOOL,
   GET_PATCHES_TOOL,
   GET_CURRENT_DATE_TIME_TOOL,
+  SET_SESSION_NAME_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -212,10 +230,17 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const [isStreaming, setIsStreaming] = useState(false);
-  const sessionIdRef = useRef(crypto.randomUUID());
+  const [sessions, setSessions] = useState<AISession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
+    crypto.randomUUID(),
+  );
+  const sessionIdRef = useRef<string>(currentSessionId);
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
+  const pendingSessionsRef = useRef<
+    Map<string, (sessions: AISession[]) => void>
+  >(new Map());
 
   useEffect(() => {
     const handler = (message: WsExtendedMessage) => {
@@ -467,6 +492,26 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             result: { dateTime: new Date().toISOString() },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "set_session_name") {
+          const args = message.arguments as { name: string };
+          const name = args.name.trim().slice(0, 60);
+          sendWsMessage({
+            type: "ai_set_session_name",
+            id: crypto.randomUUID(),
+            sessionId: sessionIdRef.current,
+            name,
+          });
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === sessionIdRef.current ? { ...s, name } : s,
+            ),
+          );
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: { success: true },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_patches") {
           const args = message.arguments as {
             limit?: number;
@@ -507,6 +552,19 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           const exhaustiveCheck: never = message.name;
           console.error("Received unknown tool call in useAI", exhaustiveCheck);
         }
+      } else if (message.type === "ai_sessions") {
+        const resolver = pendingSessionsRef.current.get(message.id);
+        if (resolver) {
+          resolver(message.sessions);
+          pendingSessionsRef.current.delete(message.id);
+        }
+        setSessions(message.sessions);
+      } else if (message.type === "ai_session_name_set") {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === message.sessionId ? { ...s, name: message.name } : s,
+          ),
+        );
       } else if (message.type === "error") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -559,6 +617,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - get_current_author: get the currently logged-in user's name and email.
 - get_current_source_path: get the location the user is currently viewing.
 - get_current_date_time: get the user's current local date and time.
+- set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this exactly once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text').
 
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
@@ -599,9 +658,56 @@ Do not describe what you will do unless you do it for clarification — just do 
   );
 
   const newSession = useCallback(() => {
-    sessionIdRef.current = crypto.randomUUID();
+    const id = crypto.randomUUID();
+    sessionIdRef.current = id;
+    setCurrentSessionId(id);
     chatRef.current?.clearMessages();
   }, [chatRef]);
 
-  return { sendMessage, isStreaming, isConnected: isWsConnected, newSession };
+  const getSessions = useCallback(
+    (opts?: {
+      limit?: number;
+      cursor?: { updatedAt: string; id: string };
+    }): Promise<AISession[]> => {
+      return new Promise((resolve) => {
+        const id = crypto.randomUUID();
+        pendingSessionsRef.current.set(id, resolve);
+        sendWsMessage({ type: "ai_get_sessions", id, ...opts });
+      });
+    },
+    [sendWsMessage],
+  );
+
+  const setSessionName = useCallback(
+    (sessionId: string, name: string): void => {
+      sendWsMessage({
+        type: "ai_set_session_name",
+        id: crypto.randomUUID(),
+        sessionId,
+        name,
+      });
+    },
+    [sendWsMessage],
+  );
+
+  const loadSession = useCallback(
+    (sessionId: string): void => {
+      sessionIdRef.current = sessionId;
+      setCurrentSessionId(sessionId);
+      chatRef.current?.clearMessages();
+    },
+    [chatRef],
+  );
+
+  return {
+    sendMessage,
+    isStreaming,
+    isConnected: isWsConnected,
+    newSession,
+    sessions,
+    currentSessionId,
+    getSessions,
+    setSessionName,
+    loadSession,
+  };
 }

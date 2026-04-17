@@ -69,10 +69,39 @@ export const AIErrorMessage = z.object({
   reconnect: z.boolean().optional(),
 });
 
+export type AISession = {
+  id: string;
+  name: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const AISessionItem = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const AISessionsMessage = z.object({
+  type: z.literal("ai_sessions"),
+  id: z.string(),
+  sessions: z.array(AISessionItem),
+});
+
+export const AISessionNameSetMessage = z.object({
+  type: z.literal("ai_session_name_set"),
+  id: z.string(),
+  sessionId: z.string(),
+  name: z.string(),
+});
+
 export type WsExtendedMessage =
   | z.infer<typeof MCPServerMessage>
   | z.infer<typeof AIServerMessage>
-  | z.infer<typeof AIErrorMessage>;
+  | z.infer<typeof AIErrorMessage>
+  | z.infer<typeof AISessionsMessage>
+  | z.infer<typeof AISessionNameSetMessage>;
 
 export type WsMessageHandler = (message: WsExtendedMessage) => void;
 
@@ -94,6 +123,8 @@ const WebSocketServerMessage = z.union([
   }),
   MCPServerMessage,
   AIServerMessage,
+  AISessionsMessage,
+  AISessionNameSetMessage,
   z.object({
     type: z.literal("error"),
     message: z.string(),
@@ -495,7 +526,9 @@ async function execStat(
                 message.type === "ai_response" ||
                 message.type === "ai_streaming" ||
                 message.type === "ai_tool_call" ||
-                message.type === "ai_tool_result"
+                message.type === "ai_tool_result" ||
+                message.type === "ai_sessions" ||
+                message.type === "ai_session_name_set"
               ) {
                 for (const handler of wsMessageHandlersRef.current) {
                   handler(message);

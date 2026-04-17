@@ -58,7 +58,16 @@ export function ToolsMenu() {
   const committedPatchIds = useCommittedPatches();
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const chatRef = useRef<AIChatHandle | null>(null);
-  const { sendMessage, isConnected, newSession } = useAI(chatRef);
+  const {
+    sendMessage,
+    isConnected,
+    newSession,
+    sessions,
+    currentSessionId,
+    getSessions,
+    setSessionName,
+    loadSession,
+  } = useAI(chatRef);
   return (
     <div
       className="flex flex-col h-[100svh] bg-bg-primary"
@@ -150,6 +159,11 @@ export function ToolsMenu() {
             onSendMessage={sendMessage}
             onNewSession={newSession}
             isConnected={isConnected}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            onLoadSession={loadSession}
+            onFetchSessions={getSessions}
+            onSetSessionName={setSessionName}
           />
         </div>
       )}
