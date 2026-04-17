@@ -112,7 +112,21 @@ type ValContextValue = {
       };
   subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
   sendWsMessage: (
-    data: z.infer<typeof AIPromptMessage> | AIToolResultMessage,
+    data:
+      | z.infer<typeof AIPromptMessage>
+      | AIToolResultMessage
+      | {
+          type: "ai_get_sessions";
+          id: string;
+          limit?: number;
+          cursor?: { updatedAt: string; id: string };
+        }
+      | {
+          type: "ai_set_session_name";
+          id: string;
+          sessionId: string;
+          name: string;
+        },
   ) => boolean;
   isWsConnected: boolean;
 };
