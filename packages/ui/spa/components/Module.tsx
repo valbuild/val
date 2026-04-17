@@ -405,7 +405,11 @@ function UrlPathBreadcrumb({
 
         {visibleStart.map((segment, i) => (
           <Fragment key={`start-${i}`}>
-            <BreadcrumbItem className="shrink-0 max-w-[120px]">
+            <BreadcrumbItem
+              className={cn("shrink-0", {
+                "max-w-[120px]": i < visibleStart.length - 1,
+              })}
+            >
               <BreadcrumbPage className="truncate block">
                 {segment}
               </BreadcrumbPage>
