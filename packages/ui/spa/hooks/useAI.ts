@@ -407,6 +407,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               moduleSchema.type,
               patch,
               patchId,
+              sessionIdRef.current,
               Date.now(),
             );
             if (res.status === "patch-synced") {

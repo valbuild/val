@@ -675,6 +675,7 @@ export const Api = {
       req: {
         body: z.object({
           parentRef: ParentRef,
+          sessionId: z.string().nullish(),
           patches: z.array(
             z.object({
               path: ModuleFilePath,

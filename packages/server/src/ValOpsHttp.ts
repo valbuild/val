@@ -777,6 +777,7 @@ export class ValOpsHttp extends ValOps {
     patchId: PatchId,
     parentRef: ParentRefT,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
     return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
@@ -789,6 +790,7 @@ export class ValOpsHttp extends ValOps {
         path,
         patch,
         authorId,
+        sessionId,
         patchId,
         parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
         baseSha,

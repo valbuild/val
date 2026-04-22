@@ -1348,6 +1348,7 @@ export abstract class ValOps {
     patch: Patch,
     patchId: PatchId,
     parentRef: ParentRef,
+    sessionId: string | null,
     authorId: AuthorId | null,
   ): Promise<
     result.Result<
