@@ -9,7 +9,7 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "noEmit": true,
-    "target": "ES5",
+    "target": "ES2017",
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true
