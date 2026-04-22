@@ -1367,6 +1367,7 @@ export abstract class ValOps {
       patchId,
       parentRef,
       authorId,
+      sessionId,
     );
     if (result.isErr(saveRes)) {
       console.error(
@@ -1407,6 +1408,7 @@ export abstract class ValOps {
     patchId: PatchId,
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: ModuleFilePath,
