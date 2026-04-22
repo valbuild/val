@@ -10,7 +10,13 @@ import {
 import type { AISession, WsExtendedMessage } from "./useStatus";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
-import type { ModuleFilePath, Source, SourcePath } from "@valbuild/core";
+import type {
+  ModuleFilePath,
+  SerializedSchema,
+  Source,
+  SourcePath,
+} from "@valbuild/core";
+import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
@@ -206,6 +212,23 @@ const SET_SESSION_NAME_TOOL: AITool = {
     required: ["name"],
   },
 };
+const GET_SOURCE_PATH_FROM_ROUTE_TOOL: AITool = {
+  name: "get_source_path_from_route",
+  description:
+    "Given a URL pathname (e.g. '/blogs/blog-1'), find the val module and source path " +
+    "that contains the content for that page. Only works for Next.js app router pages. " +
+    "Returns moduleFilePath (use with get_source) and sourcePath (use with navigate_to or create_patch).",
+  parameters: {
+    type: "object",
+    properties: {
+      pathname: {
+        type: "string",
+        description: "The URL pathname, e.g. '/blogs/blog-1' or '/'",
+      },
+    },
+    required: ["pathname"],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -218,6 +241,7 @@ const ALL_TOOLS: AITool[] = [
   GET_PATCHES_TOOL,
   GET_CURRENT_DATE_TIME_TOOL,
   SET_SESSION_NAME_TOOL,
+  GET_SOURCE_PATH_FROM_ROUTE_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -486,6 +510,46 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             result: { sourcePath: currentSourcePath },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_source_path_from_route") {
+          const pathname = (message.arguments as { pathname?: string })
+            .pathname;
+          if (!pathname) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: "Missing required parameter: pathname",
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          } else {
+            const schemas = syncEngine.getAllSchemasSnapshot();
+            const found = getSourcePathFromRoute(
+              pathname,
+              (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
+            );
+            if (found) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: { success: true, ...found },
+              });
+              chatRef.current?.completeToolCall(message.id, message.toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error: `No next-app-router page found for pathname "${pathname}".`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            }
+          }
         } else if (message.name === "get_current_date_time") {
           sendWsMessage({
             type: "ai_tool_result",
@@ -619,6 +683,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - get_current_source_path: get the location the user is currently viewing.
 - get_current_date_time: get the user's current local date and time.
 - set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this exactly once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text').
+- get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
 
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.

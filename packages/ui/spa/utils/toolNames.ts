@@ -10,4 +10,5 @@ export const toolNames = [
   "get_patches",
   "get_current_date_time",
   "set_session_name",
+  "get_source_path_from_route",
 ] as const;

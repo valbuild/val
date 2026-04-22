@@ -807,6 +807,10 @@ const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
     label: "Naming session",
     icon: <Pencil className="h-3 w-3" />,
   },
+  get_source_path_from_route: {
+    label: "Resolving route",
+    icon: <Navigation className="h-3 w-3" />,
+  },
 };
 
 function ToolActivitiesIndicator({
