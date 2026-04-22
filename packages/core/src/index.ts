@@ -132,6 +132,7 @@ export {
   type CodeRender,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
+export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";
 
 export const FATAL_ERROR_TYPES = [
