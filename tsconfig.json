@@ -11,7 +11,7 @@
     "skipDefaultLibCheck": true,
     "resolveJsonModule": true,
     "strict": true,
-    "target": "es5",
+    "target": "ES2017",
     "types": [],
     "stripInternal": true
   }
