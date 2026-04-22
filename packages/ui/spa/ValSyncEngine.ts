@@ -1028,6 +1028,7 @@ export class ValSyncEngine {
     type: SerializedSchema["type"],
     patch: Patch,
     patchId: PatchId,
+    sessionId: string | null,
     now: number,
   ): Promise<
     | {
@@ -1423,6 +1424,7 @@ export class ValSyncEngine {
       body: {
         patches: postPatchesBody,
         parentRef,
+        sessionId: op.sessionId,
       },
     });
     if (addPatchesRes.status !== null) {
@@ -2499,6 +2501,7 @@ type AddPatchOp = CommonOpProps<{
     ModuleFilePath,
     { patch: Patch; type: SerializedSchema["type"]; patchId: PatchId }[]
   >;
+  sessionId?: string | null;
 }>;
 type DeletePatchesOp = CommonOpProps<{
   type: "delete-patches";

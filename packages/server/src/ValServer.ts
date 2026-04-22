@@ -1058,6 +1058,7 @@ export const ValServer = (
 
         const patches = req.body.patches;
         let parentRef = req.body.parentRef;
+        const sessionId = req.body.sessionId ?? null;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
         for (const patch of patches) {
@@ -1066,6 +1067,7 @@ export const ValServer = (
             patch.patch,
             patch.patchId,
             parentRef,
+            sessionId,
             authorId,
           );
           if (result.isErr(createPatchRes)) {

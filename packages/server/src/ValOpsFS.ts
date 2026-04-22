@@ -583,6 +583,7 @@ export class ValOpsFS extends ValOps {
     patchId: PatchId,
     parentRef: ParentRef,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
@@ -593,6 +594,7 @@ export class ValOpsFS extends ValOps {
         parentRef,
         path,
         authorId,
+        sessionId,
         baseSha,
         coreVersion: Internal.VERSION.core,
         createdAt: new Date().toISOString(),
@@ -1286,6 +1288,7 @@ const FSPatch = z.object({
     .nullable(),
   createdAt: z.string().datetime(),
   coreVersion: z.string().nullable(), // TODO: use this to check if patch is compatible with current core version?
+  sessionId: z.string().nullable(),
 });
 
 const FSPatchBase = z.object({
