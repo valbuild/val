@@ -29,6 +29,7 @@ import {
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import {
+  AIAgentDefinition,
   AIToolResultMessage,
   AuthenticationState,
   useStatus,
@@ -69,7 +70,8 @@ export const AIPromptMessage = z.object({
   sessionId: z.string().uuid().optional(),
   message: z.string(),
   context: z.string().optional(),
-  tools: z.array(AITool).optional(),
+  maxIterations: z.number().int().min(1).max(200).optional(),
+  agents: z.array(AIAgentDefinition).min(1),
 });
 
 type ValContextValue = {
