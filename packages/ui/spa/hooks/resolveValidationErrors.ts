@@ -35,12 +35,42 @@ export function filterBlockingValidationErrors(
     for (const error of errors) {
       const fixes = error.fixes ?? [];
 
-      if (
-        fixes.length > 0 &&
-        !fixes.includes("keyof:check-keys") &&
-        !fixes.includes("router:check-route")
-      ) {
-        continue;
+      if (fixes.length) {
+        const canSkip = fixes.every((fix) => {
+          if (fix === "keyof:check-keys") {
+            return false;
+          } else if (fix === "router:check-route") {
+            return false;
+          } else if (
+            fix === "image:add-metadata" ||
+            fix === "image:check-metadata" ||
+            fix === "image:upload-remote" ||
+            fix === "image:download-remote" ||
+            fix === "image:check-remote" ||
+            fix === "images:check-remote" ||
+            fix === "file:add-metadata" ||
+            fix === "file:check-metadata" ||
+            fix === "file:upload-remote" ||
+            fix === "file:download-remote" ||
+            fix === "file:check-remote" ||
+            fix === "files:check-remote" ||
+            fix === "images:check-unique-folder" ||
+            fix === "files:check-unique-folder" ||
+            fix === "images:check-all-files" ||
+            fix === "files:check-all-files"
+          ) {
+            return true;
+          } else {
+            const exhaustiveCheck: never = fix;
+            console.error(
+              `Unknown validation fix '${exhaustiveCheck}' encountered while filtering validation errors. This fix will be treated as blocking.`,
+            );
+            return true;
+          }
+        });
+        if (canSkip) {
+          continue;
+        }
       }
 
       if (fixes.includes("keyof:check-keys")) {
