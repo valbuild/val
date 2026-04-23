@@ -13,7 +13,11 @@ import { parseNextJsRoutePattern, validateUrlAgainstPattern } from "./router";
 export function getSourcePathFromRoute(
   pathname: string,
   schemas: Record<ModuleFilePath, SerializedSchema>,
-): { moduleFilePath: ModuleFilePath; sourcePath: SourcePath } | null {
+): {
+  moduleFilePath: ModuleFilePath;
+  sourcePath: SourcePath;
+  route: string;
+} | null {
   for (const [moduleFilePath, schema] of Object.entries(schemas) as [
     ModuleFilePath,
     SerializedSchema,
@@ -26,7 +30,7 @@ export function getSourcePathFromRoute(
     if (isValid) {
       const sourcePath =
         `${moduleFilePath}?p=${JSON.stringify(pathname)}` as SourcePath;
-      return { moduleFilePath, sourcePath };
+      return { moduleFilePath, sourcePath, route: pathname };
     }
   }
   return null;

@@ -142,21 +142,11 @@ const NAVIGATE_TO_TOOL: AITool = {
     required: ["source_path"],
   },
 };
-const GET_CURRENT_AUTHOR_TOOL: AITool = {
-  name: "get_current_author",
+const GET_CURRENT_CONTEXT_TOOL: AITool = {
+  name: "get_current_context",
   description:
-    "Get information about the currently logged-in user/author — returns their name, email, and avatar if available.",
-  parameters: {
-    type: "object",
-    properties: {},
-    required: [],
-  },
-};
-const GET_CURRENT_SOURCE_PATH_TOOL: AITool = {
-  name: "get_current_source_path",
-  description:
-    "Get the source path the user is currently viewing in the UI. " +
-    "Returns the full SourcePath including module file path and any module path the user has navigated to.",
+    "Get the current context: logged-in author, date/time, the val source path the user is viewing, and the browser pathname. " +
+    "If the browser is on a page tracked by val (a Next.js app-router route), the matching source path is included.",
   parameters: {
     type: "object",
     properties: {},
@@ -182,16 +172,6 @@ const GET_PATCHES_TOOL: AITool = {
         description: "Number of patches to skip for pagination (default 0)",
       },
     },
-    required: [],
-  },
-};
-const GET_CURRENT_DATE_TIME_TOOL: AITool = {
-  name: "get_current_date_time",
-  description:
-    "Get the current date and time — returns an ISO 8601 timestamp of the user's current local date and time.",
-  parameters: {
-    type: "object",
-    properties: {},
     required: [],
   },
 };
@@ -236,10 +216,8 @@ const ALL_TOOLS: AITool[] = [
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
   NAVIGATE_TO_TOOL,
-  GET_CURRENT_AUTHOR_TOOL,
-  GET_CURRENT_SOURCE_PATH_TOOL,
+  GET_CURRENT_CONTEXT_TOOL,
   GET_PATCHES_TOOL,
-  GET_CURRENT_DATE_TIME_TOOL,
   SET_SESSION_NAME_TOOL,
   GET_SOURCE_PATH_FROM_ROUTE_TOOL,
 ];
@@ -484,30 +462,29 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           }
-        } else if (message.name === "get_current_author") {
-          const result = currentProfile
-            ? {
-                fullName: currentProfile.fullName,
-                email: currentProfile.email,
-                avatar: currentProfile.avatar,
-              }
-            : { error: "No user is currently logged in." };
+        } else if (message.name === "get_current_context") {
+          const schemas = syncEngine.getAllSchemasSnapshot();
+          const browserPathname = window.location.pathname;
+          const routeSourcePath = getSourcePathFromRoute(
+            browserPathname,
+            (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
+          );
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result,
-            isError: !currentProfile,
-          });
-          if (currentProfile) {
-            chatRef.current?.completeToolCall(message.id, message.toolCallId);
-          } else {
-            chatRef.current?.errorToolCall(message.id, message.toolCallId);
-          }
-        } else if (message.name === "get_current_source_path") {
-          sendWsMessage({
-            type: "ai_tool_result",
-            toolCallId: message.toolCallId,
-            result: { sourcePath: currentSourcePath },
+            result: {
+              author: currentProfile
+                ? {
+                    fullName: currentProfile.fullName,
+                    email: currentProfile.email,
+                    avatar: currentProfile.avatar,
+                  }
+                : null,
+              dateTime: new Date().toISOString(),
+              valSourcePath: currentSourcePath,
+              browserPathname,
+              ...(routeSourcePath ? { routeSourcePath } : {}),
+            },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source_path_from_route") {
