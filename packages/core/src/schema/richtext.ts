@@ -194,6 +194,29 @@ export class RichTextSchema<
             ],
           };
         }
+        const supportedTags = [
+          "p",
+          "span",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "ol",
+          "ul",
+          "li",
+          "a",
+          "img",
+          "br",
+        ];
+        if (!supportedTags.includes(node.tag)) {
+          addError(
+            path,
+            `Tag '${node.tag}' is not supported. Supported tags: ${supportedTags.join(", ")}`,
+            true,
+          );
+        }
         if (node.tag === "h1" && !this.options.block?.h1) {
           addError(path, `'h' block is not valid`, false);
         }
