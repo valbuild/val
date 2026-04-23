@@ -2,10 +2,9 @@ import { useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import { Json, ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import type { WorkerRequest, WorkerResponse } from "../search/worker-types";
 import type { SearchResult } from "../search/useSearchWorker";
-import { useWsMessages, useSyncEngine } from "../components/ValProvider";
+import { useSyncEngine } from "../components/ValProvider";
 
 export function useAISearch() {
-  const { sendWsMessage } = useWsMessages();
   const syncEngine = useSyncEngine();
 
   const schemas = useSyncExternalStore(
@@ -64,10 +63,9 @@ export function useAISearch() {
   const query = useCallback(
     async (
       searchQuery: string,
-      toolCallId: string,
       limit?: number,
       offset?: number,
-    ) => {
+    ): Promise<{ results: SearchResult[]; total: number } | undefined> => {
       if (!workerRef.current) return;
       try {
         if (!isIndexBuiltRef.current) {
@@ -96,41 +94,32 @@ export function useAISearch() {
           });
         }
 
+        const requestId = `ai-search-${requestIdCounter.current++}`;
         const { results, total } = await new Promise<{
           results: SearchResult[];
           total: number;
         }>((resolve, reject) => {
-          pendingRequests.current.set(toolCallId, {
+          pendingRequests.current.set(requestId, {
             resolve: resolve as (value: unknown) => void,
             reject,
           });
           workerRef.current!.postMessage({
             type: "search",
-            id: toolCallId,
+            id: requestId,
             query: searchQuery,
             limit,
             offset,
           } satisfies WorkerRequest);
         });
 
-        console.log("Search results for query", searchQuery, results, {
-          toolCallId,
-        });
-        sendWsMessage({
-          type: "ai_tool_result",
-          toolCallId,
-          result: { results, total },
-        });
+        console.log("Search results for query", searchQuery, results);
+        return { results, total };
       } catch (error) {
-        sendWsMessage({
-          type: "ai_tool_result",
-          toolCallId,
-          result: String(error),
-          isError: true,
-        });
+        console.error("AI search error", error);
+        throw error;
       }
     },
-    [schemas, sources, sendWsMessage],
+    [schemas, sources],
   );
 
   return { query };

@@ -8,7 +8,6 @@ import {
   Fragment,
 } from "react";
 import {
-  LoadingStatus,
   useCommittedPatches,
   useCurrentPatchIds,
   useDeletePatches,
@@ -83,241 +82,11 @@ export function DraftChanges({ className }: { className?: string }) {
   }, [allValidationErrors]);
   const { deployments, dismissDeployment, observedCommitShas } =
     useDeployments();
-  const { globalTransientErrors, removeGlobalTransientErrors } =
-    useGlobalTransientErrors();
-  const { patchErrors } = useAllPatchErrors();
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(new Date());
-    }, 60 * 1000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
   const { deletePatches } = useDeletePatches();
-  const client = useClient();
-  const downloadReport = async (
-    moduleFilePath: ModuleFilePath | string,
-    patchId: PatchId | string,
-    error: string,
-  ) => {
-    const patchRes = await client("/patches", "GET", {
-      query: {
-        patch_id: [patchId as PatchId],
-        exclude_patch_ops: false,
-      },
-    });
-    if (patchRes.status === 200) {
-      const json = patchRes.json;
-      const fileName = `val-patch-error-report-${moduleFilePath
-        .replace("/", "__")
-        .replace(/\.val\./, "-")}-${patchId}.json`;
-      const blob = new Blob(
-        [
-          JSON.stringify(
-            {
-              moduleFilePath,
-              patchId,
-              error,
-              patch: json,
-            },
-            null,
-            2,
-          ),
-        ],
-        {
-          type: "application/json",
-        },
-      );
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fileName;
-      a.click();
-    } else {
-      alert("Failed to download report");
-    }
-  };
+  const { patchErrors } = useAllPatchErrors();
 
   return (
     <div className={classNames("text-sm", className)}>
-      {patchErrors &&
-        Object.values(patchErrors).some((errors) => errors !== null) && (
-          <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
-            <div className="flex flex-col gap-4 p-4">
-              <div className="px-4 text-pretty">
-                <div>Unfortunately, one or more changes have errors.</div>
-                <div>No changes can currently be applied.</div>
-              </div>
-              {Object.entries(patchErrors).map(
-                ([moduleFilePath, errors], i) => (
-                  <div key={moduleFilePath + "#" + i} className="pb-4">
-                    <ScrollArea
-                      orientation="horizontal"
-                      className="max-w-[280px] text-pretty text-xs"
-                    >
-                      {errors &&
-                        Object.entries(errors).map(([patchId, error], j) => (
-                          <RadixAccordion.Root
-                            key={j}
-                            className="grid grid-cols-2 gap-2"
-                            type="single"
-                            collapsible
-                          >
-                            <RadixAccordion.AccordionItem value={patchId}>
-                              <div>
-                                <Button
-                                  variant="destructive"
-                                  onClick={() => {
-                                    deletePatches([patchId as PatchId]);
-                                  }}
-                                >
-                                  <span className="flex gap-2 justify-between items-center text-left">
-                                    <span>Remove change and fix issue</span>
-                                  </span>
-                                </Button>
-                              </div>
-
-                              <RadixAccordion.AccordionTrigger
-                                asChild
-                                className="group"
-                              >
-                                <Button variant="destructive">
-                                  <span className="text-left truncate group-data-[state=open]:hidden">
-                                    Report
-                                  </span>
-                                  <span className="text-left truncate group-data-[state=open]:block hidden">
-                                    Hide
-                                  </span>
-                                </Button>
-                              </RadixAccordion.AccordionTrigger>
-                              <RadixAccordion.AccordionContent>
-                                <Button
-                                  variant="destructive"
-                                  onClick={() => {
-                                    downloadReport(
-                                      moduleFilePath,
-                                      patchId,
-                                      error.message,
-                                    );
-                                  }}
-                                >
-                                  <span className="flex gap-2 justify-between items-center text-left">
-                                    <span>Download debug report</span>
-                                    <Download size={14} />
-                                  </span>
-                                </Button>
-                                <div className="p-4">
-                                  <div className="font-bold">Details</div>
-                                  <div>Module file path</div>
-                                  <div>
-                                    <ValidationErrorValPath
-                                      sourcePath={moduleFilePath as SourcePath}
-                                    />
-                                  </div>
-                                  <div>Error message</div>
-                                  <pre>{error.message}</pre>
-                                </div>
-                              </RadixAccordion.AccordionContent>
-                            </RadixAccordion.AccordionItem>
-                          </RadixAccordion.Root>
-                        ))}
-                    </ScrollArea>
-                  </div>
-                ),
-              )}
-            </div>
-          </div>
-        )}
-      {allValidationErrors && validationErrorsCount > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
-          <ScrollArea orientation="horizontal">
-            <Accordion type="single" className="px-4 font-serif" collapsible>
-              <AccordionItem value="error" className="border-b-0">
-                <AccordionTrigger className=" data-[state=open]:mb-4 text-fg-error-primary border-fg-error-primary ">
-                  <div className="flex justify-between items-center w-full">
-                    <div>
-                      {validationErrorsCount} validation issue
-                      {validationErrorsCount > 1 ? "s" : ""}
-                    </div>
-                    <TriangleAlert size={16} />
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="">
-                  <div className="flex flex-col gap-4">
-                    {Object.entries(allValidationErrors).map(
-                      ([sourcePath, errors], i) => (
-                        <div key={sourcePath + "#" + i} className="pb-4">
-                          <div className="items-start text-left">
-                            <ValidationErrorValPath sourcePath={sourcePath} />
-                          </div>
-                          <div>
-                            <ScrollArea
-                              orientation="horizontal"
-                              className="max-w-[280px] text-pretty text-xs"
-                            >
-                              {errors?.map((error, j) => (
-                                <div key={j} className="">
-                                  <div>{error.message}</div>
-                                </div>
-                              ))}
-                            </ScrollArea>
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </ScrollArea>
-        </div>
-      )}
-      {globalTransientErrors && globalTransientErrors.length > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
-          <ScrollArea orientation="horizontal">
-            <Accordion type="single" className="px-4 font-serif" collapsible>
-              <AccordionItem
-                value="error"
-                className="border-b-0 data-[state=open]:mb-4"
-              >
-                <AccordionTrigger>
-                  {globalTransientErrors.length} transient error
-                  {globalTransientErrors.length > 1 ? "s" : ""}
-                </AccordionTrigger>
-                <AccordionContent className="w-full">
-                  <div className="flex flex-col gap-2">
-                    {globalTransientErrors.map((error) => (
-                      <div
-                        key={error.id}
-                        className="flex gap-2 justify-between items-start"
-                      >
-                        <div className="flex flex-col gap-1">
-                          <div className="font-bold">{error.message}</div>
-                          {error.details && <div>{error.details}</div>}
-                          <div className="text-[10px] font-thin">
-                            {relativeLocalDate(
-                              now,
-                              new Date(error.timestamp).toISOString(),
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() =>
-                            removeGlobalTransientErrors([error.id])
-                          }
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </ScrollArea>
-        </div>
-      )}
       {deployments.length > 0 && (
         <div className="p-4 border-b border-border-primary">
           <Deployments
@@ -394,6 +163,255 @@ function ValidationErrorValPath({
     Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
   const patchPath = Internal.splitModulePath(modulePath);
   return <ValPath moduleFilePath={moduleFilePath} patchPath={patchPath} />;
+}
+
+export function PatchErrorsDisplay() {
+  const { patchErrors } = useAllPatchErrors();
+  const { deletePatches } = useDeletePatches();
+  const client = useClient();
+
+  const downloadReport = async (
+    moduleFilePath: ModuleFilePath | string,
+    patchId: PatchId | string,
+    error: string,
+  ) => {
+    const patchRes = await client("/patches", "GET", {
+      query: {
+        patch_id: [patchId as PatchId],
+        exclude_patch_ops: false,
+      },
+    });
+    if (patchRes.status === 200) {
+      const json = patchRes.json;
+      const fileName = `val-patch-error-report-${moduleFilePath
+        .replace("/", "__")
+        .replace(/\.val\./, "-")}-${patchId}.json`;
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            { moduleFilePath, patchId, error, patch: json },
+            null,
+            2,
+          ),
+        ],
+        { type: "application/json" },
+      );
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName;
+      a.click();
+    } else {
+      alert("Failed to download report");
+    }
+  };
+
+  if (!patchErrors || !Object.values(patchErrors).some((e) => e !== null)) {
+    return null;
+  }
+  return (
+    <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
+      <div className="flex flex-col gap-4 p-4">
+        <div className="px-4 text-pretty">
+          <div>Unfortunately, one or more changes have errors.</div>
+          <div>No changes can currently be applied.</div>
+        </div>
+        {Object.entries(patchErrors).map(([moduleFilePath, errors], i) => (
+          <div key={moduleFilePath + "#" + i} className="pb-4">
+            <ScrollArea
+              orientation="horizontal"
+              className="max-w-[280px] text-pretty text-xs"
+            >
+              {errors &&
+                Object.entries(errors).map(([patchId, error], j) => (
+                  <RadixAccordion.Root
+                    key={j}
+                    className="grid grid-cols-2 gap-2"
+                    type="single"
+                    collapsible
+                  >
+                    <RadixAccordion.AccordionItem value={patchId}>
+                      <div>
+                        <Button
+                          variant="destructive"
+                          onClick={() => {
+                            deletePatches([patchId as PatchId]);
+                          }}
+                        >
+                          <span className="flex gap-2 justify-between items-center text-left">
+                            <span>Remove change and fix issue</span>
+                          </span>
+                        </Button>
+                      </div>
+                      <RadixAccordion.AccordionTrigger
+                        asChild
+                        className="group"
+                      >
+                        <Button variant="destructive">
+                          <span className="text-left truncate group-data-[state=open]:hidden">
+                            Report
+                          </span>
+                          <span className="text-left truncate group-data-[state=open]:block hidden">
+                            Hide
+                          </span>
+                        </Button>
+                      </RadixAccordion.AccordionTrigger>
+                      <RadixAccordion.AccordionContent>
+                        <Button
+                          variant="destructive"
+                          onClick={() => {
+                            downloadReport(
+                              moduleFilePath,
+                              patchId,
+                              error.message,
+                            );
+                          }}
+                        >
+                          <span className="flex gap-2 justify-between items-center text-left">
+                            <span>Download debug report</span>
+                            <Download size={14} />
+                          </span>
+                        </Button>
+                        <div className="p-4">
+                          <div className="font-bold">Details</div>
+                          <div>Module file path</div>
+                          <div>
+                            <ValidationErrorValPath
+                              sourcePath={moduleFilePath as SourcePath}
+                            />
+                          </div>
+                          <div>Error message</div>
+                          <pre>{error.message}</pre>
+                        </div>
+                      </RadixAccordion.AccordionContent>
+                    </RadixAccordion.AccordionItem>
+                  </RadixAccordion.Root>
+                ))}
+            </ScrollArea>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ValidationErrorsDisplay() {
+  const allValidationErrors = useAllValidationErrors();
+  const validationErrorsCount = useMemo(() => {
+    let count = 0;
+    for (const sourcePathS in allValidationErrors) {
+      count += allValidationErrors[sourcePathS as SourcePath]?.length || 0;
+    }
+    return count;
+  }, [allValidationErrors]);
+
+  if (!allValidationErrors || validationErrorsCount === 0) {
+    return null;
+  }
+  return (
+    <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
+      <ScrollArea orientation="horizontal">
+        <Accordion type="single" className="px-4 font-serif" collapsible>
+          <AccordionItem value="error" className="border-b-0">
+            <AccordionTrigger className="data-[state=open]:mb-4 text-fg-error-primary border-fg-error-primary">
+              <div className="flex justify-between items-center w-full">
+                <div>
+                  {validationErrorsCount} validation issue
+                  {validationErrorsCount > 1 ? "s" : ""}
+                </div>
+                <TriangleAlert size={16} />
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="flex flex-col gap-4">
+                {Object.entries(allValidationErrors).map(
+                  ([sourcePath, errors], i) => (
+                    <div key={sourcePath + "#" + i} className="pb-4">
+                      <div className="items-start text-left">
+                        <ValidationErrorValPath sourcePath={sourcePath} />
+                      </div>
+                      <div>
+                        <ScrollArea
+                          orientation="horizontal"
+                          className="max-w-[280px] text-pretty text-xs"
+                        >
+                          {errors?.map((error, j) => (
+                            <div key={j}>
+                              <div>{error.message}</div>
+                            </div>
+                          ))}
+                        </ScrollArea>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </ScrollArea>
+    </div>
+  );
+}
+
+export function TransientErrorsDisplay() {
+  const { globalTransientErrors, removeGlobalTransientErrors } =
+    useGlobalTransientErrors();
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 60 * 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (!globalTransientErrors || globalTransientErrors.length === 0) {
+    return null;
+  }
+  return (
+    <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
+      <ScrollArea orientation="horizontal">
+        <Accordion type="single" className="px-4 font-serif" collapsible>
+          <AccordionItem
+            value="error"
+            className="border-b-0 data-[state=open]:mb-4"
+          >
+            <AccordionTrigger>
+              {globalTransientErrors.length} transient error
+              {globalTransientErrors.length > 1 ? "s" : ""}
+            </AccordionTrigger>
+            <AccordionContent className="w-full">
+              <div className="flex flex-col gap-2">
+                {globalTransientErrors.map((error) => (
+                  <div
+                    key={error.id}
+                    className="flex gap-2 justify-between items-start"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <div className="font-bold">{error.message}</div>
+                      {error.details && <div>{error.details}</div>}
+                      <div className="text-[10px] font-thin">
+                        {relativeLocalDate(
+                          now,
+                          new Date(error.timestamp).toISOString(),
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeGlobalTransientErrors([error.id])}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </ScrollArea>
+    </div>
+  );
 }
 
 function Deployments({

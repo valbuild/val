@@ -10,7 +10,6 @@ import React, {
   useCallback,
 } from "react";
 import { z } from "zod";
-import { toolNames } from "../utils/toolNames";
 
 const PatchId = z
   .string()
@@ -20,201 +19,27 @@ const PatchId = z
 export const AIModel = z.enum(["openai-gpt-5.1"]);
 export type AIModel = z.infer<typeof AIModel>;
 
-export const AITool = z.object({
-  name: z.string(),
-  description: z.string(),
-  parameters: z.object({
-    type: z.literal("object"),
-    properties: z.record(z.string(), z.unknown()),
-    required: z.array(z.string()).optional(),
-  }),
-});
-
-export type AITool = z.infer<typeof AITool>;
-
 export const AIAgentDefinition = z.object({
   id: z.string(),
   systemPrompt: z.string(),
   model: AIModel,
-  tools: z.array(AITool).optional(),
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string(),
+        parameters: z.object({
+          type: z.literal("object"),
+          properties: z.record(z.string(), z.unknown()),
+          required: z.array(z.string()).optional(),
+        }),
+      }),
+    )
+    .optional(),
   description: z.string().optional(),
 });
 
 export type AIAgentDefinition = z.infer<typeof AIAgentDefinition>;
-
-export const AIPromptMessage = z.object({
-  type: z.literal("ai_prompt"),
-  id: z.string(),
-  sessionId: z.string().uuid().optional(),
-  message: z.string(),
-  context: z.string().optional(),
-  maxIterations: z.number().int().min(1).max(200).optional(),
-  agents: z.array(AIAgentDefinition).min(1),
-});
-
-export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
-
-export const AIToolResultMessage = z.object({
-  type: z.literal("ai_tool_result"),
-  toolCallId: z.string(),
-  result: z.unknown(),
-  isError: z.boolean().optional(),
-});
-
-export type AIToolResultMessage = z.infer<typeof AIToolResultMessage>;
-
-export const AIGetSessionsMessage = z.object({
-  type: z.literal("ai_get_sessions"),
-  id: z.string(),
-  limit: z.number().int().min(1).max(100).optional(),
-  cursor: z
-    .object({
-      updatedAt: z.string(),
-      id: z.string().uuid(),
-    })
-    .optional(),
-});
-
-export type AIGetSessionsMessage = z.infer<typeof AIGetSessionsMessage>;
-
-export const AISetSessionNameMessage = z.object({
-  type: z.literal("ai_set_session_name"),
-  id: z.string(),
-  sessionId: z.string().uuid(),
-  name: z.string(),
-});
-
-export const AIGetSessionsWithMessagesMessage = z.object({
-  type: z.literal("ai_get_sessions_with_messages"),
-  id: z.string(),
-  limit: z.number().int().min(1).max(100).optional(),
-  cursor: z
-    .object({
-      updatedAt: z.string(),
-      id: z.uuid(),
-    })
-    .optional(),
-});
-
-export type AIGetSessionsWithMessagesMessage = z.infer<
-  typeof AIGetSessionsWithMessagesMessage
->;
-
-export type AISetSessionNameMessage = z.infer<typeof AISetSessionNameMessage>;
-
-export const AIToolCallMessage = z.object({
-  type: z.literal("ai_tool_call"),
-  id: z.string(),
-  toolCallId: z.string(),
-  name: z.enum(toolNames),
-  arguments: z.unknown(),
-});
-
-export type AIToolCallMessage = z.infer<typeof AIToolCallMessage>;
-
-export const AIErrorCode = z.enum([
-  "max_iterations_reached",
-  "token_limit_reached",
-  "authentication_required",
-  "session_not_found",
-  "internal_error",
-]);
-export type AIErrorCode = z.infer<typeof AIErrorCode>;
-
-export const AIErrorMessage = z.object({
-  type: z.literal("ai_error"),
-  id: z.string(),
-  code: AIErrorCode,
-  message: z.string(),
-  resetDate: z.string().optional(),
-});
-export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
-
-export const AIServerMessage = z.union([
-  z.object({
-    type: z.literal("ai_response"),
-    id: z.string(),
-    sessionId: z.string(),
-    response: z.string(),
-    metadata: z
-      .object({
-        model: z.string().optional(),
-        tokensUsed: z.number().optional(),
-      })
-      .optional(),
-  }),
-  z.object({
-    type: z.literal("ai_streaming"),
-    id: z.string(),
-    chunk: z.string(),
-  }),
-  AIToolCallMessage,
-  AIToolResultMessage,
-  z.object({
-    type: z.literal("ai_sessions"),
-    id: z.string(),
-    sessions: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string().nullable(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-      }),
-    ),
-    nextCursor: z
-      .object({
-        updatedAt: z.string(),
-        id: z.string(),
-      })
-      .nullable(),
-  }),
-  z.object({
-    type: z.literal("ai_session_name_set"),
-    id: z.string(),
-    sessionId: z.string(),
-    name: z.string(),
-  }),
-  z.object({
-    type: z.literal("ai_sessions_with_messages"),
-    id: z.string(),
-    sessions: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string().nullable(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-        messages: z.array(
-          z.object({
-            role: z.string(),
-            content: z.string(),
-          }),
-        ),
-      }),
-    ),
-    nextCursor: z
-      .object({
-        updatedAt: z.string(),
-        id: z.string(),
-      })
-      .nullable(),
-  }),
-  AIErrorMessage,
-  z.object({
-    type: z.literal("ai_agent_handoff"),
-    id: z.string(),
-    sessionId: z.string(),
-    fromAgent: z.string(),
-    toAgent: z.string(),
-    reason: z.string().optional(),
-  }),
-]);
-
-export type WsExtendedMessage =
-  | z.infer<typeof AIServerMessage>
-  | z.infer<typeof AIErrorMessage>
-  | z.infer<typeof AIServerMessage>;
-
-export type WsMessageHandler = (message: WsExtendedMessage) => void;
 
 const WebSocketServerMessage = z.union([
   z.object({
@@ -232,7 +57,6 @@ const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("subscribed"),
   }),
-  AIServerMessage,
 ]);
 
 const StatData = z.object({
@@ -319,30 +143,7 @@ export function useStatus(client: ValClient) {
     boolean | boolean
   >();
 
-  const [isWsConnected, setIsWsConnected] = useState(false);
-  const wsMessageHandlersRef = useRef<Set<WsMessageHandler>>(new Set());
-  const subscribeToWsMessages = useCallback(
-    (handler: WsMessageHandler): (() => void) => {
-      wsMessageHandlersRef.current.add(handler);
-      return () => {
-        wsMessageHandlersRef.current.delete(handler);
-      };
-    },
-    [],
-  );
-  const sendWsMessage = useCallback((data: unknown): boolean => {
-    console.log("sendWsMessage called with", data);
-    if (webSocketRef.current?.readyState === WebSocket.OPEN) {
-      webSocketRef.current.send(JSON.stringify(data));
-      return true;
-    } else {
-      console.warn(
-        "sendWsMessage: WebSocket not open",
-        webSocketRef.current?.readyState,
-      );
-      return false;
-    }
-  }, []);
+
 
   const statIdRef = useRef(0);
   useEffect(() => {
@@ -366,14 +167,12 @@ export function useStatus(client: ValClient) {
           client,
           webSocketRef,
           connectionIdRef,
-          wsMessageHandlersRef,
           statIdRef,
           stat,
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
           setIsAuthenticated,
           setServiceUnavailable,
-          setIsWsConnected,
         );
       } else {
         console.debug(
@@ -389,14 +188,12 @@ export function useStatus(client: ValClient) {
             client,
             webSocketRef,
             connectionIdRef,
-            wsMessageHandlersRef,
             statIdRef,
             stat,
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
             setIsAuthenticated,
             setServiceUnavailable,
-            setIsWsConnected,
           );
         }, stat.wait);
         return () => clearTimeout(timeout);
@@ -414,14 +211,12 @@ export function useStatus(client: ValClient) {
         client,
         webSocketRef,
         connectionIdRef,
-        wsMessageHandlersRef,
         statIdRef,
         stat,
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
         setIsAuthenticated,
         setServiceUnavailable,
-        setIsWsConnected,
       );
     }
   }, [client, stat.status]);
@@ -433,9 +228,6 @@ export function useStatus(client: ValClient) {
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
     serviceUnavailable,
-    subscribeToWsMessages,
-    sendWsMessage,
-    isWsConnected,
   ] as const;
 }
 
@@ -444,14 +236,12 @@ async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
   connectionIdRef: React.MutableRefObject<string>,
-  wsMessageHandlersRef: React.MutableRefObject<Set<WsMessageHandler>>,
   statIdRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
-  setIsWsConnected: Dispatch<SetStateAction<boolean>>,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -527,7 +317,6 @@ async function execStat(
                 connectionId: connectionIdRef.current,
               }),
             );
-            setIsWsConnected(true);
           };
           webSocketRef.current.onmessage = (event) => {
             try {
@@ -543,22 +332,7 @@ async function execStat(
                 return;
               }
               const message = messageRes.data;
-              if (message.type === "ai_error") {
-                if (message.id) {
-                  // AI-specific error — dispatch to handlers (useAI shows it in chat)
-                  for (const handler of wsMessageHandlersRef.current) {
-                    handler({
-                      type: "ai_error",
-                      message: message.message,
-                      id: message.id,
-                      code: message.code,
-                      resetDate: message.resetDate,
-                    });
-                  }
-                } else {
-                  setStat((prev) => createError(prev, message.message));
-                }
-              } else if (message.type === "patches") {
+              if (message.type === "patches") {
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {
@@ -628,17 +402,6 @@ async function execStat(
                   }
                   return prev;
                 });
-              } else if (
-                message.type === "ai_response" ||
-                message.type === "ai_streaming" ||
-                message.type === "ai_tool_call" ||
-                message.type === "ai_tool_result" ||
-                message.type === "ai_sessions" ||
-                message.type === "ai_session_name_set"
-              ) {
-                for (const handler of wsMessageHandlersRef.current) {
-                  handler(message);
-                }
               } else {
                 const exhaustiveCheck: never = message;
                 console.warn("Unknown WebSocket message", exhaustiveCheck);
@@ -651,13 +414,11 @@ async function execStat(
           webSocketRef.current.onclose = () => {
             if (currentWebSocket === webSocketRef.current) {
               console.debug("WebSocket closed");
-              setIsWsConnected(false);
               setStat((prev) => createError(prev, "WebSocket closed"));
             }
           };
           webSocketRef.current.onerror = () => {
             console.warn("WebSocket error");
-            setIsWsConnected(false);
             setStat((prev) =>
               createError(
                 prev,

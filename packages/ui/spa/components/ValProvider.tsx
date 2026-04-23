@@ -28,13 +28,7 @@ import {
   getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
-import {
-  AIAgentDefinition,
-  AIToolResultMessage,
-  AuthenticationState,
-  useStatus,
-  WsMessageHandler,
-} from "../hooks/useStatus";
+import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -50,19 +44,15 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
-import { toolNames } from "../utils/toolNames";
+import {
+  useAIWebSocket,
+  type AIMessageHandler,
+  type AIClientMessage,
+  type AISession,
+  AITool,
+} from "../hooks/useAIWebSocket";
 
-export const AITool = z.object({
-  name: z.enum(toolNames),
-  description: z.string(),
-  parameters: z.object({
-    type: z.literal("object"),
-    properties: z.record(z.string(), z.unknown()),
-    required: z.array(z.string()).optional(),
-  }),
-});
-
-export type AITool = z.infer<typeof AITool>;
+export type { AITool };
 
 export const AIPromptMessage = z.object({
   type: z.literal("ai_prompt"),
@@ -71,8 +61,28 @@ export const AIPromptMessage = z.object({
   message: z.string(),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
-  agents: z.array(AIAgentDefinition).min(1),
+  agents: z
+    .array(
+      z.object({
+        id: z.string(),
+        systemPrompt: z.string(),
+        model: z.string(),
+        tools: z.array(AITool).optional(),
+        description: z.string().optional(),
+      }),
+    )
+    .min(1),
 });
+
+export type AISessionsResponse = {
+  sessions: AISession[];
+  nextCursor?: { updatedAt: string; id: string } | null;
+};
+
+export type AIMessagesResponse = {
+  messages: { role: string; content: string }[];
+  nextCursor?: { updatedAt: string; id: string } | null;
+};
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
@@ -112,25 +122,21 @@ type ValContextValue = {
           | "unauthorized-personal-access-token-error"
           | "unauthorized";
       };
-  subscribeToWsMessages: (handler: WsMessageHandler) => () => void;
-  sendWsMessage: (
-    data:
-      | z.infer<typeof AIPromptMessage>
-      | AIToolResultMessage
-      | {
-          type: "ai_get_sessions";
-          id: string;
-          limit?: number;
-          cursor?: { updatedAt: string; id: string };
-        }
-      | {
-          type: "ai_set_session_name";
-          id: string;
-          sessionId: string;
-          name: string;
-        },
-  ) => boolean;
+  subscribeToWsMessages: (handler: AIMessageHandler) => () => void;
+  sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
+  aiGetSessions: (opts?: {
+    limit?: number;
+    cursor?: { updatedAt: string; id: string };
+  }) => Promise<AISessionsResponse>;
+  aiGetSessionMessages: (
+    sessionId: string,
+    opts?: {
+      limit?: number;
+      cursor?: { updatedAt: string; id: string };
+    },
+  ) => Promise<AIMessagesResponse>;
+  aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -174,10 +180,74 @@ export function ValProvider({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setIsAuthenticated,
     serviceUnavailable,
-    subscribeToWsMessages,
-    sendWsMessage,
-    isWsConnected,
   ] = useStatus(client);
+
+  const isStatConnected = "data" in stat && !!stat.data;
+  const {
+    subscribeToMessages: subscribeToWsMessages,
+    send: sendWsMessage,
+    isConnected: isWsConnected,
+  } = useAIWebSocket(isStatConnected);
+
+  const aiGetSessions = useCallback(
+    async (opts?: {
+      limit?: number;
+      cursor?: { updatedAt: string; id: string };
+    }): Promise<AISessionsResponse> => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(`/api/val/ai/sessions${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`ai/sessions failed: ${res.status}`);
+      return res.json();
+    },
+    [],
+  );
+
+  const aiGetSessionMessages = useCallback(
+    async (
+      sessionId: string,
+      opts?: {
+        limit?: number;
+        cursor?: { updatedAt: string; id: string };
+      },
+    ): Promise<AIMessagesResponse> => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(
+        `/api/val/ai/messages/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ""}`,
+      );
+      if (!res.ok)
+        throw new Error(`ai/sessions/messages failed: ${res.status}`);
+      const json = await res.json();
+      return json;
+    },
+    [],
+  );
+
+  const aiSetSessionName = useCallback(
+    async (sessionId: string, name: string): Promise<void> => {
+      const res = await fetch(
+        `/api/val/ai/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+      );
+      if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
+    },
+    [],
+  );
 
   const syncEngine = useMemo(
     () =>
@@ -519,6 +589,9 @@ export function ValProvider({
         subscribeToWsMessages,
         sendWsMessage,
         isWsConnected,
+        aiGetSessions,
+        aiGetSessionMessages,
+        aiSetSessionName,
       }}
     >
       <TooltipProvider>
@@ -660,10 +733,23 @@ export function useDeletePatches() {
   return { deletePatches };
 }
 
-export function useWsMessages() {
-  const { subscribeToWsMessages, sendWsMessage, isWsConnected } =
-    useContext(ValContext);
-  return { subscribeToWsMessages, sendWsMessage, isWsConnected };
+export function useAIContext() {
+  const {
+    subscribeToWsMessages,
+    sendWsMessage,
+    isWsConnected,
+    aiGetSessions,
+    aiGetSessionMessages,
+    aiSetSessionName,
+  } = useContext(ValContext);
+  return {
+    subscribeToWsMessages,
+    sendWsMessage,
+    isWsConnected,
+    aiGetSessions,
+    aiGetSessionMessages,
+    aiSetSessionName,
+  };
 }
 
 export function useSyncEngine() {
