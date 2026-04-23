@@ -49,6 +49,7 @@ describe("getSourcePathFromRoute", () => {
     const result = getSourcePathFromRoute("/blogs/blog-1", schemas);
     expect(result).toEqual({
       moduleFilePath: "/app/blogs/[blog]/page.val.ts",
+      route: "/blogs/blog-1",
       sourcePath: '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1"',
     });
   });
@@ -57,6 +58,7 @@ describe("getSourcePathFromRoute", () => {
     const result = getSourcePathFromRoute("/", schemas);
     expect(result).toEqual({
       moduleFilePath: "/app/page.val.ts",
+      route: "/",
       sourcePath: '/app/page.val.ts?p="/"',
     });
   });
@@ -65,6 +67,7 @@ describe("getSourcePathFromRoute", () => {
     const result = getSourcePathFromRoute("/generic/a/b", schemas);
     expect(result).toEqual({
       moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+      route: "/generic/a/b",
       sourcePath: '/app/generic/[[...path]]/page.val.ts?p="/generic/a/b"',
     });
   });
@@ -73,6 +76,7 @@ describe("getSourcePathFromRoute", () => {
     const result = getSourcePathFromRoute("/generic", schemas);
     expect(result).toEqual({
       moduleFilePath: "/app/generic/[[...path]]/page.val.ts",
+      route: "/generic",
       sourcePath: '/app/generic/[[...path]]/page.val.ts?p="/generic"',
     });
   });
