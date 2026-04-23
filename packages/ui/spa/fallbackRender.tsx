@@ -13,11 +13,13 @@ function ErrorContent({
   error,
   resetErrorBoundary,
   onDeleteAllPatches,
+  onDeleteLastPatch,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   error: any;
   resetErrorBoundary: () => void;
   onDeleteAllPatches?: () => void;
+  onDeleteLastPatch?: () => void;
 }) {
   return (
     <div className="flex absolute top-0 left-0 justify-center items-center w-screen h-screen bg-bg-primary text-fg-primary">
@@ -48,7 +50,7 @@ function ErrorContent({
               </AccordionItem>
             </Accordion>
           )}
-          {onDeleteAllPatches && (
+          {(onDeleteLastPatch || onDeleteAllPatches) && (
             <div className="flex flex-col gap-4 py-8">
               <p className="max-w-prose text-pretty">
                 If this problem was caused by a recent change, you can revert
@@ -57,13 +59,24 @@ function ErrorContent({
                 investigate.
               </p>
               <div className="flex items-center gap-3">
-                <Button
-                  variant={"destructive"}
-                  onClick={onDeleteAllPatches}
-                  className="text-sm px-3 py-1.5 rounded border border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                >
-                  Revert all changes
-                </Button>
+                {onDeleteLastPatch && (
+                  <Button
+                    variant={"destructive"}
+                    onClick={onDeleteLastPatch}
+                    className="text-sm px-3 py-1.5 rounded border border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                  >
+                    Revert last change
+                  </Button>
+                )}
+                {onDeleteAllPatches && (
+                  <Button
+                    variant={"destructive"}
+                    onClick={onDeleteAllPatches}
+                    className="text-sm px-3 py-1.5 rounded border border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                  >
+                    Revert all changes
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -97,11 +110,22 @@ export function FallbackComponent({
           resetErrorBoundary();
         }
       : undefined;
+  const lastPatchId =
+    currentPatchIds.length > 0
+      ? currentPatchIds[currentPatchIds.length - 1]
+      : undefined;
+  const onDeleteLastPatch = lastPatchId
+    ? () => {
+        deletePatches([lastPatchId]);
+        resetErrorBoundary();
+      }
+    : undefined;
   return (
     <ErrorContent
       error={error}
       resetErrorBoundary={resetErrorBoundary}
       onDeleteAllPatches={onDeleteAllPatches}
+      onDeleteLastPatch={onDeleteLastPatch}
     />
   );
 }
