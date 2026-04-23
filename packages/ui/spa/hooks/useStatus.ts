@@ -17,12 +17,42 @@ const PatchId = z
   .uuid()
   .refine((p): p is PatchId => true);
 
-export const MCPServerMessage = z.object({
-  type: z.literal("mcp_tool_request"),
-  id: z.string(),
-  tool: z.string(),
-  params: z.record(z.string(), z.unknown()),
+export const AIModel = z.enum(["openai-gpt-5.1"]);
+export type AIModel = z.infer<typeof AIModel>;
+
+export const AITool = z.object({
+  name: z.string(),
+  description: z.string(),
+  parameters: z.object({
+    type: z.literal("object"),
+    properties: z.record(z.string(), z.unknown()),
+    required: z.array(z.string()).optional(),
+  }),
 });
+
+export type AITool = z.infer<typeof AITool>;
+
+export const AIAgentDefinition = z.object({
+  id: z.string(),
+  systemPrompt: z.string(),
+  model: AIModel,
+  tools: z.array(AITool).optional(),
+  description: z.string().optional(),
+});
+
+export type AIAgentDefinition = z.infer<typeof AIAgentDefinition>;
+
+export const AIPromptMessage = z.object({
+  type: z.literal("ai_prompt"),
+  id: z.string(),
+  sessionId: z.string().uuid().optional(),
+  message: z.string(),
+  context: z.string().optional(),
+  maxIterations: z.number().int().min(1).max(200).optional(),
+  agents: z.array(AIAgentDefinition).min(1),
+});
+
+export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
 
 export const AIToolResultMessage = z.object({
   type: z.literal("ai_tool_result"),
@@ -33,6 +63,45 @@ export const AIToolResultMessage = z.object({
 
 export type AIToolResultMessage = z.infer<typeof AIToolResultMessage>;
 
+export const AIGetSessionsMessage = z.object({
+  type: z.literal("ai_get_sessions"),
+  id: z.string(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z
+    .object({
+      updatedAt: z.string(),
+      id: z.string().uuid(),
+    })
+    .optional(),
+});
+
+export type AIGetSessionsMessage = z.infer<typeof AIGetSessionsMessage>;
+
+export const AISetSessionNameMessage = z.object({
+  type: z.literal("ai_set_session_name"),
+  id: z.string(),
+  sessionId: z.string().uuid(),
+  name: z.string(),
+});
+
+export const AIGetSessionsWithMessagesMessage = z.object({
+  type: z.literal("ai_get_sessions_with_messages"),
+  id: z.string(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z
+    .object({
+      updatedAt: z.string(),
+      id: z.uuid(),
+    })
+    .optional(),
+});
+
+export type AIGetSessionsWithMessagesMessage = z.infer<
+  typeof AIGetSessionsWithMessagesMessage
+>;
+
+export type AISetSessionNameMessage = z.infer<typeof AISetSessionNameMessage>;
+
 export const AIToolCallMessage = z.object({
   type: z.literal("ai_tool_call"),
   id: z.string(),
@@ -40,6 +109,27 @@ export const AIToolCallMessage = z.object({
   name: z.enum(toolNames),
   arguments: z.unknown(),
 });
+
+export type AIToolCallMessage = z.infer<typeof AIToolCallMessage>;
+
+export const AIErrorCode = z.enum([
+  "max_iterations_reached",
+  "token_limit_reached",
+  "authentication_required",
+  "session_not_found",
+  "internal_error",
+]);
+export type AIErrorCode = z.infer<typeof AIErrorCode>;
+
+export const AIErrorMessage = z.object({
+  type: z.literal("ai_error"),
+  id: z.string(),
+  code: AIErrorCode,
+  message: z.string(),
+  resetDate: z.string().optional(),
+});
+export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
+
 export const AIServerMessage = z.union([
   z.object({
     type: z.literal("ai_response"),
@@ -60,48 +150,69 @@ export const AIServerMessage = z.union([
   }),
   AIToolCallMessage,
   AIToolResultMessage,
+  z.object({
+    type: z.literal("ai_sessions"),
+    id: z.string(),
+    sessions: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string().nullable(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+      }),
+    ),
+    nextCursor: z
+      .object({
+        updatedAt: z.string(),
+        id: z.string(),
+      })
+      .nullable(),
+  }),
+  z.object({
+    type: z.literal("ai_session_name_set"),
+    id: z.string(),
+    sessionId: z.string(),
+    name: z.string(),
+  }),
+  z.object({
+    type: z.literal("ai_sessions_with_messages"),
+    id: z.string(),
+    sessions: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string().nullable(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+        messages: z.array(
+          z.object({
+            role: z.string(),
+            content: z.string(),
+          }),
+        ),
+      }),
+    ),
+    nextCursor: z
+      .object({
+        updatedAt: z.string(),
+        id: z.string(),
+      })
+      .nullable(),
+  }),
+  AIErrorMessage,
+  z.object({
+    type: z.literal("ai_agent_handoff"),
+    id: z.string(),
+    sessionId: z.string(),
+    fromAgent: z.string(),
+    toAgent: z.string(),
+    reason: z.string().optional(),
+  }),
 ]);
 
-export const AIErrorMessage = z.object({
-  type: z.literal("error"),
-  message: z.string(),
-  id: z.string(),
-  reconnect: z.boolean().optional(),
-});
-
-export type AISession = {
-  id: string;
-  name: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const AISessionItem = z.object({
-  id: z.string(),
-  name: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const AISessionsMessage = z.object({
-  type: z.literal("ai_sessions"),
-  id: z.string(),
-  sessions: z.array(AISessionItem),
-});
-
-export const AISessionNameSetMessage = z.object({
-  type: z.literal("ai_session_name_set"),
-  id: z.string(),
-  sessionId: z.string(),
-  name: z.string(),
-});
-
 export type WsExtendedMessage =
-  | z.infer<typeof MCPServerMessage>
   | z.infer<typeof AIServerMessage>
   | z.infer<typeof AIErrorMessage>
-  | z.infer<typeof AISessionsMessage>
-  | z.infer<typeof AISessionNameSetMessage>;
+  | z.infer<typeof AIServerMessage>;
 
 export type WsMessageHandler = (message: WsExtendedMessage) => void;
 
@@ -121,16 +232,7 @@ const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("subscribed"),
   }),
-  MCPServerMessage,
   AIServerMessage,
-  AISessionsMessage,
-  AISessionNameSetMessage,
-  z.object({
-    type: z.literal("error"),
-    message: z.string(),
-    id: z.string().optional(),
-    reconnect: z.boolean().optional(),
-  }),
 ]);
 
 const StatData = z.object({
@@ -419,7 +521,11 @@ async function execStat(
           const nonce = res.json.nonce;
           webSocketRef.current.onopen = () => {
             webSocketRef.current?.send(
-              JSON.stringify({ nonce, type: "subscribe", connectionId: connectionIdRef.current }),
+              JSON.stringify({
+                nonce,
+                type: "subscribe",
+                connectionId: connectionIdRef.current,
+              }),
             );
             setIsWsConnected(true);
           };
@@ -437,15 +543,16 @@ async function execStat(
                 return;
               }
               const message = messageRes.data;
-              if (message.type === "error") {
+              if (message.type === "ai_error") {
                 if (message.id) {
                   // AI-specific error — dispatch to handlers (useAI shows it in chat)
                   for (const handler of wsMessageHandlersRef.current) {
                     handler({
-                      type: "error",
+                      type: "ai_error",
                       message: message.message,
                       id: message.id,
-                      reconnect: message.reconnect,
+                      code: message.code,
+                      resetDate: message.resetDate,
                     });
                   }
                 } else {
@@ -522,7 +629,6 @@ async function execStat(
                   return prev;
                 });
               } else if (
-                message.type === "mcp_tool_request" ||
                 message.type === "ai_response" ||
                 message.type === "ai_streaming" ||
                 message.type === "ai_tool_call" ||
