@@ -30,8 +30,10 @@ import {
   MapPin,
   History,
   ChevronLeft,
+  Tag,
 } from "lucide-react";
-import type { AISession } from "../hooks/useStatus";
+import type { AISession } from "../hooks/useAIWebSocket";
+import { ToolName } from "../utils/toolNames";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +84,8 @@ export type AIChatHandle = {
   errorToolCall: (messageId: string, toolCallId: string) => void;
   /** Clear all messages (used when starting a new session) */
   clearMessages: () => void;
+  /** Bulk-load historical messages (e.g. when restoring a session) */
+  loadMessages: (messages: ChatMessage[]) => void;
 };
 
 export type AIChatProps = {
@@ -314,6 +318,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     clearMessages() {
       setCompletedMessages([]);
       setCurrentMessage(null);
+    },
+    loadMessages(messages: ChatMessage[]) {
+      setCurrentMessage(null);
+      setCompletedMessages(messages);
     },
   }));
 
@@ -769,49 +777,49 @@ function StreamingCursor() {
 // Tool activity display
 // ---------------------------------------------------------------------------
 
-const TOOL_DISPLAY: Record<string, { label: string; icon: React.ReactNode }> = {
-  get_all_schema: {
-    label: "Reading schemas",
-    icon: <Database className="h-3 w-3" />,
-  },
-  get_source: {
-    label: "Reading content",
-    icon: <FileText className="h-3 w-3" />,
-  },
-  search_content: { label: "Searching", icon: <Search className="h-3 w-3" /> },
-  validate_content: {
-    label: "Validating",
-    icon: <ShieldCheck className="h-3 w-3" />,
-  },
-  create_patch: {
-    label: "Updating content",
-    icon: <Pencil className="h-3 w-3" />,
-  },
-  navigate_to: {
-    label: "Navigating to content",
-    icon: <Navigation className="h-3 w-3" />,
-  },
-  get_patches: {
-    label: "Loading changes",
-    icon: <Clock className="h-3 w-3" />,
-  },
-  get_current_author: {
-    label: "Getting current user",
-    icon: <User className="h-3 w-3" />,
-  },
-  get_current_source_path: {
-    label: "Getting current location",
-    icon: <MapPin className="h-3 w-3" />,
-  },
-  set_session_name: {
-    label: "Naming session",
-    icon: <Pencil className="h-3 w-3" />,
-  },
-  get_source_path_from_route: {
-    label: "Resolving route",
-    icon: <Navigation className="h-3 w-3" />,
-  },
-};
+const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
+  {
+    get_all_schema: {
+      label: "Reading schemas",
+      icon: <Database className="h-3 w-3" />,
+    },
+    get_source: {
+      label: "Reading content",
+      icon: <FileText className="h-3 w-3" />,
+    },
+    search_content: {
+      label: "Searching",
+      icon: <Search className="h-3 w-3" />,
+    },
+    validate_content: {
+      label: "Validating",
+      icon: <ShieldCheck className="h-3 w-3" />,
+    },
+    create_patch: {
+      label: "Updating content",
+      icon: <Pencil className="h-3 w-3" />,
+    },
+    navigate_to: {
+      label: "Navigating to content",
+      icon: <Navigation className="h-3 w-3" />,
+    },
+    get_patches: {
+      label: "Loading changes",
+      icon: <Clock className="h-3 w-3" />,
+    },
+    get_source_path_from_route: {
+      label: "Resolving route",
+      icon: <Navigation className="h-3 w-3" />,
+    },
+    get_current_context: {
+      label: "Gathering context",
+      icon: <User className="h-3 w-3" />,
+    },
+    set_session_name: {
+      label: "Naming session",
+      icon: <Tag className="h-3 w-3" />,
+    },
+  };
 
 function ToolActivitiesIndicator({
   activities,
@@ -821,7 +829,7 @@ function ToolActivitiesIndicator({
   return (
     <div className="not-prose flex flex-col gap-1 mb-2">
       {activities.map((activity) => {
-        const display = TOOL_DISPLAY[activity.name] ?? {
+        const display = TOOL_DISPLAY[activity.name as ToolName] ?? {
           label: activity.name,
           icon: <Loader2 className="h-3 w-3" />,
         };
@@ -844,7 +852,7 @@ function ToolActivitiesIndicator({
             ) : isError ? (
               <XCircle className="h-3 w-3" />
             ) : (
-              <CheckCircle2 className="h-3 w-3 text-fg-success" />
+              <></>
             )}
             <span className="flex items-center gap-1">
               {display.icon}

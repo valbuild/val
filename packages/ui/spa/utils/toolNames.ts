@@ -7,6 +7,7 @@ export const toolNames = [
   "navigate_to",
   "get_current_context",
   "get_patches",
-  "set_session_name",
   "get_source_path_from_route",
+  "set_session_name",
 ] as const;
+export type ToolName = (typeof toolNames)[number];

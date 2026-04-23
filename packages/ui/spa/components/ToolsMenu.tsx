@@ -10,7 +10,12 @@ import {
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
-import { DraftChanges } from "./DraftChanges";
+import {
+  DraftChanges,
+  PatchErrorsDisplay,
+  ValidationErrorsDisplay,
+  TransientErrorsDisplay,
+} from "./DraftChanges";
 import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -124,6 +129,9 @@ export function ToolsMenu() {
                 </ScrollArea>
               </div>
             )}
+          <PatchErrorsDisplay />
+          <ValidationErrorsDisplay />
+          <TransientErrorsDisplay />
           {loadingStatus !== "not-asked" && (
             <Accordion type="single" collapsible>
               <AccordionItem value="draft-changes" className="border-b-0">

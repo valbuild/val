@@ -1002,6 +1002,119 @@ export const Api = {
       ]),
     },
   },
+  "/ai/initialize": {
+    POST: {
+      req: {
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            nonce: z.string(),
+            wsUrl: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
+  "/ai/sessions": {
+    GET: {
+      req: {
+        query: {
+          limit: onlyOneStringQueryParam.optional(),
+          cursor_updatedAt: onlyOneStringQueryParam.optional(),
+          cursor_id: onlyOneStringQueryParam.optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            sessions: z.array(
+              z.object({
+                id: z.string(),
+                name: z.string().nullable(),
+                createdAt: z.string(),
+                updatedAt: z.string(),
+              }),
+            ),
+            nextCursor: z
+              .object({
+                updatedAt: z.string(),
+                id: z.string(),
+              })
+              .nullable()
+              .optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+    PATCH: {
+      req: {
+        path: z.string(),
+        body: z.object({
+          name: z.string(),
+        }),
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({}),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
+  "/ai/messages": {
+    GET: {
+      req: {
+        path: z.string(),
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            messages: z.array(
+              z.object({
+                role: z.string(),
+                content: z.string(),
+              }),
+            ),
+            nextCursor: z
+              .object({
+                updatedAt: z.string(),
+                id: z.string(),
+              })
+              .nullable()
+              .optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:
@@ -1065,7 +1178,7 @@ export type ApiEndpoint = {
 };
 type ApiGuard = Record<
   `/${string}`,
-  Partial<Record<"PUT" | "GET" | "POST" | "DELETE", ApiEndpoint>>
+  Partial<Record<"PUT" | "GET" | "POST" | "DELETE" | "PATCH", ApiEndpoint>>
 >;
 
 export type ServerOf<Api extends ApiGuard> = {

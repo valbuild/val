@@ -416,7 +416,10 @@ export function ValOverlay(props: ValOverlayProps) {
             )}
           />
         ))}
-      <ChatWindow isOpen={isChatOpen && props.draftMode} onClose={() => setIsChatOpen(false)} />
+      <ChatWindow
+        isOpen={isChatOpen && props.draftMode}
+        onClose={() => setIsChatOpen(false)}
+      />
       {editMode === null && (
         <DraggableValMenu
           {...props}
@@ -843,7 +846,7 @@ function ChatWindow({
     loadSession,
   } = useAI(chatRef);
   const [windowPos, setWindowPos] = useState({
-    x: Math.max(20, window.innerWidth - 520),
+    x: Math.max(20, window.innerWidth - 570),
     y: 80,
   });
   const [windowSize, setWindowSize] = useState({ width: 480, height: 600 });
@@ -864,7 +867,10 @@ function ChatWindow({
           const maxX = window.innerWidth - minVisible;
           const maxY = window.innerHeight - minVisible;
           return {
-            x: Math.max(-(windowSize.width - minVisible), Math.min(maxX, pos.x)),
+            x: Math.max(
+              -(windowSize.width - minVisible),
+              Math.min(maxX, pos.x),
+            ),
             y: Math.max(0, Math.min(maxY, pos.y)),
           };
         });
@@ -883,7 +889,10 @@ function ChatWindow({
           const maxY = window.innerHeight - minVisible;
           const w = ref.current?.offsetWidth ?? windowSize.width;
           return {
-            x: Math.max(-(w - minVisible), Math.min(maxX, pos.x + ev.movementX)),
+            x: Math.max(
+              -(w - minVisible),
+              Math.min(maxX, pos.x + ev.movementX),
+            ),
             y: Math.max(0, Math.min(maxY, pos.y + ev.movementY)),
           };
         });
@@ -906,13 +915,25 @@ function ChatWindow({
         if (isResizing === "se" || isResizing === "e") {
           setWindowSize((size) => ({
             ...size,
-            width: Math.max(minWidth, Math.min(window.innerWidth - windowPos.x - 20, size.width + ev.movementX)),
+            width: Math.max(
+              minWidth,
+              Math.min(
+                window.innerWidth - windowPos.x - 20,
+                size.width + ev.movementX,
+              ),
+            ),
           }));
         }
         if (isResizing === "se" || isResizing === "s") {
           setWindowSize((size) => ({
             ...size,
-            height: Math.max(minHeight, Math.min(window.innerHeight - windowPos.y - 20, size.height + ev.movementY)),
+            height: Math.max(
+              minHeight,
+              Math.min(
+                window.innerHeight - windowPos.y - 20,
+                size.height + ev.movementY,
+              ),
+            ),
           }));
         }
       };
@@ -940,7 +961,12 @@ function ChatWindow({
         style={
           isMobile
             ? { top: 16, left: 16 }
-            : { top: windowPos.y, left: windowPos.x, width: windowSize.width, height: windowSize.height }
+            : {
+                top: windowPos.y,
+                left: windowPos.x,
+                width: windowSize.width,
+                height: windowSize.height,
+              }
         }
       >
         <div
@@ -958,7 +984,9 @@ function ChatWindow({
         >
           <div className="text-sm font-semibold text-fg-primary">AI Chat</div>
           <div className="flex justify-center">
-            {!isMobile && <GripHorizontal size={16} className="text-fg-secondary" />}
+            {!isMobile && (
+              <GripHorizontal size={16} className="text-fg-secondary" />
+            )}
           </div>
           <div className="flex justify-end">
             <button
@@ -987,15 +1015,27 @@ function ChatWindow({
           <>
             <div
               className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); setIsResizing("e"); }}
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("e");
+              }}
             />
             <div
               className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); setIsResizing("s"); }}
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("s");
+              }}
             />
             <div
               className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize group"
-              onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); setIsResizing("se"); }}
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("se");
+              }}
             >
               <svg
                 className="absolute bottom-0.5 right-0.5 w-3 h-3 text-fg-tertiary group-hover:text-fg-secondary transition-colors"

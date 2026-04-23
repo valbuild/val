@@ -1734,6 +1734,282 @@ export const ValServer = (
       },
     },
 
+    //#region ai proxy
+    "/ai/initialize": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Secret is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return authDataRes;
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/initialize",
+          async (data) => {
+            try {
+              const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/initialize`;
+
+              const upstreamRes = await fetch(upstreamUrl, {
+                method: "POST",
+                headers: getProfileAuthHeaders(
+                  authData,
+                  data,
+                  "application/json",
+                ),
+                body: JSON.stringify({}),
+              });
+              if (!upstreamRes.ok) {
+                const text = await upstreamRes.text();
+                return {
+                  status: 500 as const,
+                  json: {
+                    message: `AI initialize failed: ${upstreamRes.status} ${text}`,
+                  },
+                };
+              }
+              const json = (await upstreamRes.json()) as {
+                nonce: string;
+              };
+              const wsUrl =
+                options.valContentUrl
+                  .replace(/^https:/, "wss:")
+                  .replace(/^http:/, "ws:") +
+                `/v1/${options.project}/ai/connect`;
+              return {
+                status: 200 as const,
+                json: { nonce: json.nonce, wsUrl },
+              };
+            } catch (err) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    err instanceof Error ? err.message : "AI initialize error",
+                },
+              };
+            }
+          },
+        );
+      },
+    },
+    "/ai/sessions": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project || !options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Project or secret not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return authDataRes;
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/sessions",
+          async (data) => {
+            try {
+              const params = new URLSearchParams();
+              if (req.query.limit) params.set("limit", req.query.limit);
+              if (req.query.cursor_updatedAt) {
+                params.set("cursor_updatedAt", req.query.cursor_updatedAt);
+              }
+              if (req.query.cursor_id) {
+                params.set("cursor_id", req.query.cursor_id);
+              }
+              const qs = params.toString();
+              const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions${qs ? `?${qs}` : ""}`;
+              const upstreamRes = await fetch(upstreamUrl, {
+                headers: getProfileAuthHeaders(
+                  authData,
+                  data,
+                  "application/json",
+                ),
+              });
+              if (!upstreamRes.ok) {
+                const text = await upstreamRes.text();
+                return {
+                  status: 500 as const,
+                  json: {
+                    message: `AI sessions failed: ${upstreamRes.status} ${text}`,
+                  },
+                };
+              }
+              const json = await upstreamRes.json();
+              return { status: 200 as const, json };
+            } catch (err) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    err instanceof Error ? err.message : "AI sessions error",
+                },
+              };
+            }
+          },
+        );
+      },
+      PATCH: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project || !options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Project or secret not configured" },
+          };
+        }
+        const pathParts = (req.path || "").split("/").filter(Boolean);
+        const sessionId = pathParts[0];
+        if (!sessionId) {
+          return {
+            status: 500,
+            json: { message: "Missing sessionId in path" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return authDataRes;
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/sessions/rename",
+          async (data) => {
+            try {
+              const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}`;
+              const upstreamRes = await fetch(upstreamUrl, {
+                method: "PATCH",
+                headers: getProfileAuthHeaders(
+                  authData,
+                  data,
+                  "application/json",
+                ),
+                body: JSON.stringify({
+                  name: req.body.name,
+                }),
+              });
+              if (!upstreamRes.ok) {
+                const text = await upstreamRes.text();
+                return {
+                  status: 500 as const,
+                  json: {
+                    message: `AI session rename failed: ${upstreamRes.status} ${text}`,
+                  },
+                };
+              }
+              return { status: 200 as const, json: {} };
+            } catch (err) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    err instanceof Error
+                      ? err.message
+                      : "AI session rename error",
+                },
+              };
+            }
+          },
+        );
+      },
+    },
+    "/ai/messages": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project || !options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Project or secret not configured" },
+          };
+        }
+        const pathParts = (req.path || "").split("/").filter(Boolean);
+        const sessionId = pathParts[0];
+        if (!sessionId) {
+          return {
+            status: 500,
+            json: { message: "Missing sessionId in path" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return authDataRes;
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/sessions/messages",
+          async (data) => {
+            try {
+              const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages`;
+              const upstreamRes = await fetch(upstreamUrl, {
+                headers: getProfileAuthHeaders(
+                  authData,
+                  data,
+                  "application/json",
+                ),
+              });
+              if (!upstreamRes.ok) {
+                const text = await upstreamRes.text();
+                return {
+                  status: 500 as const,
+                  json: {
+                    message: `AI session messages failed: ${upstreamRes.status} ${text}`,
+                  },
+                };
+              }
+              const json = await upstreamRes.json();
+              console.log("Got AI session messages", json);
+              return { status: 200 as const, json };
+            } catch (err) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    err instanceof Error
+                      ? err.message
+                      : "AI session messages error",
+                },
+              };
+            }
+          },
+        );
+      },
+    },
+
     //#region files
     "/files": {
       GET: async (req) => {
@@ -2020,6 +2296,26 @@ async function withAuth<T>(
       },
     };
   }
+}
+
+function getProfileAuthHeaders(
+  auth: { apiKey: string } | { pat: string },
+  data: { sub: string },
+  type: "application/json",
+) {
+  if ("pat" in auth) {
+    return {
+      "x-val-pat": `Bearer ${auth.pat}`,
+      "Content-Type": type,
+    };
+  }
+  if ("apiKey" in auth) {
+    return {
+      ...getAuthHeaders(auth.apiKey, type),
+      "x-val-profile-id": data.sub,
+    };
+  }
+  throw new Error("Invalid auth");
 }
 
 function getAuthHeaders(
