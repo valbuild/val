@@ -5,10 +5,8 @@ export const toolNames = [
   "validate_content",
   "create_patch",
   "navigate_to",
-  "get_current_author",
-  "get_current_source_path",
+  "get_current_context",
   "get_patches",
-  "get_current_date_time",
   "set_session_name",
   "get_source_path_from_route",
 ] as const;
