@@ -1,11 +1,15 @@
 import {
+  deserializeSchema,
   Internal,
   Json,
   ModuleFilePath,
   PatchId,
+  Schema,
+  SelectorSource,
   SerializedSchema,
   SourcePath,
   ValidationError,
+  ValidationErrors,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import {
@@ -193,6 +197,7 @@ export class ValSyncEngine {
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
     this.cachedAllSchemasSnapshot = null;
+    this.cachedDeserializedSchemas = null;
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
     this.cachedPendingClientSidePatchIdsSnapshot = null;
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
@@ -304,6 +309,7 @@ export class ValSyncEngine {
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
     this.cachedAllSchemasSnapshot = null;
+    this.cachedDeserializedSchemas = null;
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
     this.cachedPendingClientSidePatchIdsSnapshot = null;
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
@@ -510,6 +516,7 @@ export class ValSyncEngine {
 
   private invalidateSchema() {
     this.cachedAllSchemasSnapshot = null;
+    this.cachedDeserializedSchemas = null;
     this.cachedSchemaSnapshots = null;
     this.cachedAllSourcesSnapshot = null;
     this.emit(this.listeners["schema"]?.[globalNamespace]);
@@ -713,6 +720,10 @@ export class ValSyncEngine {
   private cachedAllSchemasSnapshot: Record<
     ModuleFilePath,
     SerializedSchema
+  > | null;
+  private cachedDeserializedSchemas: Record<
+    ModuleFilePath,
+    Schema<SelectorSource>
   > | null;
   getAllSchemasSnapshot() {
     if (this.cachedAllSchemasSnapshot === null) {
@@ -1015,6 +1026,54 @@ export class ValSyncEngine {
         patch,
       } as const;
     }
+  }
+
+  validatePatchResult(
+    moduleFilePath: ModuleFilePath,
+    patch: Patch,
+  ):
+    | ValidationErrors
+    | { status: "no-source" | "no-schema" | "patch-error"; message: string } {
+    const currentSource =
+      this.optimisticClientSources[moduleFilePath] ??
+      this.serverSources?.[moduleFilePath];
+    if (currentSource === undefined) {
+      return {
+        status: "no-source",
+        message: `Content at '${moduleFilePath}' is not yet initialized`,
+      };
+    }
+    const serializedSchema = this.schemas?.[moduleFilePath];
+    if (!serializedSchema) {
+      return {
+        status: "no-schema",
+        message: `Schema not found for '${moduleFilePath}'`,
+      };
+    }
+    const patchableOps = patch.filter((op) => op.op !== "file");
+    const patchRes = applyPatch(
+      deepClone(currentSource as JSONValue),
+      ops,
+      patchableOps,
+    );
+    if (result.isErr(patchRes)) {
+      return {
+        status: "patch-error",
+        message: patchRes.error.message,
+      };
+    }
+    if (!this.cachedDeserializedSchemas) {
+      this.cachedDeserializedSchemas = {};
+    }
+    if (!this.cachedDeserializedSchemas[moduleFilePath]) {
+      this.cachedDeserializedSchemas[moduleFilePath] =
+        deserializeSchema(serializedSchema);
+    }
+    const schema = this.cachedDeserializedSchemas[moduleFilePath];
+    return schema["executeValidate"](
+      moduleFilePath as string as SourcePath,
+      patchRes.value,
+    );
   }
 
   /**
@@ -2380,6 +2439,7 @@ export class ValSyncEngine {
     this.schemas = schemas;
     this.cachedSchemaSnapshots = null;
     this.cachedAllSchemasSnapshot = null;
+    this.cachedDeserializedSchemas = null;
     this.emit(this.listeners["schema"]?.[globalNamespace]);
   }
 

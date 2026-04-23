@@ -20,6 +20,8 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
+import { useRoutesOf } from "../components/useRoutesOf";
+import { filterBlockingValidationErrors } from "./resolveValidationErrors";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -250,7 +252,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
-      console.log("Received AI WebSocket message in useAI", message);
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -269,7 +270,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         activeIdRef.current = null;
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
-        console.log("Received ai_tool_call message", message);
         // Ensure assistant message is active so tool indicators can be shown
         if (chatRef.current) {
           if (activeIdRef.current !== message.id) {
@@ -420,6 +420,42 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
+            }
+            const validationResult = syncEngine.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              console.error("Patch status not valid", validationResult);
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                syncEngine.getAllSchemasSnapshot(),
+                syncEngine.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                console.error("Patch validation failed", blockingErrors);
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId: message.toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(blockingErrors)}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(message.id, message.toolCallId);
+                return;
+              }
             }
             const patchId = syncEngine.createPatchId();
             const res = await syncEngine.addPatchAwaitable(
@@ -617,6 +653,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           });
         }
       } else if (message.type === "ai_error") {
+        console.error("Received AI error message", message);
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
           chatRef.current.startAssistantMessage(message.id);
