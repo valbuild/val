@@ -286,6 +286,35 @@ describe("richtext to remirror", () => {
     expect(richTextToRemirror(input)).toStrictEqual(output);
   });
 
+  test("empty string omits text field on remirror text node", () => {
+    const input: RichTextSource<AllRichTextOptions> = [
+      { tag: "h1", children: [""] },
+      { tag: "p", children: ["before", "", "after"] },
+    ];
+    const output: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "heading",
+          attrs: { level: 1 },
+          content: [{ type: "text" }],
+        },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "before" },
+            { type: "text", text: "after" },
+          ],
+        },
+      ],
+    };
+    const result = richTextToRemirror(input);
+    expect(result).toStrictEqual(output);
+    // Verify no text node has text: "" — the field must be absent, not empty
+    const allNodes = JSON.stringify(result);
+    expect(allNodes).not.toContain('"text":""');
+  });
+
   test("lists", () => {
     const input: RichTextSource<AllRichTextOptions> = [
       {
