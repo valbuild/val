@@ -1447,15 +1447,6 @@ export abstract class ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   >;
-  abstract getProfiles(): Promise<
-    {
-      profileId: string;
-      fullName: string;
-      avatar: {
-        url: string;
-      } | null;
-    }[]
-  >;
 }
 
 function isOnlyFileCheckValidationError(validationError: ValidationError) {

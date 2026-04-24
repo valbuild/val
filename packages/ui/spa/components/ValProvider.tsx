@@ -88,6 +88,7 @@ type ValContextValue = {
   syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
   profileId: string | null;
+  profileAuthError: string | null;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
@@ -536,6 +537,7 @@ export function ValProvider({
   const profilesData = useProfilesData(
     client,
     authenticationState,
+    "data" in stat && stat.data ? stat.data.mode : "unknown",
     serviceUnavailable,
   );
 
@@ -581,6 +583,8 @@ export function ValProvider({
         syncEngine,
         profileId: "data" in stat && stat.data ? stat.data.profileId : null,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
+        profileAuthError:
+          profilesData.status === "auth-error" ? profilesData.error : null,
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         observedCommitShas,
@@ -631,6 +635,7 @@ export function ValProvider({
 function useProfilesData(
   client: ValClient,
   authenticationState: AuthenticationState,
+  mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
 ) {
   const loadProfileDataRef = useRef(true);
@@ -642,6 +647,11 @@ function useProfilesData(
     | {
         data?: Record<AuthorId, Profile>;
         status: "loading" | "error";
+      }
+    | {
+        data?: Record<AuthorId, Profile>;
+        status: "auth-error";
+        error: string;
       }
     | {
         status: "not-asked";
@@ -666,6 +676,16 @@ function useProfilesData(
         status: "done",
         data: profilesById,
       });
+    } else if (mode === "fs" && res.status === 401) {
+      const message =
+        "message" in res.json && typeof res.json.message === "string"
+          ? res.json.message
+          : "Could not authenticate while getting profiles";
+      setProfilesData((prev) => ({
+        status: "auth-error",
+        error: message,
+        data: "data" in prev ? prev.data : undefined,
+      }));
     } else {
       console.error("Could not get profiles", res.json);
       loadProfileDataRef.current = true;
@@ -674,8 +694,20 @@ function useProfilesData(
         data: "data" in prev ? prev.data : undefined,
       }));
     }
-  }, [client, profilesData]);
+  }, [client, mode, profilesData]);
   useEffect(() => {
+    if (
+      authenticationState === "not-asked" ||
+      authenticationState === "loading"
+    ) {
+      return;
+    }
+    if (mode !== "fs" && authenticationState !== "authorized") {
+      return;
+    }
+    if (serviceUnavailable) {
+      return;
+    }
     if (!loadProfileDataRef.current) {
       return;
     }
@@ -686,7 +718,14 @@ function useProfilesData(
     } else if (profilesData.status === "not-asked") {
       loadProfiles();
     }
-  }, [authenticationState, client, profilesData, serviceUnavailable]);
+  }, [
+    authenticationState,
+    client,
+    loadProfiles,
+    mode,
+    profilesData,
+    serviceUnavailable,
+  ]);
 
   return profilesData;
 }
@@ -1249,9 +1288,13 @@ export type ShallowSource = EnsureAllTypes<{
 }>;
 
 export function useCurrentProfile() {
-  const { profileId, profiles } = useContext(ValContext);
+  const { profileId, profiles, mode } = useContext(ValContext);
   if (profileId) {
     return profiles[profileId] ?? null;
+  }
+  if (mode === "fs") {
+    const [firstProfile] = Object.values(profiles);
+    return firstProfile ?? null;
   }
   return null;
 }
@@ -1298,6 +1341,7 @@ export function useGlobalTransientErrors() {
 export function useGlobalError():
   | { type: "network-error"; networkError: number }
   | { type: "schema-error"; schemaError: number }
+  | { type: "profiles-auth-error"; error: string }
   | {
       type: "remote-files-error";
       error: string;
@@ -1312,7 +1356,7 @@ export function useGlobalError():
         | "unauthorized";
     }
   | null {
-  const { syncEngine, remoteFiles } = useContext(ValContext);
+  const { syncEngine, remoteFiles, profileAuthError } = useContext(ValContext);
   const networkError = useSyncExternalStore(
     syncEngine.subscribe("network-error"),
     () => syncEngine.getNetworkErrorSnapshot(),
@@ -1333,6 +1377,12 @@ export function useGlobalError():
     return {
       type: "schema-error" as const,
       schemaError,
+    };
+  }
+  if (profileAuthError !== null) {
+    return {
+      type: "profiles-auth-error" as const,
+      error: profileAuthError,
     };
   }
   if (remoteFiles.status === "inactive") {
