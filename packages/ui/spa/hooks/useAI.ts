@@ -658,7 +658,11 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         if (activeIdRef.current !== message.id) {
           chatRef.current.startAssistantMessage(message.id);
         }
-        chatRef.current.errorAssistantMessage(message.id, message.message);
+        chatRef.current.errorAssistantMessage(
+          message.id,
+          message.message,
+          message.code,
+        );
         activeIdRef.current = null;
         setIsStreaming(false);
       } else if (message.type === "ai_agent_handoff") {
