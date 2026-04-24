@@ -53,7 +53,6 @@ export const AIErrorMessage = z.object({
   id: z.string(),
   code: AIErrorCode,
   message: z.string(),
-  resetDate: z.string().optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 

@@ -7,7 +7,11 @@ import {
   useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
-import type { AISession, AIServerMessage } from "./useAIWebSocket";
+import type {
+  AISession,
+  AIServerMessage,
+  AIPromptMessage,
+} from "./useAIWebSocket";
 import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
@@ -536,6 +540,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                   }
                 : null,
               dateTime: new Date().toISOString(),
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
               valSourcePath: currentSourcePath,
               browserPathname,
               ...(routeSourcePath ? { routeSourcePath } : {}),
@@ -697,9 +702,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
   const sendMessage = useCallback(
     (text: string): boolean => {
-      console.log("Sending AI message in useAI", text);
-
-      return sendWsMessage({
+      const message: AIPromptMessage = {
         type: "ai_prompt",
         message: text,
         sessionId: sessionIdRef.current,
@@ -775,12 +778,14 @@ Do not describe what you will do unless you do it for clarification — just do 
 
 ## Style
 - Be concise and friendly.
+- This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.`,
             tools: ALL_TOOLS,
           },
         ],
-      });
+      };
+      return sendWsMessage(message);
     },
     [sendWsMessage],
   );
