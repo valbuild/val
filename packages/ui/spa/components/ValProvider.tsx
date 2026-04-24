@@ -183,11 +183,16 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
+  const wsEnabled =
+    isStatConnected &&
+    ("data" in stat && stat.data
+      ? stat.data.config?.ai?.chat?.experimental?.enable === true
+      : false);
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
-  } = useAIWebSocket(isStatConnected);
+  } = useAIWebSocket(wsEnabled);
 
   const aiGetSessions = useCallback(
     async (opts?: {

@@ -52,7 +52,7 @@ export function ToolsMenu() {
   const { globalErrors } = useErrors();
   const mode = useValMode();
   const config = useValConfig();
-  const isChatDisabled = config?.ai?.chat?.disabled === true;
+  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
   const [errorModules, sumValidationErrors] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     let sumValidationErrors = 0;
@@ -166,7 +166,7 @@ export function ToolsMenu() {
           )}
         </div>
       </div>
-      {mode === "http" && !isChatDisabled && (
+      {mode === "http" && isChatEnabled && (
         <div className="flex-1 min-h-0 border-t border-border-primary">
           <AIChat
             ref={chatRef}
