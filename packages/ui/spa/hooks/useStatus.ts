@@ -143,8 +143,6 @@ export function useStatus(client: ValClient) {
     boolean | boolean
   >();
 
-
-
   const statIdRef = useRef(0);
   useEffect(() => {
     if (
@@ -320,7 +318,6 @@ async function execStat(
           };
           webSocketRef.current.onmessage = (event) => {
             try {
-              console.log("Received WebSocket message", event.data);
               const messageRes = WebSocketServerMessage.safeParse(
                 JSON.parse(event.data),
               );
