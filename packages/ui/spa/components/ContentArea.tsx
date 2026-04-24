@@ -216,10 +216,6 @@ export function SearchBar() {
 
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
-
-  if (!currentSourcePath) {
-    return null;
-  }
   return <Module path={currentSourcePath} showModuleGalleryChild={null} />;
 }
 
