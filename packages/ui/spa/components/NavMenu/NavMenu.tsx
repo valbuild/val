@@ -227,7 +227,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                     </div>
                   </div>
                 </>
-              ) : (
+              ) : mode === "http" ? (
                 <>
                   <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center">
                     <User size={16} className="text-fg-secondary" />
@@ -240,6 +240,8 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                     </div>
                   )}
                 </>
+              ) : (
+                <div />
               )}
               <Ellipsis size={16} className="text-fg-secondary shrink-0" />
             </button>
