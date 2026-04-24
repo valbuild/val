@@ -216,19 +216,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   useImperativeHandle(ref, () => ({
     startAssistantMessage(id: string) {
-      console.log("Starting assistant message with id", id);
       setCurrentMessage({
         message: { id, role: "assistant", content: "", status: "streaming" },
         startedAt: Date.now(),
       });
     },
     appendAssistantChunk(id: string, chunk: string) {
-      console.log(
-        "Appending chunk to assistant message with id",
-        id,
-        "chunk:",
-        chunk,
-      );
       setCurrentMessage((prev) =>
         prev?.message.id === id
           ? {
@@ -242,7 +235,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       );
     },
     completeAssistantMessage(id: string) {
-      console.log("Completing assistant message with id", id);
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== id) return prev;
         setCompletedMessages((msgs) => [
