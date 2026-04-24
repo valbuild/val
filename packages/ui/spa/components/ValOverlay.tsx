@@ -835,6 +835,8 @@ function ChatWindow({
   onClose: () => void;
 }) {
   const chatRef = useRef<AIChatHandle | null>(null);
+  const config = useValConfig();
+  const org = config?.project?.split("/")[0];
   const {
     sendMessage,
     isConnected,
@@ -1009,6 +1011,7 @@ function ChatWindow({
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            org={org}
           />
         </div>
         {!isMobile && (

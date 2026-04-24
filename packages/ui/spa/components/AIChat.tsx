@@ -21,19 +21,19 @@ import {
   Database,
   ShieldCheck,
   Pencil,
-  CheckCircle2,
   XCircle,
   Plus,
   Navigation,
   User,
   Clock,
-  MapPin,
   History,
   ChevronLeft,
   Tag,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import { ToolName } from "../utils/toolNames";
+import { useValConfig } from "./ValFieldProvider";
+import { DEFAULT_APP_HOST } from "@valbuild/core";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +55,7 @@ export type ChatMessage = {
   content: string;
   status: ChatMessageStatus;
   error?: string;
+  errorCode?: string;
   toolActivities?: ToolActivity[];
 };
 
@@ -71,7 +72,7 @@ export type AIChatHandle = {
   /** Mark the assistant message as complete */
   completeAssistantMessage: (id: string) => void;
   /** Mark the assistant message as errored */
-  errorAssistantMessage: (id: string, error: string) => void;
+  errorAssistantMessage: (id: string, error: string, code?: string) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
     messageId: string,
@@ -122,8 +123,8 @@ export type AIChatProps = {
 
 const DEFAULT_SUGGESTIONS = [
   "Summarize recent changes",
-  "Help me write content",
-  "Explain this schema",
+  "What am I looking at?",
+  "Fix typos",
 ];
 
 // ---------------------------------------------------------------------------
@@ -251,12 +252,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         return null;
       });
     },
-    errorAssistantMessage(id: string, error: string) {
+    errorAssistantMessage(id: string, error: string, code?: string) {
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== id) return prev;
         setCompletedMessages((msgs) => [
           ...msgs,
-          { ...prev.message, status: "error", error },
+          { ...prev.message, status: "error", error, errorCode: code },
         ]);
         return null;
       });
@@ -658,8 +659,8 @@ function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-6 py-16 text-center">
-      <div className="rounded-full bg-bg-brand-primary/10 p-3">
-        <Sparkles className="h-8 w-8 text-fg-brand-primary" />
+      <div className="rounded-full  p-3">
+        <Sparkles className="h-8 w-8" />
       </div>
       <div>
         <h2 className="text-lg font-semibold text-fg-primary">
@@ -695,6 +696,11 @@ function MessageBubble({
   message: ChatMessage;
   onRetry: (id: string) => void;
 }) {
+  const config = useValConfig();
+  const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
+  const project = config?.project;
+  const org = project?.split("/")[0];
+
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
@@ -729,7 +735,7 @@ function MessageBubble({
             )}
             {message.content ? (
               <ReactMarkdown>{message.content}</ReactMarkdown>
-            ) : isStreamingMsg ? null : (
+            ) : isStreamingMsg || isError ? null : (
               <p className="text-fg-secondary italic">Empty response</p>
             )}
             {isStreamingMsg && <StreamingCursor />}
@@ -738,9 +744,25 @@ function MessageBubble({
 
         {isError && (
           <div className="mt-2 flex items-center gap-2">
-            <p className="text-xs text-fg-error-primary">
-              {message.error ?? "Something went wrong"}
-            </p>
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-fg-error-primary">
+                {message.error ?? "Something went wrong"}
+              </p>
+              {message.errorCode === "token_limit_reached" && (
+                <a
+                  href={
+                    org
+                      ? `${appHostUrl}/manage-subscription/${org}`
+                      : appHostUrl
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-fg-brand-primary underline"
+                >
+                  Add a data pack to continue using AI
+                </a>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="icon-sm"
