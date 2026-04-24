@@ -6,6 +6,9 @@ const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
   defaultTheme: "dark",
   ai: {
     chat: {
+      experimental: {
+        enable: true,
+      },
       suggestions: [
         "Summarize",
         "Fix typos at this page",

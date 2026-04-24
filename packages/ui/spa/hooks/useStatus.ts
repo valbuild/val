@@ -69,6 +69,19 @@ const StatData = z.object({
   profileId: z.string().nullable(),
   config: z.object({
     project: z.string().optional(),
+    ai: z
+      .object({
+        chat: z
+          .object({
+            experimental: z
+              .object({
+                enable: z.boolean().optional(),
+              })
+              .optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     files: z
       .object({
         directory: z.string(),
