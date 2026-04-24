@@ -194,6 +194,7 @@ function convertTextNode(
   node: RemirrorText,
 ): string | SpanNode<AllRichTextOptions> | LinkNode<AllRichTextOptions> {
   if (node.type === "text") {
+    const text = node.text ?? "";
     const styles: Styles<AllRichTextOptions>[] =
       node.marks?.flatMap((mark) => {
         if (mark.type !== "link") {
@@ -217,7 +218,7 @@ function convertTextNode(
             {
               tag: "span",
               styles,
-              children: [node.text],
+              children: [text],
             },
           ],
         };
@@ -228,17 +229,17 @@ function convertTextNode(
           node.marks.find(
             (mark): mark is RemirrorLinkMark => mark.type === "link",
           )?.attrs.href || "",
-        children: [node.text],
+        children: [text],
       };
     }
     if (styles.length > 0) {
       return {
         tag: "span",
         styles,
-        children: [node.text],
+        children: [text],
       };
     }
-    return node.text;
+    return text;
   } else {
     const exhaustiveCheck: never = node.type;
     throw new Error(`Unexpected node type: ${exhaustiveCheck}`);

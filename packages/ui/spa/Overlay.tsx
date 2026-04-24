@@ -105,28 +105,28 @@ function Overlay() {
             setTheme={setTheme}
           >
             <ErrorBoundary FallbackComponent={FallbackComponent}>
-            <ValRouter overlay>
-              <ValOverlay
-                draftMode={draftMode}
-                draftModeLoading={draftModeLoading}
-                setDraftMode={(value: boolean) => {
-                  const event = new CustomEvent("val-overlay-provider", {
-                    detail: {
-                      type: "draftMode",
-                      value,
-                    },
-                  });
-                  window.dispatchEvent(event);
-                }}
-                disableOverlay={() => {
-                  location.href = `${
-                    window.location.origin
-                  }/api/val/disable?redirect_to=${encodeURIComponent(
-                    window.location.href,
-                  )}`;
-                }}
-              />
-            </ValRouter>
+              <ValRouter overlay>
+                <ValOverlay
+                  draftMode={draftMode}
+                  draftModeLoading={draftModeLoading}
+                  setDraftMode={(value: boolean) => {
+                    const event = new CustomEvent("val-overlay-provider", {
+                      detail: {
+                        type: "draftMode",
+                        value,
+                      },
+                    });
+                    window.dispatchEvent(event);
+                  }}
+                  disableOverlay={() => {
+                    location.href = `${
+                      window.location.origin
+                    }/api/val/disable?redirect_to=${encodeURIComponent(
+                      window.location.href,
+                    )}`;
+                  }}
+                />
+              </ValRouter>
             </ErrorBoundary>
           </ValProvider>
         </ErrorBoundary>

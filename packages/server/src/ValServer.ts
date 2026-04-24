@@ -1543,9 +1543,7 @@ export const ValServer = (
           };
         }
         const authData = authDataRes.json.remoteFileAuth;
-        const execFetch = async (
-          headers: Record<string, string | undefined>,
-        ) => {
+        const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/profiles`;
             const upstreamRes = await fetch(upstreamUrl, {
@@ -1857,12 +1855,15 @@ export const ValServer = (
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
-          return authDataRes;
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
         }
         const authData = authDataRes.json.remoteFileAuth;
-        const execFetch = async (
-          headers: Record<string, string | undefined>,
-        ) => {
+        const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/initialize`;
             const upstreamRes = await fetch(upstreamUrl, {
@@ -1933,13 +1934,33 @@ export const ValServer = (
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
-          return authDataRes;
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
         }
         const authData = authDataRes.json.remoteFileAuth;
-        const execFetch = async (
-          headers: Record<string, string | undefined>,
-        ) => {
+        const execFetch = async (headers: HeadersInit) => {
           try {
+            const SessionsResponse = z.object({
+              sessions: z.array(
+                z.object({
+                  id: z.string(),
+                  name: z.string().nullable(),
+                  createdAt: z.string(),
+                  updatedAt: z.string(),
+                }),
+              ),
+              nextCursor: z
+                .object({
+                  updatedAt: z.string(),
+                  id: z.string(),
+                })
+                .nullable()
+                .optional(),
+            });
             const params = new URLSearchParams();
             if (req.query.limit) params.set("limit", req.query.limit);
             if (req.query.cursor_updatedAt) {
@@ -1960,8 +1981,18 @@ export const ValServer = (
                 },
               };
             }
-            const json = await upstreamRes.json();
-            return { status: 200 as const, json };
+            const json = SessionsResponse.safeParse(await upstreamRes.json());
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI sessions response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return { status: 200 as const, json: json.data };
           } catch (err) {
             return {
               status: 500 as const,
@@ -2011,12 +2042,15 @@ export const ValServer = (
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
-          return authDataRes;
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
         }
         const authData = authDataRes.json.remoteFileAuth;
-        const execFetch = async (
-          headers: Record<string, string | undefined>,
-        ) => {
+        const execFetch = async (headers: HeadersInit) => {
           try {
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}`;
             const upstreamRes = await fetch(upstreamUrl, {
@@ -2033,7 +2067,10 @@ export const ValServer = (
                 },
               };
             }
-            return { status: 200 as const, json: {} };
+            return {
+              status: 200 as const,
+              json: {} as Record<string, never>,
+            };
           } catch (err) {
             return {
               status: 500 as const,
@@ -2092,13 +2129,31 @@ export const ValServer = (
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
-          return authDataRes;
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
         }
         const authData = authDataRes.json.remoteFileAuth;
-        const execFetch = async (
-          headers: Record<string, string | undefined>,
-        ) => {
+        const execFetch = async (headers: HeadersInit) => {
           try {
+            const SessionMessagesResponse = z.object({
+              messages: z.array(
+                z.object({
+                  role: z.string(),
+                  content: z.string(),
+                }),
+              ),
+              nextCursor: z
+                .object({
+                  updatedAt: z.string(),
+                  id: z.string(),
+                })
+                .nullable()
+                .optional(),
+            });
             const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages`;
             const upstreamRes = await fetch(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
@@ -2110,8 +2165,20 @@ export const ValServer = (
                 },
               };
             }
-            const json = await upstreamRes.json();
-            return { status: 200 as const, json };
+            const json = SessionMessagesResponse.safeParse(
+              await upstreamRes.json(),
+            );
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI session messages response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return { status: 200 as const, json: json.data };
           } catch (err) {
             return {
               status: 500 as const,
@@ -2390,13 +2457,28 @@ async function withAuth<T>(
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
   handler: (data: IntegratedServerJwtPayload) => Promise<T>,
-): Promise<ReturnType<ServerOf<Api>["/session"]["GET"]> | T> {
+): Promise<
+  | {
+      status: 401;
+      json: {
+        message: string;
+        details?: unknown;
+      };
+    }
+  | {
+      status: 500;
+      json: {
+        message: string;
+      };
+    }
+  | T
+> {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
     const decodedToken = decodeJwt(cookie, secret);
     if (!decodedToken) {
       return {
-        status: 401,
+        status: 401 as const,
         json: {
           message: "Could not verify session. You will need to login again.",
           details: "Invalid token",
@@ -2406,7 +2488,7 @@ async function withAuth<T>(
     const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
     if (!verification.success) {
       return {
-        status: 401,
+        status: 401 as const,
         json: {
           message:
             "Session invalid or, most likely, expired. You will need to login again.",
@@ -2417,7 +2499,7 @@ async function withAuth<T>(
     return handler(verification.data).catch((err) => {
       console.error(`Failed while processing: ${errorMessageType}`, err);
       return {
-        status: 500,
+        status: 500 as const,
         json: {
           message: err.message,
         },
@@ -2425,7 +2507,7 @@ async function withAuth<T>(
     });
   } else {
     return {
-      status: 401,
+      status: 401 as const,
       json: {
         message: "Login required",
         details: {
@@ -2440,7 +2522,7 @@ function getProfileAuthHeaders(
   auth: { apiKey: string } | { pat: string },
   data: { sub: string } | null,
   type: "application/json",
-) {
+): Record<string, string> {
   if ("pat" in auth) {
     return {
       "x-val-pat": auth.pat,
@@ -2459,9 +2541,7 @@ function getProfileAuthHeaders(
 function getAuthHeaders(
   token: string,
   type?: "application/json" | "application/json-patch+json",
-):
-  | { Authorization: string }
-  | { "Content-Type": string; Authorization: string } {
+): Record<string, string> {
   if (!type) {
     return {
       Authorization: `Bearer ${token}`,
