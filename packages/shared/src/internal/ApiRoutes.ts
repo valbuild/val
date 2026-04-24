@@ -877,6 +877,10 @@ export const Api = {
       res: z.union([
         unauthorizedResponse,
         z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
           status: z.literal(200),
           json: z.object({
             profiles: z.array(

@@ -44,6 +44,13 @@ export function ContentArea() {
                   Schema error - check your console for details
                 </div>
               </>
+            ) : globalError.type === "profiles-auth-error" ? (
+              <>
+                <div className="absolute w-full h-16 top-0 p-4 text-center text-fg-error-primary bg-bg-error-primary z-[50]">
+                  Could not authenticate with your personal access token while
+                  getting profiles.
+                </div>
+              </>
             ) : globalError.type === "remote-files-error" ? (
               <RemoteFilesErrorDialog error={globalError} />
             ) : (

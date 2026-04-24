@@ -88,6 +88,20 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const ProfilesResponse = z.object({
+    profiles: z.array(
+      z.object({
+        profileId: z.string(),
+        fullName: z.string(),
+        email: z.string().optional(),
+        avatar: z
+          .object({
+            url: z.string(),
+          })
+          .nullable(),
+      }),
+    ),
+  });
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
@@ -1500,13 +1514,106 @@ export const ValServer = (
             },
           };
         }
-        const profiles = await serverOps.getProfiles();
-        return {
-          status: 200,
-          json: {
-            profiles,
-          },
+        if (!options.project) {
+          return {
+            status: 500,
+            json: {
+              message: "Project is not configured",
+            },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          if (
+            serverOps instanceof ValOpsFS &&
+            authDataRes.json.errorCode === "pat-error"
+          ) {
+            return {
+              status: 200,
+              json: {
+                profiles: [],
+              },
+            };
+          }
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (
+          headers: Record<string, string | undefined>,
+        ) => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/profiles`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "GET",
+              headers,
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              const isAuthError =
+                upstreamRes.status === 401 || upstreamRes.status === 403;
+              return {
+                status: isAuthError ? (401 as const) : (500 as const),
+                json: {
+                  message: isAuthError
+                    ? `Profile authentication failed: ${upstreamRes.status} ${text}`
+                    : `Profiles failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const parseRes = ProfilesResponse.safeParse(
+              await upstreamRes.json(),
+            );
+            if (!parseRes.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse profiles response: " +
+                    fromError(parseRes.error).toString(),
+                },
+              };
+            }
+            return {
+              status: 200 as const,
+              json: {
+                profiles: parseRes.data.profiles,
+              },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "Profiles request failed",
+              },
+            };
+          }
         };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: {
+              message: "Secret is not configured",
+            },
+          };
+        }
+        return withAuth(options.valSecret, cookies, "profiles", (data) => {
+          return execFetch(
+            getProfileAuthHeaders(authData, data, "application/json"),
+          );
+        });
       },
     },
     "/commit-summary": {
