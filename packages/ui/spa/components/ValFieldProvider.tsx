@@ -143,6 +143,7 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         type,
         patch,
         patchId,
+        null,
         Date.now(),
       );
     },

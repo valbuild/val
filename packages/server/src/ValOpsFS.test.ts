@@ -176,6 +176,7 @@ describe("ValOpsFS", () => {
         headBaseSha: await ops.getBaseSha(),
       },
       null,
+      null,
     );
     if (result.isErr(patchRes1)) {
       console.log("patch error", patchRes1.error);
@@ -264,6 +265,7 @@ describe("ValOpsFS", () => {
           type: "patch",
           patchId: patchRes1.value.patchId,
         },
+        null,
         null,
       );
     }

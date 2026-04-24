@@ -25,7 +25,6 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { useRoutesOf } from "../components/useRoutesOf";
 import { filterBlockingValidationErrors } from "./resolveValidationErrors";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {

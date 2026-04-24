@@ -171,8 +171,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   const [renameValue, setRenameValue] = useState("");
   const config = useValConfig();
-  const effectiveSuggestions =
-    config?.ai?.chat?.suggestions ?? suggestions;
+  const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
   const emptyTitle = config?.ai?.chat?.title;
   const emptyDescription = config?.ai?.chat?.description;
 

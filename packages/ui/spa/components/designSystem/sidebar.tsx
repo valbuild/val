@@ -303,7 +303,7 @@ const SidebarRail = React.forwardRef<
   HTMLButtonElement,
   React.ComponentProps<"button"> & { side?: "left" | "right" }
 >(({ className, side = "left", ...props }, ref) => {
-  const { toggleSidebar, width, setWidth } = useSidebar();
+  const { width, setWidth } = useSidebar();
   const dragRef = React.useRef({ startX: 0, startWidth: 0, moved: false });
 
   const handleMouseDown = React.useCallback(

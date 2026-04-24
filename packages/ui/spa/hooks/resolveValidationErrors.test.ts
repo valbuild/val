@@ -94,15 +94,15 @@ describe("filterBlockingValidationErrors", () => {
       ],
     };
     const result = filterBlockingValidationErrors(errors, schemas, sources);
-    expect(
-      result["/content/ref.val.ts" as SourcePath]?.[0]?.message,
-    ).toContain("nonexistent");
-    expect(
-      result["/content/ref.val.ts" as SourcePath]?.[0]?.message,
-    ).toContain("home");
-    expect(
-      result["/content/ref.val.ts" as SourcePath]?.[0]?.message,
-    ).toContain("about");
+    expect(result["/content/ref.val.ts" as SourcePath]?.[0]?.message).toContain(
+      "nonexistent",
+    );
+    expect(result["/content/ref.val.ts" as SourcePath]?.[0]?.message).toContain(
+      "home",
+    );
+    expect(result["/content/ref.val.ts" as SourcePath]?.[0]?.message).toContain(
+      "about",
+    );
   });
 
   test("router:check-route — valid route is non-blocking", () => {

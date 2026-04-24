@@ -344,26 +344,18 @@ export class ValOpsFS extends ValOps {
       } else if (parsedBase && parsedBase.error) {
         errors.push({ ...parsedBase.error, parentPatchId: dir });
       } else {
-        if (
-          includes &&
-          includes.length > 0 &&
-          !includes.includes(parsedPatch.data.patchId as PatchId)
-        ) {
+        const patchId = parsedPatch.data.patchId as PatchId;
+        if (includes && includes.length > 0 && !includes.includes(patchId)) {
           return;
         }
 
-        patches[parsedPatch.data.patchId as PatchId] = {
-          ...(parsedPatch.data as {
-            // parseFile does keep refined types?
-            path: ModuleFilePath;
-            patch: Patch;
-            patchId: PatchId;
-            parentRef: ParentRef;
-            baseSha: BaseSha;
-            createdAt: string;
-            authorId: AuthorId | null;
-            coreVersion: string;
-          }),
+        patches[patchId] = {
+          path: parsedPatch.data.path,
+          patch: parsedPatch.data.patch,
+          parentRef: parsedPatch.data.parentRef,
+          baseSha: parsedPatch.data.baseSha as BaseSha,
+          createdAt: parsedPatch.data.createdAt,
+          authorId: parsedPatch.data.authorId,
           appliedAt: null,
         };
       }

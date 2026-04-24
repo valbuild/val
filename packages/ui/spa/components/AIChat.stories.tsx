@@ -27,7 +27,10 @@ type Story = StoryObj<typeof AIChat>;
 
 export const Empty: Story = {
   args: {
-    onSendMessage: (text: string) => { console.log("Send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Send:", text);
+      return true;
+    },
   },
 };
 
@@ -39,7 +42,10 @@ export const CustomSuggestions: Story = {
       "Fix validation errors",
       "Generate a summary",
     ],
-    onSendMessage: (text: string) => { console.log("Send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Send:", text);
+      return true;
+    },
   },
 };
 
@@ -86,7 +92,10 @@ const conversationMessages: ChatMessage[] = [
 export const WithConversation: Story = {
   args: {
     initialMessages: conversationMessages,
-    onSendMessage: (text: string) => { console.log("Send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Send:", text);
+      return true;
+    },
   },
 };
 
@@ -180,7 +189,10 @@ export const Error: Story = {
         error: "Connection lost — the server closed the WebSocket unexpectedly",
       },
     ],
-    onSendMessage: (text: string) => { console.log("Retry send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Retry send:", text);
+      return true;
+    },
   },
 };
 
@@ -202,7 +214,10 @@ export const ErrorAfterPartialResponse: Story = {
         error: "Stream interrupted — request timed out after 30s",
       },
     ],
-    onSendMessage: (text: string) => { console.log("Retry send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Retry send:", text);
+      return true;
+    },
   },
 };
 
@@ -270,7 +285,10 @@ export const LongMarkdown: Story = {
         status: "complete",
       },
     ],
-    onSendMessage: (text: string) => { console.log("Send:", text); return true; },
+    onSendMessage: (text: string) => {
+      console.log("Send:", text);
+      return true;
+    },
   },
 };
 
@@ -281,7 +299,7 @@ export const LongMarkdown: Story = {
 function InteractiveDemo() {
   const chatRef = useRef<AIChatHandle>(null);
 
-  const handleSend = (_text: string): boolean => {
+  const handleSend = (): boolean => {
     if (!chatRef.current) return false;
 
     const assistantId = `interactive-${Date.now()}`;
