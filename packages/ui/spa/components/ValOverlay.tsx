@@ -1244,6 +1244,8 @@ function ValMenu({
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
+  const config = useValConfig();
+  const isChatDisabled = config?.ai?.chat?.disabled === true;
   // TODO: refactor all resize handlers into a hook
   useEffect(() => {
     const handleResize = () => {
@@ -1522,7 +1524,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          {valMode === "http" && (
+          {valMode === "http" && !isChatDisabled && (
             <HoverCard>
               <HoverCardTrigger className="inline-flex">
                 <MenuButton

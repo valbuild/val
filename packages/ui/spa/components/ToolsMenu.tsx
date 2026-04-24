@@ -8,7 +8,11 @@ import {
   useCommittedPatches,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
-import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
+import {
+  useSchemas,
+  useShallowSourceAtPath,
+  useValConfig,
+} from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
   DraftChanges,
@@ -47,6 +51,8 @@ export function ToolsMenu() {
   const validationErrors = useAllValidationErrors() || {};
   const { globalErrors } = useErrors();
   const mode = useValMode();
+  const config = useValConfig();
+  const isChatDisabled = config?.ai?.chat?.disabled === true;
   const [errorModules, sumValidationErrors] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     let sumValidationErrors = 0;
@@ -160,7 +166,7 @@ export function ToolsMenu() {
           )}
         </div>
       </div>
-      {mode === "http" && (
+      {mode === "http" && !isChatDisabled && (
         <div className="flex-1 min-h-0 border-t border-border-primary">
           <AIChat
             ref={chatRef}

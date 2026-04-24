@@ -28,6 +28,7 @@ export const SharedValConfig: z.ZodSchema<
         .optional(),
       chat: z
         .object({
+          disabled: z.boolean().optional(),
           suggestions: z.array(z.string()).optional(),
           title: z.string().optional(),
           description: z.string().optional(),

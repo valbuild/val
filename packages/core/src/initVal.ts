@@ -34,6 +34,7 @@ export type ValConfig = {
       disabled?: boolean;
     };
     chat?: {
+      disabled?: boolean;
       suggestions?: string[];
       title?: string;
       description?: string;
