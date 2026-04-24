@@ -168,6 +168,17 @@ export type AISession = {
   updatedAt: string;
 };
 
+const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;
+
+/** Returns the session if it was updated within the last 24 hours, otherwise null. */
+export function getRecentSession(sessions: AISession[]): AISession | null {
+  const session = sessions[0];
+  if (!session) return null;
+  return Date.now() - new Date(session.updatedAt).getTime() < RECENT_SESSION_MS
+    ? session
+    : null;
+}
+
 // --- Hook ---
 
 const RECONNECT_DELAY = 3000;

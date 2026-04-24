@@ -8,6 +8,7 @@ import {
   useAIContext,
 } from "../components/ValProvider";
 import type { AISession, AIServerMessage } from "./useAIWebSocket";
+import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -831,6 +832,23 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatRef, aiGetSessionMessages],
   );
+
+  // On mount, restore the most recent session if it was used within the last 24 hours
+  useEffect(() => {
+    let cancelled = false;
+    getSessions({ limit: 1 })
+      .then((fetchedSessions) => {
+        if (cancelled) return;
+        const session = getRecentSession(fetchedSessions);
+        if (session) return loadSession(session.id);
+      })
+      .catch((err) => {
+        console.error("Failed to restore last session:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return {
     sendMessage,

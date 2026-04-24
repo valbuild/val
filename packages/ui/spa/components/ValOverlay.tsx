@@ -71,6 +71,7 @@ import { HoverCardArrow } from "@radix-ui/react-hover-card";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { getRecentSession } from "../hooks/useAIWebSocket";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -845,6 +846,19 @@ function ChatWindow({
     setSessionName,
     loadSession,
   } = useAI(chatRef);
+  const hasRestoredSession = useRef(false);
+  useEffect(() => {
+    if (!isOpen || hasRestoredSession.current) return;
+    hasRestoredSession.current = true;
+    getSessions({ limit: 1 })
+      .then((fetchedSessions) => {
+        const session = getRecentSession(fetchedSessions);
+        if (session) return loadSession(session.id);
+      })
+      .catch((err) => {
+        console.error("Failed to restore last session:", err);
+      });
+  }, [isOpen, getSessions, loadSession]);
   const [windowPos, setWindowPos] = useState({
     x: Math.max(20, window.innerWidth - 570),
     y: 80,
