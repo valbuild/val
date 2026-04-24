@@ -170,6 +170,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [renameValue, setRenameValue] = useState("");
+  const config = useValConfig();
+  const effectiveSuggestions =
+    config?.ai?.chat?.suggestions ?? suggestions;
+  const emptyTitle = config?.ai?.chat?.title;
+  const emptyDescription = config?.ai?.chat?.description;
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -572,7 +577,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         <div className="flex flex-col gap-4 p-4">
           {isEmpty ? (
             <EmptyState
-              suggestions={suggestions}
+              suggestions={effectiveSuggestions}
+              title={emptyTitle}
+              description={emptyDescription}
               onSelect={(s) => handleSend(s)}
             />
           ) : (
@@ -644,9 +651,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
 function EmptyState({
   suggestions,
+  title,
+  description,
   onSelect,
 }: {
   suggestions: string[];
+  title?: string;
+  description?: string;
   onSelect: (text: string) => void;
 }) {
   return (
@@ -656,10 +667,10 @@ function EmptyState({
       </div>
       <div>
         <h2 className="text-lg font-semibold text-fg-primary">
-          How can I help?
+          {title ?? "How can I help?"}
         </h2>
         <p className="mt-1 text-sm text-fg-secondary">
-          Ask me anything or pick a suggestion below
+          {description ?? "Ask me anything or pick a suggestion below"}
         </p>
       </div>
       {suggestions.length > 0 && (
@@ -667,7 +678,7 @@ function EmptyState({
           {suggestions.map((s) => (
             <Button
               key={s}
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => onSelect(s)}
               className="text-sm"
