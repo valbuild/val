@@ -7,6 +7,7 @@ import {
   Globe,
   GripHorizontal,
   LogIn,
+  MessageSquare,
   PanelBottom,
   PanelLeft,
   PanelRight,
@@ -36,7 +37,6 @@ import { AnyField } from "./AnyField";
 import {
   useAuthenticationState,
   useCurrentPatchIds,
-  useLoadingStatus,
   useValMode,
   usePublishSummary,
   useShallowModulesAtPaths,
@@ -68,6 +68,9 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import { AIChat } from "./AIChat";
+import type { AIChatHandle } from "./AIChat";
+import { useAI } from "../hooks/useAI";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -102,6 +105,8 @@ type ValMenuProps = ValOverlayProps & {
   >;
   setShowAllBoundingBoxes: Dispatch<SetStateAction<boolean>>;
   setAllBoundingBoxesVisible: Dispatch<SetStateAction<boolean>>;
+  isChatOpen: boolean;
+  setIsChatOpen: Dispatch<SetStateAction<boolean>>;
 };
 type DropZones =
   | "val-menu-left-top"
@@ -148,6 +153,7 @@ export function ValOverlay(props: ValOverlayProps) {
       joinedPaths: string;
     }>
   >([]);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   useEffect(() => {
     if (!props.draftMode) {
       setMode(null);
@@ -156,6 +162,7 @@ export function ValOverlay(props: ValOverlayProps) {
       setShowAllBoundingBoxes(false);
       setAllBoundingBoxesVisible(false);
       setAllBoundingBoxes([]);
+      setIsChatOpen(false);
     }
   }, [props.draftMode]);
   useEffect(() => {
@@ -409,6 +416,10 @@ export function ValOverlay(props: ValOverlayProps) {
             )}
           />
         ))}
+      <ChatWindow
+        isOpen={isChatOpen && props.draftMode}
+        onClose={() => setIsChatOpen(false)}
+      />
       {editMode === null && (
         <DraggableValMenu
           {...props}
@@ -421,6 +432,8 @@ export function ValOverlay(props: ValOverlayProps) {
           setAllBoundingBoxes={setAllBoundingBoxes}
           setShowAllBoundingBoxes={setShowAllBoundingBoxes}
           setAllBoundingBoxesVisible={setAllBoundingBoxesVisible}
+          isChatOpen={isChatOpen}
+          setIsChatOpen={setIsChatOpen}
         />
       )}
     </div>
@@ -814,6 +827,237 @@ function Window({
   );
 }
 
+function ChatWindow({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const chatRef = useRef<AIChatHandle | null>(null);
+  const {
+    sendMessage,
+    isConnected,
+    newSession,
+    sessions,
+    currentSessionId,
+    getSessions,
+    setSessionName,
+    loadSession,
+  } = useAI(chatRef);
+  const [windowPos, setWindowPos] = useState({
+    x: Math.max(20, window.innerWidth - 570),
+    y: 80,
+  });
+  const [windowSize, setWindowSize] = useState({ width: 480, height: 600 });
+  const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const isMobile = windowInnerWidth < 1024;
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowInnerWidth(window.innerWidth);
+      if (window.innerWidth < 1024) {
+        setWindowPos({ x: 16, y: 16 });
+      } else {
+        setWindowPos((pos) => {
+          const minVisible = 100;
+          const maxX = window.innerWidth - minVisible;
+          const maxY = window.innerHeight - minVisible;
+          return {
+            x: Math.max(
+              -(windowSize.width - minVisible),
+              Math.min(maxX, pos.x),
+            ),
+            y: Math.max(0, Math.min(maxY, pos.y)),
+          };
+        });
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [windowSize.width]);
+
+  useEffect(() => {
+    if (isDragging && !isMobile) {
+      const handleMove = (ev: MouseEvent) => {
+        setWindowPos((pos) => {
+          const minVisible = 100;
+          const maxX = window.innerWidth - minVisible;
+          const maxY = window.innerHeight - minVisible;
+          const w = ref.current?.offsetWidth ?? windowSize.width;
+          return {
+            x: Math.max(
+              -(w - minVisible),
+              Math.min(maxX, pos.x + ev.movementX),
+            ),
+            y: Math.max(0, Math.min(maxY, pos.y + ev.movementY)),
+          };
+        });
+      };
+      const handleMoveEnd = () => setIsDragging(false);
+      window.addEventListener("mousemove", handleMove);
+      window.addEventListener("mouseup", handleMoveEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleMove);
+        window.removeEventListener("mouseup", handleMoveEnd);
+      };
+    }
+  }, [isDragging, isMobile, windowSize.width]);
+
+  useEffect(() => {
+    if (isResizing && !isMobile) {
+      const handleResize = (ev: MouseEvent) => {
+        const minWidth = 360;
+        const minHeight = 400;
+        if (isResizing === "se" || isResizing === "e") {
+          setWindowSize((size) => ({
+            ...size,
+            width: Math.max(
+              minWidth,
+              Math.min(
+                window.innerWidth - windowPos.x - 20,
+                size.width + ev.movementX,
+              ),
+            ),
+          }));
+        }
+        if (isResizing === "se" || isResizing === "s") {
+          setWindowSize((size) => ({
+            ...size,
+            height: Math.max(
+              minHeight,
+              Math.min(
+                window.innerHeight - windowPos.y - 20,
+                size.height + ev.movementY,
+              ),
+            ),
+          }));
+        }
+      };
+      const handleResizeEnd = () => setIsResizing(null);
+      window.addEventListener("mousemove", handleResize);
+      window.addEventListener("mouseup", handleResizeEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleResize);
+        window.removeEventListener("mouseup", handleResizeEnd);
+      };
+    }
+  }, [isResizing, isMobile, windowPos.x, windowPos.y]);
+
+  return (
+    <div
+      className="fixed top-0 left-0 z-[8999]"
+      style={!isOpen ? { display: "none" } : undefined}
+    >
+      <div
+        className={classNames(
+          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
+          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
+          { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
+        )}
+        ref={ref}
+        style={
+          isMobile
+            ? { top: 16, left: 16 }
+            : {
+                top: windowPos.y,
+                left: windowPos.x,
+                width: windowSize.width,
+                height: windowSize.height,
+              }
+        }
+      >
+        <div
+          className={classNames(
+            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
+            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            { "cursor-grab active:cursor-grabbing": !isMobile },
+          )}
+          onMouseDown={(ev) => {
+            if (!isMobile) {
+              ev.preventDefault();
+              setIsDragging(true);
+            }
+          }}
+        >
+          <div className="text-sm font-semibold text-fg-primary">AI Chat</div>
+          <div className="flex justify-center">
+            {!isMobile && (
+              <GripHorizontal size={16} className="text-fg-secondary" />
+            )}
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-bg-secondary transition-colors"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <AIChat
+            ref={chatRef}
+            onSendMessage={sendMessage}
+            onNewSession={newSession}
+            isConnected={isConnected}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            onLoadSession={loadSession}
+            onFetchSessions={getSessions}
+            onSetSessionName={setSessionName}
+          />
+        </div>
+        {!isMobile && (
+          <>
+            <div
+              className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-bg-brand-primary/50 transition-colors"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("e");
+              }}
+            />
+            <div
+              className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-bg-brand-primary/50 transition-colors"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("s");
+              }}
+            />
+            <div
+              className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize group"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setIsResizing("se");
+              }}
+            >
+              <svg
+                className="absolute bottom-0.5 right-0.5 w-3 h-3 text-fg-tertiary group-hover:text-fg-secondary transition-colors"
+                viewBox="0 0 12 12"
+                fill="none"
+              >
+                <path
+                  d="M10 2L2 10M10 6L6 10M10 10H10.01"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const buttonClassName =
   "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
 const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
@@ -948,6 +1192,8 @@ function ValMenu({
   setAllBoundingBoxes,
   setShowAllBoundingBoxes,
   setAllBoundingBoxesVisible,
+  isChatOpen,
+  setIsChatOpen,
 }: {
   dropZone: DropZones;
   ghost?: boolean;
@@ -980,12 +1226,13 @@ function ValMenu({
     }, 200);
   };
   const { theme, setTheme } = useTheme();
-  const loadingStatus = useLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
+  const config = useValConfig();
+  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
   // TODO: refactor all resize handlers into a hook
   useEffect(() => {
     const handleResize = () => {
@@ -1217,7 +1464,7 @@ function ValMenu({
               )}
               <ScrollArea>
                 <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px]">
-                  <DraftChanges loadingStatus={loadingStatus} />
+                  <DraftChanges />
                 </div>
               </ScrollArea>
               {!publishDisabled && (
@@ -1264,6 +1511,25 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
+          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
+            <HoverCard>
+              <HoverCardTrigger className="inline-flex">
+                <MenuButton
+                  active={isChatOpen}
+                  onClick={() => setIsChatOpen((prev) => !prev)}
+                  icon={<MessageSquare size={16} />}
+                />
+              </HoverCardTrigger>
+              <HoverCardContent
+                side={publishPopoverSide}
+                className="z-50"
+                container={portalContainer}
+              >
+                Open AI Chat to ask questions and edit content with AI
+                <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
+              </HoverCardContent>
+            </HoverCard>
+          )}
           <Popover>
             <PopoverTrigger
               className={classNames(buttonClassName, buttonInactiveClassName)}

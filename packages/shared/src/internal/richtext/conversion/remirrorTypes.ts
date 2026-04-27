@@ -18,7 +18,7 @@ export type RemirrorLinkMark = z.infer<typeof RemirrorLinkMark>;
 export const RemirrorText = z.intersection(
   z.object({
     type: z.literal("text"),
-    text: z.string(),
+    text: z.string().optional(),
   }),
   z
     .object({

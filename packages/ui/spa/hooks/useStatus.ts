@@ -16,6 +16,31 @@ const PatchId = z
   .uuid()
   .refine((p): p is PatchId => true);
 
+export const AIModel = z.enum(["openai-gpt-5.1"]);
+export type AIModel = z.infer<typeof AIModel>;
+
+export const AIAgentDefinition = z.object({
+  id: z.string(),
+  systemPrompt: z.string(),
+  model: AIModel,
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string(),
+        parameters: z.object({
+          type: z.literal("object"),
+          properties: z.record(z.string(), z.unknown()),
+          required: z.array(z.string()).optional(),
+        }),
+      }),
+    )
+    .optional(),
+  description: z.string().optional(),
+});
+
+export type AIAgentDefinition = z.infer<typeof AIAgentDefinition>;
+
 const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("patches"),
@@ -32,11 +57,6 @@ const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("subscribed"),
   }),
-  z.object({
-    type: z.literal("error"),
-    message: z.string(),
-    reconnect: z.boolean().optional(),
-  }),
 ]);
 
 const StatData = z.object({
@@ -49,6 +69,19 @@ const StatData = z.object({
   profileId: z.string().nullable(),
   config: z.object({
     project: z.string().optional(),
+    ai: z
+      .object({
+        chat: z
+          .object({
+            experimental: z
+              .object({
+                enable: z.boolean().optional(),
+              })
+              .optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     files: z
       .object({
         directory: z.string(),
@@ -113,6 +146,7 @@ export function useStatus(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
+  const connectionIdRef = useRef<string>(crypto.randomUUID());
   const {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
@@ -129,6 +163,9 @@ export function useStatus(client: ValClient) {
       stat.status === "error" ||
       stat.status === "ws-message-received"
     ) {
+      if (stat.status === "error") {
+        console.error("Stat error", stat.status, "error:", stat.error);
+      }
       if (stat.wait === 0) {
         console.debug(
           "Executing stat immediately",
@@ -140,6 +177,7 @@ export function useStatus(client: ValClient) {
         execStat(
           client,
           webSocketRef,
+          connectionIdRef,
           statIdRef,
           stat,
           setStat,
@@ -160,6 +198,7 @@ export function useStatus(client: ValClient) {
           execStat(
             client,
             webSocketRef,
+            connectionIdRef,
             statIdRef,
             stat,
             setStat,
@@ -182,6 +221,7 @@ export function useStatus(client: ValClient) {
       execStat(
         client,
         webSocketRef,
+        connectionIdRef,
         statIdRef,
         stat,
         setStat,
@@ -202,10 +242,11 @@ export function useStatus(client: ValClient) {
   ] as const;
 }
 
-const WebSocketStatInterval = 10 * 1000;
+const WebSocketStatInterval = 2 * 60 * 10 * 1000;
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
+  connectionIdRef: React.MutableRefObject<string>,
   statIdRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
@@ -281,7 +322,11 @@ async function execStat(
           const nonce = res.json.nonce;
           webSocketRef.current.onopen = () => {
             webSocketRef.current?.send(
-              JSON.stringify({ nonce, type: "subscribe" }),
+              JSON.stringify({
+                nonce,
+                type: "subscribe",
+                connectionId: connectionIdRef.current,
+              }),
             );
           };
           webSocketRef.current.onmessage = (event) => {
@@ -297,9 +342,7 @@ async function execStat(
                 return;
               }
               const message = messageRes.data;
-              if (message.type === "error") {
-                setStat((prev) => createError(prev, message.message));
-              } else if (message.type === "patches") {
+              if (message.type === "patches") {
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {

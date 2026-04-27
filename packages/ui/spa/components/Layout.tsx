@@ -85,7 +85,7 @@ export function Layout() {
             <SidebarContent>
               <NavMenuWrapper />
             </SidebarContent>
-            <SidebarRail />
+            <SidebarRail side="left" />
           </Sidebar>
         </SidebarProvider>
         <div className="grow w-full">
@@ -100,7 +100,7 @@ export function Layout() {
             <SidebarContent>
               <ToolsMenu />
             </SidebarContent>
-            <SidebarRail />
+            <SidebarRail side="right" />
           </Sidebar>
         </SidebarProvider>
       </main>

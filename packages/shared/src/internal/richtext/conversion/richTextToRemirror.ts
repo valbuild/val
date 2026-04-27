@@ -82,6 +82,11 @@ function convertHeadingToRemirror(
 }
 
 function convertStringToRemirror(child: string): RemirrorText {
+  if (!child) {
+    return {
+      type: "text",
+    };
+  }
   return {
     type: "text",
     text: child,
@@ -163,6 +168,9 @@ function convertParagraphToRemirror(
       NonNullable<RemirrorParagraph["content"]>[number]
     >((child) => {
       if (typeof child === "string") {
+        if (!child) {
+          return [];
+        }
         return [convertStringToRemirror(child)];
       }
       switch (child.tag) {

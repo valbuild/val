@@ -4,12 +4,22 @@ import {
   useLoadingStatus,
   usePublishSummary,
   useValMode,
+  useCurrentPatchIds,
+  useCommittedPatches,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
-import { useSchemas, useShallowSourceAtPath } from "./ValFieldProvider";
+import {
+  useSchemas,
+  useShallowSourceAtPath,
+  useValConfig,
+} from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
-import { DraftChanges } from "./DraftChanges";
-import classNames from "classnames";
+import {
+  DraftChanges,
+  PatchErrorsDisplay,
+  ValidationErrorsDisplay,
+  TransientErrorsDisplay,
+} from "./DraftChanges";
 import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -19,8 +29,11 @@ import {
   Accordion,
   AccordionItem,
 } from "./designSystem/accordion";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
+import { AIChat } from "./AIChat";
+import type { AIChatHandle } from "./AIChat";
+import { useAI } from "../hooks/useAI";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
@@ -38,6 +51,8 @@ export function ToolsMenu() {
   const validationErrors = useAllValidationErrors() || {};
   const { globalErrors } = useErrors();
   const mode = useValMode();
+  const config = useValConfig();
+  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
   const [errorModules, sumValidationErrors] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     let sumValidationErrors = 0;
@@ -50,87 +65,122 @@ export function ToolsMenu() {
     }
     return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
   }, [validationErrors]);
+  const currentPatchIds = useCurrentPatchIds();
+  const committedPatchIds = useCommittedPatches();
+  const pendingChanges = currentPatchIds.length - committedPatchIds.size;
+  const chatRef = useRef<AIChatHandle | null>(null);
+  const {
+    sendMessage,
+    isConnected,
+    newSession,
+    sessions,
+    currentSessionId,
+    getSessions,
+    setSessionName,
+    loadSession,
+  } = useAI(chatRef);
   return (
     <div
-      className="min-h-[100svh] bg-bg-primary"
+      className="flex flex-col h-[100svh] bg-bg-primary"
       style={
         {
           "--menu-width": "320px",
         } as React.CSSProperties
       }
     >
-      <div className="h-16 border-b border-border-primary">
+      <div className="shrink-0 h-16 border-b border-border-primary">
         <ToolsMenuButtons />
       </div>
       {isPublishing && (
-        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
+        <div className="shrink-0 flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
           <span>Publishing changes </span>
           <Loader2 size={16} className="animate-spin" />
         </div>
       )}
-      <ScrollArea>
-        <div className="max-h-[calc(100svh-64px)]">
+      <div className="shrink-0 overflow-auto">
+        <div className="max-h-[50svh]">
           {globalErrors &&
             globalErrors.length > 0 &&
             globalErrors.length !== sumValidationErrors && (
-              <Accordion type="single" collapsible>
-                <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
-                    Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
-                    {globalErrors?.length} errors in all.{" "}
-                    {globalErrors.length - sumValidationErrors} were
-                    non-validation errors. A developer might need to fix these
-                    issues.
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <ScrollArea>
-                      <div className="max-h-[calc(100svh-128px)] max-w-[var(--menu-width)]">
-                        {globalErrors?.map((error, i) => {
-                          return (
-                            <ShortenedErrorMessage key={i} error={error} />
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
+              <div className="p-4 bg-bg-error-primary text-fg-error-primary">
+                <div>
+                  Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
+                  {globalErrors?.length} errors in all.{" "}
+                  {globalErrors.length - sumValidationErrors} were
+                  non-validation errors. A developer might need to fix these
+                  issues.
+                </div>
+                <ScrollArea>
+                  <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
+                    {globalErrors?.map((error, i) => {
+                      return <ShortenedErrorMessage key={i} error={error} />;
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
             )}
           {globalErrors?.length === sumValidationErrors &&
             errorModules.length > 0 && (
-              <Accordion type="single" collapsible>
-                <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
-                    <div>
-                      <div>
-                        Cannot {mode === "fs" ? "save" : "publish"} now.
-                      </div>
-                      <div>Found errors in modules</div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <ScrollArea>
-                      <div className="max-h-[calc(100svh-64px)] max-w-[var(--menu-width)]">
-                        {errorModules?.map((error, i) => {
-                          return <ModuleError key={i} moduleFilePath={error} />;
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            )}
-          {loadingStatus !== "not-asked" && (
-            <div className={classNames("", {})}>
-              <ScrollArea>
-                <div className="max-h-[calc(100svh-64px)] border-b border-border-primary">
-                  <DraftChanges loadingStatus={loadingStatus} />
+              <div className="p-4 bg-bg-error-primary text-fg-error-primary">
+                <div>
+                  <div>Cannot {mode === "fs" ? "save" : "publish"} now.</div>
+                  <div>Found errors in modules</div>
                 </div>
-              </ScrollArea>
-            </div>
+                <ScrollArea>
+                  <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
+                    {errorModules?.map((error, i) => {
+                      return <ModuleError key={i} moduleFilePath={error} />;
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          <PatchErrorsDisplay />
+          <ValidationErrorsDisplay />
+          <TransientErrorsDisplay />
+          {loadingStatus !== "not-asked" && (
+            <Accordion type="single" collapsible>
+              <AccordionItem value="draft-changes" className="border-b-0">
+                <AccordionTrigger className="p-4 font-normal text-left">
+                  <div className="flex items-center flex-1 mr-2">
+                    <div className="flex gap-2 items-center">
+                      <span>
+                        {pendingChanges <= 0 ? "No" : pendingChanges} change
+                        {pendingChanges === 1 ? "" : "s"}
+                      </span>
+                      {loadingStatus === "loading" && (
+                        <Loader2 size={14} className="animate-spin" />
+                      )}
+                    </div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="[&>div]:pt-0 [&>div]:pb-0">
+                  <ScrollArea>
+                    <div className="max-h-[calc(50svh-128px)] border-b border-border-primary">
+                      <DraftChanges />
+                    </div>
+                  </ScrollArea>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           )}
         </div>
-      </ScrollArea>
+      </div>
+      {(mode === "http" || mode === "fs") && isChatEnabled && (
+        <div className="flex-1 min-h-0 border-t border-border-primary">
+          <AIChat
+            ref={chatRef}
+            onSendMessage={sendMessage}
+            onNewSession={newSession}
+            isConnected={isConnected}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            onLoadSession={loadSession}
+            onFetchSessions={getSessions}
+            onSetSessionName={setSessionName}
+          />
+        </div>
+      )}
     </div>
   );
 }

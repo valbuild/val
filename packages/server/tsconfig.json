@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "lib": ["es2020"],
+    "lib": ["es2020", "dom", "dom.iterable"],
+    "types": ["node", "jest"],
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
