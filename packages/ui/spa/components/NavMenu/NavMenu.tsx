@@ -260,7 +260,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
                 <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
               </button>
-              {profile && config && (
+              {profile && config && mode === "http" && (
                 <a
                   href={`${appHostUrl}/logout`}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary rounded-md transition-colors"
