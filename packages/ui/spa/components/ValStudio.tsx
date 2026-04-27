@@ -5,6 +5,8 @@ import { Themes } from "./ValThemeProvider";
 import { Layout } from "./Layout";
 import { SharedValConfig } from "@valbuild/shared/internal";
 import { ValRouter } from "./ValRouter";
+import { ErrorBoundary } from "react-error-boundary";
+import { FallbackComponent } from "../fallbackRender";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -29,16 +31,18 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       theme={theme}
       setTheme={setTheme}
     >
-      <div
-        style={{
-          minHeight: "100svh",
-          width: "100vw",
-          visibility: "hidden",
-        }}
-        id="val-app-container"
-      >
-        <ValRouter>{cssLoaded && <Layout />}</ValRouter>
-      </div>
+      <ErrorBoundary FallbackComponent={FallbackComponent}>
+        <div
+          style={{
+            minHeight: "100svh",
+            width: "100vw",
+            visibility: "hidden",
+          }}
+          id="val-app-container"
+        >
+          <ValRouter>{cssLoaded && <Layout />}</ValRouter>
+        </div>
+      </ErrorBoundary>
     </ValProvider>
   );
 };

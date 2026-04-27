@@ -227,7 +227,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                     </div>
                   </div>
                 </>
-              ) : (
+              ) : mode === "http" ? (
                 <>
                   <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center">
                     <User size={16} className="text-fg-secondary" />
@@ -240,6 +240,8 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                     </div>
                   )}
                 </>
+              ) : (
+                <div />
               )}
               <Ellipsis size={16} className="text-fg-secondary shrink-0" />
             </button>
@@ -258,7 +260,7 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                 {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
                 <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
               </button>
-              {profile && config && (
+              {profile && config && mode === "http" && (
                 <a
                   href={`${appHostUrl}/logout`}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary rounded-md transition-colors"

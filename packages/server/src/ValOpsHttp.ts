@@ -166,20 +166,6 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
-const ProfilesResponse = z.object({
-  profiles: z.array(
-    z.object({
-      profileId: z.string(),
-      fullName: z.string(),
-      email: z.string().optional(), // TODO: make this required once this can be guaranteed
-      avatar: z
-        .object({
-          url: z.string(),
-        })
-        .nullable(),
-    }),
-  ),
-});
 const NonceResponse = z.object({
   nonce: z.string(),
   url: z.string(),
@@ -777,6 +763,7 @@ export class ValOpsHttp extends ValOps {
     patchId: PatchId,
     parentRef: ParentRefT,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
     return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
@@ -789,6 +776,7 @@ export class ValOpsHttp extends ValOps {
         path,
         patch,
         authorId,
+        sessionId,
         patchId,
         parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
         baseSha,
@@ -1409,38 +1397,5 @@ export class ValOpsHttp extends ValOps {
         },
       };
     }
-  }
-
-  // #region profiles
-  override async getProfiles(): Promise<
-    {
-      profileId: string;
-      fullName: string;
-      email?: string;
-      avatar: { url: string } | null;
-    }[]
-  > {
-    const res = await fetch(`${this.contentUrl}/v1/${this.project}/profiles`, {
-      headers: {
-        ...this.authHeaders,
-        "Content-Type": "application/json",
-      },
-    });
-    if (res.ok) {
-      const parsed = ProfilesResponse.safeParse(await res.json());
-      if (parsed.error) {
-        console.error("Could not parse profiles response", parsed.error);
-        throw Error(
-          `Could not get profiles from remote server: wrong format. You might need to upgrade Val.`,
-        );
-      }
-      return parsed.data.profiles;
-    }
-    if (res.headers.get("Content-Type")?.includes("application/json")) {
-      const json = await res.json();
-      const message = getErrorMessageFromUnknownJson(json, "Unknown error");
-      throw Error(`Could not get profiles (status: ${res.status}): ${message}`);
-    }
-    throw Error(`Could not get profiles. Got status: ${res.status}`);
   }
 }

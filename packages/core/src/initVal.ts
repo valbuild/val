@@ -33,6 +33,14 @@ export type ValConfig = {
     commitMessages?: {
       disabled?: boolean;
     };
+    chat?: {
+      experimental?: {
+        enable?: boolean;
+      };
+      suggestions?: string[];
+      title?: string;
+      description?: string;
+    };
   };
 };
 export type InitVal = {

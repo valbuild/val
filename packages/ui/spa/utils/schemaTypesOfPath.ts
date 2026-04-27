@@ -24,6 +24,9 @@ export function schemaTypesOfPath(
       current = current.item;
     } else if (current.type === "object") {
       current = current.items[pathPart];
+    } else if (current.type === "richtext") {
+      // richtext has internal structure (nodes with indices and tags), allow traversal
+      break;
     } else if (current.type === "union") {
       if (typeof current.key === "string") {
         const types = current.items;
@@ -54,8 +57,7 @@ export function schemaTypesOfPath(
       current.type === "image" ||
       current.type === "keyOf" ||
       current.type === "route" ||
-      current.type === "literal" ||
-      current.type === "richtext"
+      current.type === "literal"
     ) {
       if (current.type === "image" || current.type === "file") {
         // allow changes to metadata

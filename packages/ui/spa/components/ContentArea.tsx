@@ -27,9 +27,9 @@ export function ContentArea() {
   const connectionStatus = useConnectionStatus();
   const globalError = useGlobalError();
   return (
-    <>
+    <div className="flex flex-col h-svh">
       <ContentAreaHeader />
-      <ScrollArea viewportId="val-content-area">
+      <ScrollArea viewportId="val-content-area" className="flex-1 min-h-0">
         {globalError !== null && (
           <>
             {globalError.type === "network-error" ? (
@@ -44,6 +44,13 @@ export function ContentArea() {
                   Schema error - check your console for details
                 </div>
               </>
+            ) : globalError.type === "profiles-auth-error" ? (
+              <>
+                <div className="absolute w-full h-16 top-0 p-4 text-center text-fg-error-primary bg-bg-error-primary z-[50]">
+                  Could not authenticate with your personal access token while
+                  getting profiles.
+                </div>
+              </>
             ) : globalError.type === "remote-files-error" ? (
               <RemoteFilesErrorDialog error={globalError} />
             ) : (
@@ -51,7 +58,7 @@ export function ContentArea() {
             )}
           </>
         )}
-        <div className="max-h-[calc(100svh-64px)] max-w-[800px] px-4 mx-auto">
+        <div className="h-full max-w-[800px] px-4 mx-auto">
           {connectionStatus === "service-unavailable" ? (
             <div className="p-8 mt-20 text-center text-fg-error-primary bg-bg-error-primary">
               <p>Could not connect to the content service.</p>
@@ -62,7 +69,7 @@ export function ContentArea() {
           )}
         </div>
       </ScrollArea>
-    </>
+    </div>
   );
 }
 
@@ -216,8 +223,7 @@ export function SearchBar() {
 
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
-  const path = currentSourcePath;
-  return <Module path={path} showModuleGalleryChild={null} />;
+  return <Module path={currentSourcePath} showModuleGalleryChild={null} />;
 }
 
 // export function PathBar() {

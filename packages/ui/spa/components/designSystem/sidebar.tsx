@@ -28,7 +28,6 @@ import { useValPortal } from "../ValPortalProvider";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = "20rem";
 const SIDEBAR_WIDTH_MOBILE = "20rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
@@ -39,6 +38,8 @@ type SidebarContextProps = {
   setOpen: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
+  width: number;
+  setWidth: (width: number) => void;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -51,6 +52,8 @@ function useSidebar() {
 
   return context;
 }
+
+const SIDEBAR_DEFAULT_WIDTH_PX = 320;
 
 const SidebarProvider = React.forwardRef<
   HTMLDivElement,
@@ -73,6 +76,8 @@ const SidebarProvider = React.forwardRef<
     ref,
   ) => {
     const isMobile = useIsMobile();
+
+    const [width, setWidth] = React.useState(SIDEBAR_DEFAULT_WIDTH_PX);
 
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
@@ -125,8 +130,10 @@ const SidebarProvider = React.forwardRef<
         setOpen,
         isMobile,
         toggleSidebar,
+        width,
+        setWidth,
       }),
-      [state, open, setOpen, isMobile, toggleSidebar],
+      [state, open, setOpen, isMobile, toggleSidebar, width, setWidth],
     );
 
     return (
@@ -135,7 +142,7 @@ const SidebarProvider = React.forwardRef<
           <div
             style={
               {
-                "--sidebar-width": SIDEBAR_WIDTH,
+                "--sidebar-width": `${width}px`,
                 "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
                 ...style,
               } as React.CSSProperties
@@ -294,9 +301,39 @@ SidebarTrigger.displayName = "SidebarTrigger";
 
 const SidebarRail = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentProps<"button">
->(({ className, ...props }, ref) => {
-  const { toggleSidebar } = useSidebar();
+  React.ComponentProps<"button"> & { side?: "left" | "right" }
+>(({ className, side = "left", ...props }, ref) => {
+  const { width, setWidth } = useSidebar();
+  const dragRef = React.useRef({ startX: 0, startWidth: 0, moved: false });
+
+  const handleMouseDown = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragRef.current = { startX: e.clientX, startWidth: width, moved: false };
+
+      const onMove = (ev: MouseEvent) => {
+        const delta =
+          side === "right"
+            ? dragRef.current.startX - ev.clientX
+            : ev.clientX - dragRef.current.startX;
+        if (Math.abs(delta) > 4) dragRef.current.moved = true;
+        const newWidth = Math.max(
+          SIDEBAR_DEFAULT_WIDTH_PX,
+          Math.min(800, dragRef.current.startWidth + delta),
+        );
+        setWidth(newWidth);
+      };
+
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [side, width, setWidth],
+  );
 
   return (
     <button
@@ -304,12 +341,18 @@ const SidebarRail = React.forwardRef<
       data-sidebar="rail"
       aria-label="Toggle Sidebar"
       tabIndex={-1}
-      onClick={toggleSidebar}
+      onMouseDown={handleMouseDown}
+      onClick={(e) => {
+        if (dragRef.current.moved) {
+          e.preventDefault();
+          return;
+        }
+      }}
       title="Toggle Sidebar"
       className={cn(
         "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
-        "[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize",
-        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+        "[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-grab",
+        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-grab",
         "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full group-data-[collapsible=offcanvas]:hover:bg-sidebar",
         "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
         "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",

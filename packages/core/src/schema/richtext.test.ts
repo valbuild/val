@@ -481,6 +481,47 @@ describe("RichTextSchema", () => {
     );
   });
 
+  test("validate: unsupported tag (red test)", () => {
+    const schema = richtext({
+      block: {
+        h1: true,
+      },
+    });
+    const input = [
+      { tag: "h1", children: ["Title"] },
+      { tag: "div", children: ["This should not be allowed"] },
+    ];
+    expectedErrorAtPaths(
+      schema["executeValidate"](
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        input as any,
+      ),
+      ["/richtext.val.ts?p=1"],
+    );
+  });
+
+  test("validate: multiple unsupported tags (red test)", () => {
+    const schema = richtext({
+      block: {
+        h1: true,
+      },
+    });
+    const input = [
+      { tag: "h1", children: ["Title"] },
+      { tag: "script", children: ["alert('xss')"] },
+      { tag: "table", children: ["data"] },
+    ];
+    expectedErrorAtPaths(
+      schema["executeValidate"](
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        input as any,
+      ),
+      ["/richtext.val.ts?p=1", "/richtext.val.ts?p=2"],
+    );
+  });
+
   test("validate: a: string().regexp() validates URL patterns", () => {
     const schema = richtext({
       inline: {

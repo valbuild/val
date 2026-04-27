@@ -7,7 +7,7 @@ import {
 } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
-import { fallbackRender } from "./fallbackRender";
+import { fallbackRender, FallbackComponent } from "./fallbackRender";
 import { ValOverlay } from "./components/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
@@ -104,28 +104,30 @@ function Overlay() {
             theme={theme}
             setTheme={setTheme}
           >
-            <ValRouter overlay>
-              <ValOverlay
-                draftMode={draftMode}
-                draftModeLoading={draftModeLoading}
-                setDraftMode={(value: boolean) => {
-                  const event = new CustomEvent("val-overlay-provider", {
-                    detail: {
-                      type: "draftMode",
-                      value,
-                    },
-                  });
-                  window.dispatchEvent(event);
-                }}
-                disableOverlay={() => {
-                  location.href = `${
-                    window.location.origin
-                  }/api/val/disable?redirect_to=${encodeURIComponent(
-                    window.location.href,
-                  )}`;
-                }}
-              />
-            </ValRouter>
+            <ErrorBoundary FallbackComponent={FallbackComponent}>
+              <ValRouter overlay>
+                <ValOverlay
+                  draftMode={draftMode}
+                  draftModeLoading={draftModeLoading}
+                  setDraftMode={(value: boolean) => {
+                    const event = new CustomEvent("val-overlay-provider", {
+                      detail: {
+                        type: "draftMode",
+                        value,
+                      },
+                    });
+                    window.dispatchEvent(event);
+                  }}
+                  disableOverlay={() => {
+                    location.href = `${
+                      window.location.origin
+                    }/api/val/disable?redirect_to=${encodeURIComponent(
+                      window.location.href,
+                    )}`;
+                  }}
+                />
+              </ValRouter>
+            </ErrorBoundary>
           </ValProvider>
         </ErrorBoundary>
       </ShadowRoot>

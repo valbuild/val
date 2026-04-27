@@ -344,26 +344,18 @@ export class ValOpsFS extends ValOps {
       } else if (parsedBase && parsedBase.error) {
         errors.push({ ...parsedBase.error, parentPatchId: dir });
       } else {
-        if (
-          includes &&
-          includes.length > 0 &&
-          !includes.includes(parsedPatch.data.patchId as PatchId)
-        ) {
+        const patchId = parsedPatch.data.patchId as PatchId;
+        if (includes && includes.length > 0 && !includes.includes(patchId)) {
           return;
         }
 
-        patches[parsedPatch.data.patchId as PatchId] = {
-          ...(parsedPatch.data as {
-            // parseFile does keep refined types?
-            path: ModuleFilePath;
-            patch: Patch;
-            patchId: PatchId;
-            parentRef: ParentRef;
-            baseSha: BaseSha;
-            createdAt: string;
-            authorId: AuthorId | null;
-            coreVersion: string;
-          }),
+        patches[patchId] = {
+          path: parsedPatch.data.path,
+          patch: parsedPatch.data.patch,
+          parentRef: parsedPatch.data.parentRef,
+          baseSha: parsedPatch.data.baseSha as BaseSha,
+          createdAt: parsedPatch.data.createdAt,
+          authorId: parsedPatch.data.authorId,
           appliedAt: null,
         };
       }
@@ -583,6 +575,7 @@ export class ValOpsFS extends ValOps {
     patchId: PatchId,
     parentRef: ParentRef,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
@@ -593,6 +586,7 @@ export class ValOpsFS extends ValOps {
         parentRef,
         path,
         authorId,
+        sessionId,
         baseSha,
         coreVersion: Internal.VERSION.core,
         createdAt: new Date().toISOString(),
@@ -1131,14 +1125,6 @@ export class ValOpsFS extends ValOps {
     );
   }
 
-  // #region profiles
-  override async getProfiles(): Promise<
-    { profileId: string; fullName: string; avatar: { url: string } | null }[]
-  > {
-    // We do not have profiles in FS mode
-    return [];
-  }
-
   // #region fs file path helpers
   private getPatchesDir() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, "patches");
@@ -1286,6 +1272,7 @@ const FSPatch = z.object({
     .nullable(),
   createdAt: z.string().datetime(),
   coreVersion: z.string().nullable(), // TODO: use this to check if patch is compatible with current core version?
+  sessionId: z.string().nullable(),
 });
 
 const FSPatchBase = z.object({

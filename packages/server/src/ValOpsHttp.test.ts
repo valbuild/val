@@ -143,6 +143,7 @@ describe("ValOpsFS", () => {
       ],
       patchId,
       { type: "head", headBaseSha: await ops.getBaseSha() },
+      null,
       authorId,
     );
     if (result.isErr(patchRes1)) {

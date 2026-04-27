@@ -88,6 +88,20 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const ProfilesResponse = z.object({
+    profiles: z.array(
+      z.object({
+        profileId: z.string(),
+        fullName: z.string(),
+        email: z.string().optional(),
+        avatar: z
+          .object({
+            url: z.string(),
+          })
+          .nullable(),
+      }),
+    ),
+  });
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
@@ -1058,6 +1072,7 @@ export const ValServer = (
 
         const patches = req.body.patches;
         let parentRef = req.body.parentRef;
+        const sessionId = req.body.sessionId ?? null;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
         for (const patch of patches) {
@@ -1066,6 +1081,7 @@ export const ValServer = (
             patch.patch,
             patch.patchId,
             parentRef,
+            sessionId,
             authorId,
           );
           if (result.isErr(createPatchRes)) {
@@ -1498,13 +1514,104 @@ export const ValServer = (
             },
           };
         }
-        const profiles = await serverOps.getProfiles();
-        return {
-          status: 200,
-          json: {
-            profiles,
-          },
+        if (!options.project) {
+          return {
+            status: 500,
+            json: {
+              message: "Project is not configured",
+            },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          if (
+            serverOps instanceof ValOpsFS &&
+            authDataRes.json.errorCode === "pat-error"
+          ) {
+            return {
+              status: 200,
+              json: {
+                profiles: [],
+              },
+            };
+          }
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (headers: HeadersInit) => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/profiles`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "GET",
+              headers,
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              const isAuthError =
+                upstreamRes.status === 401 || upstreamRes.status === 403;
+              return {
+                status: isAuthError ? (401 as const) : (500 as const),
+                json: {
+                  message: isAuthError
+                    ? `Profile authentication failed: ${upstreamRes.status} ${text}`
+                    : `Profiles failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const parseRes = ProfilesResponse.safeParse(
+              await upstreamRes.json(),
+            );
+            if (!parseRes.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse profiles response: " +
+                    fromError(parseRes.error).toString(),
+                },
+              };
+            }
+            return {
+              status: 200 as const,
+              json: {
+                profiles: parseRes.data.profiles,
+              },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "Profiles request failed",
+              },
+            };
+          }
         };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: {
+              message: "Secret is not configured",
+            },
+          };
+        }
+        return withAuth(options.valSecret, cookies, "profiles", (data) => {
+          return execFetch(
+            getProfileAuthHeaders(authData, data, "application/json"),
+          );
+        });
       },
     },
     "/commit-summary": {
@@ -1729,6 +1836,382 @@ export const ValServer = (
         } else {
           throw new Error("Invalid server ops");
         }
+      },
+    },
+
+    //#region ai proxy
+    "/ai/initialize": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (headers: HeadersInit) => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/initialize`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({}),
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI initialize failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const json = (await upstreamRes.json()) as {
+              nonce: string;
+            };
+            const wsUrl =
+              options.valContentUrl
+                .replace(/^https:/, "wss:")
+                .replace(/^http:/, "ws:") + `/v1/${options.project}/ai/connect`;
+            return {
+              status: 200 as const,
+              json: { nonce: json.nonce, wsUrl },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error ? err.message : "AI initialize error",
+              },
+            };
+          }
+        };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Secret is not configured" },
+          };
+        }
+        return withAuth(options.valSecret, cookies, "ai/initialize", (data) => {
+          return execFetch(
+            getProfileAuthHeaders(authData, data, "application/json"),
+          );
+        });
+      },
+    },
+    "/ai/sessions": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (headers: HeadersInit) => {
+          try {
+            const SessionsResponse = z.object({
+              sessions: z.array(
+                z.object({
+                  id: z.string(),
+                  name: z.string().nullable(),
+                  createdAt: z.string(),
+                  updatedAt: z.string(),
+                }),
+              ),
+              nextCursor: z
+                .object({
+                  updatedAt: z.string(),
+                  id: z.string(),
+                })
+                .nullable()
+                .optional(),
+            });
+            const params = new URLSearchParams();
+            if (req.query.limit) params.set("limit", req.query.limit);
+            if (req.query.cursor_updatedAt) {
+              params.set("cursor_updatedAt", req.query.cursor_updatedAt);
+            }
+            if (req.query.cursor_id) {
+              params.set("cursor_id", req.query.cursor_id);
+            }
+            const qs = params.toString();
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions${qs ? `?${qs}` : ""}`;
+            const upstreamRes = await fetch(upstreamUrl, { headers });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI sessions failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const json = SessionsResponse.safeParse(await upstreamRes.json());
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI sessions response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return { status: 200 as const, json: json.data };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error ? err.message : "AI sessions error",
+              },
+            };
+          }
+        };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Secret is not configured" },
+          };
+        }
+        return withAuth(options.valSecret, cookies, "ai/sessions", (data) => {
+          return execFetch(
+            getProfileAuthHeaders(authData, data, "application/json"),
+          );
+        });
+      },
+      PATCH: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const pathParts = (req.path || "").split("/").filter(Boolean);
+        const sessionId = pathParts[0];
+        if (!sessionId) {
+          return {
+            status: 500,
+            json: { message: "Missing sessionId in path" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (headers: HeadersInit) => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "PATCH",
+              headers,
+              body: JSON.stringify({ name: req.body.name }),
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI session rename failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            return {
+              status: 200 as const,
+              json: {} as Record<string, never>,
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "AI session rename error",
+              },
+            };
+          }
+        };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Secret is not configured" },
+          };
+        }
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/sessions/rename",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
+      },
+    },
+    "/ai/messages": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const pathParts = (req.path || "").split("/").filter(Boolean);
+        const sessionId = pathParts[0];
+        if (!sessionId) {
+          return {
+            status: 500,
+            json: { message: "Missing sessionId in path" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        const execFetch = async (headers: HeadersInit) => {
+          try {
+            const SessionMessagesResponse = z.object({
+              messages: z.array(
+                z.object({
+                  role: z.string(),
+                  content: z.string(),
+                }),
+              ),
+              nextCursor: z
+                .object({
+                  updatedAt: z.string(),
+                  id: z.string(),
+                })
+                .nullable()
+                .optional(),
+            });
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages`;
+            const upstreamRes = await fetch(upstreamUrl, { headers });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI session messages failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const json = SessionMessagesResponse.safeParse(
+              await upstreamRes.json(),
+            );
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI session messages response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return { status: 200 as const, json: json.data };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "AI session messages error",
+              },
+            };
+          }
+        };
+        if (serverOps instanceof ValOpsFS) {
+          return execFetch(
+            getProfileAuthHeaders(authData, null, "application/json"),
+          );
+        }
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: { message: "Secret is not configured" },
+          };
+        }
+        return withAuth(
+          options.valSecret,
+          cookies,
+          "ai/sessions/messages",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
     },
 
@@ -1974,13 +2457,28 @@ async function withAuth<T>(
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
   handler: (data: IntegratedServerJwtPayload) => Promise<T>,
-): Promise<ReturnType<ServerOf<Api>["/session"]["GET"]> | T> {
+): Promise<
+  | {
+      status: 401;
+      json: {
+        message: string;
+        details?: unknown;
+      };
+    }
+  | {
+      status: 500;
+      json: {
+        message: string;
+      };
+    }
+  | T
+> {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
     const decodedToken = decodeJwt(cookie, secret);
     if (!decodedToken) {
       return {
-        status: 401,
+        status: 401 as const,
         json: {
           message: "Could not verify session. You will need to login again.",
           details: "Invalid token",
@@ -1990,7 +2488,7 @@ async function withAuth<T>(
     const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
     if (!verification.success) {
       return {
-        status: 401,
+        status: 401 as const,
         json: {
           message:
             "Session invalid or, most likely, expired. You will need to login again.",
@@ -2001,7 +2499,7 @@ async function withAuth<T>(
     return handler(verification.data).catch((err) => {
       console.error(`Failed while processing: ${errorMessageType}`, err);
       return {
-        status: 500,
+        status: 500 as const,
         json: {
           message: err.message,
         },
@@ -2009,7 +2507,7 @@ async function withAuth<T>(
     });
   } else {
     return {
-      status: 401,
+      status: 401 as const,
       json: {
         message: "Login required",
         details: {
@@ -2020,12 +2518,30 @@ async function withAuth<T>(
   }
 }
 
+function getProfileAuthHeaders(
+  auth: { apiKey: string } | { pat: string },
+  data: { sub: string } | null,
+  type: "application/json",
+): Record<string, string> {
+  if ("pat" in auth) {
+    return {
+      "x-val-pat": auth.pat,
+      "Content-Type": type,
+    };
+  }
+  if ("apiKey" in auth && data) {
+    return {
+      ...getAuthHeaders(auth.apiKey, type),
+      "x-val-profile-id": data.sub,
+    };
+  }
+  throw new Error("Invalid auth");
+}
+
 function getAuthHeaders(
   token: string,
   type?: "application/json" | "application/json-patch+json",
-):
-  | { Authorization: string }
-  | { "Content-Type": string; Authorization: string } {
+): Record<string, string> {
   if (!type) {
     return {
       Authorization: `Bearer ${token}`,

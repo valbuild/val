@@ -33,6 +33,31 @@ import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorState } from "@remirror/core";
 
+function tryConvertRichTextToRemirror(
+  input: RichTextSource<AllRichTextOptions>,
+):
+  | {
+      status: "ok";
+      data: RemirrorJSON;
+    }
+  | {
+      status: "error";
+      error: string;
+    } {
+  try {
+    return {
+      status: "ok",
+      data: richTextToRemirror(input),
+    };
+  } catch (e) {
+    console.error("Error converting richtext to remirror format", e);
+    return {
+      status: "error",
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 export function RichTextField({
   path,
   autoFocus,
@@ -50,20 +75,32 @@ export function RichTextField({
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
+  const remirrorContentResult = useMemo(() => {
+    if (currentSourceData) {
+      return tryConvertRichTextToRemirror(currentSourceData);
+    } else {
+      return {
+        status: "ok" as const,
+        data: undefined,
+      };
+    }
+  }, [currentSourceData]);
   const { manager } = useRichTextEditor(
-    currentSourceData && richTextToRemirror(currentSourceData),
+    remirrorContentResult.status === "ok"
+      ? remirrorContentResult.data
+      : undefined,
   );
   const disabledRef = useRef(false);
   const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
     useAddPatch(path);
   const [editorState, setEditorState] = useState<Readonly<EditorState>>(
     manager.createState({
-      content: currentSourceData
-        ? richTextToRemirror(currentSourceData)
-        : undefined,
+      content:
+        remirrorContentResult.status === "ok"
+          ? remirrorContentResult.data
+          : undefined,
     }),
   );
-  const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
 
@@ -71,11 +108,10 @@ export function RichTextField({
     if (maybeClientSideOnly === false) {
       setEditorState((prevState) => {
         try {
-          const newContent = maybeSourceData
-            ? richTextToRemirror(
-                maybeSourceData as RichTextSource<AllRichTextOptions>,
-              )
-            : undefined;
+          const newContent =
+            remirrorContentResult.status === "ok"
+              ? remirrorContentResult.data
+              : undefined;
           const newState = manager.createState({
             content: newContent,
             selection: prevState.selection,
@@ -91,16 +127,15 @@ export function RichTextField({
             e,
           );
           return manager.createState({
-            content: maybeSourceData
-              ? richTextToRemirror(
-                  maybeSourceData as RichTextSource<AllRichTextOptions>,
-                )
-              : undefined,
+            content:
+              remirrorContentResult.status === "ok"
+                ? remirrorContentResult.data
+                : undefined,
           });
         }
       });
     }
-  }, [maybeSourceData, maybeClientSideOnly]);
+  }, [remirrorContentResult, maybeClientSideOnly]);
 
   const remoteOptions = useMemo(() => {
     if (!("data" in schemaAtPath && schemaAtPath.data.type === "richtext")) {
@@ -125,6 +160,17 @@ export function RichTextField({
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
+    );
+  }
+  if (remirrorContentResult.status === "error") {
+    return (
+      <FieldSourceError
+        path={path}
+        error={
+          "Error converting richtext content to editor format: " +
+          remirrorContentResult.error
+        }
+      />
     );
   }
   if (sourceAtPath.status === "error") {

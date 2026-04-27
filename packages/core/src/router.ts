@@ -28,7 +28,7 @@ export type RouteValidationError = {
 };
 
 // Helper function to validate a URL path against a route pattern
-function validateUrlAgainstPattern(
+export function validateUrlAgainstPattern(
   urlPath: string,
   routePattern: string[],
 ): { isValid: boolean; expectedPath?: string } {

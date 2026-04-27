@@ -1348,6 +1348,7 @@ export abstract class ValOps {
     patch: Patch,
     patchId: PatchId,
     parentRef: ParentRef,
+    sessionId: string | null,
     authorId: AuthorId | null,
   ): Promise<
     result.Result<
@@ -1366,6 +1367,7 @@ export abstract class ValOps {
       patchId,
       parentRef,
       authorId,
+      sessionId,
     );
     if (result.isErr(saveRes)) {
       console.error(
@@ -1406,6 +1408,7 @@ export abstract class ValOps {
     patchId: PatchId,
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
+    sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: ModuleFilePath,
@@ -1443,15 +1446,6 @@ export abstract class ValOps {
         errors: Record<PatchId, GenericErrorMessage>;
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
-  >;
-  abstract getProfiles(): Promise<
-    {
-      profileId: string;
-      fullName: string;
-      avatar: {
-        url: string;
-      } | null;
-    }[]
   >;
 }
 

@@ -44,11 +44,51 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import {
+  useAIWebSocket,
+  type AIMessageHandler,
+  type AIClientMessage,
+  type AISession,
+  AITool,
+} from "../hooks/useAIWebSocket";
+
+export type { AITool };
+
+export const AIPromptMessage = z.object({
+  type: z.literal("ai_prompt"),
+  id: z.string(),
+  sessionId: z.string().uuid().optional(),
+  message: z.string(),
+  context: z.string().optional(),
+  maxIterations: z.number().int().min(1).max(200).optional(),
+  agents: z
+    .array(
+      z.object({
+        id: z.string(),
+        systemPrompt: z.string(),
+        model: z.string(),
+        tools: z.array(AITool).optional(),
+        description: z.string().optional(),
+      }),
+    )
+    .min(1),
+});
+
+export type AISessionsResponse = {
+  sessions: AISession[];
+  nextCursor?: { updatedAt: string; id: string } | null;
+};
+
+export type AIMessagesResponse = {
+  messages: { role: string; content: string }[];
+  nextCursor?: { updatedAt: string; id: string } | null;
+};
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
   profileId: string | null;
+  profileAuthError: string | null;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
@@ -83,6 +123,21 @@ type ValContextValue = {
           | "unauthorized-personal-access-token-error"
           | "unauthorized";
       };
+  subscribeToWsMessages: (handler: AIMessageHandler) => () => void;
+  sendWsMessage: (data: AIClientMessage) => boolean;
+  isWsConnected: boolean;
+  aiGetSessions: (opts?: {
+    limit?: number;
+    cursor?: { updatedAt: string; id: string };
+  }) => Promise<AISessionsResponse>;
+  aiGetSessionMessages: (
+    sessionId: string,
+    opts?: {
+      limit?: number;
+      cursor?: { updatedAt: string; id: string };
+    },
+  ) => Promise<AIMessagesResponse>;
+  aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -127,6 +182,78 @@ export function ValProvider({
     setIsAuthenticated,
     serviceUnavailable,
   ] = useStatus(client);
+
+  const isStatConnected = "data" in stat && !!stat.data;
+  const wsEnabled =
+    isStatConnected &&
+    ("data" in stat && stat.data
+      ? stat.data.config?.ai?.chat?.experimental?.enable === true
+      : false);
+  const {
+    subscribeToMessages: subscribeToWsMessages,
+    send: sendWsMessage,
+    isConnected: isWsConnected,
+  } = useAIWebSocket(wsEnabled);
+
+  const aiGetSessions = useCallback(
+    async (opts?: {
+      limit?: number;
+      cursor?: { updatedAt: string; id: string };
+    }): Promise<AISessionsResponse> => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(`/api/val/ai/sessions${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`ai/sessions failed: ${res.status}`);
+      return res.json();
+    },
+    [],
+  );
+
+  const aiGetSessionMessages = useCallback(
+    async (
+      sessionId: string,
+      opts?: {
+        limit?: number;
+        cursor?: { updatedAt: string; id: string };
+      },
+    ): Promise<AIMessagesResponse> => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(
+        `/api/val/ai/messages/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ""}`,
+      );
+      if (!res.ok)
+        throw new Error(`ai/sessions/messages failed: ${res.status}`);
+      const json = await res.json();
+      return json;
+    },
+    [],
+  );
+
+  const aiSetSessionName = useCallback(
+    async (sessionId: string, name: string): Promise<void> => {
+      const res = await fetch(
+        `/api/val/ai/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+      );
+      if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
+    },
+    [],
+  );
 
   const syncEngine = useMemo(
     () =>
@@ -410,6 +537,7 @@ export function ValProvider({
   const profilesData = useProfilesData(
     client,
     authenticationState,
+    "data" in stat && stat.data ? stat.data.mode : "unknown",
     serviceUnavailable,
   );
 
@@ -455,6 +583,8 @@ export function ValProvider({
         syncEngine,
         profileId: "data" in stat && stat.data ? stat.data.profileId : null,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
+        profileAuthError:
+          profilesData.status === "auth-error" ? profilesData.error : null,
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         observedCommitShas,
@@ -465,6 +595,12 @@ export function ValProvider({
         profiles:
           "data" in profilesData && profilesData.data ? profilesData.data : {},
         remoteFiles,
+        subscribeToWsMessages,
+        sendWsMessage,
+        isWsConnected,
+        aiGetSessions,
+        aiGetSessionMessages,
+        aiSetSessionName,
       }}
     >
       <TooltipProvider>
@@ -499,6 +635,7 @@ export function ValProvider({
 function useProfilesData(
   client: ValClient,
   authenticationState: AuthenticationState,
+  mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
 ) {
   const loadProfileDataRef = useRef(true);
@@ -510,6 +647,11 @@ function useProfilesData(
     | {
         data?: Record<AuthorId, Profile>;
         status: "loading" | "error";
+      }
+    | {
+        data?: Record<AuthorId, Profile>;
+        status: "auth-error";
+        error: string;
       }
     | {
         status: "not-asked";
@@ -534,6 +676,16 @@ function useProfilesData(
         status: "done",
         data: profilesById,
       });
+    } else if (mode === "fs" && res.status === 401) {
+      const message =
+        "message" in res.json && typeof res.json.message === "string"
+          ? res.json.message
+          : "Could not authenticate while getting profiles";
+      setProfilesData((prev) => ({
+        status: "auth-error",
+        error: message,
+        data: "data" in prev ? prev.data : undefined,
+      }));
     } else {
       console.error("Could not get profiles", res.json);
       loadProfileDataRef.current = true;
@@ -542,8 +694,20 @@ function useProfilesData(
         data: "data" in prev ? prev.data : undefined,
       }));
     }
-  }, [client, profilesData]);
+  }, [client, mode, profilesData]);
   useEffect(() => {
+    if (
+      authenticationState === "not-asked" ||
+      authenticationState === "loading"
+    ) {
+      return;
+    }
+    if (mode !== "fs" && authenticationState !== "authorized") {
+      return;
+    }
+    if (serviceUnavailable) {
+      return;
+    }
     if (!loadProfileDataRef.current) {
       return;
     }
@@ -554,7 +718,14 @@ function useProfilesData(
     } else if (profilesData.status === "not-asked") {
       loadProfiles();
     }
-  }, [authenticationState, client, profilesData, serviceUnavailable]);
+  }, [
+    authenticationState,
+    client,
+    loadProfiles,
+    mode,
+    profilesData,
+    serviceUnavailable,
+  ]);
 
   return profilesData;
 }
@@ -604,6 +775,29 @@ export function useDeletePatches() {
     [syncEngine],
   );
   return { deletePatches };
+}
+
+export function useAIContext() {
+  const {
+    subscribeToWsMessages,
+    sendWsMessage,
+    isWsConnected,
+    aiGetSessions,
+    aiGetSessionMessages,
+    aiSetSessionName,
+  } = useContext(ValContext);
+  return {
+    subscribeToWsMessages,
+    sendWsMessage,
+    isWsConnected,
+    aiGetSessions,
+    aiGetSessionMessages,
+    aiSetSessionName,
+  };
+}
+
+export function useSyncEngine() {
+  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {
@@ -1094,9 +1288,13 @@ export type ShallowSource = EnsureAllTypes<{
 }>;
 
 export function useCurrentProfile() {
-  const { profileId, profiles } = useContext(ValContext);
+  const { profileId, profiles, mode } = useContext(ValContext);
   if (profileId) {
     return profiles[profileId] ?? null;
+  }
+  if (mode === "fs") {
+    const [firstProfile] = Object.values(profiles);
+    return firstProfile ?? null;
   }
   return null;
 }
@@ -1143,6 +1341,7 @@ export function useGlobalTransientErrors() {
 export function useGlobalError():
   | { type: "network-error"; networkError: number }
   | { type: "schema-error"; schemaError: number }
+  | { type: "profiles-auth-error"; error: string }
   | {
       type: "remote-files-error";
       error: string;
@@ -1157,7 +1356,7 @@ export function useGlobalError():
         | "unauthorized";
     }
   | null {
-  const { syncEngine, remoteFiles } = useContext(ValContext);
+  const { syncEngine, remoteFiles, profileAuthError } = useContext(ValContext);
   const networkError = useSyncExternalStore(
     syncEngine.subscribe("network-error"),
     () => syncEngine.getNetworkErrorSnapshot(),
@@ -1178,6 +1377,12 @@ export function useGlobalError():
     return {
       type: "schema-error" as const,
       schemaError,
+    };
+  }
+  if (profileAuthError !== null) {
+    return {
+      type: "profiles-auth-error" as const,
+      error: profileAuthError,
     };
   }
   if (remoteFiles.status === "inactive") {
