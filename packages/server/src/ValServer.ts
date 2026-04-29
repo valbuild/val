@@ -88,6 +88,17 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const AIContentBlock = z.union([
+    z.object({
+      type: z.literal("text"),
+      text: z.string(),
+    }),
+    z.object({
+      type: z.literal("image_url"),
+      url: z.string(),
+    }),
+  ]);
+  const AIMessageContent = z.union([z.string(), z.array(AIContentBlock)]);
   const ProfilesResponse = z.object({
     profiles: z.array(
       z.object({
@@ -2143,7 +2154,7 @@ export const ValServer = (
               messages: z.array(
                 z.object({
                   role: z.string(),
-                  content: z.string(),
+                  content: AIMessageContent,
                 }),
               ),
               nextCursor: z
