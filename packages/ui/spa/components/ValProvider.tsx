@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import {
   FILE_REF_PROP,
+  ImageMetadata,
   Internal,
   Json,
   ModuleFilePath,
@@ -144,6 +145,12 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  aiSessionImageToPatchFile: (args: {
+    patchId: PatchId;
+    filePath: string;
+    key: string;
+    metadata?: ImageMetadata;
+  }) => Promise<{ patchId: PatchId; filePath: string }>;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -257,6 +264,28 @@ export function ValProvider({
         },
       );
       if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
+    },
+    [],
+  );
+
+  const aiSessionImageToPatchFile = useCallback(
+    async (args: {
+      patchId: PatchId;
+      filePath: string;
+      key: string;
+      metadata?: ImageMetadata;
+    }): Promise<{ patchId: PatchId; filePath: string }> => {
+      const res = await fetch(`/api/val/ai/session-image-to-patch-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+      });
+      if (!res.ok) {
+        throw new Error(
+          `ai/session-image-to-patch-file failed: ${res.status}`,
+        );
+      }
+      return res.json() as Promise<{ patchId: PatchId; filePath: string }>;
     },
     [],
   );
@@ -607,6 +636,7 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        aiSessionImageToPatchFile,
       }}
     >
       <TooltipProvider>
@@ -791,6 +821,7 @@ export function useAIContext() {
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
+    aiSessionImageToPatchFile,
   } = useContext(ValContext);
   return {
     subscribeToWsMessages,
@@ -799,6 +830,7 @@ export function useAIContext() {
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
+    aiSessionImageToPatchFile,
   };
 }
 

@@ -399,7 +399,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       }));
 
       setAttachedFiles((prev) => [...prev, ...newEntries]);
-      console.log("Uploading files", newEntries, onUploadFile);
 
       if (onUploadFile) {
         newEntries.forEach((entry) => {
@@ -1067,6 +1066,10 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
       label: "Updating content",
       icon: <Pencil className="h-3 w-3" />,
     },
+    convert_session_image_to_patch: {
+      label: "Adding image",
+      icon: <Paperclip className="h-3 w-3" />,
+    },
     navigate_to: {
       label: "Navigating to content",
       icon: <Navigation className="h-3 w-3" />,
@@ -1103,6 +1106,7 @@ function ToolActivitiesIndicator({
         };
         const isPending = activity.status === "pending";
         const isError = activity.status === "error";
+        console.log(activity);
         return (
           <div
             key={activity.toolCallId}
