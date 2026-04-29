@@ -167,7 +167,7 @@ export function ToolsMenu() {
           )}
         </div>
       </div>
-      {(mode === "http" || mode === "fs") && isChatEnabled && (
+      {isChatEnabled && (
         <div className="flex-1 min-h-0 border-t border-border-primary">
           <AIChat
             ref={chatRef}

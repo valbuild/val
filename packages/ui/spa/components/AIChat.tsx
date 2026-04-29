@@ -697,7 +697,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
         {!isConnected && (
-          <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-fg-secondary justify-center absolute top-0 left-0 right-0">
+          <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
             <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
             Connecting…
           </div>

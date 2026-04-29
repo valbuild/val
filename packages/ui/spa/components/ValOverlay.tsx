@@ -1513,7 +1513,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
+          {isChatEnabled && (
             <HoverCard>
               <HoverCardTrigger className="inline-flex">
                 <MenuButton
