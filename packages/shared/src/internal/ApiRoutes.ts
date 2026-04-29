@@ -1100,7 +1100,21 @@ export const Api = {
             messages: z.array(
               z.object({
                 role: z.string(),
-                content: z.string(),
+                content: z.union([
+                  z.string(),
+                  z.array(
+                    z.union([
+                      z.object({
+                        type: z.literal("text"),
+                        text: z.string(),
+                      }),
+                      z.object({
+                        type: z.literal("image_url"),
+                        url: z.string(),
+                      }),
+                    ]),
+                  ),
+                ]),
               }),
             ),
             nextCursor: z

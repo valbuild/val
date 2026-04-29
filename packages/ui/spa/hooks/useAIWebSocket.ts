@@ -99,11 +99,17 @@ export type AIServerMessage = z.infer<typeof AIServerMessage>;
 
 // --- Client → Server message types ---
 
+export const AIMessageContentBlock = z.union([
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image_key"), key: z.string() }),
+]);
+export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
+
 export const AIPromptMessage = z.object({
   type: z.literal("ai_prompt"),
   id: z.string(),
-  sessionId: z.string().uuid().optional(),
-  message: z.string(),
+  sessionId: z.uuid().optional(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
   agents: z.array(AIAgentDefinition).min(1),

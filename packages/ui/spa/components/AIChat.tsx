@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
+import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
@@ -61,7 +62,7 @@ export type ChatMessageAttachment = {
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  content: AIMessageContent;
   status: ChatMessageStatus;
   error?: string;
   errorCode?: string;
@@ -157,6 +158,31 @@ const DEFAULT_SUGGESTIONS = [
 let _msgId = 0;
 function nextId(): string {
   return `chat-${++_msgId}-${Date.now()}`;
+}
+
+function getTextContent(content: AIMessageContent): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  return content
+    .filter(
+      (block): block is Extract<AIContentBlock, { type: "text" }> =>
+        block.type === "text",
+    )
+    .map((block) => block.text)
+    .join("\n\n");
+}
+
+function getImageUrls(content: AIMessageContent): string[] {
+  if (typeof content === "string") {
+    return [];
+  }
+  return content
+    .filter(
+      (block): block is Extract<AIContentBlock, { type: "image_url" }> =>
+        block.type === "image_url",
+    )
+    .map((block) => block.url);
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +284,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               ...prev,
               message: {
                 ...prev.message,
-                content: prev.message.content + chunk,
+                content: getTextContent(prev.message.content) + chunk,
               },
             }
           : prev,
@@ -476,8 +502,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
+        const retryText = getTextContent(errorMsg.content);
         const sent = onSendMessage
-          ? onSendMessage(errorMsg.content, errorMsg.attachments)
+          ? onSendMessage(retryText, errorMsg.attachments)
           : true;
         if (!sent) {
           setCompletedMessages((prev) =>
@@ -503,7 +530,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(prevUserMsg.content);
+      onSendMessage?.(
+        getTextContent(prevUserMsg.content),
+        prevUserMsg.attachments,
+      );
     },
     [messages, onSendMessage],
   );
@@ -745,6 +775,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             multiple
             className="hidden"
             onChange={handleFileChange}
+            accept="image/*"
           />
         )}
         <div className="flex items-end gap-2">
@@ -869,6 +900,8 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
+  const textContent = getTextContent(message.content);
+  const fileUrls = getImageUrls(message.content);
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -905,7 +938,21 @@ function MessageBubble({
                 )}
               </div>
             )}
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            {fileUrls.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {fileUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="Session attachment"
+                    className="max-h-48 rounded object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {textContent && (
+              <p className="whitespace-pre-wrap">{textContent}</p>
+            )}
             {message.status === "complete" && (
               <div className="mt-1 flex justify-end">
                 <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
@@ -920,9 +967,21 @@ function MessageBubble({
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator activities={message.toolActivities} />
             )}
-            {message.content ? (
-              <ReactMarkdown>{message.content}</ReactMarkdown>
-            ) : isStreamingMsg || isError ? null : (
+            {fileUrls.length > 0 && (
+              <div className="not-prose mb-3 flex flex-wrap gap-2">
+                {fileUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="AI session image"
+                    className="max-h-64 rounded border border-border-primary object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {textContent ? (
+              <ReactMarkdown>{textContent}</ReactMarkdown>
+            ) : isStreamingMsg || isError || fileUrls.length > 0 ? null : (
               <p className="text-fg-secondary italic">Empty response</p>
             )}
             {isStreamingMsg && <StreamingCursor />}

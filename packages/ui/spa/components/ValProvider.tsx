@@ -79,8 +79,14 @@ export type AISessionsResponse = {
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
+export type AIContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_url"; url: string };
+
+export type AIMessageContent = string | AIContentBlock[];
+
 export type AIMessagesResponse = {
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: AIMessageContent }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 

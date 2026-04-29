@@ -11,6 +11,7 @@ import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
+  AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
 import { getRecentSession } from "./useAIWebSocket";
@@ -701,7 +702,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     profiles,
   ]);
 
-  const uploadAiFile = useCallback(
+  const uploadAiImage = useCallback(
     async (file: File): Promise<{ key: string }> => {
       const settings = await getDirectFileUploadSettings();
       if (settings.status === "error") {
@@ -716,7 +717,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         headers["x-val-auth-nonce"] = nonce;
       }
       const res = await fetch(
-        `${baseUrl}/ai/files?sessionId=${encodeURIComponent(sessionIdRef.current)}`,
+        `${baseUrl}/ai/images?sessionId=${encodeURIComponent(sessionIdRef.current)}`,
         {
           method: "POST",
           headers,
@@ -733,10 +734,16 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
   const sendMessage = useCallback(
     (text: string, attachments?: ChatMessageAttachment[]): boolean => {
-      void attachments; // associated with the session via upload; included for future use
+      const contentBlocks: AIMessageContentBlock[] = [
+        { type: "text", text },
+        ...(attachments?.map((attachment) => ({
+          type: "image_key" as const,
+          key: attachment.key,
+        })) ?? []),
+      ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
-        message: text,
+        message: contentBlocks,
         sessionId: sessionIdRef.current,
         id: crypto.randomUUID(),
         agents: [
@@ -893,7 +900,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
-    uploadAiFile,
+    uploadAiImage,
     isStreaming,
     isConnected: isWsConnected,
     newSession,

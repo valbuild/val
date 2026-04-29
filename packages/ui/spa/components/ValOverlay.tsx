@@ -837,7 +837,7 @@ function ChatWindow({
   const chatRef = useRef<AIChatHandle | null>(null);
   const {
     sendMessage,
-    uploadAiFile,
+    uploadAiImage,
     isConnected,
     newSession,
     sessions,
@@ -1004,7 +1004,7 @@ function ChatWindow({
           <AIChat
             ref={chatRef}
             onSendMessage={sendMessage}
-            onUploadFile={uploadAiFile}
+            onUploadFile={uploadAiImage}
             onNewSession={newSession}
             isConnected={isConnected}
             sessions={sessions}
