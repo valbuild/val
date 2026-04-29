@@ -1133,6 +1133,33 @@ export const Api = {
       ]),
     },
   },
+  "/ai/session-image-to-patch-file": {
+    POST: {
+      req: {
+        body: z.object({
+          patchId: PatchId,
+          filePath: z.string(),
+          key: z.string(),
+          metadata: z.any().optional(),
+        }),
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            filePath: z.string(),
+            patchId: PatchId,
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:

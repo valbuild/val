@@ -4,6 +4,7 @@ export const toolNames = [
   "search_content",
   "validate_content",
   "create_patch",
+  "convert_session_image_to_patch",
   "navigate_to",
   "get_current_context",
   "get_patches",
