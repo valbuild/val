@@ -387,6 +387,10 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   };
 }
 
+export function useGetDirectFileUploadSettings() {
+  return useContext(ValFieldContext).getDirectFileUploadSettings;
+}
+
 export function useValConfig() {
   const { config } = useContext(ValFieldContext);
   const lastConfig = useRef<

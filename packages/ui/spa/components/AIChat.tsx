@@ -29,6 +29,8 @@ import {
   History,
   ChevronLeft,
   Tag,
+  Paperclip,
+  X,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import { ToolName } from "../utils/toolNames";
@@ -49,6 +51,13 @@ export type ToolActivity = {
   status: ToolActivityStatus;
 };
 
+export type ChatMessageAttachment = {
+  key: string;
+  name: string;
+  mimeType?: string;
+  previewUrl?: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -57,6 +66,15 @@ export type ChatMessage = {
   error?: string;
   errorCode?: string;
   toolActivities?: ToolActivity[];
+  attachments?: ChatMessageAttachment[];
+};
+
+type AttachedFile = {
+  id: string;
+  file: File;
+  status: "uploading" | "done" | "error";
+  key?: string;
+  previewUrl?: string;
 };
 
 type CurrentMessage = {
@@ -91,7 +109,12 @@ export type AIChatHandle = {
 
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
-  onSendMessage?: (text: string) => boolean;
+  onSendMessage?: (
+    text: string,
+    attachments?: ChatMessageAttachment[],
+  ) => boolean;
+  /** Called to upload a file to the current AI session. Returns the server key. */
+  onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
@@ -143,6 +166,7 @@ function nextId(): string {
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
     onSendMessage,
+    onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
     className,
@@ -163,6 +187,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [inputValue, setInputValue] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
@@ -325,14 +351,84 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // ---- Derived state ----
 
   const isStreaming = currentMessage !== null;
+  const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
 
   // ---- Handlers ----
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      if (files.length === 0) return;
+      // Reset input so the same file can be re-selected
+      e.target.value = "";
+
+      const newEntries: AttachedFile[] = files.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        status: "uploading" as const,
+        previewUrl: file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : undefined,
+      }));
+
+      setAttachedFiles((prev) => [...prev, ...newEntries]);
+      console.log("Uploading files", newEntries, onUploadFile);
+
+      if (onUploadFile) {
+        newEntries.forEach((entry) => {
+          onUploadFile(entry.file)
+            .then(({ key }) => {
+              setAttachedFiles((prev) =>
+                prev.map((f) =>
+                  f.id === entry.id ? { ...f, status: "done", key } : f,
+                ),
+              );
+            })
+            .catch(() => {
+              setAttachedFiles((prev) =>
+                prev.map((f) =>
+                  f.id === entry.id ? { ...f, status: "error" } : f,
+                ),
+              );
+            });
+        });
+      }
+    },
+    [onUploadFile],
+  );
+
+  const removeAttachedFile = useCallback((id: string) => {
+    setAttachedFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      return prev.filter((f) => f.id !== id);
+    });
+  }, []);
 
   const handleSend = useCallback(
     (text?: string) => {
       const content = (text ?? inputValue).trim();
       if (!content || isStreaming) return;
+
+      const doneAttachments: ChatMessageAttachment[] = attachedFiles
+        .filter(
+          (f): f is AttachedFile & { key: string } =>
+            f.status === "done" && f.key !== undefined,
+        )
+        .map((f) => ({
+          key: f.key,
+          name: f.file.name,
+          mimeType: f.file.type || undefined,
+          previewUrl: f.previewUrl,
+        }));
+
+      // Revoke object URLs for files we're sending (they'll be in the message)
+      attachedFiles.forEach((f) => {
+        if (f.previewUrl && f.status !== "done")
+          URL.revokeObjectURL(f.previewUrl);
+      });
+      setAttachedFiles([]);
 
       const msgId = nextId();
       const userMsg: ChatMessage = {
@@ -340,11 +436,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         role: "user",
         content,
         status: "complete",
+        attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
       setInputValue("");
 
-      const sent = onSendMessage ? onSendMessage(content) : true;
+      const sent = onSendMessage
+        ? onSendMessage(
+            content,
+            doneAttachments.length > 0 ? doneAttachments : undefined,
+          )
+        : true;
       if (!sent) {
         setCompletedMessages((prev) =>
           prev.map((m) =>
@@ -358,7 +460,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       // Refocus textarea after send
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [inputValue, isStreaming, onSendMessage],
+    [inputValue, isStreaming, attachedFiles, onSendMessage],
   );
 
   const handleRetry = useCallback(
@@ -374,7 +476,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const sent = onSendMessage ? onSendMessage(errorMsg.content) : true;
+        const sent = onSendMessage
+          ? onSendMessage(errorMsg.content, errorMsg.attachments)
+          : true;
         if (!sent) {
           setCompletedMessages((prev) =>
             prev.map((m) =>
@@ -598,7 +702,64 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             Connecting…
           </div>
         )}
+        {/* Attached file previews */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {attachedFiles.map((f) => (
+              <div
+                key={f.id}
+                className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+              >
+                {f.previewUrl ? (
+                  <img
+                    src={f.previewUrl}
+                    alt={f.file.name}
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                )}
+                <span className="max-w-[120px] truncate">{f.file.name}</span>
+                {f.status === "uploading" && (
+                  <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
+                )}
+                {f.status === "error" && (
+                  <XCircle className="h-3 w-3 text-fg-error-primary" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAttachedFile(f.id)}
+                  className="ml-0.5 text-fg-secondary hover:text-fg-primary"
+                  aria-label={`Remove ${f.file.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {onUploadFile && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        )}
         <div className="flex items-end gap-2">
+          {onUploadFile && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!isConnected || isStreaming}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+              className="mb-1"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          )}
           <div className="flex-1 grid">
             <textarea
               ref={textareaRef}
@@ -631,7 +792,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           <Button
             variant="ghost"
             size="icon-sm"
-            disabled={!isConnected || isStreaming || !inputValue.trim()}
+            disabled={
+              !isConnected || isStreaming || isUploading || !inputValue.trim()
+            }
             onClick={() => handleSend()}
             aria-label="Send message"
             className="mb-1"
@@ -720,6 +883,28 @@ function MessageBubble({
       >
         {isUser ? (
           <>
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {message.attachments.map((a) =>
+                  a.mimeType?.startsWith("image/") && a.previewUrl ? (
+                    <img
+                      key={a.key}
+                      src={a.previewUrl}
+                      alt={a.name}
+                      className="h-16 w-16 rounded object-cover"
+                    />
+                  ) : (
+                    <div
+                      key={a.key}
+                      className="flex items-center gap-1 rounded border border-border-primary bg-bg-primary px-2 py-1 text-xs text-fg-secondary"
+                    >
+                      <FileText className="h-3 w-3 shrink-0" />
+                      <span className="max-w-[120px] truncate">{a.name}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
             <p className="whitespace-pre-wrap">{message.content}</p>
             {message.status === "complete" && (
               <div className="mt-1 flex justify-end">

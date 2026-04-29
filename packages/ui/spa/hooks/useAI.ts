@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { AIChatHandle } from "../components/AIChat";
+import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
 import {
   type AITool,
   useCurrentProfile,
@@ -7,6 +7,7 @@ import {
   useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
@@ -244,6 +245,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
+  const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
@@ -699,8 +701,39 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     profiles,
   ]);
 
+  const uploadAiFile = useCallback(
+    async (file: File): Promise<{ key: string }> => {
+      const settings = await getDirectFileUploadSettings();
+      if (settings.status === "error") {
+        throw new Error(settings.error);
+      }
+      const { nonce, baseUrl } = settings.data;
+      const headers: Record<string, string> = {
+        "Content-Type": file.type || "application/octet-stream",
+        "Content-Length": String(file.size),
+      };
+      if (nonce) {
+        headers["x-val-auth-nonce"] = nonce;
+      }
+      const res = await fetch(
+        `${baseUrl}/ai/files?sessionId=${encodeURIComponent(sessionIdRef.current)}`,
+        {
+          method: "POST",
+          headers,
+          body: await file.arrayBuffer(),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+      }
+      return res.json() as Promise<{ key: string }>;
+    },
+    [getDirectFileUploadSettings],
+  );
+
   const sendMessage = useCallback(
-    (text: string): boolean => {
+    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+      void attachments; // associated with the session via upload; included for future use
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: text,
@@ -860,6 +893,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    uploadAiFile,
     isStreaming,
     isConnected: isWsConnected,
     newSession,
