@@ -1,6 +1,7 @@
 import {
   AllRichTextOptions,
-  ConfigDirectory,
+  ImageMetadata,
+  ModuleFilePath,
   RichTextSource,
   SourcePath,
 } from "@valbuild/core";
@@ -8,20 +9,16 @@ import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import {
-  RemirrorJSON,
-  remirrorToRichTextSource,
-  RemoteRichTextOptions,
-  richTextToRemirror,
-} from "@valbuild/shared/internal";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
-import { FileOperation, Patch } from "@valbuild/core/patch";
+import type { Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
+import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
   useSchemaAtPath,
+  useSchemas,
   useShallowSourceAtPath,
   useValConfig,
 } from "../ValFieldProvider";
@@ -29,148 +26,302 @@ import {
   useCurrentRemoteFileBucket,
   useRemoteFiles,
 } from "../ValRemoteProvider";
-import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { EditorState } from "@remirror/core";
+import { RichTextEditor } from "../RichTextEditor";
+import type { EditorDocument, RichTextEditorRef } from "../RichTextEditor";
+import { useRichTextEditorConfig } from "../RichTextEditor/useRichTextEditorConfig";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useValPortal } from "../ValPortalProvider";
+import { readImageFromFile } from "../../utils/readImage";
+import { createFilePatch } from "./FileField";
 
-function tryConvertRichTextToRemirror(
-  input: RichTextSource<AllRichTextOptions>,
-):
-  | {
-      status: "ok";
-      data: RemirrorJSON;
-    }
-  | {
-      status: "error";
-      error: string;
-    } {
-  try {
-    return {
-      status: "ok",
-      data: richTextToRemirror(input),
-    };
-  } catch (e) {
-    console.error("Error converting richtext to remirror format", e);
-    return {
-      status: "error",
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
-}
+const DEBOUNCE_MS = 400;
 
 export function RichTextField({
   path,
-  autoFocus,
 }: {
   path: SourcePath;
-  autoFocus?: boolean;
+  autoFocus?: boolean; // TODO: implement autoFocus
 }) {
   const type = "richtext";
   const config = useValConfig();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
+  const schemas = useSchemas();
+  const schemaAtPath = useSchemaAtPath(path);
+  const sourceAtPath = useShallowSourceAtPath(path, type);
   const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
-  const remirrorContentResult = useMemo(() => {
-    if (currentSourceData) {
-      return tryConvertRichTextToRemirror(currentSourceData);
-    } else {
-      return {
-        status: "ok" as const,
-        data: undefined,
-      };
-    }
-  }, [currentSourceData]);
-  const { manager } = useRichTextEditor(
-    remirrorContentResult.status === "ok"
-      ? remirrorContentResult.data
-      : undefined,
+
+  const editorRef = useRef<RichTextEditorRef>(null);
+  const sourceRef = useRef<EditorDocument>(
+    (currentSourceData as unknown as EditorDocument) ?? [],
   );
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disabledRef = useRef(false);
-  const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
-    useAddPatch(path);
-  const [editorState, setEditorState] = useState<Readonly<EditorState>>(
-    manager.createState({
-      content:
-        remirrorContentResult.status === "ok"
-          ? remirrorContentResult.data
-          : undefined,
-    }),
-  );
+  const suppressNextDirtyRef = useRef(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  const {
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path);
+
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
 
   useEffect(() => {
-    if (maybeClientSideOnly === false) {
-      setEditorState((prevState) => {
-        try {
-          const newContent =
-            remirrorContentResult.status === "ok"
-              ? remirrorContentResult.data
-              : undefined;
-          const newState = manager.createState({
-            content: newContent,
-            selection: prevState.selection,
-          });
-          if (newState.doc.eq(prevState.doc)) {
-            // Avoid (unnecessary) update that also erases the history
-            return prevState;
-          }
-          return newState;
-        } catch (e) {
-          console.error(
-            "Error (re)creating editor state with selection, retrying without...",
-            e,
-          );
-          return manager.createState({
-            content:
-              remirrorContentResult.status === "ok"
-                ? remirrorContentResult.data
-                : undefined,
-          });
-        }
-      });
+    if (maybeClientSideOnly === false && currentSourceData) {
+      const serverDoc = currentSourceData as unknown as EditorDocument;
+      const currentDoc = editorRef.current?.getDocument();
+      if (
+        currentDoc &&
+        !deepEqual(
+          currentDoc as unknown as ReadonlyJSONValue,
+          serverDoc as unknown as ReadonlyJSONValue,
+        )
+      ) {
+        editorRef.current?.reset(serverDoc);
+        sourceRef.current = serverDoc;
+      }
     }
-  }, [remirrorContentResult, maybeClientSideOnly]);
+  }, [currentSourceData, maybeClientSideOnly]);
 
-  const remoteOptions = useMemo(() => {
-    if (!("data" in schemaAtPath && schemaAtPath.data.type === "richtext")) {
+  const portalContainer = useValPortal();
+
+  const schemaOptions =
+    "data" in schemaAtPath && schemaAtPath.data.type === "richtext"
+      ? schemaAtPath.data.options
+      : undefined;
+  const { features, linkCatalog, imageModulePath, imageSchema } =
+    useRichTextEditorConfig(schemaOptions);
+
+  const hasImageEnabled = !!schemaOptions?.inline?.img;
+
+  const imageReferencedModule = imageSchema?.referencedModule;
+  const imageAcceptOptions = useMemo(() => {
+    if (!hasImageEnabled) return undefined;
+    if (imageSchema?.options?.accept) return imageSchema.options.accept;
+    if (imageReferencedModule && schemas.status === "success") {
+      const moduleSchema =
+        schemas.data[imageReferencedModule as ModuleFilePath];
+      if (moduleSchema?.type === "record" && moduleSchema.accept) {
+        return moduleSchema.accept;
+      }
+    }
+    return undefined;
+  }, [hasImageEnabled, imageSchema, imageReferencedModule, schemas]);
+
+  const imageModuleDirectory = useMemo(() => {
+    if (!imageReferencedModule || schemas.status !== "success")
+      return undefined;
+    const moduleSchema = schemas.data[imageReferencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [imageReferencedModule, schemas]);
+
+  const imageRemoteData = useMemo(() => {
+    if (
+      !hasImageEnabled ||
+      !imageSchema?.remote ||
+      remoteFiles.status !== "ready" ||
+      !currentRemoteFileBucket ||
+      !config?.remoteHost
+    ) {
       return null;
     }
-    const schema = schemaAtPath.data;
-    return typeof schema.options?.inline?.img === "object" &&
-      schema.options.inline.img.remote &&
-      remoteFiles.status === "ready" &&
-      config?.remoteHost &&
-      currentRemoteFileBucket
-      ? {
-          publicProjectId: remoteFiles.publicProjectId,
-          bucket: currentRemoteFileBucket,
-          coreVersion: remoteFiles.coreVersion,
-          schema: schema.options.inline.img,
-          remoteHost: config?.remoteHost,
+    return {
+      publicProjectId: remoteFiles.publicProjectId,
+      bucket: currentRemoteFileBucket,
+      coreVersion: remoteFiles.coreVersion,
+      schema: imageSchema,
+      remoteHost: config.remoteHost,
+    };
+  }, [
+    hasImageEnabled,
+    imageSchema,
+    remoteFiles,
+    currentRemoteFileBucket,
+    config,
+  ]);
+
+  const imageDirectory = imageModuleDirectory ?? config?.files?.directory;
+
+  const onImageUpload = useMemo(() => {
+    if (!hasImageEnabled) return undefined;
+
+    return async (
+      file: File,
+      insertIntoView: (
+        ref: string,
+        opts?: {
+          previewUrl?: string;
+          width?: number;
+          height?: number;
+          mimeType?: string;
+        },
+      ) => string[] | null,
+    ): Promise<{ filePath: string; ref: string } | null> => {
+      try {
+        const res = await readImageFromFile(file);
+
+        let metadata: ImageMetadata | undefined;
+        if (res.width && res.height && res.mimeType) {
+          metadata = {
+            width: res.width,
+            height: res.height,
+            mimeType: res.mimeType,
+          };
         }
-      : null;
-  }, [schemaAtPath, remoteFiles, config, currentRemoteFileBucket]);
+
+        const { patch, filePath } = await createFilePatch(
+          patchPath,
+          res.src,
+          res.filename ?? null,
+          res.fileHash,
+          metadata,
+          "image",
+          imageRemoteData,
+          imageDirectory,
+          !!imageReferencedModule,
+        );
+
+        if (patch.length === 0) return null;
+
+        const refFromPatch =
+          patch[0] &&
+          "value" in patch[0] &&
+          typeof patch[0].value === "object" &&
+          patch[0].value !== null &&
+          "_ref" in patch[0].value
+            ? (patch[0].value._ref as string)
+            : filePath;
+
+        const fileOps = patch.filter((op) => op.op === "file");
+
+        suppressNextDirtyRef.current = true;
+        const nestedFilePath = insertIntoView(refFromPatch, {
+          previewUrl: res.src,
+          width: metadata?.width,
+          height: metadata?.height,
+          mimeType: metadata?.mimeType,
+        });
+
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+
+        const doc = editorRef.current?.getDocument();
+        if (!doc) return null;
+
+        const replacePatch = createRichTextPatch(patchPath, doc);
+        sourceRef.current = doc;
+
+        const fileOpsWithNestedPath = fileOps.map((op) => ({
+          ...op,
+          ...(nestedFilePath ? { nestedFilePath } : {}),
+        }));
+
+        const combinedPatch: Patch = [
+          ...replacePatch,
+          ...fileOpsWithNestedPath,
+        ];
+
+        const moduleFilePatches: {
+          moduleFilePath: ModuleFilePath;
+          patch: Patch;
+        }[] = [];
+        if (
+          imageReferencedModule &&
+          filePath &&
+          metadata?.mimeType &&
+          metadata.width !== undefined &&
+          metadata.height !== undefined
+        ) {
+          moduleFilePatches.push({
+            moduleFilePath: imageReferencedModule as ModuleFilePath,
+            patch: [
+              {
+                op: "add",
+                path: [filePath],
+                value: {
+                  width: metadata.width,
+                  height: metadata.height,
+                  mimeType: metadata.mimeType,
+                  alt: null,
+                } as JSONValue,
+              },
+            ],
+          });
+        }
+
+        setUploadProgress(0);
+        await addAndUploadPatchWithFileOps(
+          combinedPatch,
+          "image",
+          (errorMessage) => {
+            console.error("Failed to upload image in richtext:", errorMessage);
+            setUploadProgress(null);
+          },
+          (bytesUploaded, totalBytes, currentFile, totalFiles) => {
+            const progress =
+              totalBytes > 0
+                ? Math.round(
+                    ((bytesUploaded * (currentFile + 1)) /
+                      (totalBytes * totalFiles)) *
+                      100,
+                  )
+                : 0;
+            setUploadProgress(Math.min(progress, 100));
+          },
+        );
+        setUploadProgress(null);
+
+        for (const entry of moduleFilePatches) {
+          addModuleFilePatch(entry.moduleFilePath, entry.patch, "record");
+        }
+
+        return { filePath, ref: refFromPatch };
+      } catch (err) {
+        console.error("Failed to prepare image for upload", err);
+        setUploadProgress(null);
+        return null;
+      }
+    };
+  }, [
+    hasImageEnabled,
+    patchPath,
+    imageRemoteData,
+    imageDirectory,
+    imageReferencedModule,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  ]);
+
+  const handleDirty = useCallback(() => {
+    if (disabledRef.current) return;
+    if (suppressNextDirtyRef.current) {
+      suppressNextDirtyRef.current = false;
+      return;
+    }
+
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      const doc = editorRef.current?.getDocument();
+      if (!doc) return;
+
+      const patch = createRichTextPatch(patchPath, doc);
+      sourceRef.current = doc;
+      addPatch(patch, "richtext");
+    }, DEBOUNCE_MS);
+  }, [patchPath, addPatch]);
 
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
-    );
-  }
-  if (remirrorContentResult.status === "error") {
-    return (
-      <FieldSourceError
-        path={path}
-        error={
-          "Error converting richtext content to editor format: " +
-          remirrorContentResult.error
-        }
-      />
     );
   }
   if (sourceAtPath.status === "error") {
@@ -183,7 +334,7 @@ export function RichTextField({
     );
   }
   if (
-    sourceAtPath.status == "not-found" ||
+    sourceAtPath.status === "not-found" ||
     schemaAtPath.status === "not-found"
   ) {
     return <FieldNotFound path={path} type={type} />;
@@ -203,96 +354,37 @@ export function RichTextField({
       />
     );
   }
-  const schema = schemaAtPath.data;
   if (!config?.remoteHost) {
     console.warn(
       "RichTextField: config.remoteHost is not set. Remote images will not work.",
     );
   }
   return (
-    <div id={path}>
+    <div id={path} className="m-1">
       <ValidationErrors path={path} />
       <RichTextEditor
-        autoFocus={autoFocus}
-        disabled={disabledRef.current}
-        state={editorState}
-        options={schema.options}
-        manager={manager}
-        onChange={async (event) => {
-          const currentDoc = editorState?.doc;
-          if (disabledRef.current) {
-            return;
-          }
-          setEditorState(event.state);
-          if (currentDoc && !event.state.doc.eq(currentDoc)) {
-            const patch = createRichTextPatch(
-              patchPath,
-              config?.files?.directory ?? "/public/val",
-              event.state.doc.toJSON(),
-              remoteOptions,
-            );
-            if (patch.some((op) => op.op === "file")) {
-              disabledRef.current = true;
-              await addAndUploadPatchWithFileOps(
-                patch,
-                "image",
-                (onError) => {
-                  // TODO: we need to do something here nicer here
-                  alert("Error uploading image. Please try again later.");
-                  console.error("Error uploading image", onError);
-                },
-                (bytesUploaded, totalBytes, currentFile, totalFiles) => {
-                  // TODO: we need to do something here
-                  console.log(
-                    `Uploading ${bytesUploaded}/${totalBytes} (${currentFile}/${totalFiles})`,
-                  );
-                },
-              ).finally(() => {
-                disabledRef.current = false;
-              });
-            } else {
-              addPatch(patch, "richtext");
-            }
-          }
-        }}
+        ref={editorRef}
+        features={features}
+        linkCatalog={linkCatalog}
+        readOnly={disabledRef.current}
+        onDirty={handleDirty}
+        imageModulePath={imageModulePath}
+        onImageUpload={onImageUpload}
+        imageAccept={imageAcceptOptions}
+        uploadProgress={uploadProgress}
+        portalContainer={portalContainer}
       />
     </div>
   );
 }
 
-function createRichTextPatch(
-  path: string[],
-  configDirectory: ConfigDirectory,
-  content: RemirrorJSON | undefined,
-  remoteOptions: RemoteRichTextOptions | null,
-): Patch {
-  const { blocks, files } = content
-    ? remirrorToRichTextSource(content, configDirectory, remoteOptions)
-    : {
-        blocks: [],
-        files: {},
-      };
+function createRichTextPatch(path: string[], content: EditorDocument): Patch {
   return [
     {
       op: "replace" as const,
       path,
-      value: blocks,
+      value: content as unknown as Parameters<typeof JSON.stringify>[0],
     },
-    ...Object.values(files).flatMap(
-      ({ value, filePathOrRef, metadata, patchPaths }) => {
-        return patchPaths.map((patchPath): FileOperation => {
-          return {
-            op: "file" as const,
-            path,
-            filePath: filePathOrRef,
-            value,
-            metadata,
-            nestedFilePath: patchPath,
-            remote: !!remoteOptions,
-          };
-        });
-      },
-    ),
   ];
 }
 
@@ -301,7 +393,7 @@ export function RichTextPreview({ path }: { path: SourcePath }) {
   if (sourceAtPath.status === "error") {
     return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
-  if (sourceAtPath.status == "not-found") {
+  if (sourceAtPath.status === "not-found") {
     return <FieldNotFound path={path} type="richtext" />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {

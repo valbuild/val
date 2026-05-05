@@ -751,7 +751,6 @@ export class ValOpsFS extends ValOps {
       return null;
     }
     const absPath = this.getBinaryFilePath(filePath, patchDirRes.value);
-
     if (!this.host.fileExists(absPath)) {
       return null;
     }

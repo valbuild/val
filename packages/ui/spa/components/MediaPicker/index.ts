@@ -1,4 +1,9 @@
-export { MediaPicker } from "./MediaPicker";
+export { MediaPicker, MediaPickerList, ModuleMediaPicker } from "./MediaPicker";
 export { GalleryUploadTarget, prettyModuleName } from "./GalleryUploadTarget";
-export type { GalleryEntry, MediaPickerProps } from "./MediaPicker";
+export { useModuleMediaEntries } from "./useModuleMediaEntries";
+export type {
+  GalleryEntry,
+  MediaPickerProps,
+  MediaPickerListProps,
+} from "./MediaPicker";
 export type { GalleryUploadTargetProps } from "./GalleryUploadTarget";

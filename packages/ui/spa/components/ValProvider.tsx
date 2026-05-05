@@ -184,7 +184,7 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
-  const wsEnabled =
+  const aiChatEnabled =
     isStatConnected &&
     ("data" in stat && stat.data
       ? stat.data.config?.ai?.chat?.experimental?.enable === true
@@ -193,13 +193,14 @@ export function ValProvider({
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
-  } = useAIWebSocket(wsEnabled);
+  } = useAIWebSocket(aiChatEnabled);
 
   const aiGetSessions = useCallback(
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
     }): Promise<AISessionsResponse> => {
+      if (!aiChatEnabled) return { sessions: [] };
       const params = new URLSearchParams();
       if (opts?.limit) params.set("limit", String(opts.limit));
       if (opts?.cursor) {
@@ -211,7 +212,7 @@ export function ValProvider({
       if (!res.ok) throw new Error(`ai/sessions failed: ${res.status}`);
       return res.json();
     },
-    [],
+    [aiChatEnabled],
   );
 
   const aiGetSessionMessages = useCallback(
@@ -222,6 +223,7 @@ export function ValProvider({
         cursor?: { updatedAt: string; id: string };
       },
     ): Promise<AIMessagesResponse> => {
+      if (!aiChatEnabled) return { messages: [] };
       const params = new URLSearchParams();
       if (opts?.limit) params.set("limit", String(opts.limit));
       if (opts?.cursor) {
@@ -237,11 +239,12 @@ export function ValProvider({
       const json = await res.json();
       return json;
     },
-    [],
+    [aiChatEnabled],
   );
 
   const aiSetSessionName = useCallback(
     async (sessionId: string, name: string): Promise<void> => {
+      if (!aiChatEnabled) return;
       const res = await fetch(
         `/api/val/ai/sessions/${encodeURIComponent(sessionId)}`,
         {
@@ -252,7 +255,7 @@ export function ValProvider({
       );
       if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
     },
-    [],
+    [aiChatEnabled],
   );
 
   const syncEngine = useMemo(
