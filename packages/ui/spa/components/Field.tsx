@@ -27,6 +27,7 @@ import {
   useProfilesByAuthorId,
 } from "./ValProvider";
 import { FieldPatchAuthors } from "./FieldPatchAuthors";
+import { ErrorBoundary } from "react-error-boundary";
 
 export function Field({
   label,
@@ -179,7 +180,11 @@ export function Field({
           }
         >
           <AccordionItem value={"open"} className="w-full border-b-0">
-            <AccordionContent>{children}</AccordionContent>
+            <AccordionContent>
+              <ErrorBoundary fallback={createFieldErrorFallback(path)}>
+                {children}
+              </ErrorBoundary>
+            </AccordionContent>
           </AccordionItem>
         </Accordion>
       )}
@@ -188,6 +193,20 @@ export function Field({
           <FieldValidationError validationErrors={validationErrors} />
         </div>
       )}
+    </div>
+  );
+}
+
+function createFieldErrorFallback(path: SourcePath) {
+  return <FieldErrorFallback path={path} />;
+}
+
+// eslint-disable-next-line no-empty-pattern
+function FieldErrorFallback({}: { path: SourcePath }) {
+  // TODO: get patches for this field and suggest to revert them
+  return (
+    <div className="text-fg-error-primary text-sm p-4 bg-bg-error-primary rounded-lg">
+      An unexpected error occurred
     </div>
   );
 }
