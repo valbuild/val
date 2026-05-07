@@ -25,7 +25,18 @@ export interface FloatingToolbarOptions {
     | undefined;
   getImageGetUrl?: () => ((filePath: string) => string) | undefined;
   getOnImageUpload?: () =>
-    | ((file: File, insertIntoView: (ref: string, opts?: { previewUrl?: string; width?: number; height?: number; mimeType?: string }) => string[] | null) => Promise<{ filePath: string; ref: string } | null>)
+    | ((
+        file: File,
+        insertIntoView: (
+          ref: string,
+          opts?: {
+            previewUrl?: string;
+            width?: number;
+            height?: number;
+            mimeType?: string;
+          },
+        ) => string[] | null,
+      ) => Promise<{ filePath: string; ref: string } | null>)
     | undefined;
   getImageAccept?: () => string | undefined;
   getUploadProgress?: () => number | null | undefined;

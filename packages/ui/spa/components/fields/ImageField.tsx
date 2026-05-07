@@ -205,12 +205,7 @@ export function ImageField({ path }: { path: SourcePath }) {
     maybeSourceData && typeof maybeSourceData?.metadata?.alt === "string"
       ? maybeSourceData.metadata.alt
       : undefined;
-  const {
-    uploadImage,
-    loading,
-    error,
-    progressPercentage,
-  } = useImageUpload({
+  const { uploadImage, loading, error, progressPercentage } = useImageUpload({
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,

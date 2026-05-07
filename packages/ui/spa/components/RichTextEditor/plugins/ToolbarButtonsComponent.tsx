@@ -70,7 +70,18 @@ export interface ToolbarButtonsProps {
   images?: EditorImage[];
   imageModuleEntries?: Record<string, Record<string, Record<string, unknown>>>;
   imageGetUrl?: (filePath: string) => string;
-  onImageUpload?: (file: File, insertIntoView: (ref: string, opts?: { previewUrl?: string; width?: number; height?: number; mimeType?: string }) => string[] | null) => Promise<{ filePath: string; ref: string } | null>;
+  onImageUpload?: (
+    file: File,
+    insertIntoView: (
+      ref: string,
+      opts?: {
+        previewUrl?: string;
+        width?: number;
+        height?: number;
+        mimeType?: string;
+      },
+    ) => string[] | null,
+  ) => Promise<{ filePath: string; ref: string } | null>;
   imageAccept?: string;
   uploadProgress?: number | null;
   buttonVariants?: EditorButtonVariant[];
@@ -272,7 +283,9 @@ export function ToolbarButtons({
 
       {schema.nodes.image &&
         (!features || features.image) &&
-        ((images && images.length > 0) || imageModuleEntries || onImageUpload) && (
+        ((images && images.length > 0) ||
+          imageModuleEntries ||
+          onImageUpload) && (
           <>
             <Separator />
             <ImageInsertDropdown
@@ -336,7 +349,18 @@ function ImageInsertDropdown({
   images?: EditorImage[];
   imageModuleEntries?: Record<string, Record<string, Record<string, unknown>>>;
   imageGetUrl?: (filePath: string) => string;
-  onImageUpload?: (file: File, insertIntoView: (ref: string, opts?: { previewUrl?: string; width?: number; height?: number; mimeType?: string }) => string[] | null) => Promise<{ filePath: string; ref: string } | null>;
+  onImageUpload?: (
+    file: File,
+    insertIntoView: (
+      ref: string,
+      opts?: {
+        previewUrl?: string;
+        width?: number;
+        height?: number;
+        mimeType?: string;
+      },
+    ) => string[] | null,
+  ) => Promise<{ filePath: string; ref: string } | null>;
   imageAccept?: string;
   uploadProgress?: number | null;
 }) {
@@ -390,7 +414,11 @@ function ImageInsertDropdown({
           }
         }}
       >
-        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Image size={16} />}
+        {uploading ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <Image size={16} />
+        )}
       </Button>
       {uploading && uploadProgress !== null && uploadProgress !== undefined && (
         <span className="text-[10px] font-medium tabular-nums text-fg-secondary select-none">
@@ -452,7 +480,12 @@ function ImageInsertDropdown({
               {hasPicker && (
                 <div className="mx-2 my-1 border-t border-border-primary" />
               )}
-              <div className={cn("flex items-center gap-2", hasPicker ? "px-2 pb-2" : "")}>
+              <div
+                className={cn(
+                  "flex items-center gap-2",
+                  hasPicker ? "px-2 pb-2" : "",
+                )}
+              >
                 <Button
                   variant="secondary"
                   size="sm"
