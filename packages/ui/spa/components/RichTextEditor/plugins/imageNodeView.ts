@@ -10,7 +10,18 @@ export interface ImageNodeViewOptions {
   getPortalContainer?: () => HTMLElement | null;
   getUrl?: () => ((filePath: string) => string) | undefined;
   getOnImageUpload?: () =>
-    | ((file: File, insertIntoView: (ref: string, opts?: { previewUrl?: string; width?: number; height?: number; mimeType?: string }) => string[] | null) => Promise<{ filePath: string; ref: string } | null>)
+    | ((
+        file: File,
+        insertIntoView: (
+          ref: string,
+          opts?: {
+            previewUrl?: string;
+            width?: number;
+            height?: number;
+            mimeType?: string;
+          },
+        ) => string[] | null,
+      ) => Promise<{ filePath: string; ref: string } | null>)
     | undefined;
   getImageAccept?: () => string | undefined;
 }
@@ -25,7 +36,9 @@ function ImageNodeUploadButton({
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  return createElement("div", { style: { marginTop: "6px" } },
+  return createElement(
+    "div",
+    { style: { marginTop: "6px" } },
     createElement("input", {
       ref: inputRef,
       type: "file",
@@ -94,7 +107,8 @@ export function createImageNodeView(
     }
 
     const img = document.createElement("img");
-    img.src = (node.attrs.previewUrl as string) || resolveUrl(node.attrs.src as string);
+    img.src =
+      (node.attrs.previewUrl as string) || resolveUrl(node.attrs.src as string);
     if (node.attrs.alt) img.alt = node.attrs.alt;
     img.style.maxWidth = "100%";
     img.style.cursor = "pointer";
@@ -207,9 +221,7 @@ export function createImageNodeView(
           }),
         );
       }
-      reactRoot.render(
-        createElement("div", null, ...children),
-      );
+      reactRoot.render(createElement("div", null, ...children));
 
       dismissHandler = (e: MouseEvent) => {
         if (
@@ -245,7 +257,9 @@ export function createImageNodeView(
       update(updatedNode: PMNode) {
         if (updatedNode.type !== node.type) return false;
         node = updatedNode;
-        img.src = (node.attrs.previewUrl as string) || resolveUrl(node.attrs.src as string);
+        img.src =
+          (node.attrs.previewUrl as string) ||
+          resolveUrl(node.attrs.src as string);
         if (node.attrs.alt) {
           img.alt = node.attrs.alt;
         } else {

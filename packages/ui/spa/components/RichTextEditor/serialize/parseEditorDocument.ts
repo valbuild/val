@@ -148,12 +148,12 @@ function parseInlineNodes(
       }
     } else if (child.tag === "img") {
       if (schema.nodes.image) {
-        const srcObj =
-          typeof child.src === "string" ? null : child.src;
+        const srcObj = typeof child.src === "string" ? null : child.src;
         const src = srcObj
-          ? (srcObj as Record<string, unknown>)?.[FILE_REF_PROP] ?? ""
+          ? ((srcObj as Record<string, unknown>)?.[FILE_REF_PROP] ?? "")
           : child.src;
-        const metadata = srcObj && "metadata" in srcObj ? srcObj.metadata : null;
+        const metadata =
+          srcObj && "metadata" in srcObj ? srcObj.metadata : null;
         result.push(
           schema.node("image", {
             src,

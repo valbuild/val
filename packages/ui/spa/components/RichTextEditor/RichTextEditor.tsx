@@ -166,7 +166,18 @@ export interface RichTextEditorProps {
   linkCatalog?: EditorLinkCatalogItem[];
   images?: EditorImage[];
   imageModulePath?: ModuleFilePath;
-  onImageUpload?: (file: File, insertIntoView: (ref: string, opts?: { previewUrl?: string; width?: number; height?: number; mimeType?: string }) => string[] | null) => Promise<{ filePath: string; ref: string } | null>;
+  onImageUpload?: (
+    file: File,
+    insertIntoView: (
+      ref: string,
+      opts?: {
+        previewUrl?: string;
+        width?: number;
+        height?: number;
+        mimeType?: string;
+      },
+    ) => string[] | null,
+  ) => Promise<{ filePath: string; ref: string } | null>;
   imageAccept?: string;
   uploadProgress?: number | null;
   buttonVariants?: EditorButtonVariant[];

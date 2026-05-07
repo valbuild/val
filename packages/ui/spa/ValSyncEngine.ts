@@ -1187,12 +1187,7 @@ export class ValSyncEngine {
     let tries = 0;
     this.syncStatus[sourcePath] = "patches-pending";
     this.invalidateSyncStatus(sourcePath);
-    let opRes = await this.executeAddPatches(
-      addOp,
-      {},
-      now,
-      parentRefOverride,
-    );
+    let opRes = await this.executeAddPatches(addOp, {}, now, parentRefOverride);
     while (opRes.status === "retry" && tries < 3) {
       tries++;
       await new Promise((resolve) => setTimeout(resolve, 500 * (tries + 1))); // wait 500ms, 1000ms, 1500ms
