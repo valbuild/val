@@ -201,8 +201,7 @@ function createFieldErrorFallback(path: SourcePath) {
   return <FieldErrorFallback path={path} />;
 }
 
-// eslint-disable-next-line no-empty-pattern
-function FieldErrorFallback({}: { path: SourcePath }) {
+function FieldErrorFallback(_props: { path: SourcePath }) {
   // TODO: get patches for this field and suggest to revert them
   return (
     <div className="text-fg-error-primary text-sm p-4 bg-bg-error-primary rounded-lg">
