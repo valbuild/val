@@ -201,6 +201,7 @@ function createFieldErrorFallback(path: SourcePath) {
   return <FieldErrorFallback path={path} />;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function FieldErrorFallback(_props: { path: SourcePath }) {
   // TODO: get patches for this field and suggest to revert them
   return (
