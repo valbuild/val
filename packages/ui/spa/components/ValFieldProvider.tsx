@@ -140,7 +140,7 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         sourcePath as SourcePath,
       );
     },
-    [syncEngine, moduleFilePath],
+    [syncEngine, moduleFilePath, sourcePath],
   );
   const addPatchAwaitable = useCallback(
     (
@@ -160,7 +160,7 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         parentRefOverride,
       );
     },
-    [syncEngine, moduleFilePath],
+    [syncEngine, moduleFilePath, sourcePath],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -176,7 +176,7 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         sourcePath as SourcePath,
       );
     },
-    [syncEngine],
+    [syncEngine, sourcePath],
   );
 
   const uploadPatchFile = useCallback(
