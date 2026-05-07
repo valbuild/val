@@ -70,6 +70,16 @@ export class ValSyncEngine {
    * i.e. they are currently only known by this client
    */
   private savedButNotYetGlobalServerSidePatchIds: PatchId[];
+  /**
+   * Maps each creator SourcePath to the ordered list of PatchIds it produced.
+   * Only populated when pathOfCreator is provided (i.e. user field edits, not AI).
+   */
+  private patchIdsByCreatorPath: Map<SourcePath, PatchId[]>;
+  /**
+   * Maps each ModuleFilePath to the set of PatchIds that belong to it.
+   * Incrementally maintained alongside patchDataByPatchId.
+   */
+  private patchIdsByModuleFilePath: Map<ModuleFilePath, Set<PatchId>>;
   private publishDisabled: boolean;
   private isPublishing: boolean;
   private patchDataByPatchId: Record<
@@ -180,6 +190,8 @@ export class ValSyncEngine {
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
+    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -203,6 +215,7 @@ export class ValSyncEngine {
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
     this.cachedSavedServerSidePatchIdsSnapshot = null;
     this.cachedAllSourcesSnapshot = null;
+    this.cachedAllRendersSnapshot = null;
     this.cachedSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
@@ -292,6 +305,8 @@ export class ValSyncEngine {
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
+    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -315,6 +330,7 @@ export class ValSyncEngine {
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
     this.cachedSavedServerSidePatchIdsSnapshot = null;
     this.cachedAllSourcesSnapshot = null;
+    this.cachedAllRendersSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
@@ -344,6 +360,7 @@ export class ValSyncEngine {
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
+  subscribe(type: "all-renders"): (listener: () => void) => () => void;
   subscribe(type: "auto-publish"): (listener: () => void) => () => void;
   subscribe(type: "parent-ref"): (listener: () => void) => () => void;
   subscribe(type: "pending-ops-count"): (listener: () => void) => () => void;
@@ -443,10 +460,19 @@ export class ValSyncEngine {
 
   private invalidateSource(moduleFilePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots !== null) {
-      this.cachedSourceSnapshots = {
-        ...this.cachedSourceSnapshots,
-        [moduleFilePath]: undefined,
-      };
+      const keysToRemove: string[] = [];
+      for (const key in this.cachedSourceSnapshots) {
+        if (key === moduleFilePath || key.startsWith(moduleFilePath + "\0")) {
+          keysToRemove.push(key);
+        }
+      }
+      if (keysToRemove.length > 0) {
+        const next = { ...this.cachedSourceSnapshots };
+        for (const key of keysToRemove) {
+          delete next[key];
+        }
+        this.cachedSourceSnapshots = next;
+      }
     }
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
@@ -468,7 +494,9 @@ export class ValSyncEngine {
       ...this.cachedRenderSnapshots,
       [moduleFilePath]: null,
     };
+    this.cachedAllRendersSnapshot = null;
     this.emit(this.listeners["render"]?.[moduleFilePath]);
+    this.emit(this.listeners["all-renders"]?.[globalNamespace]);
   }
 
   private invalidateSyncStatus(sourcePath: SourcePath | ModuleFilePath) {
@@ -629,7 +657,7 @@ export class ValSyncEngine {
   }
 
   private cachedSourceSnapshots: Record<
-    ModuleFilePath,
+    string,
     | {
         status: "success";
         data: Json;
@@ -641,37 +669,43 @@ export class ValSyncEngine {
         message?: string;
       }
   > | null;
-  getSourceSnapshot(sourcePath: ModuleFilePath) {
+  getSourceSnapshot(
+    sourcePath: ModuleFilePath,
+    creatorSourcePath?: SourcePath,
+  ) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    if (this.cachedSourceSnapshots[sourcePath] === undefined) {
+    const cacheKey = creatorSourcePath
+      ? `${sourcePath}\0${creatorSourcePath}`
+      : sourcePath;
+    if (this.cachedSourceSnapshots[cacheKey] === undefined) {
       const moduleData =
         this.optimisticClientSources[sourcePath] !== undefined
           ? this.optimisticClientSources[sourcePath]
           : this.serverSources?.[sourcePath];
 
       if (this.schemas === null) {
-        this.cachedSourceSnapshots[sourcePath] = {
+        this.cachedSourceSnapshots[cacheKey] = {
           status: "no-schemas",
         };
       } else if (!this.schemas[sourcePath]) {
-        this.cachedSourceSnapshots[sourcePath] = {
+        this.cachedSourceSnapshots[cacheKey] = {
           status: "schema-not-found",
         };
       } else if (moduleData === undefined) {
-        this.cachedSourceSnapshots[sourcePath] = {
+        this.cachedSourceSnapshots[cacheKey] = {
           status: "source-not-found",
         };
       } else {
-        this.cachedSourceSnapshots[sourcePath] = {
+        this.cachedSourceSnapshots[cacheKey] = {
           status: "success",
           data: deepClone(moduleData),
-          optimistic: this.optimisticClientSources[sourcePath] !== undefined,
+          optimistic: this.isEditedByComponent(sourcePath, creatorSourcePath),
         };
       }
     }
-    return this.cachedSourceSnapshots[sourcePath];
+    return this.cachedSourceSnapshots[cacheKey];
   }
 
   private cachedAllSourcesSnapshot: Record<ModuleFilePath, Json> | null;
@@ -689,6 +723,24 @@ export class ValSyncEngine {
       }
     }
     return this.cachedAllSourcesSnapshot;
+  }
+
+  private cachedAllRendersSnapshot: Record<
+    ModuleFilePath,
+    ReifiedRender | null
+  > | null;
+  getAllRendersSnapshot(): Record<ModuleFilePath, ReifiedRender | null> {
+    if (this.cachedAllRendersSnapshot === null) {
+      this.cachedAllRendersSnapshot = {};
+      if (this.renders) {
+        for (const moduleFilePathS in this.renders) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          this.cachedAllRendersSnapshot[moduleFilePath] =
+            this.renders[moduleFilePath];
+        }
+      }
+    }
+    return this.cachedAllRendersSnapshot;
   }
 
   private multipleSourcesSep = "|";
@@ -1089,6 +1141,8 @@ export class ValSyncEngine {
     patchId: PatchId,
     sessionId: string | null,
     now: number,
+    pathOfCreator?: SourcePath,
+    parentRefOverride?: ParentRef,
   ): Promise<
     | {
         status: "patch-synced";
@@ -1113,6 +1167,10 @@ export class ValSyncEngine {
     }
 
     const { moduleFilePath, patch: addedPatch } = res;
+    this.addToPatchIdsByModule(moduleFilePath, patchId);
+    if (pathOfCreator) {
+      this.addToCreatorPath(pathOfCreator, patchId);
+    }
     const addOp: AddPatchOp = {
       type: "add-patches",
       data: {
@@ -1129,11 +1187,11 @@ export class ValSyncEngine {
     let tries = 0;
     this.syncStatus[sourcePath] = "patches-pending";
     this.invalidateSyncStatus(sourcePath);
-    let opRes = await this.executeAddPatches(addOp, {}, now);
+    let opRes = await this.executeAddPatches(addOp, {}, now, parentRefOverride);
     while (opRes.status === "retry" && tries < 3) {
       tries++;
       await new Promise((resolve) => setTimeout(resolve, 500 * (tries + 1))); // wait 500ms, 1000ms, 1500ms
-      opRes = await this.executeAddPatches(addOp, {}, now);
+      opRes = await this.executeAddPatches(addOp, {}, now, parentRefOverride);
       if (opRes.status !== "retry") {
         break;
       }
@@ -1162,6 +1220,7 @@ export class ValSyncEngine {
     type: SerializedSchema["type"],
     patch: Patch,
     now: number,
+    pathOfCreator?: SourcePath,
   ):
     | {
         status: "patch-merged";
@@ -1238,7 +1297,11 @@ export class ValSyncEngine {
           authorId: this.authorId,
         };
         this.invalidateAllPatches();
+        this.addToPatchIdsByModule(moduleFilePath, patchId);
         this.patchSetInsert(moduleFilePath, patchId, patch, now);
+        if (pathOfCreator) {
+          this.addToCreatorPath(pathOfCreator, patchId);
+        }
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
@@ -1269,7 +1332,11 @@ export class ValSyncEngine {
         authorId: this.authorId,
       };
       this.invalidateAllPatches();
+      this.addToPatchIdsByModule(moduleFilePath, patchId);
       this.patchSetInsert(moduleFilePath, patchId, patch, now);
+      if (pathOfCreator) {
+        this.addToCreatorPath(pathOfCreator, patchId);
+      }
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
@@ -1285,6 +1352,84 @@ export class ValSyncEngine {
   createPatchId() {
     const patchId = crypto.randomUUID() as PatchId;
     return patchId;
+  }
+
+  private addToCreatorPath(creatorPath: SourcePath, patchId: PatchId) {
+    let arr = this.patchIdsByCreatorPath.get(creatorPath);
+    if (!arr) {
+      arr = [];
+      this.patchIdsByCreatorPath.set(creatorPath, arr);
+    }
+    arr.push(patchId);
+  }
+
+  private addToPatchIdsByModule(
+    moduleFilePath: ModuleFilePath,
+    patchId: PatchId,
+  ) {
+    let set = this.patchIdsByModuleFilePath.get(moduleFilePath);
+    if (!set) {
+      set = new Set();
+      this.patchIdsByModuleFilePath.set(moduleFilePath, set);
+    }
+    set.add(patchId);
+  }
+
+  private removeFromPatchIdsByModule(patchId: PatchId) {
+    const entry = this.patchDataByPatchId[patchId];
+    if (entry) {
+      const set = this.patchIdsByModuleFilePath.get(entry.moduleFilePath);
+      if (set) {
+        set.delete(patchId);
+      }
+    }
+  }
+
+  private rebuildPatchIdsByModule() {
+    this.patchIdsByModuleFilePath = new Map();
+    for (const patchIdS in this.patchDataByPatchId) {
+      const patchId = patchIdS as PatchId;
+      const entry = this.patchDataByPatchId[patchId];
+      if (entry) {
+        this.addToPatchIdsByModule(entry.moduleFilePath, patchId);
+      }
+    }
+  }
+
+  private isEditedByComponent(
+    moduleFilePath: ModuleFilePath,
+    creatorSourcePath?: SourcePath,
+  ): boolean {
+    if (!creatorSourcePath) return false;
+    this.patchIdsByModuleFilePath.get(moduleFilePath);
+    const creatorPatchIds = this.patchIdsByCreatorPath.get(creatorSourcePath);
+    if (!creatorPatchIds) {
+      return false;
+    }
+
+    // check if last patch is created by the creator component:
+    const creatorPatchIsTheLastSyncedPatch =
+      this.globalServerSidePatchIds &&
+      creatorPatchIds[creatorPatchIds.length - 1] ===
+        this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
+    const creatorPatchIsTheLastSyncedServerSidePatch =
+      this.savedButNotYetGlobalServerSidePatchIds &&
+      creatorPatchIds[creatorPatchIds.length - 1] ===
+        this.savedButNotYetGlobalServerSidePatchIds[
+          this.savedButNotYetGlobalServerSidePatchIds.length - 1
+        ];
+    const creatorPatchIsTheLastPendingPatch =
+      this.pendingClientPatchIds &&
+      creatorPatchIds[creatorPatchIds.length - 1] ===
+        this.pendingClientPatchIds[this.pendingClientPatchIds.length - 1];
+    if (
+      creatorPatchIsTheLastSyncedPatch ||
+      creatorPatchIsTheLastPendingPatch ||
+      creatorPatchIsTheLastSyncedServerSidePatch
+    ) {
+      return true;
+    }
+    return false;
   }
 
   patchSetInsert(
@@ -1436,6 +1581,7 @@ export class ValSyncEngine {
     op: AddPatchOp,
     changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>,
     now: number,
+    parentRefOverride?: ParentRef,
   ): Promise<
     | {
         status: "done";
@@ -1468,7 +1614,7 @@ export class ValSyncEngine {
         changes[moduleFilePath].add(patchData.type);
       }
     }
-    const parentRef = this.getParentRef();
+    const parentRef = parentRefOverride ?? this.getParentRef();
     if (parentRef === null) {
       this.addGlobalTransientError(
         `Tried to update content with changes, but could not since Val is not yet initialized`,
@@ -1522,6 +1668,7 @@ export class ValSyncEngine {
       // Also note that there is (or at least should) be something permanently wrong with these
       // patches so there shouldn't be any need to retry
       for (const patchId of newPatchIds) {
+        this.removeFromPatchIdsByModule(patchId as PatchId);
         this.patchDataByPatchId = {
           ...this.patchDataByPatchId,
           [patchId]: undefined,
@@ -1632,6 +1779,7 @@ export class ValSyncEngine {
             changes[currentModuleFilePath] = new Set();
           }
           changes[currentModuleFilePath].add("unknown");
+          this.removeFromPatchIdsByModule(patchId);
           this.patchDataByPatchId = {
             ...this.patchDataByPatchId,
             [patchId]: undefined,
@@ -1751,6 +1899,7 @@ export class ValSyncEngine {
                 }
               : undefined,
           };
+          this.addToPatchIdsByModule(patchData.path, patchData.patchId);
         }
       }
       if (res.json.error) {
@@ -1817,6 +1966,7 @@ export class ValSyncEngine {
                     }
                   : undefined,
               };
+              this.addToPatchIdsByModule(patchData.path, patchData.patchId);
             }
           }
         }
@@ -1979,6 +2129,7 @@ export class ValSyncEngine {
           this.savedButNotYetGlobalServerSidePatchIds = [];
           this.pendingClientPatchIds = [];
           await this.syncPatches(true, now);
+          this.rebuildPatchIdsByModule();
           // in http mode we need to sync patches
           serverPatchIdsDidChange = true;
           break;
@@ -2353,6 +2504,8 @@ export class ValSyncEngine {
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
         this.savedButNotYetGlobalServerSidePatchIds = [];
+        this.patchIdsByCreatorPath = new Map();
+        this.patchIdsByModuleFilePath = new Map();
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
         const fullReset = true;
@@ -2466,10 +2619,12 @@ export class ValSyncEngine {
   setRenders(renders: Record<ModuleFilePath, ReifiedRender | null>): void {
     this.renders = renders;
     this.cachedRenderSnapshots = renders;
+    this.cachedAllRendersSnapshot = null;
     for (const moduleFilePath in renders) {
       const path = moduleFilePath as ModuleFilePath;
       this.emit(this.listeners["render"]?.[path]);
     }
+    this.emit(this.listeners["all-renders"]?.[globalNamespace]);
   }
 
   /**
@@ -2546,6 +2701,7 @@ type SyncEngineListenerType =
   | "publish-disabled"
   | "pending-ops-count"
   | "all-sources"
+  | "all-renders"
   | "render"
   | "source"
   | "sources"

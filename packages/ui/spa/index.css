@@ -1,4 +1,3 @@
-@import "@remirror/styles/all.css";
 /*
   Need to explicitly set config path, otherwise it may fail to resolve when
   built from outside packages/ui.
@@ -272,48 +271,115 @@
 }
 
 @layer components {
-  .val-rich-text-editor .remirror-editor.ProseMirror {
-    overflow-y: hidden;
-    min-height: 3rem;
-    caret-color: var(--fg-primary);
+  /* ProseMirror base styles (from prosemirror-view/style/prosemirror.css) */
+  .ProseMirror {
+    position: relative;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    white-space: break-spaces;
+    -webkit-font-variant-ligatures: none;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0;
+    outline: none;
   }
-  .val-rich-text-editor .remirror-editor.ProseMirror:focus {
-    caret-color: var(--fg-primary);
+  .ProseMirror pre {
+    white-space: pre-wrap;
   }
-  .val-rich-text-editor .remirror-editor.ProseMirror.ProseMirror-focused {
-    caret-color: var(--fg-primary);
+  .ProseMirror li {
+    position: relative;
   }
-  .val-rich-text-editor h1 {
-    @apply text-2xl font-bold;
+  .ProseMirror-hideselection *::selection {
+    background: transparent;
   }
-  .val-rich-text-editor h2 {
-    @apply text-xl font-bold;
+  .ProseMirror-hideselection *::-moz-selection {
+    background: transparent;
   }
-  .val-rich-text-editor h3 {
-    @apply text-lg font-bold;
+  .ProseMirror-hideselection {
+    caret-color: transparent;
   }
-  .val-rich-text-editor h4 {
-    @apply text-base font-bold;
+  .ProseMirror [draggable][contenteditable="false"] {
+    user-select: text;
   }
-  .val-rich-text-editor h5 {
+  .ProseMirror-selectednode {
+    outline: 2px solid #8cf;
+  }
+  li.ProseMirror-selectednode {
+    outline: none;
+  }
+  li.ProseMirror-selectednode:after {
+    content: "";
+    position: absolute;
+    left: -32px;
+    right: -2px;
+    top: -2px;
+    bottom: -2px;
+    border: 2px solid #8cf;
+    pointer-events: none;
+  }
+  img.ProseMirror-separator {
+    display: inline !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+
+  .val-rich-text-editor h1,
+  .rich-text-editor .ProseMirror h1 {
+    @apply text-2xl font-bold mt-4 mb-2;
+  }
+  .val-rich-text-editor h2,
+  .rich-text-editor .ProseMirror h2 {
+    @apply text-xl font-bold mt-4 mb-2;
+  }
+  .val-rich-text-editor h3,
+  .rich-text-editor .ProseMirror h3 {
+    @apply text-lg font-bold mt-3 mb-1;
+  }
+  .val-rich-text-editor h4,
+  .rich-text-editor .ProseMirror h4 {
+    @apply text-base font-bold mt-3 mb-1;
+  }
+  .val-rich-text-editor h5,
+  .rich-text-editor .ProseMirror h5 {
     @apply text-sm font-bold;
   }
-  .val-rich-text-editor h6 {
+  .val-rich-text-editor h6,
+  .rich-text-editor .ProseMirror h6 {
     @apply text-xs font-bold;
   }
-  .val-rich-text-editor p {
-    @apply text-base;
+  .val-rich-text-editor p,
+  .rich-text-editor .ProseMirror p {
+    @apply text-base mb-3;
   }
-  .val-rich-text-editor ul {
-    @apply list-disc;
+  .val-rich-text-editor ul,
+  .rich-text-editor .ProseMirror ul {
+    @apply list-disc pl-5 mb-3;
   }
-  .val-rich-text-editor ol {
-    @apply list-decimal;
+  .val-rich-text-editor ol,
+  .rich-text-editor .ProseMirror ol {
+    @apply list-decimal pl-5 mb-3;
   }
-  .val-rich-text-editor li {
-    @apply ml-[20px];
+  .val-rich-text-editor li,
+  .rich-text-editor .ProseMirror li {
+    @apply mb-1;
   }
-  .val-rich-text-editor a {
+  .val-rich-text-editor blockquote,
+  .rich-text-editor .ProseMirror blockquote {
+    @apply border-l-4 border-border-primary pl-4 italic text-fg-secondary mb-3;
+  }
+  .val-rich-text-editor pre,
+  .rich-text-editor .ProseMirror pre {
+    @apply bg-bg-secondary rounded p-3 mb-3 overflow-x-auto;
+  }
+  .val-rich-text-editor code,
+  .rich-text-editor .ProseMirror code {
+    @apply bg-bg-secondary text-fg-primary rounded px-1 py-0.5 text-[0.875em] font-[Monaco,Monospace];
+  }
+  .val-rich-text-editor pre code,
+  .rich-text-editor .ProseMirror pre code {
+    @apply bg-transparent p-0;
+  }
+  .val-rich-text-editor a,
+  .rich-text-editor .ProseMirror a {
     @apply underline text-fg-brand-primary;
   }
 
