@@ -303,7 +303,6 @@ function buildMarks(
         getAttrs(dom) {
           const el = dom as HTMLElement;
           const href = el.getAttribute("href") || "";
-          if (!/^https?:\/\/|^mailto:/i.test(href)) return false;
           return { href };
         },
       },

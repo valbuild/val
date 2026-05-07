@@ -30,7 +30,7 @@ export function LinkUrlEditor({
 
   const handleApply = useCallback(() => {
     const trimmed = href.trim();
-    if (!trimmed || !/^https?:\/\/|^mailto:/i.test(trimmed)) return;
+    if (!trimmed) return;
     onApply(trimmed);
   }, [href, onApply]);
 
