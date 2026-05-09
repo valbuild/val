@@ -12,21 +12,6 @@ import type { ToolName } from "../utils/toolNames";
 
 export type CombinedImageMetadata = ImageMetadata;
 
-type FieldArgs = {
-  filePath: string;
-  imageKey: string;
-  patchPath: string[];
-  metadata: CombinedImageMetadata;
-};
-
-type RichtextArgs = {
-  filePath: string;
-  imageKey: string;
-  patchPath: string[];
-  nestedFilePath: string[];
-  metadata: CombinedImageMetadata;
-};
-
 type GalleryArgs = {
   filePath: string;
   imageKey: string;
@@ -42,19 +27,20 @@ export type BuildResult =
   | { kind: "wrong-tool"; suggestedTool: ToolName; reason: string }
   | { kind: "error"; message: string };
 
-function buildFileRefValue(
+export function buildFileRefValue(
   filePath: string,
-  metadata: CombinedImageMetadata,
+  metadata: Record<string, unknown>,
+  subtype: "image" | "file",
 ): Record<string, unknown> {
   return {
     [FILE_REF_PROP]: filePath,
     [VAL_EXTENSION]: "file",
-    [FILE_REF_SUBTYPE_TAG]: "image",
+    [FILE_REF_SUBTYPE_TAG]: subtype,
     metadata,
   };
 }
 
-function getSourceAt(
+export function getSourceAt(
   source: Source | undefined,
   path: string[],
 ): Source | undefined {
@@ -74,7 +60,7 @@ function getSourceAt(
   return current;
 }
 
-type ResolveResult =
+export type ResolveResult =
   | { kind: "leaf"; schema: SerializedSchema }
   | { kind: "richtext"; schema: SerializedSchema; remainingPath: string[] }
   | { kind: "gallery-traversed"; schema: SerializedSchema }
@@ -89,7 +75,7 @@ type ResolveResult =
  *   have used the gallery tool instead).
  * - `unresolved`: the path could not be walked.
  */
-function resolveSerializedSchemaAtPath(
+export function resolveSerializedSchemaAtPath(
   schema: SerializedSchema,
   path: string[],
 ): ResolveResult {
@@ -132,26 +118,13 @@ function resolveSerializedSchemaAtPath(
   return { kind: "leaf", schema: current };
 }
 
-function describeSchemaForWrongTool(
-  schema: SerializedSchema,
-):
-  | { kind: "field" }
-  | { kind: "richtext" }
-  | { kind: "gallery" }
-  | { kind: "other"; type: string } {
-  if (schema.type === "image") return { kind: "field" };
-  if (schema.type === "richtext") return { kind: "richtext" };
-  if (schema.type === "record" && schema.mediaType === "images") {
-    return { kind: "gallery" };
-  }
-  return { kind: "other", type: schema.type };
-}
-
-type InlineImgInfo =
+export type InlineImgInfo =
   | { kind: "not-allowed" }
   | { kind: "allowed"; remote: boolean };
 
-function getInlineImgInfo(richtextSchema: SerializedSchema): InlineImgInfo {
+export function getInlineImgInfo(
+  richtextSchema: SerializedSchema,
+): InlineImgInfo {
   if (richtextSchema.type !== "richtext") return { kind: "not-allowed" };
   const img = richtextSchema.options?.inline?.img;
   if (!img) return { kind: "not-allowed" };
@@ -159,7 +132,7 @@ function getInlineImgInfo(richtextSchema: SerializedSchema): InlineImgInfo {
   return { kind: "allowed", remote: img.remote === true };
 }
 
-function isRemoteSchema(schema: SerializedSchema): boolean {
+export function isRemoteSchema(schema: SerializedSchema): boolean {
   if (schema.type === "image" || schema.type === "file") {
     return schema.remote === true;
   }
@@ -169,7 +142,7 @@ function isRemoteSchema(schema: SerializedSchema): boolean {
   return false;
 }
 
-function safeParse(patch: unknown[]): BuildResult {
+export function safeParsePatch(patch: unknown[]): BuildResult {
   const parsed = Patch.safeParse(patch);
   if (!parsed.success) {
     return {
@@ -178,125 +151,6 @@ function safeParse(patch: unknown[]): BuildResult {
     };
   }
   return { kind: "ok", patch: parsed.data };
-}
-
-export function buildImageFieldPatch(
-  args: FieldArgs,
-  moduleSchema: SerializedSchema,
-  moduleSource: Source | undefined,
-): BuildResult {
-  const resolved = resolveSerializedSchemaAtPath(moduleSchema, args.patchPath);
-  if (resolved.kind === "unresolved") {
-    return {
-      kind: "error",
-      message: `Could not resolve schema at patch_path ${JSON.stringify(args.patchPath)}.`,
-    };
-  }
-  if (resolved.kind === "gallery-traversed") {
-    return {
-      kind: "wrong-tool",
-      suggestedTool: "convert_session_image_gallery",
-      reason:
-        "patch_path points into an image gallery (s.images()). Use convert_session_image_gallery instead — it derives the path from file_path.",
-    };
-  }
-  if (resolved.kind === "richtext") {
-    return {
-      kind: "wrong-tool",
-      suggestedTool: "convert_session_image_richtext",
-      reason:
-        "patch_path points into a richtext field. Use convert_session_image_richtext instead.",
-    };
-  }
-  const leafSchema = resolved.schema;
-  if (leafSchema.type !== "image") {
-    return {
-      kind: "error",
-      message: `Expected an image field at patch_path, got '${leafSchema.type}'.`,
-    };
-  }
-
-  const existing = getSourceAt(moduleSource, args.patchPath);
-  const op: "add" | "replace" =
-    existing === undefined || existing === null ? "add" : "replace";
-  const refValue = buildFileRefValue(args.filePath, args.metadata);
-  const remote = isRemoteSchema(leafSchema);
-  const patch = [
-    { op, path: args.patchPath, value: refValue },
-    {
-      op: "file" as const,
-      path: args.patchPath,
-      filePath: args.filePath,
-      value: args.imageKey,
-      remote,
-      metadata: args.metadata,
-    },
-  ];
-  return safeParse(patch);
-}
-
-export function buildImageRichtextPatch(
-  args: RichtextArgs,
-  moduleSchema: SerializedSchema,
-): BuildResult {
-  const resolved = resolveSerializedSchemaAtPath(moduleSchema, args.patchPath);
-  if (resolved.kind === "unresolved") {
-    return {
-      kind: "error",
-      message: `Could not resolve schema at patch_path ${JSON.stringify(args.patchPath)}.`,
-    };
-  }
-  if (resolved.kind === "gallery-traversed") {
-    return {
-      kind: "wrong-tool",
-      suggestedTool: "convert_session_image_gallery",
-      reason:
-        "patch_path points into an image gallery, not a richtext. Use convert_session_image_gallery.",
-    };
-  }
-  if (resolved.kind === "leaf") {
-    const desc = describeSchemaForWrongTool(resolved.schema);
-    if (desc.kind === "field") {
-      return {
-        kind: "wrong-tool",
-        suggestedTool: "convert_session_image_field",
-        reason:
-          "patch_path points to a plain image field, not inside a richtext. Use convert_session_image_field.",
-      };
-    }
-    return {
-      kind: "error",
-      message: `Expected richtext on the path, got '${resolved.schema.type}'.`,
-    };
-  }
-  const richtextSchema = resolved.schema;
-  const inlineImg = getInlineImgInfo(richtextSchema);
-  if (inlineImg.kind === "not-allowed") {
-    return {
-      kind: "error",
-      message:
-        "This richtext field does not allow inline images (options.inline.img is not set).",
-    };
-  }
-  const refValue = buildFileRefValue(args.filePath, args.metadata);
-  const remote = inlineImg.remote;
-  const patch = [
-    {
-      op: "add" as const,
-      path: args.patchPath,
-      value: { tag: "img", src: refValue },
-    },
-    {
-      op: "file" as const,
-      path: args.patchPath,
-      nestedFilePath: args.nestedFilePath,
-      filePath: args.filePath,
-      value: args.imageKey,
-      remote,
-      metadata: args.metadata,
-    },
-  ];
-  return safeParse(patch);
 }
 
 function checkGallerySchema(
@@ -308,17 +162,17 @@ function checkGallerySchema(
   if (moduleSchema.type === "image") {
     return {
       kind: "wrong-tool",
-      suggestedTool: "convert_session_image_field",
+      suggestedTool: "create_patch",
       reason:
-        "Module is a plain image field, not an images gallery. Use convert_session_image_field.",
+        "Module is a plain image field, not an images gallery. Use create_patch with a SessionKey value.",
     };
   }
   if (moduleSchema.type === "richtext") {
     return {
       kind: "wrong-tool",
-      suggestedTool: "convert_session_image_richtext",
+      suggestedTool: "create_patch",
       reason:
-        "Module is a richtext, not an images gallery. Use convert_session_image_richtext.",
+        "Module is a richtext, not an images gallery. Use create_patch with a SessionKey inside a {tag:'img', src: SessionKey} node.",
     };
   }
   return {
@@ -349,7 +203,7 @@ export function buildImageGalleryPatch(
       metadata: args.metadata,
     },
   ];
-  return safeParse(patch);
+  return safeParsePatch(patch);
 }
 
 export function buildRemoveImageGalleryEntryPatch(
@@ -396,5 +250,5 @@ export function buildRemoveImageGalleryEntryPatch(
       remote,
     },
   ];
-  return safeParse(patch);
+  return safeParsePatch(patch);
 }

@@ -1066,15 +1066,7 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
       label: "Updating content",
       icon: <Pencil className="h-3 w-3" />,
     },
-    convert_session_image_field: {
-      label: "Adding image",
-      icon: <Paperclip className="h-3 w-3" />,
-    },
-    convert_session_image_richtext: {
-      label: "Adding image to article",
-      icon: <Paperclip className="h-3 w-3" />,
-    },
-    convert_session_image_gallery: {
+    add_session_image_to_gallery: {
       label: "Adding image to gallery",
       icon: <Paperclip className="h-3 w-3" />,
     },

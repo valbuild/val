@@ -2353,6 +2353,101 @@ export const ValServer = (
         return execFetch();
       },
     },
+    "/ai/images": {
+      PATCH: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        let headers: HeadersInit;
+        if (serverOps instanceof ValOpsFS) {
+          headers = getProfileAuthHeaders(authData, null, "application/json");
+        } else {
+          if (!("id" in auth) || !auth.id) {
+            return {
+              status: 401 as const,
+              json: { message: "Unauthorized" },
+            };
+          }
+          headers = getProfileAuthHeaders(
+            authData,
+            { sub: auth.id },
+            "application/json",
+          );
+        }
+        const execFetch = async () => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/images`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "PATCH",
+              headers,
+              body: JSON.stringify({
+                key: req.body.key,
+                metadata: req.body.metadata,
+                contentType: req.body.contentType,
+              }),
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI images patch failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const UpstreamResponse = z.object({
+              key: z.string(),
+            });
+            const json = UpstreamResponse.safeParse(await upstreamRes.json());
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI images patch response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return {
+              status: 200 as const,
+              json: {
+                key: json.data.key,
+              },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "AI images patch error",
+              },
+            };
+          }
+        };
+        return execFetch();
+      },
+    },
 
     //#region files
     "/files": {
