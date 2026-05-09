@@ -417,7 +417,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             module_file_path: string;
             patch: unknown[];
           };
-          (async () => {
+          const exec = async () => {
             const hasFileOp = (args.patch ?? []).some(
               (op: unknown) =>
                 typeof op === "object" &&
@@ -547,7 +547,12 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             }
-          })();
+          };
+          exec().then(() => {
+            if (chatRef.current) {
+              chatRef.current.completeToolCall(message.id, message.toolCallId);
+            }
+          });
         } else if (message.name === "convert_session_image_to_patch") {
           const args = message.arguments as {
             image_key?: string;
