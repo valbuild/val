@@ -18,20 +18,12 @@ import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
-  ImageMetadata,
   ModuleFilePath,
   SerializedSchema,
   Source,
   SourcePath,
-  VAL_EXTENSION,
 } from "@valbuild/core";
-import {
-  FILE_REF_PROP as FILE_REF_PROP_KEY,
-  FILE_REF_SUBTYPE_TAG as FILE_REF_SUBTYPE_TAG_KEY,
-  VAL_EXTENSION as VAL_EXTENSION_KEY,
-} from "@valbuild/core";
+import { VAL_EXTENSION as VAL_EXTENSION_KEY } from "@valbuild/core";
 import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
@@ -142,36 +134,51 @@ const CREATE_PATCH_TOOL: AITool = {
 const CONVERT_SESSION_IMAGE_TO_PATCH_TOOL: AITool = {
   name: "convert_session_image_to_patch",
   description:
-    "Convert an uploaded AI session image (by key) into a Val file patch and update an image field.",
+    "Use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to apply it as a content change. " +
+    "Provide exactly two operations: one non-file op (replace/add/remove) that updates the content field to reference the new image, and one file op that records the image file transfer. " +
+    "Do NOT include 'metadata' in either op — the system fetches and injects image metadata (dimensions, mime type) automatically from the server.",
   parameters: {
     type: "object",
     properties: {
       image_key: {
         type: "string",
-        description: "The uploaded image key from an AI session attachment.",
+        description:
+          "The session image key from the user's uploaded attachment.",
       },
       module_file_path: {
         type: "string",
         description:
           "The Val module file path, e.g. '/content/homepage.val.ts'.",
       },
-      field_path: {
-        type: "array",
+      non_file_op: {
+        type: "object",
         description:
-          "Path array to the target image field inside the module source.",
-        items: { type: "string" },
+          "The content-field update operation (replace/add/remove). " +
+          "For image fields, 'value' should be the file-reference object with '_ref' (destination file path), '_type': 'file', '_file_subtype_tag': 'image' — but WITHOUT 'metadata' (injected automatically).",
+        properties: {
+          op: { type: "string", enum: ["replace", "add", "remove"] },
+          path: { type: "array", items: { type: "string" } },
+          value: {},
+        },
+        required: ["op", "path"],
       },
-      file_path: {
-        type: "string",
+      file_op: {
+        type: "object",
         description:
-          "Destination file path for the image, e.g. '/public/val/images/hero.png'.",
-      },
-      patch_description: {
-        type: "string",
-        description: "Optional description of why this patch is being created.",
+          "The file-transfer operation. Must have: 'path' (same as non_file_op path), " +
+          "'filePath' (destination file path, e.g. '/public/val/images/hero.png'), " +
+          "'value' (the session image reference string), 'remote': false. " +
+          "Do NOT include 'metadata' — it is injected automatically.",
+        properties: {
+          path: { type: "array", items: { type: "string" } },
+          filePath: { type: "string" },
+          value: {},
+          remote: { type: "boolean" },
+        },
+        required: ["path", "filePath", "value", "remote"],
       },
     },
-    required: ["image_key", "module_file_path", "field_path", "file_path"],
+    required: ["image_key", "module_file_path", "non_file_op", "file_op"],
   },
 };
 const NAVIGATE_TO_TOOL: AITool = {
@@ -298,9 +305,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
     crypto.randomUUID(),
-  );
-  const sessionImageMetadataByKeyRef = useRef<Record<string, ImageMetadata>>(
-    {},
   );
   const sessionIdRef = useRef<string>(currentSessionId);
   // Track active streaming ID — startAssistantMessage always appends a new
@@ -548,17 +552,19 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           const args = message.arguments as {
             image_key?: string;
             module_file_path?: string;
-            field_path?: unknown;
-            file_path?: string;
-            patch_description?: string;
+            non_file_op?: unknown;
+            file_op?: unknown;
           };
-          void args.patch_description;
           (async () => {
+            const nonFileOp = args.non_file_op;
+            const fileOpRaw = args.file_op;
             if (
               !args.image_key ||
               !args.module_file_path ||
-              !Array.isArray(args.field_path) ||
-              !args.file_path
+              typeof nonFileOp !== "object" ||
+              nonFileOp === null ||
+              typeof fileOpRaw !== "object" ||
+              fileOpRaw === null
             ) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -566,47 +572,36 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 result: {
                   success: false,
                   error:
-                    "Missing required arguments. Expected: image_key, module_file_path, field_path, file_path.",
+                    "Missing required arguments. Expected: image_key, module_file_path, non_file_op, file_op.",
                 },
                 isError: true,
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
-            const fieldPath = args.field_path.filter(
-              (part): part is string => typeof part === "string",
-            );
-            if (
-              fieldPath.length === 0 ||
-              fieldPath.length !== args.field_path.length
-            ) {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId: message.toolCallId,
-                result: {
-                  success: false,
-                  error: "field_path must be a non-empty array of strings.",
-                },
-                isError: true,
-              });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
-              return;
-            }
-            const metadata =
-              sessionImageMetadataByKeyRef.current[args.image_key];
-            console.log(
-              "Found metadata for image key",
-              args.image_key,
-              metadata,
-            );
-            if (!metadata) {
+            const nonFileOpTyped = nonFileOp as Record<string, unknown>;
+            const fileOpTyped = fileOpRaw as Record<string, unknown>;
+            if (nonFileOpTyped.op === "file") {
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
                   error:
-                    "Could not find metadata for image key. Ask the user to re-attach the image in this session.",
+                    "non_file_op must not be a file op. Use replace, add, or remove.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            if (typeof fileOpTyped.filePath !== "string") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error: "file_op must include a 'filePath' string.",
                 },
                 isError: true,
               });
@@ -631,32 +626,66 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               return;
             }
 
-            const replaceValue: {
-              [FILE_REF_PROP]: string;
-              [VAL_EXTENSION]: "file";
-              [FILE_REF_SUBTYPE_TAG]: "image";
-              metadata: ImageMetadata;
-            } = {
-              [FILE_REF_PROP_KEY]: args.file_path,
-              [VAL_EXTENSION_KEY]: "file",
-              [FILE_REF_SUBTYPE_TAG_KEY]: "image",
-              metadata,
-            };
+            const patchId = syncEngine.createPatchId();
+            let sessionRes: Awaited<
+              ReturnType<typeof aiSessionImageToPatchFile>
+            >;
+            try {
+              sessionRes = await aiSessionImageToPatchFile({
+                patchId,
+                filePath: fileOpTyped.filePath,
+                key: args.image_key,
+              });
+            } catch (err) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error: `Failed to transfer image from session: ${String(err)}`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            if (!sessionRes.metadata) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Server did not return image metadata. Ask the user to re-attach the image.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            const metadata = sessionRes.metadata;
+
+            // Inject metadata into the non-file op's value if it looks like a file reference
+            let finalNonFileOp = nonFileOpTyped;
+            if (
+              typeof nonFileOpTyped.value === "object" &&
+              nonFileOpTyped.value !== null &&
+              (nonFileOpTyped.value as Record<string, unknown>)[
+                VAL_EXTENSION_KEY
+              ] === "file"
+            ) {
+              finalNonFileOp = {
+                ...nonFileOpTyped,
+                value: {
+                  ...(nonFileOpTyped.value as Record<string, unknown>),
+                  metadata,
+                },
+              };
+            }
 
             const patchParse = Patch.safeParse([
-              {
-                op: "replace",
-                path: fieldPath,
-                value: replaceValue,
-              },
-              {
-                op: "file",
-                path: fieldPath,
-                filePath: args.file_path,
-                value: `session-image-key:${args.image_key}`,
-                remote: false,
-                metadata,
-              },
+              finalNonFileOp,
+              { op: "file", ...fileOpTyped, metadata },
             ]);
             if (!patchParse.success) {
               sendWsMessage({
@@ -664,7 +693,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `Invalid generated file patch. Zod error: ${JSON.stringify(patchParse.error)}`,
+                  error: `Invalid patch operations. Zod error: ${JSON.stringify(patchParse.error)}`,
                 },
                 isError: true,
               });
@@ -708,7 +737,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               }
             }
 
-            const patchId = syncEngine.createPatchId();
             const patchRes = await syncEngine.addPatchAwaitable(
               moduleFilePath,
               moduleSchema.type,
@@ -717,45 +745,23 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               sessionIdRef.current,
               Date.now(),
             );
-            if (patchRes.status !== "patch-synced") {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId: message.toolCallId,
-                result: { success: false, error: patchRes.message },
-                isError: true,
-              });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
-              return;
-            }
-
-            try {
-              const uploadRes = await aiSessionImageToPatchFile({
-                patchId: patchRes.patchId,
-                filePath: args.file_path,
-                key: args.image_key,
-                metadata,
-              });
+            if (patchRes.status === "patch-synced") {
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
                   success: true,
-                  patchId: uploadRes.patchId,
-                  filePath: uploadRes.filePath,
+                  patchId: patchRes.patchId,
+                  filePath: sessionRes.filePath,
                   message: "Image converted to patch successfully.",
                 },
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
-            } catch (err) {
+            } else {
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
-                result: {
-                  success: false,
-                  error:
-                    "Patch was created but file transfer from AI session failed. " +
-                    String(err),
-                },
+                result: { success: false, error: patchRes.message },
                 isError: true,
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
@@ -984,8 +990,18 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       if (nonce) {
         headers["x-val-auth-nonce"] = nonce;
       }
+      const queryParams = new URLSearchParams();
+      queryParams.set("sessionid", encodeURIComponent(sessionIdRef.current));
+      queryParams.set("width", encodeURIComponent(readRes.width || 0));
+      queryParams.set("height", encodeURIComponent(readRes.height || 0));
+      queryParams.set(
+        "mimetype",
+        encodeURIComponent(
+          readRes.mimeType || file.type || "application/octet-stream",
+        ),
+      );
       const res = await fetch(
-        `${baseUrl}/ai/images?sessionId=${encodeURIComponent(sessionIdRef.current)}`,
+        `${baseUrl}/ai/images?${queryParams.toString()}`,
         {
           method: "POST",
           headers,
@@ -996,11 +1012,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
       }
       const body = (await res.json()) as { key: string };
-      sessionImageMetadataByKeyRef.current[body.key] = {
-        width: readRes.width,
-        height: readRes.height,
-        mimeType: readRes.mimeType || file.type || "application/octet-stream",
-      };
       return body;
     },
     [getDirectFileUploadSettings],
@@ -1042,7 +1053,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - search_content: find content by keyword across all modules.
 - validate_content: check for errors — call this after every change.
 - create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
-- convert_session_image_to_patch: use this for images uploaded in this AI session. It creates a patch that updates an image field and links the uploaded image file.
+- convert_session_image_to_patch: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to apply it as a content change. Provide the session image key, the module to update, a non_file_op (replace/add/remove) that sets the image field to a file-reference value (with _ref, _type, _file_subtype_tag — but NO metadata), and a file_op (path, filePath, value, remote=false — NO metadata). The system fetches and injects image metadata (dimensions, mime type) automatically.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
