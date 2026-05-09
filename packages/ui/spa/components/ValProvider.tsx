@@ -149,8 +149,11 @@ type ValContextValue = {
     patchId: PatchId;
     filePath: string;
     key: string;
+  }) => Promise<{
+    patchId: PatchId;
+    filePath: string;
     metadata?: ImageMetadata;
-  }) => Promise<{ patchId: PatchId; filePath: string }>;
+  }>;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -273,19 +276,23 @@ export function ValProvider({
       patchId: PatchId;
       filePath: string;
       key: string;
-      metadata?: ImageMetadata;
-    }): Promise<{ patchId: PatchId; filePath: string }> => {
+    }): Promise<{ patchId: PatchId; filePath: string; metadata?: ImageMetadata }> => {
       const res = await fetch(`/api/val/ai/session-image-to-patch-file`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(args),
       });
       if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
         throw new Error(
-          `ai/session-image-to-patch-file failed: ${res.status}`,
+          `ai/session-image-to-patch-file failed: ${res.status}${errorBody?.message ? `: ${errorBody.message}` : ""}`,
         );
       }
-      return res.json() as Promise<{ patchId: PatchId; filePath: string }>;
+      return res.json() as Promise<{
+        patchId: PatchId;
+        filePath: string;
+        metadata?: ImageMetadata;
+      }>;
     },
     [],
   );
