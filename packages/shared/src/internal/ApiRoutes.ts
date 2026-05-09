@@ -1178,6 +1178,31 @@ export const Api = {
       ]),
     },
   },
+  "/ai/images": {
+    PATCH: {
+      req: {
+        body: z.object({
+          key: z.string(),
+          metadata: z.any(),
+          contentType: z.string(),
+        }),
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            key: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:
