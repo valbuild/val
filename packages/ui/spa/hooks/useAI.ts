@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
 import {
   type AITool,
+  SessionImageToPatchError,
   useCurrentProfile,
   useProfilesByAuthorId,
   useSyncEngine,
@@ -143,7 +144,9 @@ const CONVERT_SESSION_IMAGE_TO_PATCH_TOOL: AITool = {
       image_key: {
         type: "string",
         description:
-          "The session image key from the user's uploaded attachment.",
+          "The exact image_key string shown in the user's [Attached images] list in their message. " +
+          "Do NOT use any internal vision-system file id (e.g. 'file-...' or 'image-N') — " +
+          "only use the key string from that list verbatim.",
       },
       module_file_path: {
         type: "string",
@@ -560,6 +563,12 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             non_file_op?: unknown;
             file_op?: unknown;
           };
+          console.log("[ai-convert-debug] 1. tool call args", {
+            image_key: args.image_key,
+            module_file_path: args.module_file_path,
+            non_file_op: args.non_file_op,
+            file_op: args.file_op,
+          });
           (async () => {
             const nonFileOp = args.non_file_op;
             const fileOpRaw = args.file_op;
@@ -581,6 +590,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
+              console.log("[ai-convert-debug] gate=initial-args FAIL");
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
@@ -617,6 +627,11 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             const moduleFilePath = args.module_file_path as ModuleFilePath;
             const schemas = syncEngine.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
+            console.log("[ai-convert-debug] 2. module schema lookup", {
+              moduleFilePath,
+              found: !!moduleSchema,
+              type: moduleSchema?.type,
+            });
             if (!moduleSchema) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -641,13 +656,33 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 filePath: fileOpTyped.filePath,
                 key: args.image_key,
               });
+              console.log("[ai-convert-debug] 3. aiSessionImageToPatchFile ok", {
+                patchId: sessionRes.patchId,
+                filePath: sessionRes.filePath,
+                metadata: sessionRes.metadata,
+              });
             } catch (err) {
+              console.log("[ai-convert-debug] 3. aiSessionImageToPatchFile threw", err);
+              const availableKeys =
+                err instanceof SessionImageToPatchError
+                  ? err.availableKeys
+                  : undefined;
+              const baseMsg =
+                err instanceof Error ? err.message : String(err);
+              const hint =
+                availableKeys && availableKeys.length > 0
+                  ? ` Available image keys for this session: ${availableKeys
+                      .map((k) => `"${k}"`)
+                      .join(
+                        ", ",
+                      )}. Retry convert_session_image_to_patch with one of these as image_key.`
+                  : "";
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `Failed to transfer image from session: ${String(err)}`,
+                  error: `Failed to transfer image from session: ${baseMsg}.${hint}`,
                 },
                 isError: true,
               });
@@ -655,6 +690,10 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               return;
             }
             if (!sessionRes.metadata) {
+              console.log(
+                "[ai-convert-debug] gate=metadata-missing FAIL — sessionRes:",
+                sessionRes,
+              );
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
@@ -688,10 +727,16 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               };
             }
 
-            const patchParse = Patch.safeParse([
+            const patchToParse = [
               finalNonFileOp,
               { op: "file", ...fileOpTyped, metadata },
-            ]);
+            ];
+            console.log("[ai-convert-debug] 4. patch before parse", patchToParse);
+            const patchParse = Patch.safeParse(patchToParse);
+            console.log("[ai-convert-debug] 5. patch parse result", {
+              success: patchParse.success,
+              error: patchParse.success ? undefined : patchParse.error,
+            });
             if (!patchParse.success) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -711,6 +756,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               moduleFilePath,
               patch,
             );
+            console.log("[ai-convert-debug] 6. validatePatchResult", validationResult);
             if (validationResult && "status" in validationResult) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -727,6 +773,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 syncEngine.getAllSchemasSnapshot(),
                 syncEngine.getAllSourcesSnapshot(),
               );
+              console.log("[ai-convert-debug] 7. blockingErrors", blockingErrors);
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
                   type: "ai_tool_result",
@@ -750,6 +797,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               sessionIdRef.current,
               Date.now(),
             );
+            console.log("[ai-convert-debug] 8. addPatchAwaitable result", patchRes);
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -1024,8 +1072,20 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
   const sendMessage = useCallback(
     (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+      let augmentedText = text;
+      if (attachments && attachments.length > 0) {
+        const lines = attachments.map(
+          (a) => `- ${a.name}: image_key="${a.key}"`,
+        );
+        augmentedText =
+          text +
+          "\n\n[Attached images — when calling convert_session_image_to_patch, " +
+          "use the exact image_key string from this list (NOT any vision-system file id):\n" +
+          lines.join("\n") +
+          "]";
+      }
       const contentBlocks: AIMessageContentBlock[] = [
-        { type: "text", text },
+        { type: "text", text: augmentedText },
         ...(attachments?.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,

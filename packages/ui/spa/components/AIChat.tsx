@@ -1106,7 +1106,6 @@ function ToolActivitiesIndicator({
         };
         const isPending = activity.status === "pending";
         const isError = activity.status === "error";
-        console.log(activity);
         return (
           <div
             key={activity.toolCallId}
