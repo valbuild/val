@@ -80,6 +80,15 @@ export type AISessionsResponse = {
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
+export class SessionImageToPatchError extends Error {
+  availableKeys?: string[];
+  constructor(message: string, availableKeys?: string[]) {
+    super(message);
+    this.name = "SessionImageToPatchError";
+    this.availableKeys = availableKeys;
+  }
+}
+
 export type AIContentBlock =
   | { type: "text"; text: string }
   | { type: "image_url"; url: string };
@@ -283,9 +292,13 @@ export function ValProvider({
         body: JSON.stringify(args),
       });
       if (!res.ok) {
-        const errorBody = await res.json().catch(() => null);
-        throw new Error(
+        const errorBody = (await res.json().catch(() => null)) as {
+          message?: string;
+          details?: { availableKeys?: string[] };
+        } | null;
+        throw new SessionImageToPatchError(
           `ai/session-image-to-patch-file failed: ${res.status}${errorBody?.message ? `: ${errorBody.message}` : ""}`,
+          errorBody?.details?.availableKeys,
         );
       }
       return res.json() as Promise<{

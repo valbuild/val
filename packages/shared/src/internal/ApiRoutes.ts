@@ -1151,11 +1151,29 @@ export const Api = {
           json: z.object({
             filePath: z.string(),
             patchId: PatchId,
+            metadata: z
+              .looseObject({
+                width: z.number().optional(),
+                height: z.number().optional(),
+                mimeType: z.string().optional(),
+                alt: z.string().optional(),
+                hotspot: z
+                  .object({ x: z.number(), y: z.number() })
+                  .optional(),
+              })
+              .optional(),
           }),
         }),
         z.object({
           status: z.literal(500),
-          json: GenericError,
+          json: z.object({
+            message: z.string(),
+            details: z
+              .object({
+                availableKeys: z.array(z.string()).optional(),
+              })
+              .optional(),
+          }),
         }),
       ]),
     },

@@ -2278,18 +2278,46 @@ export const ValServer = (
             });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
+              let upstreamJson: {
+                message?: string;
+                details?: { availableKeys?: string[] };
+              } | null = null;
+              try {
+                upstreamJson = JSON.parse(text);
+              } catch {
+                upstreamJson = null;
+              }
               return {
                 status: 500 as const,
                 json: {
-                  message: `AI session image to patch failed: ${upstreamRes.status} ${text}`,
+                  message: `AI session image to patch failed: ${upstreamRes.status} ${upstreamJson?.message ?? text}`,
+                  ...(upstreamJson?.details
+                    ? { details: upstreamJson.details }
+                    : {}),
                 },
               };
             }
+            const rawUpstreamJson = await upstreamRes.json();
+            console.log(
+              "[ai-convert-debug] upstream raw response",
+              rawUpstreamJson,
+            );
             const UpstreamResponse = z.object({
               filePath: z.string(),
               patchId: z.string(),
+              metadata: z
+                .looseObject({
+                  width: z.number().optional(),
+                  height: z.number().optional(),
+                  mimeType: z.string().optional(),
+                  alt: z.string().optional(),
+                  hotspot: z
+                    .object({ x: z.number(), y: z.number() })
+                    .optional(),
+                })
+                .optional(),
             });
-            const json = UpstreamResponse.safeParse(await upstreamRes.json());
+            const json = UpstreamResponse.safeParse(rawUpstreamJson);
             if (!json.success) {
               return {
                 status: 500 as const,
@@ -2305,6 +2333,9 @@ export const ValServer = (
               json: {
                 filePath: json.data.filePath,
                 patchId: req.body.patchId,
+                ...(json.data.metadata
+                  ? { metadata: json.data.metadata }
+                  : {}),
               },
             };
           } catch (err) {
