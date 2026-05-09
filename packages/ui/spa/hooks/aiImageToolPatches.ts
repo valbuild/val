@@ -1,6 +1,7 @@
 import {
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
+  Internal,
   VAL_EXTENSION,
   type ImageMetadata,
   type SerializedSchema,
@@ -30,6 +31,10 @@ type GalleryArgs = {
   filePath: string;
   imageKey: string;
   metadata: CombinedImageMetadata;
+};
+
+type RemoveGalleryArgs = {
+  filePath: string;
 };
 
 export type BuildResult =
@@ -294,32 +299,40 @@ export function buildImageRichtextPatch(
   return safeParse(patch);
 }
 
+function checkGallerySchema(
+  moduleSchema: SerializedSchema,
+): BuildResult | null {
+  if (moduleSchema.type === "record" && moduleSchema.mediaType === "images") {
+    return null;
+  }
+  if (moduleSchema.type === "image") {
+    return {
+      kind: "wrong-tool",
+      suggestedTool: "convert_session_image_field",
+      reason:
+        "Module is a plain image field, not an images gallery. Use convert_session_image_field.",
+    };
+  }
+  if (moduleSchema.type === "richtext") {
+    return {
+      kind: "wrong-tool",
+      suggestedTool: "convert_session_image_richtext",
+      reason:
+        "Module is a richtext, not an images gallery. Use convert_session_image_richtext.",
+    };
+  }
+  return {
+    kind: "error",
+    message: `Module schema is not an images gallery (expected record with mediaType="images", got '${moduleSchema.type}').`,
+  };
+}
+
 export function buildImageGalleryPatch(
   args: GalleryArgs,
   moduleSchema: SerializedSchema,
 ): BuildResult {
-  if (moduleSchema.type !== "record" || moduleSchema.mediaType !== "images") {
-    if (moduleSchema.type === "image") {
-      return {
-        kind: "wrong-tool",
-        suggestedTool: "convert_session_image_field",
-        reason:
-          "Module is a plain image field, not an images gallery. Use convert_session_image_field.",
-      };
-    }
-    if (moduleSchema.type === "richtext") {
-      return {
-        kind: "wrong-tool",
-        suggestedTool: "convert_session_image_richtext",
-        reason:
-          "Module is a richtext, not an images gallery. Use convert_session_image_richtext.",
-      };
-    }
-    return {
-      kind: "error",
-      message: `Module schema is not an images gallery (expected record with mediaType="images", got '${moduleSchema.type}').`,
-    };
-  }
+  const wrong = checkGallerySchema(moduleSchema);
+  if (wrong) return wrong;
   const remote = isRemoteSchema(moduleSchema);
   const patch = [
     {
@@ -334,6 +347,53 @@ export function buildImageGalleryPatch(
       value: args.imageKey,
       remote,
       metadata: args.metadata,
+    },
+  ];
+  return safeParse(patch);
+}
+
+export function buildRemoveImageGalleryEntryPatch(
+  args: RemoveGalleryArgs,
+  moduleSchema: SerializedSchema,
+  moduleSource: Source | undefined,
+): BuildResult {
+  const wrong = checkGallerySchema(moduleSchema);
+  if (wrong) return wrong;
+  if (
+    !moduleSource ||
+    typeof moduleSource !== "object" ||
+    Array.isArray(moduleSource)
+  ) {
+    return {
+      kind: "error",
+      message: `Cannot remove from gallery: module source is not an object.`,
+    };
+  }
+  const entries = moduleSource as Record<string, Source>;
+  if (!Object.prototype.hasOwnProperty.call(entries, args.filePath)) {
+    const availableKeys = Object.keys(entries);
+    const hint =
+      availableKeys.length > 0
+        ? ` Available entries: ${availableKeys.map((k) => `"${k}"`).join(", ")}.`
+        : " The gallery is empty.";
+    return {
+      kind: "error",
+      message: `No gallery entry with file_path "${args.filePath}".${hint}`,
+    };
+  }
+  const remote =
+    Internal.remote.splitRemoteRef(args.filePath).status === "success";
+  const patch = [
+    {
+      op: "remove" as const,
+      path: [args.filePath],
+    },
+    {
+      op: "file" as const,
+      path: [args.filePath],
+      filePath: args.filePath,
+      value: null,
+      remote,
     },
   ];
   return safeParse(patch);

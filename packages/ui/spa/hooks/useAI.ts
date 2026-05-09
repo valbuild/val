@@ -35,6 +35,7 @@ import {
   buildImageFieldPatch,
   buildImageGalleryPatch,
   buildImageRichtextPatch,
+  buildRemoveImageGalleryEntryPatch,
   type BuildResult,
 } from "./aiImageToolPatches";
 
@@ -269,6 +270,28 @@ const CONVERT_SESSION_IMAGE_GALLERY_TOOL: AITool = {
     required: ["image_key", "module_file_path", "file_path"],
   },
 };
+const REMOVE_IMAGE_GALLERY_ENTRY_TOOL: AITool = {
+  name: "remove_image_gallery_entry",
+  description:
+    "Remove an existing image entry from an images gallery (a module defined with s.images()). " +
+    "The system records the deletion as a 'file' patch op with value: null and removes the corresponding gallery record entry.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description:
+          "The images-gallery module file path, e.g. '/content/media.val.ts'.",
+      },
+      file_path: {
+        type: "string",
+        description:
+          "The exact entry key in the gallery (the image's file path or remote ref). Use get_source on the gallery module to list available keys.",
+      },
+    },
+    required: ["module_file_path", "file_path"],
+  },
+};
 const NAVIGATE_TO_TOOL: AITool = {
   name: "navigate_to",
   description:
@@ -367,6 +390,7 @@ const ALL_TOOLS: AITool[] = [
   CONVERT_SESSION_IMAGE_FIELD_TOOL,
   CONVERT_SESSION_IMAGE_RICHTEXT_TOOL,
   CONVERT_SESSION_IMAGE_GALLERY_TOOL,
+  REMOVE_IMAGE_GALLERY_ENTRY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
   GET_PATCHES_TOOL,
@@ -926,6 +950,147 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
+        } else if (message.name === "remove_image_gallery_entry") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            file_path?: string;
+          };
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          (async () => {
+            if (!args.module_file_path || !args.file_path) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Missing required arguments. Expected: module_file_path, file_path.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const moduleFilePath = args.module_file_path as ModuleFilePath;
+            const schemas = syncEngine.getAllSchemasSnapshot();
+            const moduleSchema = schemas?.[moduleFilePath];
+            if (!moduleSchema) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              sourceSnap.status === "success"
+                ? (sourceSnap.data as Source | undefined)
+                : undefined;
+
+            const buildResult = buildRemoveImageGalleryEntryPatch(
+              { filePath: args.file_path },
+              moduleSchema,
+              sourceData,
+            );
+            if (buildResult.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
+
+            const validationResult = syncEngine.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                syncEngine.getAllSchemasSnapshot(),
+                syncEngine.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(blockingErrors)}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+            }
+
+            const patchId = syncEngine.createPatchId();
+            const patchRes = await syncEngine.addPatchAwaitable(
+              moduleFilePath,
+              moduleSchema.type,
+              patch,
+              patchId,
+              sessionIdRef.current,
+              Date.now(),
+            );
+            if (patchRes.status === "patch-synced") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: true,
+                  patchId: patchRes.patchId,
+                  filePath: args.file_path,
+                  message: "Image removed from gallery successfully.",
+                },
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: patchRes.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+            }
+          })();
         } else if (message.name === "navigate_to") {
           const args = message.arguments as { source_path: string };
           const sourcePath = args.source_path as SourcePath;
@@ -1229,6 +1394,7 @@ Always call get_all_schema first unless the question clearly does not require it
   - convert_session_image_richtext: an inline image inside a richtext field (only valid if the schema's options.inline.img is enabled). Provide nested_file_path = ['0', 'children', '0'] in the typical case.
   - convert_session_image_gallery: an entry in an images gallery (s.images()) — the file_path doubles as the entry key. No patch_path is needed.
   Each tool only needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. If you call the wrong tool the response will tell you which one to use.
+- remove_image_gallery_entry: remove an existing entry from an images gallery (s.images()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
