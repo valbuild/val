@@ -2165,7 +2165,16 @@ export const ValServer = (
                 .nullable()
                 .optional(),
             });
-            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages`;
+            const params = new URLSearchParams();
+            if (req.query.limit) params.set("limit", req.query.limit);
+            if (req.query.cursor_updatedAt)
+              params.set("cursor_updatedAt", req.query.cursor_updatedAt);
+            if (req.query.cursor_id)
+              params.set("cursor_id", req.query.cursor_id);
+            const qs = params.toString();
+            const upstreamUrl =
+              `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages` +
+              (qs ? `?${qs}` : "");
             const upstreamRes = await fetch(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
@@ -2289,13 +2298,23 @@ export const ValServer = (
               } catch {
                 upstreamJson = null;
               }
+              if (upstreamRes.status === 400 && upstreamJson) {
+                return {
+                  status: 400 as const,
+                  json: {
+                    message:
+                      upstreamJson.message ??
+                      `AI session image to patch failed: ${text}`,
+                    ...(upstreamJson.details
+                      ? { details: upstreamJson.details }
+                      : {}),
+                  },
+                };
+              }
               return {
                 status: 500 as const,
                 json: {
                   message: `AI session image to patch failed: ${upstreamRes.status} ${upstreamJson?.message ?? text}`,
-                  ...(upstreamJson?.details
-                    ? { details: upstreamJson.details }
-                    : {}),
                 },
               };
             }

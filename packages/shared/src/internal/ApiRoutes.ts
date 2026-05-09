@@ -1090,6 +1090,11 @@ export const Api = {
     GET: {
       req: {
         path: z.string(),
+        query: {
+          limit: onlyOneStringQueryParam.optional(),
+          cursor_updatedAt: onlyOneStringQueryParam.optional(),
+          cursor_id: onlyOneStringQueryParam.optional(),
+        },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
@@ -1169,7 +1174,7 @@ export const Api = {
           }),
         }),
         z.object({
-          status: z.literal(500),
+          status: z.literal(400),
           json: z.object({
             message: z.string(),
             details: z
@@ -1178,6 +1183,10 @@ export const Api = {
               })
               .optional(),
           }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
         }),
       ]),
     },

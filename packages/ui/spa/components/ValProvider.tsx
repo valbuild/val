@@ -216,25 +216,26 @@ export function ValProvider({
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
-  } = useAIWebSocket(wsEnabled);
+  } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
     }): Promise<AISessionsResponse> => {
-      const params = new URLSearchParams();
-      if (opts?.limit) params.set("limit", String(opts.limit));
-      if (opts?.cursor) {
-        params.set("cursor_updatedAt", opts.cursor.updatedAt);
-        params.set("cursor_id", opts.cursor.id);
-      }
-      const qs = params.toString();
-      const res = await fetch(`/api/val/ai/sessions${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new Error(`ai/sessions failed: ${res.status}`);
-      return res.json();
+      const res = await client("/ai/sessions", "GET", {
+        query: {
+          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          cursor_updatedAt: opts?.cursor?.updatedAt,
+          cursor_id: opts?.cursor?.id,
+        },
+      });
+      if (res.status === 200) return res.json;
+      throw new Error(
+        `ai/sessions failed: ${res.status ?? "network"}: ${res.json.message}`,
+      );
     },
-    [],
+    [client],
   );
 
   const aiGetSessionMessages = useCallback(
@@ -245,37 +246,34 @@ export function ValProvider({
         cursor?: { updatedAt: string; id: string };
       },
     ): Promise<AIMessagesResponse> => {
-      const params = new URLSearchParams();
-      if (opts?.limit) params.set("limit", String(opts.limit));
-      if (opts?.cursor) {
-        params.set("cursor_updatedAt", opts.cursor.updatedAt);
-        params.set("cursor_id", opts.cursor.id);
-      }
-      const qs = params.toString();
-      const res = await fetch(
-        `/api/val/ai/messages/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ""}`,
+      const res = await client("/ai/messages", "GET", {
+        path: `/${encodeURIComponent(sessionId)}/messages`,
+        query: {
+          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          cursor_updatedAt: opts?.cursor?.updatedAt,
+          cursor_id: opts?.cursor?.id,
+        },
+      });
+      if (res.status === 200) return res.json;
+      throw new Error(
+        `ai/sessions/messages failed: ${res.status ?? "network"}: ${res.json.message}`,
       );
-      if (!res.ok)
-        throw new Error(`ai/sessions/messages failed: ${res.status}`);
-      const json = await res.json();
-      return json;
     },
-    [],
+    [client],
   );
 
   const aiSetSessionName = useCallback(
     async (sessionId: string, name: string): Promise<void> => {
-      const res = await fetch(
-        `/api/val/ai/sessions/${encodeURIComponent(sessionId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        },
+      const res = await client("/ai/sessions", "PATCH", {
+        path: `/${encodeURIComponent(sessionId)}`,
+        body: { name },
+      });
+      if (res.status === 200) return;
+      throw new Error(
+        `ai/sessions/rename failed: ${res.status ?? "network"}: ${res.json.message}`,
       );
-      if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
     },
-    [],
+    [client],
   );
 
   const aiSessionImagesToPatchFile = useCallback(
@@ -286,27 +284,21 @@ export function ValProvider({
       patchId: PatchId;
       files: { filePath: string; metadata: ImageMetadata }[];
     }> => {
-      const res = await fetch(`/api/val/ai/session-image-to-patch-file`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(args),
+      const res = await client("/ai/session-image-to-patch-file", "POST", {
+        body: args,
       });
-      if (!res.ok) {
-        const errorBody = (await res.json().catch(() => null)) as {
-          message?: string;
-          details?: { availableKeys?: string[] };
-        } | null;
+      if (res.status === 200) return res.json;
+      if (res.status === 400) {
         throw new SessionImageToPatchError(
-          `ai/session-image-to-patch-file failed: ${res.status}${errorBody?.message ? `: ${errorBody.message}` : ""}`,
-          errorBody?.details?.availableKeys,
+          `ai/session-image-to-patch-file failed: 400: ${res.json.message}`,
+          res.json.details?.availableKeys,
         );
       }
-      return res.json() as Promise<{
-        patchId: PatchId;
-        files: { filePath: string; metadata: ImageMetadata }[];
-      }>;
+      throw new SessionImageToPatchError(
+        `ai/session-image-to-patch-file failed: ${res.status ?? "network"}: ${res.json.message}`,
+      );
     },
-    [],
+    [client],
   );
 
   const syncEngine = useMemo(
