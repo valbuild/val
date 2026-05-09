@@ -34,6 +34,7 @@ import { readImageFromFile } from "../utils/readImage";
 import {
   buildImageGalleryPatch,
   buildRemoveImageGalleryEntryPatch,
+  isRemoteSchema,
   type BuildResult,
 } from "./aiImageToolPatches";
 import {
@@ -330,7 +331,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
-    aiSessionImageToPatchFile,
+    aiSessionImagesToPatchFile,
   } = useAIContext();
   const syncEngine = useSyncEngine();
   const aiSearch = useAISearch();
@@ -501,7 +502,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 moduleSchema,
                 moduleSource: moduleSourceData,
                 patchId,
-                transfer: aiSessionImageToPatchFile,
+                transfer: aiSessionImagesToPatchFile,
               });
             } catch (err) {
               const availableKeys =
@@ -667,15 +668,28 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             }
 
             const patchId = syncEngine.createPatchId();
-            let sessionRes: Awaited<
-              ReturnType<typeof aiSessionImageToPatchFile>
-            >;
+            const isRemote = isRemoteSchema(moduleSchema);
+            let sessionRes: {
+              filePath: string;
+              metadata: ImageMetadata;
+            };
             try {
-              sessionRes = await aiSessionImageToPatchFile({
+              const batchRes = await aiSessionImagesToPatchFile({
                 patchId,
-                filePath: args.file_path,
-                key: args.image_key,
+                files: [
+                  {
+                    filePath: args.file_path,
+                    key: args.image_key,
+                    isRemote,
+                  },
+                ],
               });
+              if (batchRes.files.length === 0) {
+                throw new Error(
+                  "Server did not return image metadata. Ask the user to re-attach the image.",
+                );
+              }
+              sessionRes = batchRes.files[0];
             } catch (err) {
               const availableKeys =
                 err instanceof SessionImageToPatchError
@@ -696,20 +710,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 result: {
                   success: false,
                   error: `Failed to transfer image from session: ${baseMsg}.${hint}`,
-                },
-                isError: true,
-              });
-              chatRef.current?.errorToolCall(messageId, toolCallId);
-              return;
-            }
-            if (!sessionRes.metadata) {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId,
-                result: {
-                  success: false,
-                  error:
-                    "Server did not return image metadata. Ask the user to re-attach the image.",
                 },
                 isError: true,
               });

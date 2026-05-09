@@ -2271,9 +2271,11 @@ export const ValServer = (
               method: "POST",
               headers,
               body: JSON.stringify({
-                filePath: req.body.filePath,
-                key: req.body.key,
-                metadata: req.body.metadata,
+                files: req.body.files.map((f) => ({
+                  filePath: f.filePath,
+                  key: f.key,
+                  ...(f.isRemote !== undefined ? { isRemote: f.isRemote } : {}),
+                })),
               }),
             });
             if (!upstreamRes.ok) {
@@ -2298,24 +2300,18 @@ export const ValServer = (
               };
             }
             const rawUpstreamJson = await upstreamRes.json();
-            console.log(
-              "[ai-convert-debug] upstream raw response",
-              rawUpstreamJson,
-            );
             const UpstreamResponse = z.object({
-              filePath: z.string(),
               patchId: z.string(),
-              metadata: z
-                .looseObject({
-                  width: z.number().optional(),
-                  height: z.number().optional(),
-                  mimeType: z.string().optional(),
-                  alt: z.string().optional(),
-                  hotspot: z
-                    .object({ x: z.number(), y: z.number() })
-                    .optional(),
-                })
-                .optional(),
+              files: z.array(
+                z.object({
+                  filePath: z.string(),
+                  metadata: z.object({
+                    width: z.number(),
+                    height: z.number(),
+                    mimeType: z.string(),
+                  }),
+                }),
+              ),
             });
             const json = UpstreamResponse.safeParse(rawUpstreamJson);
             if (!json.success) {
@@ -2328,14 +2324,19 @@ export const ValServer = (
                 },
               };
             }
+            if (json.data.patchId !== req.body.patchId) {
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI session image to patch upstream returned mismatched patchId: expected '${req.body.patchId}', got '${json.data.patchId}'`,
+                },
+              };
+            }
             return {
               status: 200 as const,
               json: {
-                filePath: json.data.filePath,
                 patchId: req.body.patchId,
-                ...(json.data.metadata
-                  ? { metadata: json.data.metadata }
-                  : {}),
+                files: json.data.files,
               },
             };
           } catch (err) {
@@ -2438,9 +2439,7 @@ export const ValServer = (
               status: 500 as const,
               json: {
                 message:
-                  err instanceof Error
-                    ? err.message
-                    : "AI images patch error",
+                  err instanceof Error ? err.message : "AI images patch error",
               },
             };
           }

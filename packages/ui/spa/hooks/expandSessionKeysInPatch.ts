@@ -18,7 +18,7 @@ import {
 /**
  * Sentinel value an LLM can place in a `create_patch` payload anywhere it
  * would normally write a FileSource/ImageSource. The client transfers the
- * underlying session-uploaded file via `aiSessionImageToPatchFile` and rewrites
+ * underlying session-uploaded files via `aiSessionImagesToPatchFile` and rewrites
  * the patch to reference the resulting on-disk file.
  *
  * `_type: "ai_session_file"` is what makes this unambiguous against an actual
@@ -48,6 +48,7 @@ export type PendingTransfer = {
   readonly siteId: number;
   readonly key: string;
   readonly filePath: string;
+  readonly isRemote: boolean;
 };
 
 export type PlanResult =
@@ -105,20 +106,29 @@ function setAt(
     if (Array.isArray(cur)) {
       const idx = Number(part);
       if (!Number.isInteger(idx) || idx < 0 || idx >= cur.length) {
-        return { ok: false, reason: `index out of bounds at ${path.slice(0, i + 1).join("/")}` };
+        return {
+          ok: false,
+          reason: `index out of bounds at ${path.slice(0, i + 1).join("/")}`,
+        };
       }
       cur = cur[idx];
     } else if (cur && typeof cur === "object") {
       cur = (cur as Record<string, unknown>)[part];
     } else {
-      return { ok: false, reason: `cannot descend into non-object at ${path.slice(0, i + 1).join("/")}` };
+      return {
+        ok: false,
+        reason: `cannot descend into non-object at ${path.slice(0, i + 1).join("/")}`,
+      };
     }
   }
   const last = path[path.length - 1];
   if (Array.isArray(cur)) {
     const idx = Number(last);
     if (!Number.isInteger(idx)) {
-      return { ok: false, reason: `expected numeric index at ${path.join("/")}` };
+      return {
+        ok: false,
+        reason: `expected numeric index at ${path.join("/")}`,
+      };
     }
     cur[idx] = value;
     return { ok: true };
@@ -345,6 +355,7 @@ export function planSessionKeyExpansion(args: {
     siteId,
     key: s.sessionKey.key,
     filePath: s.sessionKey.filePath,
+    isRemote: s.remote,
   }));
 
   const apply = (
@@ -419,9 +430,11 @@ export function planSessionKeyExpansion(args: {
 
 export type SessionKeyTransfer = (args: {
   patchId: PatchId;
-  filePath: string;
-  key: string;
-}) => Promise<{ patchId: PatchId; filePath: string; metadata?: ImageMetadata }>;
+  files: { filePath: string; key: string; isRemote: boolean }[];
+}) => Promise<{
+  patchId: PatchId;
+  files: { filePath: string; metadata: ImageMetadata }[];
+}>;
 
 export type ExpandResult =
   | { kind: "ok"; patch: Patch }
@@ -433,6 +446,10 @@ export type ExpandResult =
  * patch contains no SessionKeys, no transfers are made and the patch is
  * returned unchanged. Errors from `transfer` (including
  * SessionImageToPatchError) propagate to the caller.
+ *
+ * All transfers are batched into a single call. Duplicate `(filePath, key,
+ * isRemote)` triples in the patch are deduped on the wire and the upstream
+ * metadata is fanned back out to every site that referenced them.
  */
 export async function expandSessionKeysInPatch(args: {
   patch: Patch;
@@ -449,13 +466,49 @@ export async function expandSessionKeysInPatch(args: {
   if (plan.kind !== "ok") return plan;
 
   const metadataBySiteId: Record<number, ImageMetadata | undefined> = {};
-  for (const t of plan.transfers) {
+  if (plan.transfers.length > 0) {
+    type FileKey = string;
+    const keyOf = (t: {
+      filePath: string;
+      key: string;
+      isRemote: boolean;
+    }): FileKey => `${t.isRemote ? "1" : "0"} ${t.filePath} ${t.key}`;
+    const dedupedFiles: {
+      filePath: string;
+      key: string;
+      isRemote: boolean;
+    }[] = [];
+    const indexByKey = new Map<FileKey, number>();
+    for (const t of plan.transfers) {
+      const k = keyOf(t);
+      if (indexByKey.has(k)) continue;
+      indexByKey.set(k, dedupedFiles.length);
+      dedupedFiles.push({
+        filePath: t.filePath,
+        key: t.key,
+        isRemote: t.isRemote,
+      });
+    }
     const res = await args.transfer({
       patchId: args.patchId,
-      filePath: t.filePath,
-      key: t.key,
+      files: dedupedFiles,
     });
-    metadataBySiteId[t.siteId] = res.metadata;
+    if (res.files.length !== dedupedFiles.length) {
+      return {
+        kind: "error",
+        message: `Session image transfer returned ${res.files.length} results for ${dedupedFiles.length} files.`,
+      };
+    }
+    for (const t of plan.transfers) {
+      const idx = indexByKey.get(keyOf(t));
+      if (idx === undefined) {
+        return {
+          kind: "error",
+          message: `Internal error: missing transfer index for site ${t.siteId}.`,
+        };
+      }
+      metadataBySiteId[t.siteId] = res.files[idx].metadata;
+    }
   }
 
   const applied = plan.apply(metadataBySiteId);
