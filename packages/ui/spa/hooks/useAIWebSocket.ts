@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { ValClient } from "@valbuild/shared/internal";
 
 // --- Shared types (must match server-side definitions) ---
 
@@ -188,7 +189,10 @@ export function getRecentSession(sessions: AISession[]): AISession | null {
 
 const RECONNECT_DELAY = 3000;
 
-export function useAIWebSocket(enabled: boolean): {
+export function useAIWebSocket(
+  enabled: boolean,
+  client: ValClient,
+): {
   subscribeToMessages: (handler: AIMessageHandler) => () => void;
   send: (message: AIClientMessage) => boolean;
   isConnected: boolean;
@@ -199,25 +203,27 @@ export function useAIWebSocket(enabled: boolean): {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const clientRef = useRef(client);
+  clientRef.current = client;
 
   const connect = useCallback(async () => {
     if (!enabledRef.current) return;
 
     try {
-      const res = await fetch("/api/val/ai/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await clientRef.current("/ai/initialize", "POST", {});
 
-      if (!res.ok) {
-        console.warn("AI WebSocket initialize failed:", res.status);
+      if (res.status !== 200) {
+        console.warn(
+          "AI WebSocket initialize failed:",
+          res.status,
+          res.json.message,
+        );
         scheduleReconnect();
         return;
       }
 
-      const data = (await res.json()) as { nonce: string; wsUrl: string };
       const ws = new WebSocket(
-        data.wsUrl + "?nonce=" + encodeURIComponent(data.nonce),
+        res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
       );
 
       ws.onopen = () => {
