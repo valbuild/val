@@ -7,6 +7,7 @@ export const toolNames = [
   "convert_session_image_field",
   "convert_session_image_richtext",
   "convert_session_image_gallery",
+  "remove_image_gallery_entry",
   "navigate_to",
   "get_current_context",
   "get_patches",

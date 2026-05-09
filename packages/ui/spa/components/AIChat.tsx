@@ -1078,6 +1078,10 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
       label: "Adding image to gallery",
       icon: <Paperclip className="h-3 w-3" />,
     },
+    remove_image_gallery_entry: {
+      label: "Removing image from gallery",
+      icon: <Paperclip className="h-3 w-3" />,
+    },
     navigate_to: {
       label: "Navigating to content",
       icon: <Navigation className="h-3 w-3" />,
