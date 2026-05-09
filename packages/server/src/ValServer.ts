@@ -1860,14 +1860,14 @@ export const ValServer = (
         }
         if (!options.project) {
           return {
-            status: 500,
+            status: 401,
             json: { message: "Project is not configured" },
           };
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
           return {
-            status: 500,
+            status: 401,
             json: {
               message: authDataRes.json.message,
             },
