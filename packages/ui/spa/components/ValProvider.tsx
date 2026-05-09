@@ -154,14 +154,12 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
-  aiSessionImageToPatchFile: (args: {
+  aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
-    filePath: string;
-    key: string;
+    files: { filePath: string; key: string; isRemote?: boolean }[];
   }) => Promise<{
     patchId: PatchId;
-    filePath: string;
-    metadata?: ImageMetadata;
+    files: { filePath: string; metadata: ImageMetadata }[];
   }>;
 };
 const ValContext = React.createContext<ValContextValue>(
@@ -280,12 +278,14 @@ export function ValProvider({
     [],
   );
 
-  const aiSessionImageToPatchFile = useCallback(
+  const aiSessionImagesToPatchFile = useCallback(
     async (args: {
       patchId: PatchId;
-      filePath: string;
-      key: string;
-    }): Promise<{ patchId: PatchId; filePath: string; metadata?: ImageMetadata }> => {
+      files: { filePath: string; key: string; isRemote?: boolean }[];
+    }): Promise<{
+      patchId: PatchId;
+      files: { filePath: string; metadata: ImageMetadata }[];
+    }> => {
       const res = await fetch(`/api/val/ai/session-image-to-patch-file`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -303,8 +303,7 @@ export function ValProvider({
       }
       return res.json() as Promise<{
         patchId: PatchId;
-        filePath: string;
-        metadata?: ImageMetadata;
+        files: { filePath: string; metadata: ImageMetadata }[];
       }>;
     },
     [],
@@ -656,7 +655,7 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
-        aiSessionImageToPatchFile,
+        aiSessionImagesToPatchFile,
       }}
     >
       <TooltipProvider>
@@ -841,7 +840,7 @@ export function useAIContext() {
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
-    aiSessionImageToPatchFile,
+    aiSessionImagesToPatchFile,
   } = useContext(ValContext);
   return {
     subscribeToWsMessages,
@@ -850,7 +849,7 @@ export function useAIContext() {
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
-    aiSessionImageToPatchFile,
+    aiSessionImagesToPatchFile,
   };
 }
 

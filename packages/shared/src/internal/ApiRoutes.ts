@@ -1138,9 +1138,15 @@ export const Api = {
       req: {
         body: z.object({
           patchId: PatchId,
-          filePath: z.string(),
-          key: z.string(),
-          metadata: z.any().optional(),
+          files: z
+            .array(
+              z.object({
+                filePath: z.string(),
+                key: z.string(),
+                isRemote: z.boolean().optional(),
+              }),
+            )
+            .min(1),
         }),
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -1149,19 +1155,17 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            filePath: z.string(),
             patchId: PatchId,
-            metadata: z
-              .looseObject({
-                width: z.number().optional(),
-                height: z.number().optional(),
-                mimeType: z.string().optional(),
-                alt: z.string().optional(),
-                hotspot: z
-                  .object({ x: z.number(), y: z.number() })
-                  .optional(),
-              })
-              .optional(),
+            files: z.array(
+              z.object({
+                filePath: z.string(),
+                metadata: z.object({
+                  width: z.number(),
+                  height: z.number(),
+                  mimeType: z.string(),
+                }),
+              }),
+            ),
           }),
         }),
         z.object({
