@@ -73,6 +73,7 @@ export function ToolsMenu() {
     sendMessage,
     uploadAiImage,
     isConnected,
+    authError,
     newSession,
     sessions,
     currentSessionId,
@@ -175,6 +176,8 @@ export function ToolsMenu() {
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
             isConnected={isConnected}
+            authError={authError}
+            mode={mode}
             sessions={sessions}
             currentSessionId={currentSessionId}
             onLoadSession={loadSession}

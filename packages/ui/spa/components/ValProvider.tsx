@@ -142,6 +142,7 @@ type ValContextValue = {
   subscribeToWsMessages: (handler: AIMessageHandler) => () => void;
   sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
+  aiAuthError: boolean;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -216,6 +217,7 @@ export function ValProvider({
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
+    authError: aiAuthError,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -644,6 +646,7 @@ export function ValProvider({
         subscribeToWsMessages,
         sendWsMessage,
         isWsConnected,
+        aiAuthError,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -829,6 +832,7 @@ export function useAIContext() {
     subscribeToWsMessages,
     sendWsMessage,
     isWsConnected,
+    aiAuthError,
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
@@ -838,6 +842,7 @@ export function useAIContext() {
     subscribeToWsMessages,
     sendWsMessage,
     isWsConnected,
+    aiAuthError,
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,

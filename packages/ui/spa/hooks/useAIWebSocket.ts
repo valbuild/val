@@ -196,9 +196,11 @@ export function useAIWebSocket(
   subscribeToMessages: (handler: AIMessageHandler) => () => void;
   send: (message: AIClientMessage) => boolean;
   isConnected: boolean;
+  authError: boolean;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [authError, setAuthError] = useState(false);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enabledRef = useRef(enabled);
@@ -212,6 +214,11 @@ export function useAIWebSocket(
     try {
       const res = await clientRef.current("/ai/initialize", "POST", {});
 
+      if (res.status === 401) {
+        setAuthError(true);
+        return;
+      }
+
       if (res.status !== 200) {
         console.warn(
           "AI WebSocket initialize failed:",
@@ -221,6 +228,7 @@ export function useAIWebSocket(
         scheduleReconnect();
         return;
       }
+      setAuthError(false);
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -316,5 +324,5 @@ export function useAIWebSocket(
     return false;
   }, []);
 
-  return { subscribeToMessages, send, isConnected };
+  return { subscribeToMessages, send, isConnected, authError };
 }

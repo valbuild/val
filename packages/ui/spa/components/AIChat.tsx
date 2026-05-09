@@ -16,6 +16,7 @@ import {
   Sparkles,
   Check,
   Loader2,
+  LogIn,
   Search,
   FileText,
   Database,
@@ -37,6 +38,8 @@ import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
+import { urlOf } from "@valbuild/shared/internal";
+import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,6 +127,10 @@ export type AIChatProps = {
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
   isConnected: boolean;
+  /** Set when /ai/initialize returned 401 — the user needs to authenticate */
+  authError: boolean;
+  /** Val server mode — controls which auth instructions to show on authError */
+  mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
   sessions?: AISession[];
   /** The currently active session ID */
@@ -197,6 +204,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     suggestions = DEFAULT_SUGGESTIONS,
     className,
     isConnected,
+    authError,
+    mode,
     sessions,
     currentSessionId,
     onLoadSession,
@@ -707,7 +716,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col gap-4 p-4">
-          {isEmpty ? (
+          {authError ? (
+            <AuthPrompt mode={mode} />
+          ) : isEmpty ? (
             <EmptyState
               suggestions={effectiveSuggestions}
               title={emptyTitle}
@@ -725,7 +736,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
-        {!isConnected && (
+        {!isConnected && !authError && (
           <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
             <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
             Connecting…
@@ -782,7 +793,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             <Button
               variant="ghost"
               size="icon-sm"
-              disabled={!isConnected || isStreaming}
+              disabled={!isConnected || isStreaming || authError}
               onClick={() => fileInputRef.current?.click()}
               aria-label="Attach files"
               className="mb-1"
@@ -796,7 +807,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isConnected ? "Ask something…" : ""}
+              disabled={authError}
+              placeholder={isConnected && !authError ? "Ask something…" : ""}
               rows={1}
               className={cn(
                 "resize-none overflow-hidden",
@@ -823,7 +835,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             variant="ghost"
             size="icon-sm"
             disabled={
-              !isConnected || isStreaming || isUploading || !inputValue.trim()
+              !isConnected ||
+              isStreaming ||
+              isUploading ||
+              authError ||
+              !inputValue.trim()
             }
             onClick={() => handleSend()}
             aria-label="Send message"
@@ -840,6 +856,43 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function AuthPrompt({ mode }: { mode: "http" | "fs" | "unknown" }) {
+  const isFs = mode === "fs";
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+      <div className="rounded-full bg-bg-secondary p-3">
+        <LogIn className="h-6 w-6" />
+      </div>
+      <div>
+        <h2 className="text-lg font-semibold text-fg-primary">
+          Login to use AI chat
+        </h2>
+        <p className="mt-1 text-sm text-fg-secondary">
+          {isFs
+            ? "Val is running in development mode. Run this command in your project root to create a personal access token, then refresh:"
+            : "Your session has expired. Sign in again to continue."}
+        </p>
+      </div>
+      {isFs ? (
+        <div className="w-full text-left">
+          <CopyableCodeBlock code="npx -p @valbuild/cli val login" />
+        </div>
+      ) : (
+        <Button asChild variant="default" size="sm">
+          <a
+            href={urlOf("/api/val/authorize", {
+              redirect_to: window.location.href,
+            })}
+          >
+            <LogIn className="mr-2 h-4 w-4" />
+            Sign in
+          </a>
+        </Button>
+      )}
+    </div>
+  );
+}
 
 function EmptyState({
   suggestions,

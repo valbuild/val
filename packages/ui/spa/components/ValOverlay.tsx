@@ -839,6 +839,7 @@ function ChatWindow({
     sendMessage,
     uploadAiImage,
     isConnected,
+    authError,
     newSession,
     sessions,
     currentSessionId,
@@ -846,6 +847,7 @@ function ChatWindow({
     setSessionName,
     loadSession,
   } = useAI(chatRef);
+  const mode = useValMode();
   const [windowPos, setWindowPos] = useState({
     x: Math.max(20, window.innerWidth - 570),
     y: 80,
@@ -1007,6 +1009,8 @@ function ChatWindow({
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
             isConnected={isConnected}
+            authError={authError}
+            mode={mode}
             sessions={sessions}
             currentSessionId={currentSessionId}
             onLoadSession={loadSession}
