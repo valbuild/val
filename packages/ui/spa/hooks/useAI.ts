@@ -19,18 +19,24 @@ import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
+  ImageMetadata,
   ModuleFilePath,
   SerializedSchema,
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { VAL_EXTENSION as VAL_EXTENSION_KEY } from "@valbuild/core";
 import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "./resolveValidationErrors";
 import { readImageFromFile } from "../utils/readImage";
+import {
+  buildImageFieldPatch,
+  buildImageGalleryPatch,
+  buildImageRichtextPatch,
+  type BuildResult,
+} from "./aiImageToolPatches";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -132,56 +138,135 @@ const CREATE_PATCH_TOOL: AITool = {
     required: ["module_file_path", "patch"],
   },
 };
-const CONVERT_SESSION_IMAGE_TO_PATCH_TOOL: AITool = {
-  name: "convert_session_image_to_patch",
+const IMAGE_KEY_DESCRIPTION =
+  "The exact image_key string shown in the user's [Attached images] list in their message. " +
+  "Do NOT use any internal vision-system file id (e.g. 'file-...' or 'image-N') — " +
+  "only use the key string from that list verbatim.";
+const HOTSPOT_DESCRIPTION =
+  "Optional focal point in the image (numbers between 0 and 1). Provide only if the user asked for a specific crop/focal point.";
+const CONVERT_SESSION_IMAGE_FIELD_TOOL: AITool = {
+  name: "convert_session_image_field",
   description:
-    "Use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to apply it as a content change. " +
-    "Provide exactly two operations: one non-file op (replace/add/remove) that updates the content field to reference the new image, and one file op that records the image file transfer. " +
-    "Do NOT include 'metadata' in either op — the system fetches and injects image metadata (dimensions, mime type) automatically from the server.",
+    "Use when the user wants a session-uploaded image placed at a single image field (e.g. 'heroImage', or one slot in an array of images). " +
+    "The system builds the correctly-shaped patch from the schema — you only declare intent.",
   parameters: {
     type: "object",
     properties: {
-      image_key: {
-        type: "string",
-        description:
-          "The exact image_key string shown in the user's [Attached images] list in their message. " +
-          "Do NOT use any internal vision-system file id (e.g. 'file-...' or 'image-N') — " +
-          "only use the key string from that list verbatim.",
-      },
+      image_key: { type: "string", description: IMAGE_KEY_DESCRIPTION },
       module_file_path: {
         type: "string",
         description:
           "The Val module file path, e.g. '/content/homepage.val.ts'.",
       },
-      non_file_op: {
-        type: "object",
+      file_path: {
+        type: "string",
         description:
-          "The content-field update operation (replace/add/remove). " +
-          "For image fields, 'value' should be the file-reference object with '_ref' (destination file path), '_type': 'file', '_file_subtype_tag': 'image' — but WITHOUT 'metadata' (injected automatically).",
-        properties: {
-          op: { type: "string", enum: ["replace", "add", "remove"] },
-          path: { type: "array", items: { type: "string" } },
-          value: {},
-        },
-        required: ["op", "path"],
+          "Where the image file should live on disk (must start with the module's file directory, e.g. '/public/val/images/hero.png').",
       },
-      file_op: {
-        type: "object",
+      patch_path: {
+        type: "array",
+        items: { type: "string" },
         description:
-          "The file-transfer operation. Must have: 'path' (same as non_file_op path), " +
-          "'filePath' (destination file path, e.g. '/public/val/images/hero.png'), " +
-          "'value' (the session image reference string), 'remote': false. " +
-          "Do NOT include 'metadata' — it is injected automatically.",
+          "Path inside the module to the image field, as an array of strings (e.g. ['hero'] or ['gallery', '0']).",
+      },
+      alt: {
+        type: "string",
+        description:
+          "Optional alt text for the image. Provide only if the user gave one or it's clearly inferable.",
+      },
+      hotspot: {
+        type: "object",
+        description: HOTSPOT_DESCRIPTION,
         properties: {
-          path: { type: "array", items: { type: "string" } },
-          filePath: { type: "string" },
-          value: {},
-          remote: { type: "boolean" },
+          x: { type: "number" },
+          y: { type: "number" },
         },
-        required: ["path", "filePath", "value", "remote"],
+        required: ["x", "y"],
       },
     },
-    required: ["image_key", "module_file_path", "non_file_op", "file_op"],
+    required: ["image_key", "module_file_path", "file_path", "patch_path"],
+  },
+};
+const CONVERT_SESSION_IMAGE_RICHTEXT_TOOL: AITool = {
+  name: "convert_session_image_richtext",
+  description:
+    "Use when the user wants a session-uploaded image inserted as an inline image inside a richtext field (e.g. body of an article). " +
+    "Only valid if the richtext schema's options.inline.img is enabled. The system builds the correct patch from the schema.",
+  parameters: {
+    type: "object",
+    properties: {
+      image_key: { type: "string", description: IMAGE_KEY_DESCRIPTION },
+      module_file_path: {
+        type: "string",
+        description:
+          "The Val module file path, e.g. '/content/article.val.ts'.",
+      },
+      file_path: {
+        type: "string",
+        description: "Where the image file should live on disk.",
+      },
+      patch_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Where to insert the new img node in the richtext, as an array of strings (e.g. ['body', '0', 'children', '2']).",
+      },
+      nested_file_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path inside the new img node where the file reference lives. Almost always ['src'].",
+      },
+      alt: { type: "string", description: "Optional alt text." },
+      hotspot: {
+        type: "object",
+        description: HOTSPOT_DESCRIPTION,
+        properties: {
+          x: { type: "number" },
+          y: { type: "number" },
+        },
+        required: ["x", "y"],
+      },
+    },
+    required: [
+      "image_key",
+      "module_file_path",
+      "file_path",
+      "patch_path",
+      "nested_file_path",
+    ],
+  },
+};
+const CONVERT_SESSION_IMAGE_GALLERY_TOOL: AITool = {
+  name: "convert_session_image_gallery",
+  description:
+    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.images(), where each entry's key is the file path and the value is the image's metadata).",
+  parameters: {
+    type: "object",
+    properties: {
+      image_key: { type: "string", description: IMAGE_KEY_DESCRIPTION },
+      module_file_path: {
+        type: "string",
+        description:
+          "The images-gallery module file path, e.g. '/content/media.val.ts'.",
+      },
+      file_path: {
+        type: "string",
+        description:
+          "Where the image file should live on disk. This is also used as the entry key in the gallery.",
+      },
+      alt: { type: "string", description: "Optional alt text." },
+      hotspot: {
+        type: "object",
+        description: HOTSPOT_DESCRIPTION,
+        properties: {
+          x: { type: "number" },
+          y: { type: "number" },
+        },
+        required: ["x", "y"],
+      },
+    },
+    required: ["image_key", "module_file_path", "file_path"],
   },
 };
 const NAVIGATE_TO_TOOL: AITool = {
@@ -279,7 +364,9 @@ const ALL_TOOLS: AITool[] = [
   SEARCH_CONTENT_TOOL,
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
-  CONVERT_SESSION_IMAGE_TO_PATCH_TOOL,
+  CONVERT_SESSION_IMAGE_FIELD_TOOL,
+  CONVERT_SESSION_IMAGE_RICHTEXT_TOOL,
+  CONVERT_SESSION_IMAGE_GALLERY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
   GET_PATCHES_TOOL,
@@ -434,7 +521,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 result: {
                   success: false,
                   error:
-                    "File/image patches require dedicated tools, ask user to upload image or find image key and use convert_session_image_to_patch.",
+                    "File/image patches require dedicated tools. Ask the user to upload an image, then use convert_session_image_field, convert_session_image_richtext, or convert_session_image_gallery (depending on the target schema).",
                 },
                 isError: true,
               });
@@ -556,95 +643,100 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               chatRef.current.completeToolCall(message.id, message.toolCallId);
             }
           });
-        } else if (message.name === "convert_session_image_to_patch") {
+        } else if (
+          message.name === "convert_session_image_field" ||
+          message.name === "convert_session_image_richtext" ||
+          message.name === "convert_session_image_gallery"
+        ) {
+          const toolName = message.name;
           const args = message.arguments as {
             image_key?: string;
             module_file_path?: string;
-            non_file_op?: unknown;
-            file_op?: unknown;
+            file_path?: string;
+            patch_path?: unknown;
+            nested_file_path?: unknown;
+            alt?: unknown;
+            hotspot?: unknown;
           };
-          console.log("[ai-convert-debug] 1. tool call args", {
-            image_key: args.image_key,
-            module_file_path: args.module_file_path,
-            non_file_op: args.non_file_op,
-            file_op: args.file_op,
-          });
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
           (async () => {
-            const nonFileOp = args.non_file_op;
-            const fileOpRaw = args.file_op;
-            if (
-              !args.image_key ||
-              !args.module_file_path ||
-              typeof nonFileOp !== "object" ||
-              nonFileOp === null ||
-              typeof fileOpRaw !== "object" ||
-              fileOpRaw === null
-            ) {
+            if (!args.image_key || !args.module_file_path || !args.file_path) {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
                   error:
-                    "Missing required arguments. Expected: image_key, module_file_path, non_file_op, file_op.",
+                    "Missing required arguments. Expected: image_key, module_file_path, file_path.",
                 },
                 isError: true,
               });
-              console.log("[ai-convert-debug] gate=initial-args FAIL");
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            const nonFileOpTyped = nonFileOp as Record<string, unknown>;
-            const fileOpTyped = fileOpRaw as Record<string, unknown>;
-            if (nonFileOpTyped.op === "file") {
+            const patchPath =
+              toolName === "convert_session_image_gallery"
+                ? null
+                : Array.isArray(args.patch_path) &&
+                    args.patch_path.every((p) => typeof p === "string")
+                  ? (args.patch_path as string[])
+                  : undefined;
+            if (patchPath === undefined) {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
-                  error:
-                    "non_file_op must not be a file op. Use replace, add, or remove.",
+                  error: "patch_path must be an array of strings.",
                 },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            if (typeof fileOpTyped.filePath !== "string") {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId: message.toolCallId,
-                result: {
-                  success: false,
-                  error: "file_op must include a 'filePath' string.",
-                },
-                isError: true,
-              });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
-              return;
+            let nestedFilePath: string[] | null = null;
+            if (toolName === "convert_session_image_richtext") {
+              if (
+                !Array.isArray(args.nested_file_path) ||
+                !args.nested_file_path.every((p) => typeof p === "string")
+              ) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: "nested_file_path must be an array of strings.",
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              nestedFilePath = args.nested_file_path as string[];
             }
 
             const moduleFilePath = args.module_file_path as ModuleFilePath;
             const schemas = syncEngine.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
-            console.log("[ai-convert-debug] 2. module schema lookup", {
-              moduleFilePath,
-              found: !!moduleSchema,
-              type: moduleSchema?.type,
-            });
             if (!moduleSchema) {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
                   error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
                 },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
+            const moduleSource = syncEngine.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              moduleSource.status === "success"
+                ? (moduleSource.data as Source | undefined)
+                : undefined;
 
             const patchId = syncEngine.createPatchId();
             let sessionRes: Awaited<
@@ -653,50 +745,39 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             try {
               sessionRes = await aiSessionImageToPatchFile({
                 patchId,
-                filePath: fileOpTyped.filePath,
+                filePath: args.file_path,
                 key: args.image_key,
               });
-              console.log("[ai-convert-debug] 3. aiSessionImageToPatchFile ok", {
-                patchId: sessionRes.patchId,
-                filePath: sessionRes.filePath,
-                metadata: sessionRes.metadata,
-              });
             } catch (err) {
-              console.log("[ai-convert-debug] 3. aiSessionImageToPatchFile threw", err);
               const availableKeys =
                 err instanceof SessionImageToPatchError
                   ? err.availableKeys
                   : undefined;
-              const baseMsg =
-                err instanceof Error ? err.message : String(err);
+              const baseMsg = err instanceof Error ? err.message : String(err);
               const hint =
                 availableKeys && availableKeys.length > 0
                   ? ` Available image keys for this session: ${availableKeys
                       .map((k) => `"${k}"`)
                       .join(
                         ", ",
-                      )}. Retry convert_session_image_to_patch with one of these as image_key.`
+                      )}. Retry ${toolName} with one of these as image_key.`
                   : "";
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
                   error: `Failed to transfer image from session: ${baseMsg}.${hint}`,
                 },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
             if (!sessionRes.metadata) {
-              console.log(
-                "[ai-convert-debug] gate=metadata-missing FAIL — sessionRes:",
-                sessionRes,
-              );
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
                   error:
@@ -704,67 +785,94 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            const metadata = sessionRes.metadata;
-
-            // Inject metadata into the non-file op's value if it looks like a file reference
-            let finalNonFileOp = nonFileOpTyped;
+            const metadata: ImageMetadata = { ...sessionRes.metadata };
+            if (typeof args.alt === "string") {
+              metadata.alt = args.alt;
+            }
             if (
-              typeof nonFileOpTyped.value === "object" &&
-              nonFileOpTyped.value !== null &&
-              (nonFileOpTyped.value as Record<string, unknown>)[
-                VAL_EXTENSION_KEY
-              ] === "file"
+              args.hotspot &&
+              typeof args.hotspot === "object" &&
+              typeof (args.hotspot as { x?: unknown }).x === "number" &&
+              typeof (args.hotspot as { y?: unknown }).y === "number"
             ) {
-              finalNonFileOp = {
-                ...nonFileOpTyped,
-                value: {
-                  ...(nonFileOpTyped.value as Record<string, unknown>),
-                  metadata,
-                },
-              };
+              metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
-            const patchToParse = [
-              finalNonFileOp,
-              { op: "file", ...fileOpTyped, metadata },
-            ];
-            console.log("[ai-convert-debug] 4. patch before parse", patchToParse);
-            const patchParse = Patch.safeParse(patchToParse);
-            console.log("[ai-convert-debug] 5. patch parse result", {
-              success: patchParse.success,
-              error: patchParse.success ? undefined : patchParse.error,
-            });
-            if (!patchParse.success) {
+            let buildResult: BuildResult;
+            if (toolName === "convert_session_image_field") {
+              buildResult = buildImageFieldPatch(
+                {
+                  filePath: args.file_path,
+                  imageKey: args.image_key,
+                  patchPath: patchPath as string[],
+                  metadata,
+                },
+                moduleSchema,
+                sourceData,
+              );
+            } else if (toolName === "convert_session_image_richtext") {
+              buildResult = buildImageRichtextPatch(
+                {
+                  filePath: args.file_path,
+                  imageKey: args.image_key,
+                  patchPath: patchPath as string[],
+                  nestedFilePath: nestedFilePath as string[],
+                  metadata,
+                },
+                moduleSchema,
+              );
+            } else {
+              buildResult = buildImageGalleryPatch(
+                {
+                  filePath: args.file_path,
+                  imageKey: args.image_key,
+                  metadata,
+                },
+                moduleSchema,
+              );
+            }
+
+            if (buildResult.kind === "wrong-tool") {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: false,
-                  error: `Invalid patch operations. Zod error: ${JSON.stringify(patchParse.error)}`,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
                 },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            const patch = patchParse.data;
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
 
             const validationResult = syncEngine.validatePatchResult(
               moduleFilePath,
               patch,
             );
-            console.log("[ai-convert-debug] 6. validatePatchResult", validationResult);
             if (validationResult && "status" in validationResult) {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: { success: false, error: validationResult.message },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
             if (validationResult !== false) {
@@ -773,18 +881,17 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 syncEngine.getAllSchemasSnapshot(),
                 syncEngine.getAllSourcesSnapshot(),
               );
-              console.log("[ai-convert-debug] 7. blockingErrors", blockingErrors);
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
                   type: "ai_tool_result",
-                  toolCallId: message.toolCallId,
+                  toolCallId,
                   result: {
                     success: false,
                     error: `Patch produces validation errors: ${JSON.stringify(blockingErrors)}`,
                   },
                   isError: true,
                 });
-                chatRef.current?.errorToolCall(message.id, message.toolCallId);
+                chatRef.current?.errorToolCall(messageId, toolCallId);
                 return;
               }
             }
@@ -797,11 +904,10 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               sessionIdRef.current,
               Date.now(),
             );
-            console.log("[ai-convert-debug] 8. addPatchAwaitable result", patchRes);
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
@@ -809,15 +915,15 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                   message: "Image converted to patch successfully.",
                 },
               });
-              chatRef.current?.completeToolCall(message.id, message.toolCallId);
+              chatRef.current?.completeToolCall(messageId, toolCallId);
             } else {
               sendWsMessage({
                 type: "ai_tool_result",
-                toolCallId: message.toolCallId,
+                toolCallId,
                 result: { success: false, error: patchRes.message },
                 isError: true,
               });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
         } else if (message.name === "navigate_to") {
@@ -1118,7 +1224,11 @@ Always call get_all_schema first unless the question clearly does not require it
 - search_content: find content by keyword across all modules.
 - validate_content: check for errors — call this after every change.
 - create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
-- convert_session_image_to_patch: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to apply it as a content change. Provide the session image key, the module to update, a non_file_op (replace/add/remove) that sets the image field to a file-reference value (with _ref, _type, _file_subtype_tag — but NO metadata), and a file_op (path, filePath, value, remote=false — NO metadata). The system fetches and injects image metadata (dimensions, mime type) automatically.
+- convert_session_image_field / convert_session_image_richtext / convert_session_image_gallery: use ONE of these when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to apply it as a content change. Pick the tool that matches the target schema:
+  - convert_session_image_field: a plain image field (s.image()), including a single slot inside an array of images (e.g. patch_path = ['images', '0']).
+  - convert_session_image_richtext: an inline image inside a richtext field (only valid if the schema's options.inline.img is enabled). Provide nested_file_path = ['0', 'children', '0'] in the typical case.
+  - convert_session_image_gallery: an entry in an images gallery (s.images()) — the file_path doubles as the entry key. No patch_path is needed.
+  Each tool only needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. If you call the wrong tool the response will tell you which one to use.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
