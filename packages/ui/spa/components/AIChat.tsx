@@ -419,7 +419,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 ),
               );
             })
-            .catch(() => {
+            .catch((err) => {
+              console.error("Failed to upload file", {
+                fileName: entry.file.name,
+                error: err,
+              });
               setAttachedFiles((prev) =>
                 prev.map((f) =>
                   f.id === entry.id ? { ...f, status: "error" } : f,

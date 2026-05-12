@@ -60,6 +60,8 @@ function SearchItemWithProviders({
         data: {
           nonce: null,
           baseUrl: "https://mock-upload.example.com",
+          contentBaseUrl: "https://mock-upload.example.com",
+          contentAuthNonce: null,
         },
       };
     },

@@ -595,6 +595,8 @@ export function ValProvider({
         data: {
           nonce: string | null;
           baseUrl: string;
+          contentBaseUrl: string | null;
+          contentAuthNonce: string | null;
         };
       }
     | {

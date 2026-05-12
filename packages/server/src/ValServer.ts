@@ -1016,15 +1016,49 @@ export const ValServer = (
           };
         }
         if (serverOps instanceof ValOpsFS) {
-          // In FS mode we do not use the remote server at all and just return an url that points to this server
-          // which has an endpoint that handles this
-          // A bit hacky perhaps, but we want to have as similar semantics as possible in client code when it comes to FS / HTTP
+          // In FS mode patch-file uploads are buffered through this server (no remote round-trip),
+          // so baseUrl points at /api/val/upload. AI image uploads, however, go straight to the
+          // content host — we resolve a contentBaseUrl + a PAT-issued nonce here so the browser
+          // can POST directly without exposing the PAT.
           const host = `/api/val`;
+          let contentBaseUrl: string | null = null;
+          let contentAuthNonce: string | null = null;
+          if (!options.project) {
+            console.warn(
+              "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
+            );
+          } else {
+            const authDataRes = await getRemoteFileAuth();
+            if (authDataRes.status !== 200) {
+              console.warn(
+                "Direct content-host uploads (AI images) disabled: " +
+                  authDataRes.json.message,
+              );
+            } else {
+              const corsOrigin = "*"; // TODO: add cors origin
+              const presignedAuthNonce = await serverOps.getPresignedAuthNonce(
+                options.project,
+                corsOrigin,
+                authDataRes.json.remoteFileAuth,
+              );
+              if (presignedAuthNonce.status === "success") {
+                contentBaseUrl = presignedAuthNonce.data.baseUrl;
+                contentAuthNonce = presignedAuthNonce.data.nonce;
+              } else {
+                console.warn(
+                  "Direct content-host uploads (AI images) disabled: " +
+                    presignedAuthNonce.error.message,
+                );
+              }
+            }
+          }
           return {
             status: 200,
             json: {
               nonce: null,
               baseUrl: `${host}/upload`, // NOTE: this is the /upload/patches endpoint - the client will add /patches/:patchId/files to this and post to it
+              contentBaseUrl,
+              contentAuthNonce,
             },
           };
         }
@@ -1055,6 +1089,8 @@ export const ValServer = (
           json: {
             nonce: presignedAuthNonce.data.nonce,
             baseUrl: presignedAuthNonce.data.baseUrl,
+            contentBaseUrl: presignedAuthNonce.data.baseUrl,
+            contentAuthNonce: presignedAuthNonce.data.nonce,
           },
         };
       },
