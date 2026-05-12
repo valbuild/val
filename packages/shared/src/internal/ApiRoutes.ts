@@ -641,6 +641,8 @@ export const Api = {
           json: z.object({
             nonce: z.string().nullable(),
             baseUrl: z.string(),
+            contentBaseUrl: z.string().nullable(),
+            contentAuthNonce: z.string().nullable(),
           }),
         }),
       ]),

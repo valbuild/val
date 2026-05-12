@@ -1186,13 +1186,18 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       if (settings.status === "error") {
         throw new Error(settings.error);
       }
-      const { nonce, baseUrl } = settings.data;
+      const { contentBaseUrl, contentAuthNonce } = settings.data;
+      if (!contentBaseUrl) {
+        throw new Error(
+          "Cannot upload AI image: content host is not configured. Set the `project` option in val.config (or VAL_PROJECT) and ensure a personal access token is available.",
+        );
+      }
       const headers: Record<string, string> = {
         "Content-Type": file.type || "application/octet-stream",
         "Content-Length": String(file.size),
       };
-      if (nonce) {
-        headers["x-val-auth-nonce"] = nonce;
+      if (contentAuthNonce) {
+        headers["x-val-auth-nonce"] = contentAuthNonce;
       }
       const queryParams = new URLSearchParams();
       queryParams.set("sessionid", encodeURIComponent(sessionIdRef.current));
@@ -1205,7 +1210,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         ),
       );
       const res = await fetch(
-        `${baseUrl}/ai/images?${queryParams.toString()}`,
+        `${contentBaseUrl}/ai/images?${queryParams.toString()}`,
         {
           method: "POST",
           headers,

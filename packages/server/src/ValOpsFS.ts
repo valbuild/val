@@ -53,6 +53,99 @@ export class ValOpsFS extends ValOps {
     // do nothing
   }
 
+  async getPresignedAuthNonce(
+    project: string,
+    corsOrigin: string,
+    auth: { pat: string } | { apiKey: string },
+  ): Promise<
+    | {
+        status: "success";
+        data: { nonce: string; baseUrl: string };
+      }
+    | { status: "error"; statusCode: 401 | 500; error: GenericErrorMessage }
+  > {
+    const authHeader: Record<string, string> =
+      "pat" in auth
+        ? { "x-val-pat": auth.pat }
+        : { Authorization: `Bearer ${auth.apiKey}` };
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${project}/presigned-auth-nonce`,
+        {
+          method: "POST",
+          headers: {
+            ...authHeader,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            corsOrigin,
+          }),
+        },
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const parsed = z
+          .object({
+            nonce: z.string(),
+            expiresAt: z.string(),
+          })
+          .safeParse(json);
+        if (parsed.success) {
+          return {
+            status: "success",
+            data: {
+              nonce: parsed.data.nonce,
+              baseUrl: `${this.contentUrl}/v1/${project}`,
+            },
+          };
+        }
+        console.error(
+          "Could not parse presigned auth nonce response. Error: " +
+            fromError(parsed.error),
+        );
+        return {
+          status: "error",
+          statusCode: 500,
+          error: {
+            message:
+              "Could not get presigned auth nonce. The response from the content host was not in the expected format.",
+          },
+        };
+      }
+      if (res.status === 401) {
+        return {
+          status: "error",
+          statusCode: 401,
+          error: {
+            message:
+              "Could not get presigned auth nonce. The local PAT was rejected by the content host. Try re-running `val login`.",
+          },
+        };
+      }
+      const unknownErrorMessage = `Could not get presigned auth nonce. HTTP error: ${res.status} ${res.statusText}`;
+      console.error(unknownErrorMessage);
+      return {
+        status: "error",
+        statusCode: 500,
+        error: { message: unknownErrorMessage },
+      };
+    } catch (e) {
+      console.error(
+        "Could not get presigned auth nonce (connection error?):",
+        e,
+      );
+      return {
+        status: "error",
+        statusCode: 500,
+        error: {
+          message: `Could not get presigned auth nonce. Error: ${
+            e instanceof Error ? e.message : JSON.stringify(e)
+          }`,
+        },
+      };
+    }
+  }
+
   async getCommitSummary(): Promise<
     | { commitSummary: string | null; error?: undefined }
     | { commitSummary?: undefined; error: GenericErrorMessage }
