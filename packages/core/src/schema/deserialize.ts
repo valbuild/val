@@ -35,6 +35,7 @@ export function deserializeSchema(
           regExpMessage: serialized.options?.regexp?.message,
         },
         serialized.opt,
+        serialized.raw,
       );
     case "literal":
       return new LiteralSchema(serialized.value, serialized.opt);
@@ -144,11 +145,19 @@ export function deserializeSchema(
       return new RouteSchema(routeOptions, serialized.opt);
     }
     case "file":
-      return new FileSchema(serialized.options, serialized.opt);
+      return new FileSchema(
+        serialized.options,
+        serialized.opt,
+        serialized.remote,
+      );
     case "image":
-      return new ImageSchema(serialized.options, serialized.opt);
+      return new ImageSchema(
+        serialized.options,
+        serialized.opt,
+        serialized.remote,
+      );
     case "date":
-      return new DateSchema(serialized.options);
+      return new DateSchema(serialized.options, serialized.opt);
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;
