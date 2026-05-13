@@ -531,7 +531,7 @@ export class ValOpsHttp extends ValOps {
           return {
             status: "error" as const,
             error: {
-              message: "Could not get nonce." + message,
+              message: "Could not get nonce. " + message,
             },
           };
         }

@@ -24,6 +24,7 @@ import {
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import {
+  ParentRef,
   SharedValConfig,
   ValClient,
   getNextAppRouterSourceFolder,
@@ -157,6 +158,7 @@ type ValContextValue = {
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
+    parentRef: ParentRef;
     files: { filePath: string; key: string; isRemote?: boolean }[];
   }) => Promise<{
     patchId: PatchId;
@@ -281,6 +283,7 @@ export function ValProvider({
   const aiSessionImagesToPatchFile = useCallback(
     async (args: {
       patchId: PatchId;
+      parentRef: ParentRef;
       files: { filePath: string; key: string; isRemote?: boolean }[];
     }): Promise<{
       patchId: PatchId;
