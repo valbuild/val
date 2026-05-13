@@ -222,6 +222,7 @@ describe("expandSessionKeysInPatch", () => {
       moduleSchema: schema,
       moduleSource: source,
       patchId: "patch-1" as PatchId,
+      parentRef: { type: "head", headBaseSha: "test-sha" },
       transfer,
     });
 
@@ -283,6 +284,7 @@ describe("expandSessionKeysInPatch", () => {
       moduleSchema: schema,
       moduleSource: source,
       patchId: "patch-2" as PatchId,
+      parentRef: { type: "head", headBaseSha: "test-sha" },
       transfer,
     });
 
@@ -320,6 +322,7 @@ describe("expandSessionKeysInPatch", () => {
       moduleSchema: schema,
       moduleSource: source,
       patchId: "patch-3" as PatchId,
+      parentRef: { type: "head", headBaseSha: "test-sha" },
       transfer,
     });
 

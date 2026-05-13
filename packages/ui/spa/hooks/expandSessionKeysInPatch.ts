@@ -6,7 +6,7 @@ import {
   type SerializedSchema,
   type Source,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/shared/internal";
+import { ParentRef, Patch } from "@valbuild/shared/internal";
 import type { ToolName } from "../utils/toolNames";
 import {
   buildFileRefValue,
@@ -430,6 +430,7 @@ export function planSessionKeyExpansion(args: {
 
 export type SessionKeyTransfer = (args: {
   patchId: PatchId;
+  parentRef: ParentRef;
   files: { filePath: string; key: string; isRemote: boolean }[];
 }) => Promise<{
   patchId: PatchId;
@@ -456,6 +457,7 @@ export async function expandSessionKeysInPatch(args: {
   moduleSchema: SerializedSchema;
   moduleSource: Source | undefined;
   patchId: PatchId;
+  parentRef: ParentRef;
   transfer: SessionKeyTransfer;
 }): Promise<ExpandResult> {
   const plan = planSessionKeyExpansion({
@@ -491,6 +493,7 @@ export async function expandSessionKeysInPatch(args: {
     }
     const res = await args.transfer({
       patchId: args.patchId,
+      parentRef: args.parentRef,
       files: dedupedFiles,
     });
     if (res.files.length !== dedupedFiles.length) {

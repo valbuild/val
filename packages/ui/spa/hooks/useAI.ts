@@ -496,6 +496,21 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 ? (moduleSourceSnap.data as Source | undefined)
                 : undefined;
             const patchId = syncEngine.createPatchId();
+            const parentRef = syncEngine.getParentRef();
+            if (parentRef === null) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Cannot apply patch yet: editor is still initializing. Ask the user to retry in a moment.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
             let expanded: ExpandResult;
             try {
               expanded = await expandSessionKeysInPatch({
@@ -503,6 +518,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 moduleSchema,
                 moduleSource: moduleSourceData,
                 patchId,
+                parentRef,
                 transfer: aiSessionImagesToPatchFile,
               });
             } catch (err) {
@@ -670,6 +686,21 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
             const patchId = syncEngine.createPatchId();
             const isRemote = isRemoteSchema(moduleSchema);
+            const parentRef = syncEngine.getParentRef();
+            if (parentRef === null) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Cannot add image to gallery yet: editor is still initializing. Ask the user to retry in a moment.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
             let sessionRes: {
               filePath: string;
               metadata: ImageMetadata;
@@ -677,6 +708,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             try {
               const batchRes = await aiSessionImagesToPatchFile({
                 patchId,
+                parentRef,
                 files: [
                   {
                     filePath: args.file_path,

@@ -1145,6 +1145,7 @@ export const Api = {
       req: {
         body: z.object({
           patchId: PatchId,
+          parentRef: ParentRef,
           files: z
             .array(
               z.object({

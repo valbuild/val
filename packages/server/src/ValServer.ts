@@ -2387,6 +2387,69 @@ export const ValServer = (
                 },
               };
             }
+            if (serverOps instanceof ValOpsFS) {
+              // Mirror the binaries from the content host into local patch
+              // storage so /files?patch_id=... can serve them. Match upstream
+              // entries to client-provided keys by filePath.
+              const keysByFilePath = new Map(
+                req.body.files.map((f) => [f.filePath, f.key]),
+              );
+              for (const file of json.data.files) {
+                const sessionKey = keysByFilePath.get(file.filePath);
+                if (!sessionKey) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `AI session image to patch: upstream returned file '${file.filePath}' which was not in the request`,
+                    },
+                  };
+                }
+                const downloadUrl = `${options.valContentUrl}/v1/${options.project}/ai/images?key=${encodeURIComponent(sessionKey)}`;
+                let binaryRes: Response;
+                try {
+                  binaryRes = await fetch(downloadUrl, { headers });
+                } catch (err) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not download AI session image '${file.filePath}' from content host: ${err instanceof Error ? err.message : String(err)}`,
+                    },
+                  };
+                }
+                if (!binaryRes.ok) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not download AI session image '${file.filePath}' from content host: ${binaryRes.status} ${binaryRes.statusText}`,
+                    },
+                  };
+                }
+                const arrayBuffer = await binaryRes.arrayBuffer();
+                const base64 = Buffer.from(arrayBuffer).toString("base64");
+                const dataUrl = `data:${file.metadata.mimeType};base64,${base64}`;
+                const type: "image" | "file" =
+                  file.metadata.mimeType.startsWith("image/")
+                    ? "image"
+                    : "file";
+                const saveRes =
+                  await serverOps.saveBase64EncodedBinaryFileFromPatch(
+                    file.filePath,
+                    req.body.parentRef,
+                    req.body.patchId,
+                    dataUrl,
+                    type,
+                    file.metadata,
+                  );
+                if (saveRes.error) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not save AI session image '${file.filePath}' to local patch storage: ${saveRes.error.message}`,
+                    },
+                  };
+                }
+              }
+            }
             return {
               status: 200 as const,
               json: {
