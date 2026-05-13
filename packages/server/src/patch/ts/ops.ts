@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "../../internal/typescript";
 import { result, array, pipe } from "@valbuild/core/fp";
 import {
   validateInitializers,
@@ -50,12 +51,14 @@ function isValidIdentifier(text: string): boolean {
     return false;
   }
 
-  if (!ts.isIdentifierStart(text.charCodeAt(0), ts.ScriptTarget.ES2020)) {
+  if (!tsLib.isIdentifierStart(text.charCodeAt(0), tsLib.ScriptTarget.ES2020)) {
     return false;
   }
 
   for (let i = 1; i < text.length; ++i) {
-    if (!ts.isIdentifierPart(text.charCodeAt(i), ts.ScriptTarget.ES2020)) {
+    if (
+      !tsLib.isIdentifierPart(text.charCodeAt(i), tsLib.ScriptTarget.ES2020)
+    ) {
       return false;
     }
   }
@@ -64,26 +67,26 @@ function isValidIdentifier(text: string): boolean {
 }
 
 function createPropertyAssignment(key: string, value: JSONValue) {
-  return ts.factory.createPropertyAssignment(
+  return tsLib.factory.createPropertyAssignment(
     isValidIdentifier(key)
-      ? ts.factory.createIdentifier(key)
-      : ts.factory.createStringLiteral(key),
+      ? tsLib.factory.createIdentifier(key)
+      : tsLib.factory.createStringLiteral(key),
     toExpression(value),
   );
 }
 
 function createValFileReference(value: FileSource) {
   const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
+    tsLib.factory.createStringLiteral(value[FILE_REF_PROP]),
   ];
   if (value.metadata) {
     args.push(toExpression(value.metadata as JSONValue));
   }
 
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("file"),
+  return tsLib.factory.createCallExpression(
+    tsLib.factory.createPropertyAccessExpression(
+      tsLib.factory.createIdentifier("c"),
+      tsLib.factory.createIdentifier("file"),
     ),
     undefined,
     args,
@@ -92,16 +95,16 @@ function createValFileReference(value: FileSource) {
 
 function createValImageReference(value: FileSource) {
   const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
+    tsLib.factory.createStringLiteral(value[FILE_REF_PROP]),
   ];
   if (value.metadata) {
     args.push(toExpression(value.metadata as JSONValue));
   }
 
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("image"),
+  return tsLib.factory.createCallExpression(
+    tsLib.factory.createPropertyAccessExpression(
+      tsLib.factory.createIdentifier("c"),
+      tsLib.factory.createIdentifier("image"),
     ),
     undefined,
     args,
@@ -110,16 +113,16 @@ function createValImageReference(value: FileSource) {
 
 function createValRemoteReference(value: RemoteSource) {
   const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
+    tsLib.factory.createStringLiteral(value[FILE_REF_PROP]),
   ];
   if (value.metadata) {
     args.push(toExpression(value.metadata as JSONValue));
   }
 
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("remote"),
+  return tsLib.factory.createCallExpression(
+    tsLib.factory.createPropertyAccessExpression(
+      tsLib.factory.createIdentifier("c"),
+      tsLib.factory.createIdentifier("remote"),
     ),
     undefined,
     args,
@@ -129,31 +132,31 @@ function createValRemoteReference(value: RemoteSource) {
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
-    return ts.factory.createStringLiteral(value);
+    return tsLib.factory.createStringLiteral(value);
   } else if (typeof value === "number") {
     // TODO: do we want to do something like this for very large numbers?
     // if (value > Number.MAX_SAFE_INTEGER) {
-    //   return ts.factory.createBigIntLiteral(`${value}n`);
+    //   return tsLib.factory.createBigIntLiteral(`${value}n`);
     // }
     // if (value < Number.MIN_SAFE_INTEGER) {
-    //   return ts.factory.createPrefixUnaryExpression(
-    //     ts.SyntaxKind.MinusToken,
-    //     ts.factory.createBigIntLiteral(`${value}n`),
+    //   return tsLib.factory.createPrefixUnaryExpression(
+    //     tsLib.SyntaxKind.MinusToken,
+    //     tsLib.factory.createBigIntLiteral(`${value}n`),
     //   );
     // }
     if (value < 0) {
-      return ts.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.MinusToken,
-        ts.factory.createNumericLiteral(Math.abs(value)),
+      return tsLib.factory.createPrefixUnaryExpression(
+        tsLib.SyntaxKind.MinusToken,
+        tsLib.factory.createNumericLiteral(Math.abs(value)),
       );
     }
-    return ts.factory.createNumericLiteral(value);
+    return tsLib.factory.createNumericLiteral(value);
   } else if (typeof value === "boolean") {
-    return value ? ts.factory.createTrue() : ts.factory.createFalse();
+    return value ? tsLib.factory.createTrue() : tsLib.factory.createFalse();
   } else if (value === null) {
-    return ts.factory.createNull();
+    return tsLib.factory.createNull();
   } else if (Array.isArray(value)) {
-    return ts.factory.createArrayLiteralExpression(value.map(toExpression));
+    return tsLib.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
       return createValFileReference(value);
@@ -164,20 +167,20 @@ function toExpression(value: JSONValue): ts.Expression {
     if (isValRemoteValue(value)) {
       return createValRemoteReference(value);
     }
-    return ts.factory.createObjectLiteralExpression(
+    return tsLib.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
         createPropertyAssignment(key, value),
       ),
     );
   } else {
-    return ts.factory.createStringLiteral(value);
+    return tsLib.factory.createStringLiteral(value);
   }
 }
 
 // TODO: Choose newline based on project settings/heuristics/system default?
-const newLine = ts.NewLineKind.LineFeed;
+const newLine = tsLib.NewLineKind.LineFeed;
 // TODO: Handle indentation of printed code
-const printer = ts.createPrinter({
+const printer = tsLib.createPrinter({
   newLine: newLine,
   // neverAsciiEscape: true,
 });
@@ -188,23 +191,23 @@ function replaceNodeValue<T extends ts.Node>(
   value: JSONValue,
 ): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
-    ts.EmitHint.Unspecified,
+    tsLib.EmitHint.Unspecified,
     toExpression(value),
     document,
   );
-  const span = ts.createTextSpanFromBounds(
+  const span = tsLib.createTextSpanFromBounds(
     node.getStart(document, false),
     node.end,
   );
   const newText = `${document.text.substring(
     0,
     span.start,
-  )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
+  )}${replacementText}${document.text.substring(tsLib.textSpanEnd(span))}`;
 
   return [
     document.update(
       newText,
-      ts.createTextChangeRange(span, replacementText.length),
+      tsLib.createTextChangeRange(span, replacementText.length),
     ),
     node,
   ];
@@ -221,7 +224,7 @@ function isIndentation(s: string): boolean {
 }
 
 function newLineStr(kind: ts.NewLineKind) {
-  if (kind === ts.NewLineKind.CarriageReturnLineFeed) {
+  if (kind === tsLib.NewLineKind.CarriageReturnLineFeed) {
     return "\r\n";
   } else {
     return "\n";
@@ -252,39 +255,39 @@ function insertAt<T extends ts.Node>(
   if (nodes.length === 0) {
     // Replace entire range of nodes
     replacementText = printer.printNode(
-      ts.EmitHint.Unspecified,
+      tsLib.EmitHint.Unspecified,
       node,
       document,
     );
-    span = ts.createTextSpanFromBounds(nodes.pos, nodes.end);
+    span = tsLib.createTextSpanFromBounds(nodes.pos, nodes.end);
   } else if (index === nodes.length) {
     // Insert after last node
     const neighbor = nodes[nodes.length - 1];
     replacementText = `${getSeparator(document, neighbor)}${printer.printNode(
-      ts.EmitHint.Unspecified,
+      tsLib.EmitHint.Unspecified,
       node,
       document,
     )}`;
-    span = ts.createTextSpan(neighbor.end, 0);
+    span = tsLib.createTextSpan(neighbor.end, 0);
   } else {
     // Insert before node
     const neighbor = nodes[index];
     replacementText = `${printer.printNode(
-      ts.EmitHint.Unspecified,
+      tsLib.EmitHint.Unspecified,
       node,
       document,
     )}${getSeparator(document, neighbor)}`;
-    span = ts.createTextSpan(neighbor.getStart(document, true), 0);
+    span = tsLib.createTextSpan(neighbor.getStart(document, true), 0);
   }
 
   const newText = `${document.text.substring(
     0,
     span.start,
-  )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
+  )}${replacementText}${document.text.substring(tsLib.textSpanEnd(span))}`;
 
   return document.update(
     newText,
-    ts.createTextChangeRange(span, replacementText.length),
+    tsLib.createTextChangeRange(span, replacementText.length),
   );
 }
 
@@ -297,15 +300,15 @@ function removeAt<T extends ts.Node>(
   let span: ts.TextSpan;
 
   if (nodes.length === 1) {
-    span = ts.createTextSpanFromBounds(nodes.pos, nodes.end);
+    span = tsLib.createTextSpanFromBounds(nodes.pos, nodes.end);
   } else if (index === nodes.length - 1) {
     // Remove until previous node
     const neighbor = nodes[index - 1];
-    span = ts.createTextSpanFromBounds(neighbor.end, node.end);
+    span = tsLib.createTextSpanFromBounds(neighbor.end, node.end);
   } else {
     // Remove before next node
     const neighbor = nodes[index + 1];
-    span = ts.createTextSpanFromBounds(
+    span = tsLib.createTextSpanFromBounds(
       node.getStart(document, true),
       neighbor.getStart(document, true),
     );
@@ -313,9 +316,9 @@ function removeAt<T extends ts.Node>(
   const newText = `${document.text.substring(
     0,
     span.start,
-  )}${document.text.substring(ts.textSpanEnd(span))}`;
+  )}${document.text.substring(tsLib.textSpanEnd(span))}`;
 
-  return [document.update(newText, ts.createTextChangeRange(span, 0)), node];
+  return [document.update(newText, tsLib.createTextChangeRange(span, 0)), node];
 }
 
 function parseAndValidateArrayInsertIndex(
@@ -378,14 +381,14 @@ function replaceInNode(
   key: string,
   value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
-  if (ts.isArrayLiteralExpression(node)) {
+  if (tsLib.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) =>
         replaceNodeValue(document, node.elements[index], value),
       ),
     );
-  } else if (ts.isObjectLiteralExpression(node)) {
+  } else if (tsLib.isObjectLiteralExpression(node)) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap((assignment): TSOpsResult<ts.PropertyAssignment> => {
@@ -436,8 +439,8 @@ function replaceInNode(
           return replaceInNode(
             document,
             // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            tsLib.factory.createObjectLiteralExpression([
+              tsLib.factory.createPropertyAssignment(key, metadataArgNode),
             ]),
             key,
             value,
@@ -479,8 +482,8 @@ function replaceInNode(
           return replaceInNode(
             document,
             // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            tsLib.factory.createObjectLiteralExpression([
+              tsLib.factory.createPropertyAssignment(key, metadataArgNode),
             ]),
             key,
             value,
@@ -522,8 +525,8 @@ function replaceInNode(
           return replaceInNode(
             document,
             // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            tsLib.factory.createObjectLiteralExpression([
+              tsLib.factory.createPropertyAssignment(key, metadataArgNode),
             ]),
             key,
             value,
@@ -561,12 +564,12 @@ export function getFromNode(
   node: ts.Expression,
   key: string,
 ): TSOpsResult<ts.Expression | undefined> {
-  if (ts.isArrayLiteralExpression(node)) {
+  if (tsLib.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) => node.elements[index]),
     );
-  } else if (ts.isObjectLiteralExpression(node)) {
+  } else if (tsLib.isObjectLiteralExpression(node)) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
@@ -650,12 +653,12 @@ function removeFromNode(
   node: ts.Expression,
   key: string,
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
-  if (ts.isArrayLiteralExpression(node)) {
+  if (tsLib.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) => removeAt(document, node.elements, index)),
     );
-  } else if (ts.isObjectLiteralExpression(node)) {
+  } else if (tsLib.isObjectLiteralExpression(node)) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap(
@@ -801,14 +804,14 @@ function addToNode(
   key: string,
   value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  if (ts.isArrayLiteralExpression(node)) {
+  if (tsLib.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInsertIndex(key, node.elements),
       result.map((index: number): [document: ts.SourceFile] => [
         insertAt(document, node.elements, index, toExpression(value)),
       ]),
     );
-  } else if (ts.isObjectLiteralExpression(node)) {
+  } else if (tsLib.isObjectLiteralExpression(node)) {
     if (key === FILE_REF_PROP) {
       return result.err(new PatchError("Cannot add a key ref to object"));
     }

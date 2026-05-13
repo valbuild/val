@@ -22,7 +22,7 @@ import {
   SourcesSha,
 } from "./ValOps";
 import fsPath from "path";
-import ts from "typescript";
+import tsLib from "./internal/typescript";
 import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
@@ -1277,7 +1277,7 @@ class FSOpsHost {
   }
 
   directoryExists(path: string): boolean {
-    return ts.sys.directoryExists(path);
+    return tsLib.sys.directoryExists(path);
   }
 
   readDirectory(
@@ -1286,11 +1286,11 @@ class FSOpsHost {
     exclude: readonly string[] | undefined,
     include: readonly string[],
   ): readonly string[] {
-    return ts.sys.readDirectory(path, extensions, exclude, include);
+    return tsLib.sys.readDirectory(path, extensions, exclude, include);
   }
 
   fileExists(path: string): boolean {
-    return ts.sys.fileExists(path);
+    return tsLib.sys.fileExists(path);
   }
 
   readBinaryFile(path: string): Buffer {
