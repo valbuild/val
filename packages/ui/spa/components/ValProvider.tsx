@@ -590,6 +590,7 @@ export function ValProvider({
     authenticationState,
     "data" in stat && stat.data ? stat.data.mode : "unknown",
     serviceUnavailable,
+    runtimeConfig?.project,
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<
@@ -692,6 +693,7 @@ function useProfilesData(
   authenticationState: AuthenticationState,
   mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
+  project: string | undefined,
 ) {
   const loadProfileDataRef = useRef(true);
   const [profilesData, setProfilesData] = useState<
@@ -760,6 +762,9 @@ function useProfilesData(
     if (mode !== "fs" && authenticationState !== "authorized") {
       return;
     }
+    if (mode === "fs" && !project) {
+      return;
+    }
     if (serviceUnavailable) {
       return;
     }
@@ -780,6 +785,7 @@ function useProfilesData(
     mode,
     profilesData,
     serviceUnavailable,
+    project,
   ]);
 
   return profilesData;

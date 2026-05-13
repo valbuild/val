@@ -8,7 +8,10 @@ import {
   useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
-import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
+import {
+  useGetDirectFileUploadSettings,
+  useValConfig,
+} from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
@@ -341,6 +344,8 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
+  const config = useValConfig();
+  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
@@ -1423,6 +1428,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   // On mount, restore the most recent session if it was used within the last 24 hours
   useEffect(() => {
+    if (!isChatEnabled) return;
     let cancelled = false;
     getSessions({ limit: 1 })
       .then((fetchedSessions) => {
@@ -1436,7 +1442,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isChatEnabled]);
 
   return {
     sendMessage,
