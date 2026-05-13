@@ -1,21 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { AIChatHandle } from "../components/AIChat";
+import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
 import {
   type AITool,
+  SessionImageToPatchError,
   useCurrentProfile,
   useProfilesByAuthorId,
   useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
+  AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
 import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
+  ImageMetadata,
   ModuleFilePath,
   SerializedSchema,
   Source,
@@ -26,6 +30,17 @@ import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "./resolveValidationErrors";
+import { readImageFromFile } from "../utils/readImage";
+import {
+  buildImageGalleryPatch,
+  buildRemoveImageGalleryEntryPatch,
+  isRemoteSchema,
+  type BuildResult,
+} from "./aiImageToolPatches";
+import {
+  expandSessionKeysInPatch,
+  type ExpandResult,
+} from "./expandSessionKeysInPatch";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -86,20 +101,37 @@ const VALIDATE_CONTENT_TOOL: AITool = {
 };
 const CREATE_PATCH_TOOL: AITool = {
   name: "create_patch",
-  description: `Create a Val patch — applies RFC 6902 JSON Patch operations to a Val module. 
-    Use ONLY for string, number, boolean, null, object, array, and date (ISO 8601) fields. 
-    DO NOT use for image, file, or richtext fields — those require dedicated tools. 
-    Supported ops: 'replace', 'add', 'remove'. 
+  description: `Create a Val patch — applies JSON Patch operations to a Val module.
+    Supports string, number, boolean, null, object, array, date (ISO 8601), image, file, and richtext fields.
+    Supported ops: 'replace', 'add', 'remove'.
     The 'path' must be a JSON Pointer AS AN ARRAY: (e.g. ['title'], ['items', '0', 'name']).
     NOTE: If it is a record, the key might be a url ('/foo/bar'), in this case it should be represented as ['foo/bar'] in the path array, not ['foo', 'bar'].
 
-    The 'module_file_path' must exactly match a key returned by get_all_schema. 
+    The 'module_file_path' must exactly match a key returned by get_all_schema.
     After applying a patch, always call validate_content to check for validation errors and fix them if found.
     If you cannot, ask user for clarification instead of reverting content.
 
-    
-    Example 'patch' value that changes the title of a record item called '/blog/blog-10' to 'Test':
-    {"patch":[{"op":"replace","path":["/blogs/blog-10","title"],"value":"Test"}]},
+    Example replacing a title:
+    {"patch":[{"op":"replace","path":["/blogs/blog-10","title"],"value":"Test"}]}
+
+    SESSION-UPLOADED FILES (images / files the user attached in the chat):
+    Wherever you would normally write an image/file source, write a "session key" object instead:
+      { "key": "<image_key from [Attached images]>", "filePath": "/public/val/images/foo.png", "_type": "ai_session_file", "_tag": "image" }
+    Use "_tag": "image" for image fields and image-typed richtext img nodes; "_tag": "file" for s.file() fields.
+    Optional: "alt" (string) and "hotspot" ({x,y} 0–1) inside the session key — image only.
+    "filePath" is where the file should be saved on disk (must start with the module's file directory, e.g. /public/val/images/...).
+
+    Image field example:
+    {"patch":[{"op":"replace","path":["hero"],"value":{"key":"abc","filePath":"/public/val/images/hero.png","_type":"ai_session_file","_tag":"image","alt":"Our team"}}]}
+
+    File field example:
+    {"patch":[{"op":"replace","path":["brochure"],"value":{"key":"abc","filePath":"/public/val/files/brochure.pdf","_type":"ai_session_file","_tag":"file"}}]}
+
+    Richtext inline image example (richtext schema must have options.inline.img enabled):
+    {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
+
+    Multiple session keys can appear in a single patch.
+    For images-gallery modules (s.images()) you must use add_session_image_to_gallery instead — galleries don't fit this pattern.
     `,
   parameters: {
     type: "object",
@@ -112,7 +144,7 @@ const CREATE_PATCH_TOOL: AITool = {
       patch: {
         type: "array",
         description:
-          "Array of a format that is RFC 6902 patch operations, except that path is array of strings. Each item: { op, path, value? }",
+          "Array of patch operations, except that path is array of strings. Each item: { op, path, value? }. Use a session-key object as the value for image/file/richtext-inline-img — see the tool description.",
         items: {
           type: "object",
           properties: {
@@ -125,6 +157,66 @@ const CREATE_PATCH_TOOL: AITool = {
       },
     },
     required: ["module_file_path", "patch"],
+  },
+};
+const IMAGE_KEY_DESCRIPTION =
+  "The exact image_key string shown in the user's [Attached images] list in their message. " +
+  "Do NOT use any internal vision-system file id (e.g. 'file-...' or 'image-N') — " +
+  "only use the key string from that list verbatim.";
+const HOTSPOT_DESCRIPTION =
+  "Optional focal point in the image (numbers between 0 and 1). Provide only if the user asked for a specific crop/focal point.";
+const ADD_SESSION_IMAGE_TO_GALLERY_TOOL: AITool = {
+  name: "add_session_image_to_gallery",
+  description:
+    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.images(), where each entry's key is the file path and the value is the image's metadata).",
+  parameters: {
+    type: "object",
+    properties: {
+      image_key: { type: "string", description: IMAGE_KEY_DESCRIPTION },
+      module_file_path: {
+        type: "string",
+        description:
+          "The images-gallery module file path, e.g. '/content/media.val.ts'.",
+      },
+      file_path: {
+        type: "string",
+        description:
+          "Where the image file should live on disk. This is also used as the entry key in the gallery.",
+      },
+      alt: { type: "string", description: "Optional alt text." },
+      hotspot: {
+        type: "object",
+        description: HOTSPOT_DESCRIPTION,
+        properties: {
+          x: { type: "number" },
+          y: { type: "number" },
+        },
+        required: ["x", "y"],
+      },
+    },
+    required: ["image_key", "module_file_path", "file_path"],
+  },
+};
+const REMOVE_IMAGE_GALLERY_ENTRY_TOOL: AITool = {
+  name: "remove_image_gallery_entry",
+  description:
+    "Remove an existing image entry from an images gallery (a module defined with s.images()). " +
+    "The system records the deletion as a 'file' patch op with value: null and removes the corresponding gallery record entry.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description:
+          "The images-gallery module file path, e.g. '/content/media.val.ts'.",
+      },
+      file_path: {
+        type: "string",
+        description:
+          "The exact entry key in the gallery (the image's file path or remote ref). Use get_source on the gallery module to list available keys.",
+      },
+    },
+    required: ["module_file_path", "file_path"],
   },
 };
 const NAVIGATE_TO_TOOL: AITool = {
@@ -222,6 +314,8 @@ const ALL_TOOLS: AITool[] = [
   SEARCH_CONTENT_TOOL,
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
+  ADD_SESSION_IMAGE_TO_GALLERY_TOOL,
+  REMOVE_IMAGE_GALLERY_ENTRY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
   GET_PATCHES_TOOL,
@@ -234,9 +328,11 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     subscribeToWsMessages,
     sendWsMessage,
     isWsConnected,
+    aiAuthError,
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
+    aiSessionImagesToPatchFile,
   } = useAIContext();
   const syncEngine = useSyncEngine();
   const aiSearch = useAISearch();
@@ -244,6 +340,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
+  const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
@@ -360,27 +457,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             module_file_path: string;
             patch: unknown[];
           };
-          (async () => {
-            const hasFileOp = (args.patch ?? []).some(
-              (op: unknown) =>
-                typeof op === "object" &&
-                op !== null &&
-                (op as { op?: string }).op === "file",
-            );
-            if (hasFileOp) {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId: message.toolCallId,
-                result: {
-                  success: false,
-                  error:
-                    "File/image patches require dedicated tools (not yet implemented).",
-                },
-                isError: true,
-              });
-              chatRef.current?.errorToolCall(message.id, message.toolCallId);
-              return;
-            }
+          const exec = async () => {
             const parseResult = Patch.safeParse(args.patch);
             if (!parseResult.success) {
               sendWsMessage({
@@ -395,7 +472,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
-            const patch = parseResult.data;
+            const inputPatch = parseResult.data;
             const moduleFilePath = args.module_file_path as ModuleFilePath;
             const schemas = syncEngine.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
@@ -412,19 +489,87 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
-            if (moduleSchema.type === "image" || moduleSchema.type === "file") {
+            const moduleSourceSnap =
+              syncEngine.getSourceSnapshot(moduleFilePath);
+            const moduleSourceData =
+              moduleSourceSnap.status === "success"
+                ? (moduleSourceSnap.data as Source | undefined)
+                : undefined;
+            const patchId = syncEngine.createPatchId();
+            const parentRef = syncEngine.getParentRef();
+            if (parentRef === null) {
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `Module '${moduleFilePath}' has type '${moduleSchema.type}' which requires dedicated tools.`,
+                  error:
+                    "Cannot apply patch yet: editor is still initializing. Ask the user to retry in a moment.",
                 },
                 isError: true,
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
+            let expanded: ExpandResult;
+            try {
+              expanded = await expandSessionKeysInPatch({
+                patch: inputPatch,
+                moduleSchema,
+                moduleSource: moduleSourceData,
+                patchId,
+                parentRef,
+                transfer: aiSessionImagesToPatchFile,
+              });
+            } catch (err) {
+              const availableKeys =
+                err instanceof SessionImageToPatchError
+                  ? err.availableKeys
+                  : undefined;
+              const baseMsg = err instanceof Error ? err.message : String(err);
+              const hint =
+                availableKeys && availableKeys.length > 0
+                  ? ` Available image keys for this session: ${availableKeys
+                      .map((k) => `"${k}"`)
+                      .join(", ")}.`
+                  : "";
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error: `Failed to transfer session-uploaded file: ${baseMsg}.${hint}`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            if (expanded.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: {
+                  success: false,
+                  error: `${expanded.reason} Retry with ${expanded.suggestedTool}.`,
+                  suggestedTool: expanded.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            if (expanded.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId: message.toolCallId,
+                result: { success: false, error: expanded.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(message.id, message.toolCallId);
+              return;
+            }
+            const patch = expanded.patch;
             const validationResult = syncEngine.validatePatchResult(
               moduleFilePath,
               patch,
@@ -461,7 +606,6 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 return;
               }
             }
-            const patchId = syncEngine.createPatchId();
             const res = await syncEngine.addPatchAwaitable(
               moduleFilePath,
               moduleSchema.type,
@@ -489,6 +633,374 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
                 isError: true,
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            }
+          };
+          exec().then(() => {
+            if (chatRef.current) {
+              chatRef.current.completeToolCall(message.id, message.toolCallId);
+            }
+          });
+        } else if (message.name === "add_session_image_to_gallery") {
+          const toolName = message.name;
+          const args = message.arguments as {
+            image_key?: string;
+            module_file_path?: string;
+            file_path?: string;
+            alt?: unknown;
+            hotspot?: unknown;
+          };
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          (async () => {
+            if (!args.image_key || !args.module_file_path || !args.file_path) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Missing required arguments. Expected: image_key, module_file_path, file_path.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+
+            const moduleFilePath = args.module_file_path as ModuleFilePath;
+            const schemas = syncEngine.getAllSchemasSnapshot();
+            const moduleSchema = schemas?.[moduleFilePath];
+            if (!moduleSchema) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+
+            const patchId = syncEngine.createPatchId();
+            const isRemote = isRemoteSchema(moduleSchema);
+            const parentRef = syncEngine.getParentRef();
+            if (parentRef === null) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Cannot add image to gallery yet: editor is still initializing. Ask the user to retry in a moment.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            let sessionRes: {
+              filePath: string;
+              metadata: ImageMetadata;
+            };
+            try {
+              const batchRes = await aiSessionImagesToPatchFile({
+                patchId,
+                parentRef,
+                files: [
+                  {
+                    filePath: args.file_path,
+                    key: args.image_key,
+                    isRemote,
+                  },
+                ],
+              });
+              if (batchRes.files.length === 0) {
+                throw new Error(
+                  "Server did not return image metadata. Ask the user to re-attach the image.",
+                );
+              }
+              sessionRes = batchRes.files[0];
+            } catch (err) {
+              const availableKeys =
+                err instanceof SessionImageToPatchError
+                  ? err.availableKeys
+                  : undefined;
+              const baseMsg = err instanceof Error ? err.message : String(err);
+              const hint =
+                availableKeys && availableKeys.length > 0
+                  ? ` Available image keys for this session: ${availableKeys
+                      .map((k) => `"${k}"`)
+                      .join(
+                        ", ",
+                      )}. Retry ${toolName} with one of these as image_key.`
+                  : "";
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Failed to transfer image from session: ${baseMsg}.${hint}`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const metadata: ImageMetadata = { ...sessionRes.metadata };
+            if (typeof args.alt === "string") {
+              metadata.alt = args.alt;
+            }
+            if (
+              args.hotspot &&
+              typeof args.hotspot === "object" &&
+              typeof (args.hotspot as { x?: unknown }).x === "number" &&
+              typeof (args.hotspot as { y?: unknown }).y === "number"
+            ) {
+              metadata.hotspot = args.hotspot as { x: number; y: number };
+            }
+
+            const buildResult: BuildResult = buildImageGalleryPatch(
+              {
+                filePath: args.file_path,
+                imageKey: args.image_key,
+                metadata,
+              },
+              moduleSchema,
+            );
+
+            if (buildResult.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
+
+            const validationResult = syncEngine.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                syncEngine.getAllSchemasSnapshot(),
+                syncEngine.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(blockingErrors)}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+            }
+
+            const patchRes = await syncEngine.addPatchAwaitable(
+              moduleFilePath,
+              moduleSchema.type,
+              patch,
+              patchId,
+              sessionIdRef.current,
+              Date.now(),
+            );
+            if (patchRes.status === "patch-synced") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: true,
+                  patchId: patchRes.patchId,
+                  filePath: sessionRes.filePath,
+                  message: "Image converted to patch successfully.",
+                },
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: patchRes.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+            }
+          })();
+        } else if (message.name === "remove_image_gallery_entry") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            file_path?: string;
+          };
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          (async () => {
+            if (!args.module_file_path || !args.file_path) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "Missing required arguments. Expected: module_file_path, file_path.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const moduleFilePath = args.module_file_path as ModuleFilePath;
+            const schemas = syncEngine.getAllSchemasSnapshot();
+            const moduleSchema = schemas?.[moduleFilePath];
+            if (!moduleSchema) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              sourceSnap.status === "success"
+                ? (sourceSnap.data as Source | undefined)
+                : undefined;
+
+            const buildResult = buildRemoveImageGalleryEntryPatch(
+              { filePath: args.file_path },
+              moduleSchema,
+              sourceData,
+            );
+            if (buildResult.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
+
+            const validationResult = syncEngine.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                syncEngine.getAllSchemasSnapshot(),
+                syncEngine.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(blockingErrors)}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+            }
+
+            const patchId = syncEngine.createPatchId();
+            const patchRes = await syncEngine.addPatchAwaitable(
+              moduleFilePath,
+              moduleSchema.type,
+              patch,
+              patchId,
+              sessionIdRef.current,
+              Date.now(),
+            );
+            if (patchRes.status === "patch-synced") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: true,
+                  patchId: patchRes.patchId,
+                  filePath: args.file_path,
+                  message: "Image removed from gallery successfully.",
+                },
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: patchRes.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
         } else if (message.name === "navigate_to") {
@@ -699,11 +1211,77 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
     profiles,
   ]);
 
+  const uploadAiImage = useCallback(
+    async (file: File): Promise<{ key: string }> => {
+      const readRes = await readImageFromFile(file);
+      const settings = await getDirectFileUploadSettings();
+      if (settings.status === "error") {
+        throw new Error(settings.error);
+      }
+      const { contentBaseUrl, contentAuthNonce } = settings.data;
+      if (!contentBaseUrl) {
+        throw new Error(
+          "Cannot upload AI image: content host is not configured. Set the `project` option in val.config (or VAL_PROJECT) and ensure a personal access token is available.",
+        );
+      }
+      const headers: Record<string, string> = {
+        "Content-Type": file.type || "application/octet-stream",
+        "Content-Length": String(file.size),
+      };
+      if (contentAuthNonce) {
+        headers["x-val-auth-nonce"] = contentAuthNonce;
+      }
+      const queryParams = new URLSearchParams();
+      queryParams.set("sessionid", encodeURIComponent(sessionIdRef.current));
+      queryParams.set("width", encodeURIComponent(readRes.width || 0));
+      queryParams.set("height", encodeURIComponent(readRes.height || 0));
+      queryParams.set(
+        "mimetype",
+        encodeURIComponent(
+          readRes.mimeType || file.type || "application/octet-stream",
+        ),
+      );
+      const res = await fetch(
+        `${contentBaseUrl}/ai/images?${queryParams.toString()}`,
+        {
+          method: "POST",
+          headers,
+          body: await file.arrayBuffer(),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+      }
+      const body = (await res.json()) as { key: string };
+      return body;
+    },
+    [getDirectFileUploadSettings],
+  );
+
   const sendMessage = useCallback(
-    (text: string): boolean => {
+    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+      let augmentedText = text;
+      if (attachments && attachments.length > 0) {
+        const lines = attachments.map(
+          (a) => `- ${a.name}: image_key="${a.key}"`,
+        );
+        augmentedText =
+          text +
+          "\n\n[Attached images — when calling convert_session_image_to_patch, " +
+          "use the exact image_key string from this list (NOT any vision-system file id):\n" +
+          lines.join("\n") +
+          "]";
+      }
+      const contentBlocks: AIMessageContentBlock[] = [
+        { type: "text", text: augmentedText },
+        ...(attachments?.map((attachment) => ({
+          type: "image_key" as const,
+          key: attachment.key,
+        })) ?? []),
+      ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
-        message: text,
+        message: contentBlocks,
         sessionId: sessionIdRef.current,
         id: crypto.randomUUID(),
         agents: [
@@ -728,6 +1306,8 @@ Always call get_all_schema first unless the question clearly does not require it
 - search_content: find content by keyword across all modules.
 - validate_content: check for errors — call this after every change.
 - create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
+- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.images()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
+- remove_image_gallery_entry: remove an existing entry from an images gallery (s.images()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
@@ -860,8 +1440,10 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    uploadAiImage,
     isStreaming,
     isConnected: isWsConnected,
+    authError: aiAuthError,
     newSession,
     sessions,
     currentSessionId,

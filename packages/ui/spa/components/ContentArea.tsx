@@ -1,6 +1,6 @@
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
-import { CopyIcon, PanelRightOpen, Search as SearchIcon } from "lucide-react";
+import { PanelRightOpen, Search as SearchIcon } from "lucide-react";
 import { useNavigation } from "./ValRouter";
 import { Search } from "./Search";
 import { useConnectionStatus, useGlobalError } from "./ValProvider";
@@ -15,13 +15,13 @@ import {
   DialogPortal,
   DialogTitle,
 } from "./designSystem/dialog";
-import { Button } from "./designSystem/button";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
+import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
@@ -138,27 +138,6 @@ function RemoteFilesErrorDialog({
         </DialogContent>
       </DialogPortal>
     </Dialog>
-  );
-}
-
-function CopyableCodeBlock({ code }: { code: string }) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-  };
-  return (
-    <div className="relative bg-bg-secondary rounded-md p-4 my-4">
-      <pre className="overflow-x-auto">
-        <code>{code}</code>
-      </pre>
-      <Button
-        variant="secondary"
-        size="sm"
-        className="absolute top-2 right-2"
-        onClick={handleCopy}
-      >
-        <CopyIcon size={16} className="mr-2" />
-      </Button>
-    </div>
   );
 }
 

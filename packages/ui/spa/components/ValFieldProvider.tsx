@@ -34,6 +34,8 @@ type ValFieldContextValue = {
         data: {
           nonce: string | null;
           baseUrl: string;
+          contentBaseUrl: string | null;
+          contentAuthNonce: string | null;
         };
       }
     | {
@@ -71,6 +73,8 @@ export function ValFieldProvider({
         data: {
           nonce: string | null;
           baseUrl: string;
+          contentBaseUrl: string | null;
+          contentAuthNonce: string | null;
         };
       }
     | {
@@ -385,6 +389,10 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
   };
+}
+
+export function useGetDirectFileUploadSettings() {
+  return useContext(ValFieldContext).getDirectFileUploadSettings;
 }
 
 export function useValConfig() {
