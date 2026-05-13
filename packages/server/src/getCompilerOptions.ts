@@ -1,5 +1,6 @@
 import path from "path";
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "./internal/typescript";
 
 export const getCompilerOptions = (
   rootDir: string,
@@ -17,7 +18,7 @@ export const getCompilerOptions = (
       `Could not read config from: "${tsConfigPath}" nor "${jsConfigPath}". Root dir: "${rootDir}"`,
     );
   }
-  const { config, error } = ts.readConfigFile(
+  const { config, error } = tsLib.readConfigFile(
     configFilePath,
     parseConfigHost.readFile.bind(parseConfigHost),
   );
@@ -32,7 +33,7 @@ export const getCompilerOptions = (
     );
   }
   const optionsOverrides = undefined;
-  const parsedConfigFile = ts.parseJsonConfigFileContent(
+  const parsedConfigFile = tsLib.parseJsonConfigFileContent(
     config,
     parseConfigHost,
     rootDir,

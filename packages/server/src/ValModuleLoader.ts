@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "./internal/typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
@@ -17,7 +18,7 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
 export const createModuleLoader = (
   rootDir: string,
   host: IValFSHost = {
-    ...ts.sys,
+    ...tsLib.sys,
     writeFile: (fileName, data, encoding) => {
       fs.mkdirSync(path.dirname(fileName), { recursive: true });
       fs.writeFileSync(
@@ -63,7 +64,7 @@ export class ValModuleLoader {
     private readonly compilerOptions: ts.CompilerOptions, // TODO: remove this?
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
-      ...ts.sys,
+      ...tsLib.sys,
       writeFile: (fileName, data, encoding) => {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
         fs.writeFileSync(

@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "../../internal/typescript";
 import { result, pipe } from "@valbuild/core/fp";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
 
@@ -14,15 +15,18 @@ function isPath(
   let currentNode = node;
   for (let i = path.length - 1; i > 0; --i) {
     const name = path[i];
-    if (!ts.isPropertyAccessExpression(currentNode)) {
+    if (!tsLib.isPropertyAccessExpression(currentNode)) {
       return false;
     }
-    if (!ts.isIdentifier(currentNode.name) || currentNode.name.text !== name) {
+    if (
+      !tsLib.isIdentifier(currentNode.name) ||
+      currentNode.name.text !== name
+    ) {
       return false;
     }
     currentNode = currentNode.expression;
   }
-  return ts.isIdentifier(currentNode) && currentNode.text === path[0];
+  return tsLib.isIdentifier(currentNode) && currentNode.text === path[0];
 }
 
 function validateArguments(
@@ -47,7 +51,7 @@ function analyzeDefaultExport(
   node: ts.ExportAssignment,
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const cDefine = node.expression;
-  if (!ts.isCallExpression(cDefine)) {
+  if (!tsLib.isCallExpression(cDefine)) {
     return result.err(
       new ValSyntaxError(
         "Expected default expression to be a call expression",
@@ -69,7 +73,7 @@ function analyzeDefaultExport(
     validateArguments(cDefine, [
       (id: ts.Node) => {
         // TODO: validate ID value here?
-        if (!ts.isStringLiteralLike(id)) {
+        if (!tsLib.isStringLiteralLike(id)) {
           return result.err(
             new ValSyntaxError(
               "Expected first argument to c.define to be a string literal",
@@ -97,7 +101,7 @@ export function analyzeValModule(
   sourceFile: ts.SourceFile,
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const analysis = sourceFile.forEachChild((node) => {
-    if (ts.isExportAssignment(node)) {
+    if (tsLib.isExportAssignment(node)) {
       return analyzeDefaultExport(node);
     }
   });

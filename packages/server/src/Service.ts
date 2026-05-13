@@ -5,7 +5,7 @@ import { Patch } from "@valbuild/core/patch";
 import { ValModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
-import ts from "typescript";
+import tsLib from "./internal/typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
@@ -32,7 +32,7 @@ export async function createService(
   projectRoot: string,
   opts: ServiceOptions,
   host: IValFSHost = {
-    ...ts.sys,
+    ...tsLib.sys,
     writeFile: (fileName, data, encoding) => {
       fs.mkdirSync(path.dirname(fileName), { recursive: true });
       fs.writeFileSync(

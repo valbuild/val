@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "./internal/typescript";
 import path from "path";
 import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
@@ -8,7 +9,7 @@ export class ValSourceFileHandler {
     readonly projectRoot: string,
     private readonly compilerOptions: ts.CompilerOptions,
     readonly host: IValFSHost = {
-      ...ts.sys,
+      ...tsLib.sys,
       writeFile: (fileName, data, encoding) => {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
         fs.writeFileSync(
@@ -30,9 +31,10 @@ export class ValSourceFileHandler {
 
   getSourceFile(filePath: string): ts.SourceFile | undefined {
     const fileContent = this.host.readFile(filePath);
-    const scriptTarget = this.compilerOptions.target ?? ts.ScriptTarget.ES2020;
+    const scriptTarget =
+      this.compilerOptions.target ?? tsLib.ScriptTarget.ES2020;
     if (fileContent) {
-      return ts.createSourceFile(filePath, fileContent, scriptTarget);
+      return tsLib.createSourceFile(filePath, fileContent, scriptTarget);
     }
   }
 
@@ -53,7 +55,7 @@ export class ValSourceFileHandler {
     containingFilePath: string,
     requestedModuleName: string,
   ): string {
-    const resolutionRes = ts.resolveModuleName(
+    const resolutionRes = tsLib.resolveModuleName(
       requestedModuleName,
       path.isAbsolute(containingFilePath)
         ? containingFilePath
@@ -62,7 +64,7 @@ export class ValSourceFileHandler {
       this.host,
       undefined,
       undefined,
-      ts.ModuleKind.ESNext,
+      tsLib.ModuleKind.ESNext,
     );
     const resolvedModule = resolutionRes.resolvedModule;
     if (!resolvedModule) {

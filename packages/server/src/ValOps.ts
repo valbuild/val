@@ -35,7 +35,7 @@ import {
 } from "@valbuild/core/patch";
 import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
-import ts from "typescript";
+import tsLib from "./internal/typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
@@ -1169,10 +1169,10 @@ export abstract class ValOps {
       }
       const sourceFile = sourceFileRes.data;
       previousSourceFiles[path] = sourceFile;
-      let tsSourceFile = ts.createSourceFile(
+      let tsSourceFile = tsLib.createSourceFile(
         "<val>",
         sourceFile,
-        ts.ScriptTarget.ES2015,
+        tsLib.ScriptTarget.ES2015,
       );
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];

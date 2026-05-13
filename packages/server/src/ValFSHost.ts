@@ -1,5 +1,5 @@
 import path from "path";
-import ts from "typescript";
+import type * as ts from "typescript";
 import { ValFS } from "./ValFS";
 import { Buffer } from "buffer";
 

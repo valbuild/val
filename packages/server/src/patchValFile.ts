@@ -10,7 +10,8 @@ import {
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import { derefPatch } from "@valbuild/core";
 import { QuickJSRuntime } from "quickjs-emscripten";
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "./internal/typescript";
 import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
 
 const ops = new TSOps((document) => {
@@ -106,7 +107,7 @@ export const patchSourceFile = (
 ): result.Result<ts.SourceFile, ValSyntaxErrorTree | PatchError> => {
   if (typeof sourceFile === "string") {
     return applyPatch(
-      ts.createSourceFile("<val>", sourceFile, ts.ScriptTarget.ES2015),
+      tsLib.createSourceFile("<val>", sourceFile, tsLib.ScriptTarget.ES2015),
       ops,
       patch,
     );

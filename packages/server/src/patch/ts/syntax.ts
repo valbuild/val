@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as ts from "typescript";
+import tsLib from "../../internal/typescript";
 import { result, pipe } from "@valbuild/core/fp";
 import { JSONValue } from "@valbuild/core/patch";
 import {
@@ -83,9 +84,9 @@ function isLiteralPropertyName(
   name: ts.PropertyName,
 ): name is LiteralPropertyName {
   return (
-    ts.isIdentifier(name) ||
-    ts.isStringLiteral(name) ||
-    ts.isNumericLiteral(name)
+    tsLib.isIdentifier(name) ||
+    tsLib.isStringLiteral(name) ||
+    tsLib.isNumericLiteral(name)
   );
 }
 
@@ -100,7 +101,7 @@ function validateObjectProperties<
 ): result.Result<T & readonly LiteralPropertyAssignment[], ValSyntaxErrorTree> {
   const errors: ValSyntaxError[] = [];
   for (const node of nodes) {
-    if (!ts.isPropertyAssignment(node)) {
+    if (!tsLib.isPropertyAssignment(node)) {
       errors.push(
         new ValSyntaxError(
           "Object literal element must be property assignment",
@@ -129,13 +130,13 @@ function validateObjectProperties<
 export function shallowValidateExpression(
   value: ts.Expression,
 ): ValSyntaxError | undefined {
-  return ts.isStringLiteralLike(value) ||
-    ts.isNumericLiteral(value) ||
-    value.kind === ts.SyntaxKind.TrueKeyword ||
-    value.kind === ts.SyntaxKind.FalseKeyword ||
-    value.kind === ts.SyntaxKind.NullKeyword ||
-    ts.isArrayLiteralExpression(value) ||
-    ts.isObjectLiteralExpression(value) ||
+  return tsLib.isStringLiteralLike(value) ||
+    tsLib.isNumericLiteral(value) ||
+    value.kind === tsLib.SyntaxKind.TrueKeyword ||
+    value.kind === tsLib.SyntaxKind.FalseKeyword ||
+    value.kind === tsLib.SyntaxKind.NullKeyword ||
+    tsLib.isArrayLiteralExpression(value) ||
+    tsLib.isObjectLiteralExpression(value) ||
     isValFileMethodCall(value) ||
     isValImageMethodCall(value) ||
     isValRemoteMethodCall(value)
@@ -152,19 +153,19 @@ export function shallowValidateExpression(
 export function deepValidateExpression(
   value: ts.Expression,
 ): result.Result<void, ValSyntaxErrorTree> {
-  if (ts.isStringLiteralLike(value)) {
+  if (tsLib.isStringLiteralLike(value)) {
     return result.voidOk;
-  } else if (ts.isNumericLiteral(value)) {
+  } else if (tsLib.isNumericLiteral(value)) {
     return result.voidOk;
-  } else if (value.kind === ts.SyntaxKind.TrueKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.TrueKeyword) {
     return result.voidOk;
-  } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.FalseKeyword) {
     return result.voidOk;
-  } else if (value.kind === ts.SyntaxKind.NullKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.NullKeyword) {
     return result.voidOk;
-  } else if (ts.isArrayLiteralExpression(value)) {
+  } else if (tsLib.isArrayLiteralExpression(value)) {
     return result.allV(value.elements.map(deepValidateExpression));
-  } else if (ts.isObjectLiteralExpression(value)) {
+  } else if (tsLib.isObjectLiteralExpression(value)) {
     return pipe(
       validateObjectProperties(value.properties),
       result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) =>
@@ -178,7 +179,7 @@ export function deepValidateExpression(
     );
   } else if (isValFileMethodCall(value)) {
     if (value.arguments.length >= 1) {
-      if (!ts.isStringLiteralLike(value.arguments[0])) {
+      if (!tsLib.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
             "First argument of c.file must be a string literal",
@@ -188,7 +189,7 @@ export function deepValidateExpression(
       }
     }
     if (value.arguments.length === 2) {
-      if (!ts.isObjectLiteralExpression(value.arguments[1])) {
+      if (!tsLib.isObjectLiteralExpression(value.arguments[1])) {
         return result.err(
           new ValSyntaxError(
             "Second argument of c.file must be an object literal",
@@ -200,7 +201,7 @@ export function deepValidateExpression(
     return result.voidOk;
   } else if (isValImageMethodCall(value)) {
     if (value.arguments.length >= 1) {
-      if (!ts.isStringLiteralLike(value.arguments[0])) {
+      if (!tsLib.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
             "First argument of c.image must be a string literal",
@@ -210,7 +211,7 @@ export function deepValidateExpression(
       }
     }
     if (value.arguments.length === 2) {
-      if (!ts.isObjectLiteralExpression(value.arguments[1])) {
+      if (!tsLib.isObjectLiteralExpression(value.arguments[1])) {
         return result.err(
           new ValSyntaxError(
             "Second argument of c.image must be an object literal",
@@ -222,7 +223,7 @@ export function deepValidateExpression(
     return result.voidOk;
   } else if (isValRemoteMethodCall(value)) {
     if (value.arguments.length >= 1) {
-      if (!ts.isStringLiteralLike(value.arguments[0])) {
+      if (!tsLib.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
             "First argument of c.remote must be a string literal",
@@ -232,7 +233,7 @@ export function deepValidateExpression(
       }
     }
     if (value.arguments.length === 2) {
-      if (!ts.isObjectLiteralExpression(value.arguments[1])) {
+      if (!tsLib.isObjectLiteralExpression(value.arguments[1])) {
         return result.err(
           new ValSyntaxError(
             "Second argument of c.remote must be an object literal",
@@ -263,19 +264,19 @@ export function evaluateExpression(
   // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
   // https://github.com/microsoft/TypeScript/blob/4b794fe1dd0d184d3f8f17e94d8187eace57c91e/src/compiler/types.ts#L2127-L2131
 
-  if (ts.isStringLiteralLike(value)) {
+  if (tsLib.isStringLiteralLike(value)) {
     return result.ok(value.text);
-  } else if (ts.isNumericLiteral(value)) {
+  } else if (tsLib.isNumericLiteral(value)) {
     return result.ok(Number(value.text));
-  } else if (value.kind === ts.SyntaxKind.TrueKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.TrueKeyword) {
     return result.ok(true);
-  } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.FalseKeyword) {
     return result.ok(false);
-  } else if (value.kind === ts.SyntaxKind.NullKeyword) {
+  } else if (value.kind === tsLib.SyntaxKind.NullKeyword) {
     return result.ok(null);
-  } else if (ts.isArrayLiteralExpression(value)) {
+  } else if (tsLib.isArrayLiteralExpression(value)) {
     return result.all(value.elements.map(evaluateExpression));
-  } else if (ts.isObjectLiteralExpression(value)) {
+  } else if (tsLib.isObjectLiteralExpression(value)) {
     return pipe(
       validateObjectProperties(value.properties),
       result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) =>
@@ -403,9 +404,9 @@ export function isValFileMethodCall(
   node: ts.Expression,
 ): node is ts.CallExpression {
   return (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
+    tsLib.isCallExpression(node) &&
+    tsLib.isPropertyAccessExpression(node.expression) &&
+    tsLib.isIdentifier(node.expression.expression) &&
     node.expression.expression.text === "c" &&
     node.expression.name.text === "file"
   );
@@ -415,9 +416,9 @@ export function isValImageMethodCall(
   node: ts.Expression,
 ): node is ts.CallExpression {
   return (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
+    tsLib.isCallExpression(node) &&
+    tsLib.isPropertyAccessExpression(node.expression) &&
+    tsLib.isIdentifier(node.expression.expression) &&
     node.expression.expression.text === "c" &&
     node.expression.name.text === "image"
   );
@@ -426,9 +427,9 @@ export function isValRemoteMethodCall(
   node: ts.Expression,
 ): node is ts.CallExpression {
   return (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
+    tsLib.isCallExpression(node) &&
+    tsLib.isPropertyAccessExpression(node.expression) &&
+    tsLib.isIdentifier(node.expression.expression) &&
     node.expression.expression.text === "c" &&
     node.expression.name.text === "remote"
   );
@@ -448,7 +449,7 @@ export function findValFileNodeArg(
         node,
       ),
     );
-  } else if (!ts.isStringLiteral(node.arguments[0])) {
+  } else if (!tsLib.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.file() call: ref must be a string literal`,
@@ -473,7 +474,7 @@ export function findValRemoteNodeArg(
         node,
       ),
     );
-  } else if (!ts.isStringLiteral(node.arguments[0])) {
+  } else if (!tsLib.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.remote() call: ref must be a string literal`,
@@ -498,7 +499,7 @@ export function findValImageNodeArg(
         node,
       ),
     );
-  } else if (!ts.isStringLiteral(node.arguments[0])) {
+  } else if (!tsLib.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.image() call: ref must be a string literal`,
@@ -524,7 +525,7 @@ export function findValFileMetadataArg(
       ),
     );
   } else if (node.arguments.length === 2) {
-    if (!ts.isObjectLiteralExpression(node.arguments[1])) {
+    if (!tsLib.isObjectLiteralExpression(node.arguments[1])) {
       return result.err(
         new ValSyntaxError(
           `Invalid c.file() call: metadata must be a object literal`,
@@ -552,7 +553,7 @@ export function findValImageMetadataArg(
       ),
     );
   } else if (node.arguments.length === 2) {
-    if (!ts.isObjectLiteralExpression(node.arguments[1])) {
+    if (!tsLib.isObjectLiteralExpression(node.arguments[1])) {
       return result.err(
         new ValSyntaxError(
           `Invalid c.image() call: metadata must be a object literal`,
@@ -579,7 +580,7 @@ export function findValRemoteMetadataArg(
       ),
     );
   } else if (node.arguments.length === 2) {
-    if (!ts.isObjectLiteralExpression(node.arguments[1])) {
+    if (!tsLib.isObjectLiteralExpression(node.arguments[1])) {
       return result.err(
         new ValSyntaxError(
           `Invalid c.remote() call: metadata must be a object literal`,
@@ -601,7 +602,7 @@ export function validateInitializers(
   nodes: ReadonlyArray<ts.Expression>,
 ): ValSyntaxErrorTree | undefined {
   for (const node of nodes) {
-    if (ts.isSpreadElement(node)) {
+    if (tsLib.isSpreadElement(node)) {
       return new ValSyntaxError("Unexpected spread element", node);
     }
   }
