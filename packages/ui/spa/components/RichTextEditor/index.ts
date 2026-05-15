@@ -20,6 +20,7 @@ export type {
   EditorSummaryNode,
   EditorDetailsNode,
   EditorDetailsVariant,
+  EditorButtonVariant,
   EditorNodeStyle,
   EditorStyleDefinition,
   EditorStyleConfig,
