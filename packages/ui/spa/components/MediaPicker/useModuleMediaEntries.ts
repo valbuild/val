@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useSourceAtPath, useFilePatchIds } from "../ValFieldProvider";
+import { refToUrl } from "./refToUrl";
 
 const EMPTY_MODULE_PATH = "" as SourcePath;
 
@@ -9,17 +10,7 @@ export function useModuleMediaEntries(modulePath: ModuleFilePath | undefined) {
   const filePatchIds = useFilePatchIds();
 
   const getUrl = useCallback(
-    (filePath: string): string => {
-      const patchId = filePatchIds.get(filePath);
-      if (patchId) {
-        return filePath.startsWith("/public")
-          ? `/api/val/files${filePath}?patch_id=${patchId}`
-          : `${filePath}?patch_id=${patchId}`;
-      }
-      return filePath.startsWith("/public")
-        ? filePath.slice("/public".length)
-        : filePath;
-    },
+    (filePath: string): string => refToUrl(filePath, filePatchIds),
     [filePatchIds],
   );
 
