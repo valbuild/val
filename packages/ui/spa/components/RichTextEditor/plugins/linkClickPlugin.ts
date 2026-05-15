@@ -84,6 +84,15 @@ export function createLinkClickPlugin(
                     break;
                   linkEnd += next.nodeSize;
                 }
+                for (let j = i - 1; j >= 0; j--) {
+                  const prev = parentNode.child(j);
+                  const prevMark = prev.isText
+                    ? linkType.isInSet(prev.marks)
+                    : null;
+                  if (!prevMark || (prevMark.attrs.href as string) !== href)
+                    break;
+                  linkStart -= prev.nodeSize;
+                }
                 break;
               }
             }
