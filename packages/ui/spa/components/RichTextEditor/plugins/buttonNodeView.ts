@@ -110,8 +110,8 @@ function createOverlayManager(
       if (!nodeType) return;
 
       const attrs: Record<string, unknown> = { variant: variantId };
-      if (!isAtom && href) {
-        attrs.href = href;
+      if (!isAtom) {
+        attrs.href = href ? href : null;
       }
 
       const currentNode = getCurrentNode();
