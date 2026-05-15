@@ -34,26 +34,9 @@ import type { GalleryFile } from "../FileGallery/types";
 import { readImage, readImageFromFile } from "../../utils/readImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
+import { refToUrl } from "../MediaPicker/refToUrl";
 
 const textEncoder = new TextEncoder();
-
-function refToUrl(
-  ref: string,
-  filePatchIds: ReadonlyMap<string, string>,
-): string {
-  const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  if (remoteRefRes.status === "success") {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
-}
 
 export function ModuleGallery({
   path,
