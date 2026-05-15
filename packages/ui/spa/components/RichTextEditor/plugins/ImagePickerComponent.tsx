@@ -15,21 +15,29 @@ export function ImagePicker({
         Select an image:
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {images.map((image) => (
-          <button
-            key={image.url}
-            type="button"
-            onClick={() => onSelect(image.url)}
-            className={[
-              "overflow-hidden rounded border-2 transition-all",
-              currentSrc === image.url
-                ? "border-border-brand-primary ring-2 ring-border-brand-primary"
-                : "border-border-primary hover:border-border-brand-primary",
-            ].join(" ")}
-          >
-            <img src={image.url} alt="" className="h-16 w-full object-cover" />
-          </button>
-        ))}
+        {images.map((image, index) => {
+          const label = `Select image ${index + 1}`;
+          return (
+            <button
+              key={image.url}
+              type="button"
+              onClick={() => onSelect(image.url)}
+              aria-label={label}
+              className={[
+                "overflow-hidden rounded border-2 transition-all",
+                currentSrc === image.url
+                  ? "border-border-brand-primary ring-2 ring-border-brand-primary"
+                  : "border-border-primary hover:border-border-brand-primary",
+              ].join(" ")}
+            >
+              <img
+                src={image.url}
+                alt=""
+                className="h-16 w-full object-cover"
+              />
+            </button>
+          );
+        })}
       </div>
     </div>
   );
