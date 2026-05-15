@@ -20,19 +20,28 @@ function MiniEditor({
   viewRef,
   label,
   minHeight,
+  allowEnter = true,
 }: {
   schema: Schema;
   initialDoc: PMNode;
   viewRef: React.MutableRefObject<EditorView | null>;
   label: string;
   minHeight: string;
+  allowEnter?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const plugins = [keymap(baseKeymap), history()];
+    const blockEnter = () => true;
+    const plugins = allowEnter
+      ? [keymap(baseKeymap), history()]
+      : [
+          keymap({ Enter: blockEnter, "Shift-Enter": blockEnter }),
+          keymap(baseKeymap),
+          history(),
+        ];
     const state = EditorState.create({ doc: initialDoc, plugins });
     const view = new EditorView(containerRef.current, {
       state,
@@ -45,7 +54,7 @@ function MiniEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [schema, initialDoc, viewRef]);
+  }, [schema, initialDoc, viewRef, allowEnter]);
 
   return (
     <div>
@@ -149,6 +158,7 @@ export function DetailsEditorModal({
             viewRef={summaryViewRef}
             label="Summary"
             minHeight="40px"
+            allowEnter={false}
           />
           <MiniEditor
             schema={schema}
