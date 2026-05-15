@@ -464,9 +464,9 @@ describe("feature-gated schema", () => {
     expect(s.nodes.heading).toBeDefined();
   });
 
-  test("schema without bold does not include bold mark", () => {
+  test("schema with bold disabled still includes bold mark for roundtripping", () => {
     const s = buildSchema({ bold: false });
-    expect(s.marks.bold).toBeUndefined();
+    expect(s.marks.bold).toBeDefined();
   });
 
   test("schema without button flag has no button nodes", () => {

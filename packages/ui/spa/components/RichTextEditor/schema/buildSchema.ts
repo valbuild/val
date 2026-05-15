@@ -250,27 +250,25 @@ function buildMarks(
 ): Record<string, MarkSpec> {
   const marks: Record<string, MarkSpec> = {};
 
-  if (_features.bold) {
-    marks.bold = {
-      parseDOM: [
-        { tag: "strong" },
-        {
-          tag: "b",
-          getAttrs: (node) =>
-            (node as HTMLElement).style.fontWeight !== "normal" && null,
-        },
-        { style: "font-weight=bold" },
-        {
-          style: "font-weight",
-          getAttrs: (value) =>
-            /^(bold(er)?|[5-9]\d{2,})$/.test(value as string) && null,
-        },
-      ],
-      toDOM() {
-        return ["strong", 0];
+  marks.bold = {
+    parseDOM: [
+      { tag: "strong" },
+      {
+        tag: "b",
+        getAttrs: (node) =>
+          (node as HTMLElement).style.fontWeight !== "normal" && null,
       },
-    };
-  }
+      { style: "font-weight=bold" },
+      {
+        style: "font-weight",
+        getAttrs: (value) =>
+          /^(bold(er)?|[5-9]\d{2,})$/.test(value as string) && null,
+      },
+    ],
+    toDOM() {
+      return ["strong", 0];
+    },
+  };
 
   marks.italic = {
     parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }],
