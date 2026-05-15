@@ -293,6 +293,10 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   const styleConfig = features.styles;
 
+  // Schema is intentionally fixed at mount: changing features, variants, or
+  // styleConfig after mount would also require recreating the EditorView and
+  // re-parsing the document, so consumers must remount the editor (e.g. via a
+  // key prop) to pick up new feature configuration.
   const schema = useMemo(
     () =>
       buildSchema({ features, buttonVariants, detailsVariants, styleConfig }),
