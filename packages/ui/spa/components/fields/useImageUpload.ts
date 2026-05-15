@@ -135,8 +135,8 @@ export function useImageUpload(
               },
               (bytesUploaded, totalBytes, currentFile, totalFiles) => {
                 const overallProgress =
-                  (bytesUploaded * (currentFile + 1)) /
-                  (totalBytes * totalFiles);
+                  (currentFile * totalBytes + bytesUploaded) /
+                  (totalFiles * totalBytes);
                 setProgressPercentage(Math.round(overallProgress * 100));
               },
             )
