@@ -57,7 +57,10 @@ export function ButtonVariantPicker({
             currentHref={currentHref ?? ""}
             isNewLink={!currentHref}
             onApply={(href) => onSelectVariant(pendingLinkVariant, href)}
-            onUnlink={() => setPendingLinkVariant(null)}
+            onUnlink={() => {
+              onSelectVariant(pendingLinkVariant, "");
+              setPendingLinkVariant(null);
+            }}
             onClose={() => setPendingLinkVariant(null)}
           />
         )}
