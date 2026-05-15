@@ -56,6 +56,8 @@ export function LinkUrlEditor({
         value={href}
         onChange={(e) => setHref(e.target.value)}
         onKeyDown={handleKeyDown}
+        aria-label="URL"
+        placeholder="https://…"
         className={cn("h-8 m-0 min-w-[220px] w-auto text-sm")}
       />
       <Button size="xs" onMouseDown={handleApply}>
