@@ -206,6 +206,8 @@ export function FileGalleryListView({
                         <FieldPatchAuthors
                           patchesByAuthorIds={file.patchesByAuthorIds}
                           profilesByAuthorIds={file.profilesByAuthorIds}
+                          sourcePath={file.sourcePath}
+                          navigable={false}
                         />
                       )}
                   </div>

@@ -61,9 +61,13 @@ function tryConvertRichTextToRemirror(
 export function RichTextField({
   path,
   autoFocus,
+  readonly,
+  compact,
 }: {
   path: SourcePath;
   autoFocus?: boolean;
+  readonly?: boolean;
+  compact?: boolean;
 }) {
   const type = "richtext";
   const config = useValConfig();
@@ -214,7 +218,7 @@ export function RichTextField({
       <ValidationErrors path={path} />
       <RichTextEditor
         autoFocus={autoFocus}
-        disabled={disabledRef.current}
+        disabled={readonly || disabledRef.current}
         state={editorState}
         options={schema.options}
         manager={manager}

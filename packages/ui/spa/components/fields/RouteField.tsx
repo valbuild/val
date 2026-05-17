@@ -43,6 +43,7 @@ export interface RouteSelectorProps {
   portalContainer?: HTMLElement | null;
   isLoading?: boolean;
   zIndex?: number;
+  readonly?: boolean;
 }
 
 export function RouteSelector({
@@ -56,6 +57,7 @@ export function RouteSelector({
   portalContainer,
   isLoading = false,
   zIndex,
+  readonly,
 }: RouteSelectorProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -73,7 +75,7 @@ export function RouteSelector({
   });
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={readonly ? false : open} onOpenChange={readonly ? undefined : setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -131,7 +133,15 @@ export function RouteSelector({
   );
 }
 
-export function RouteField({ path }: { path: SourcePath }) {
+export function RouteField({
+  path,
+  readonly,
+  compact,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "route";
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
@@ -199,7 +209,7 @@ export function RouteField({ path }: { path: SourcePath }) {
 
   const isLoading = schemaAtPath.status === "loading";
 
-  return (
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
@@ -207,6 +217,7 @@ export function RouteField({ path }: { path: SourcePath }) {
           routes={routesWithModulePaths}
           value={source}
           onChange={(route) => {
+            if (readonly) return;
             addPatch(
               [
                 {
@@ -222,6 +233,7 @@ export function RouteField({ path }: { path: SourcePath }) {
           excludePattern={excludePattern}
           portalContainer={portalContainer}
           isLoading={isLoading}
+          readonly={readonly}
         />
         {source && selectedRouteInfo && (
           <button
@@ -242,6 +254,14 @@ export function RouteField({ path }: { path: SourcePath }) {
       </div>
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function RoutePreview({ path }: { path: SourcePath }) {

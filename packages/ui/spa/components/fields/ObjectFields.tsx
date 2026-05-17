@@ -12,7 +12,17 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function ObjectFields({ path }: { path: SourcePath }) {
+export function ObjectFields({
+  path,
+  readonly,
+  compact,
+  inline,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+}) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -55,7 +65,7 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      <div className="flex flex-col gap-6">
+      <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
         {Object.entries(schema.items).map(([key, itemSchema]) => {
           const subPath = sourcePathOfItem(path, key);
           return (
@@ -64,8 +74,17 @@ export function ObjectFields({ path }: { path: SourcePath }) {
               label={key}
               path={subPath}
               type={itemSchema.type}
+              readonly={readonly}
+              compact={compact}
             >
-              <AnyField key={subPath} path={subPath} schema={itemSchema} />
+              <AnyField
+                key={subPath}
+                path={subPath}
+                schema={itemSchema}
+                readonly={readonly}
+                compact={compact}
+                inline={inline}
+              />
             </Field>
           );
         })}

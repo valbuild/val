@@ -26,6 +26,23 @@ import { isJsonArray } from "../utils/isJsonArray";
 import { ValSyncEngine } from "../ValSyncEngine";
 import { z } from "zod";
 
+// --- Source override context ---
+// When rendering the "before" side of a diff, the parent `Field` component
+// provides the full module-level server source via this context so that all
+// descendant hooks read from it instead of the engine's optimistic source.
+
+type SourceOverride = {
+  moduleFilePath: ModuleFilePath;
+  moduleSource: Json;
+};
+
+const FieldSourceOverrideContext = React.createContext<SourceOverride | null>(
+  null,
+);
+
+export { FieldSourceOverrideContext };
+export type { SourceOverride };
+
 type ValFieldContextValue = {
   syncEngine: ValSyncEngine;
   getDirectFileUploadSettings: () => Promise<
@@ -34,8 +51,6 @@ type ValFieldContextValue = {
         data: {
           nonce: string | null;
           baseUrl: string;
-          contentBaseUrl: string | null;
-          contentAuthNonce: string | null;
         };
       }
     | {
@@ -73,8 +88,6 @@ export function ValFieldProvider({
         data: {
           nonce: string | null;
           baseUrl: string;
-          contentBaseUrl: string | null;
-          contentAuthNonce: string | null;
         };
       }
     | {
@@ -105,6 +118,10 @@ const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   );
   return initializedAt.data;
 };
+
+export function useSyncEngine(): ValSyncEngine {
+  return useContext(ValFieldContext).syncEngine;
+}
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
 export function useLoadingStatus(): LoadingStatus {
@@ -391,10 +408,6 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   };
 }
 
-export function useGetDirectFileUploadSettings() {
-  return useContext(ValFieldContext).getDirectFileUploadSettings;
-}
-
 export function useValConfig() {
   const { config } = useContext(ValFieldContext);
   const lastConfig = useRef<
@@ -456,18 +469,21 @@ export function useRenderOverrideAtPath(
   }, [renderRes, initializedAt, sourcesRes, sourcePath]);
 }
 
-export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
+type SchemaAtPathResult =
   | { status: "not-found" }
   | { status: "loading" }
-  | {
-      status: "success";
-      data: SerializedSchema;
-    }
-  | {
-      status: "error";
-      error: string;
-    } {
+  | { status: "success"; data: SerializedSchema }
+  | { status: "error"; error: string };
+
+type SchemaWithResolvedPathResult =
+  | { status: "not-found" }
+  | { status: "loading" }
+  | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath }
+  | { status: "error"; error: string };
+
+function useSchemaAtPathInternal(sourcePath: SourcePath | ModuleFilePath): SchemaWithResolvedPathResult {
   const { syncEngine } = useContext(ValFieldContext);
+  const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
   }, [sourcePath]);
@@ -485,15 +501,23 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
     if (schemaRes.status !== "success") {
       return schemaRes;
     }
-    if (sourcesRes.status !== "success") {
-      return sourcesRes;
+    const sourceData =
+      sourceOverride && sourceOverride.moduleFilePath === moduleFilePath
+        ? sourceOverride.moduleSource
+        : sourcesRes.status === "success"
+          ? sourcesRes.data
+          : undefined;
+    if (sourceData === undefined) {
+      if (sourcesRes.status !== "success") {
+        return sourcesRes;
+      }
+      return { status: "source-not-found" as const };
     }
-    let resolvedSchemaAtPath: SerializedSchema | null = null;
 
     try {
       const resolvedSchemaAtPathRes = Internal.safeResolvePath(
         modulePath,
-        sourcesRes.data,
+        sourceData,
         schemaRes.data,
       );
       if (resolvedSchemaAtPathRes.status === "error") {
@@ -507,13 +531,26 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
           status: "source-not-found" as const,
         };
       }
-      resolvedSchemaAtPath = resolvedSchemaAtPathRes.schema;
+      if (!resolvedSchemaAtPathRes.schema) {
+        return {
+          status: "resolved-schema-not-found" as const,
+        };
+      }
+      const resolvedModulePath = resolvedSchemaAtPathRes.path as unknown as ModulePath;
+      const resolvedSourcePath = resolvedModulePath
+        ? Internal.joinModuleFilePathAndModulePath(moduleFilePath, resolvedModulePath)
+        : (moduleFilePath as unknown as SourcePath);
+      return {
+        status: "success" as const,
+        data: resolvedSchemaAtPathRes.schema,
+        resolvedPath: resolvedSourcePath,
+      };
     } catch (e) {
       console.error(
         "Error resolving schema at path",
         sourcePath,
         modulePath,
-        sourcesRes.data,
+        sourceData,
         schemaRes.data,
         e,
       );
@@ -524,16 +561,7 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
         }`,
       };
     }
-    if (!resolvedSchemaAtPath) {
-      return {
-        status: "resolved-schema-not-found" as const,
-      };
-    }
-    return {
-      status: "success" as const,
-      data: resolvedSchemaAtPath,
-    };
-  }, [schemaRes, sourcesRes, moduleFilePath, modulePath]);
+  }, [schemaRes, sourcesRes, moduleFilePath, modulePath, sourceOverride]);
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
     return { status: "loading" };
@@ -559,6 +587,25 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
     };
   }
   return resolvedSchemaAtPathRes;
+}
+
+export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath): SchemaAtPathResult {
+  const res = useSchemaAtPathInternal(sourcePath);
+  if (res.status === "success") {
+    return { status: "success", data: res.data };
+  }
+  return res;
+}
+
+/**
+ * Like {@link useSchemaAtPath} but also returns the effective source path
+ * that the schema resolved to. For most schema types, this equals the input
+ * path. For leaf schemas like `image` / `file` that absorb sub-paths
+ * (e.g. `metadata.hotspot`), the resolved path is truncated to the
+ * schema boundary.
+ */
+export function useSchemaWithResolvedPath(sourcePath: SourcePath | ModuleFilePath): SchemaWithResolvedPathResult {
+  return useSchemaAtPathInternal(sourcePath);
 }
 
 export function useSchemas():
@@ -953,6 +1000,7 @@ export function useShallowSourceAtPath<
   type?: SchemaType,
 ): ShallowSourceOf<SchemaType> {
   const { syncEngine } = useContext(ValFieldContext);
+  const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] = sourcePath
     ? Internal.splitModuleFilePathAndModulePath(sourcePath)
     : (["", ""] as [ModuleFilePath, ModulePath]);
@@ -966,6 +1014,19 @@ export function useShallowSourceAtPath<
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
+    }
+    if (
+      sourceOverride &&
+      sourceOverride.moduleFilePath === moduleFilePath &&
+      type !== undefined
+    ) {
+      return getShallowSourceAtSourcePath(
+        moduleFilePath,
+        modulePath,
+        type,
+        sourceOverride.moduleSource,
+        false,
+      );
     }
     if (sourcesRes.status === "success") {
       const moduleSources = sourcesRes.data;
@@ -986,7 +1047,7 @@ export function useShallowSourceAtPath<
       status: "error",
       error: sourcesRes.message || "Unknown error",
     };
-  }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type]);
+  }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type, sourceOverride]);
   return source;
 }
 
@@ -1006,6 +1067,7 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
       status: "loading";
     } {
   const { syncEngine } = useContext(ValFieldContext);
+  const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
@@ -1018,6 +1080,12 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
     if (initializedAt === null) {
       return { status: "loading" };
     }
+    if (
+      sourceOverride &&
+      sourceOverride.moduleFilePath === moduleFilePath
+    ) {
+      return walkSourcePath(modulePath, sourceOverride.moduleSource);
+    }
     if (sourceSnapshot.status === "success") {
       return walkSourcePath(modulePath, sourceSnapshot.data);
     }
@@ -1025,7 +1093,54 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
       status: "error",
       error: sourceSnapshot.message || "Unknown error",
     };
-  }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath]);
+  }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath, sourceOverride]);
+}
+
+/**
+ * Like {@link useSourceAtPath} but always returns the source as last seen
+ * from the server, ignoring any locally applied (optimistic) patches.
+ *
+ * Intended for diff / compare views where we need to render the "before"
+ * state of a value alongside the current ("after") state.
+ */
+export function useServerSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
+  | {
+      status: "success";
+      data: Json;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "not-found";
+    }
+  | {
+      status: "loading";
+    } {
+  const { syncEngine } = useContext(ValFieldContext);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  // Subscribe to the module-level "source" channel so we re-render when the
+  // server source changes (e.g. after a successful publish).
+  const sourceSnapshot = useSyncExternalStore(
+    syncEngine.subscribe("source", moduleFilePath),
+    () => syncEngine.getBaseSourceSnapshot(moduleFilePath),
+    () => syncEngine.getBaseSourceSnapshot(moduleFilePath),
+  );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  return useMemo(() => {
+    if (initializedAt === null) {
+      return { status: "loading" };
+    }
+    if (sourceSnapshot.status === "success") {
+      return walkSourcePath(modulePath, sourceSnapshot.data);
+    }
+    return {
+      status: "error",
+      error: sourceSnapshot.status,
+    };
+  }, [sourceSnapshot, initializedAt, modulePath]);
 }
 
 export function useFilePatchIds(): ReadonlyMap<string, string> {

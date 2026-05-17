@@ -1,4 +1,10 @@
-import { ChevronRight, FileText, Folder, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronRight,
+  FileText,
+  Folder,
+  Plus,
+} from "lucide-react";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { cn } from "../designSystem/cn";
 import { AnimateHeight } from "../AnimateHeight";
@@ -43,6 +49,15 @@ export function SitemapItemNode({
   const isActive = item.sourcePath && currentPath.startsWith(item.sourcePath);
   const isExactActive = item.sourcePath === currentPath;
   const isFolder = hasChildren && !isNavigable;
+
+  const hasDescendantError = useMemo(() => {
+    const check = (items: SitemapItemType[]): boolean =>
+      items.some((c) => c.hasError || check(c.children));
+    return check(item.children);
+  }, [item.children]);
+
+  const showErrorDot =
+    item.hasError || (!isOpen && hasDescendantError);
 
   // Scroll into view when this item becomes the exact active item
   useEffect(() => {
@@ -127,13 +142,23 @@ export function SitemapItemNode({
           <span
             className={cn("truncate", {
               "font-medium": isActive,
-              "text-fg-primary": isNavigable || isFolder,
-              "text-fg-secondary": !isNavigable && !isFolder,
+              "text-fg-primary":
+                (isNavigable || isFolder) && !showErrorDot,
+              "text-fg-secondary":
+                !isNavigable && !isFolder && !showErrorDot,
+              "text-fg-error-primary": showErrorDot,
             })}
           >
             /{item.name !== "/" ? item.name : ""}
           </span>
         </button>
+
+        {showErrorDot && (
+          <AlertCircle
+            size={14}
+            className="shrink-0 text-fg-error-primary"
+          />
+        )}
 
         {item.canAddChild &&
           item.routePattern &&

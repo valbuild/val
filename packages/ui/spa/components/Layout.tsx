@@ -22,9 +22,6 @@ export function Layout() {
   useEffect(() => {
     if (!didInitialize && navigationReady) {
       if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
-        if (!currentSourcePath) {
-          setIsNavMenuOpenState(true);
-        }
         setDidInitialize(true);
       } else {
         setIsToolsMenuOpenState(true);
@@ -75,7 +72,7 @@ export function Layout() {
         },
       }}
     >
-      <main className="flex">
+      <main className="flex" style={{ height: "100svh", overflow: "hidden" }}>
         <SidebarProvider
           open={isNavMenuOpen}
           onOpenChange={setNavMenuOpen}

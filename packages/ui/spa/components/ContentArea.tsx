@@ -1,9 +1,22 @@
+import { useMemo } from "react";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
-import { PanelRightOpen, Search as SearchIcon } from "lucide-react";
+import { CopyIcon, PanelRightOpen, Search as SearchIcon } from "lucide-react";
 import { useNavigation } from "./ValRouter";
 import { Search } from "./Search";
-import { useConnectionStatus, useGlobalError } from "./ValProvider";
+import {
+  useConnectionStatus,
+  useGlobalError,
+  usePatchSets,
+  useProfilesByAuthorId,
+  useValMode,
+} from "./ValProvider";
+import {
+  ComparePatchSets,
+  CompareSummaryStrip,
+  flattenChanges,
+} from "./ComparePatchSets";
+import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import { useValPortal } from "./ValPortalProvider";
 import { useLayout } from "./Layout";
 import classNames from "classnames";
@@ -15,21 +28,22 @@ import {
   DialogPortal,
   DialogTitle,
 } from "./designSystem/dialog";
+import { Button } from "./designSystem/button";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
-import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
   const globalError = useGlobalError();
+  const { isCompareView } = useNavigation();
   return (
-    <div className="flex flex-col h-svh">
+    <div className="flex flex-col h-svh bg-bg-primary">
       <ContentAreaHeader />
-      <ScrollArea viewportId="val-content-area" className="flex-1 min-h-0">
+      <ScrollArea viewportId="val-content-area" className="flex-1 min-h-0" orientation={isCompareView ? "both" : undefined}>
         {globalError !== null && (
           <>
             {globalError.type === "network-error" ? (
@@ -58,12 +72,20 @@ export function ContentArea() {
             )}
           </>
         )}
-        <div className="h-full max-w-[800px] px-4 mx-auto">
+        <div
+          className={
+            isCompareView
+              ? "h-full max-w-[1400px] px-4 pt-6 mx-auto"
+              : "h-full max-w-[800px] px-4 mx-auto"
+          }
+        >
           {connectionStatus === "service-unavailable" ? (
             <div className="p-8 mt-20 text-center text-fg-error-primary bg-bg-error-primary">
               <p>Could not connect to the content service.</p>
               <p>Please try again later</p>
             </div>
+          ) : isCompareView ? (
+            <CompareView />
           ) : (
             <SourceFields />
           )}
@@ -141,9 +163,30 @@ function RemoteFilesErrorDialog({
   );
 }
 
+function CopyableCodeBlock({ code }: { code: string }) {
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+  };
+  return (
+    <div className="relative bg-bg-secondary rounded-md p-4 my-4">
+      <pre className="overflow-x-auto">
+        <code>{code}</code>
+      </pre>
+      <Button
+        variant="secondary"
+        size="sm"
+        className="absolute top-2 right-2"
+        onClick={handleCopy}
+      >
+        <CopyIcon size={16} className="mr-2" />
+      </Button>
+    </div>
+  );
+}
+
 function ContentAreaHeader() {
   const { navMenu, toolsMenu } = useLayout();
-  const { currentSourcePath } = useNavigation();
+  const { currentSourcePath, isCompareView } = useNavigation();
   const isHome = (currentSourcePath?.length || 0) === 0;
 
   return (
@@ -161,10 +204,16 @@ function ContentAreaHeader() {
           })}
         />
       </button>
-      {!isHome && (
-        <div className="flex-1 max-w-md mx-4 overflow-visible">
-          <Search />
+      {isCompareView ? (
+        <div className="flex-1 mx-4 min-w-0">
+          <CompareSummaryInHeader />
         </div>
+      ) : (
+        !isHome && (
+          <div className="flex-1 max-w-md mx-4 overflow-visible">
+            <Search />
+          </div>
+        )
       )}
       <button
         className={classNames({
@@ -180,6 +229,61 @@ function ContentAreaHeader() {
         />
       </button>
     </div>
+  );
+}
+
+function CompareSummaryInHeader() {
+  const patchSetsResult = usePatchSets();
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  const mode = useValMode();
+  const portalContainer = useValPortal();
+
+  const patchSets = patchSetsResult.status === "success" ? patchSetsResult.data : [];
+  const { trees } = usePatchSetsWorker(patchSets);
+
+  const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
+
+  const allPatchIds = useMemo(() => {
+    const ids: import("@valbuild/core").PatchId[] = [];
+    const seen = new Set<string>();
+    for (const row of flatRows) {
+      for (const id of row.change?.patchIds ?? []) {
+        if (!seen.has(id)) {
+          seen.add(id);
+          ids.push(id);
+        }
+      }
+    }
+    return ids;
+  }, [flatRows]);
+
+  const allAuthorIds = useMemo(() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const row of flatRows) {
+      for (const id of row.change?.authors ?? []) {
+        if (!seen.has(id)) {
+          seen.add(id);
+          ids.push(id);
+        }
+      }
+    }
+    return ids;
+  }, [flatRows]);
+
+  if (patchSetsResult.status !== "success") {
+    return null;
+  }
+
+  return (
+    <CompareSummaryStrip
+      authorIds={allAuthorIds}
+      profilesByAuthorIds={profilesByAuthorIds}
+      mode={mode}
+      allPatchIds={allPatchIds}
+      readonly={false}
+      portalContainer={portalContainer}
+    />
   );
 }
 
@@ -203,6 +307,34 @@ export function SearchBar() {
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
   return <Module path={currentSourcePath} showModuleGalleryChild={null} />;
+}
+
+function CompareView() {
+  const patchSetsResult = usePatchSets();
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  const mode = useValMode();
+  if (patchSetsResult.status === "not-asked") {
+    return (
+      <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
+        Loading changes&hellip;
+      </div>
+    );
+  }
+  if (patchSetsResult.status === "error") {
+    return (
+      <div className="text-sm text-fg-error py-8 text-center">
+        Failed to load changes: {patchSetsResult.error}
+      </div>
+    );
+  }
+  return (
+    <ComparePatchSets
+      patchSets={patchSetsResult.data}
+      profilesByAuthorIds={profilesByAuthorIds}
+      mode={mode}
+      readonly={false}
+    />
+  );
 }
 
 // export function PathBar() {

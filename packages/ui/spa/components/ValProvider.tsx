@@ -11,7 +11,6 @@ import React, {
 } from "react";
 import {
   FILE_REF_PROP,
-  ImageMetadata,
   Internal,
   Json,
   ModuleFilePath,
@@ -24,7 +23,6 @@ import {
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import {
-  ParentRef,
   SharedValConfig,
   ValClient,
   getNextAppRouterSourceFolder,
@@ -40,7 +38,8 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { useSchemas } from "./ValFieldProvider";
+import { useSchemas, useSyncEngine } from "./ValFieldProvider";
+export { useSyncEngine } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -81,23 +80,8 @@ export type AISessionsResponse = {
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
-export class SessionImageToPatchError extends Error {
-  availableKeys?: string[];
-  constructor(message: string, availableKeys?: string[]) {
-    super(message);
-    this.name = "SessionImageToPatchError";
-    this.availableKeys = availableKeys;
-  }
-}
-
-export type AIContentBlock =
-  | { type: "text"; text: string }
-  | { type: "image_url"; url: string };
-
-export type AIMessageContent = string | AIContentBlock[];
-
 export type AIMessagesResponse = {
-  messages: { role: string; content: AIMessageContent }[];
+  messages: { role: string; content: string }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
@@ -143,7 +127,6 @@ type ValContextValue = {
   subscribeToWsMessages: (handler: AIMessageHandler) => () => void;
   sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
-  aiAuthError: boolean;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -156,14 +139,6 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
-  aiSessionImagesToPatchFile: (args: {
-    patchId: PatchId;
-    parentRef: ParentRef;
-    files: { filePath: string; key: string; isRemote?: boolean }[];
-  }) => Promise<{
-    patchId: PatchId;
-    files: { filePath: string; metadata: ImageMetadata }[];
-  }>;
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -219,27 +194,25 @@ export function ValProvider({
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
-    authError: aiAuthError,
-  } = useAIWebSocket(wsEnabled, client);
+  } = useAIWebSocket(wsEnabled);
 
   const aiGetSessions = useCallback(
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
     }): Promise<AISessionsResponse> => {
-      const res = await client("/ai/sessions", "GET", {
-        query: {
-          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
-          cursor_updatedAt: opts?.cursor?.updatedAt,
-          cursor_id: opts?.cursor?.id,
-        },
-      });
-      if (res.status === 200) return res.json;
-      throw new Error(
-        `ai/sessions failed: ${res.status ?? "network"}: ${res.json.message}`,
-      );
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(`/api/val/ai/sessions${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`ai/sessions failed: ${res.status}`);
+      return res.json();
     },
-    [client],
+    [],
   );
 
   const aiGetSessionMessages = useCallback(
@@ -250,60 +223,37 @@ export function ValProvider({
         cursor?: { updatedAt: string; id: string };
       },
     ): Promise<AIMessagesResponse> => {
-      const res = await client("/ai/messages", "GET", {
-        path: `/${encodeURIComponent(sessionId)}/messages`,
-        query: {
-          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
-          cursor_updatedAt: opts?.cursor?.updatedAt,
-          cursor_id: opts?.cursor?.id,
-        },
-      });
-      if (res.status === 200) return res.json;
-      throw new Error(
-        `ai/sessions/messages failed: ${res.status ?? "network"}: ${res.json.message}`,
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.cursor) {
+        params.set("cursor_updatedAt", opts.cursor.updatedAt);
+        params.set("cursor_id", opts.cursor.id);
+      }
+      const qs = params.toString();
+      const res = await fetch(
+        `/api/val/ai/messages/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ""}`,
       );
+      if (!res.ok)
+        throw new Error(`ai/sessions/messages failed: ${res.status}`);
+      const json = await res.json();
+      return json;
     },
-    [client],
+    [],
   );
 
   const aiSetSessionName = useCallback(
     async (sessionId: string, name: string): Promise<void> => {
-      const res = await client("/ai/sessions", "PATCH", {
-        path: `/${encodeURIComponent(sessionId)}`,
-        body: { name },
-      });
-      if (res.status === 200) return;
-      throw new Error(
-        `ai/sessions/rename failed: ${res.status ?? "network"}: ${res.json.message}`,
+      const res = await fetch(
+        `/api/val/ai/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
       );
+      if (!res.ok) throw new Error(`ai/sessions/rename failed: ${res.status}`);
     },
-    [client],
-  );
-
-  const aiSessionImagesToPatchFile = useCallback(
-    async (args: {
-      patchId: PatchId;
-      parentRef: ParentRef;
-      files: { filePath: string; key: string; isRemote?: boolean }[];
-    }): Promise<{
-      patchId: PatchId;
-      files: { filePath: string; metadata: ImageMetadata }[];
-    }> => {
-      const res = await client("/ai/session-image-to-patch-file", "POST", {
-        body: args,
-      });
-      if (res.status === 200) return res.json;
-      if (res.status === 400) {
-        throw new SessionImageToPatchError(
-          `ai/session-image-to-patch-file failed: 400: ${res.json.message}`,
-          res.json.details?.availableKeys,
-        );
-      }
-      throw new SessionImageToPatchError(
-        `ai/session-image-to-patch-file failed: ${res.status ?? "network"}: ${res.json.message}`,
-      );
-    },
-    [client],
+    [],
   );
 
   const syncEngine = useMemo(
@@ -590,7 +540,6 @@ export function ValProvider({
     authenticationState,
     "data" in stat && stat.data ? stat.data.mode : "unknown",
     serviceUnavailable,
-    runtimeConfig?.project,
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<
@@ -599,8 +548,6 @@ export function ValProvider({
         data: {
           nonce: string | null;
           baseUrl: string;
-          contentBaseUrl: string | null;
-          contentAuthNonce: string | null;
         };
       }
     | {
@@ -652,11 +599,9 @@ export function ValProvider({
         subscribeToWsMessages,
         sendWsMessage,
         isWsConnected,
-        aiAuthError,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
-        aiSessionImagesToPatchFile,
       }}
     >
       <TooltipProvider>
@@ -693,7 +638,6 @@ function useProfilesData(
   authenticationState: AuthenticationState,
   mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
-  project: string | undefined,
 ) {
   const loadProfileDataRef = useRef(true);
   const [profilesData, setProfilesData] = useState<
@@ -762,9 +706,6 @@ function useProfilesData(
     if (mode !== "fs" && authenticationState !== "authorized") {
       return;
     }
-    if (mode === "fs" && !project) {
-      return;
-    }
     if (serviceUnavailable) {
       return;
     }
@@ -785,7 +726,6 @@ function useProfilesData(
     mode,
     profilesData,
     serviceUnavailable,
-    project,
   ]);
 
   return profilesData;
@@ -821,7 +761,7 @@ export function useAddModuleFilePatch() {
 }
 
 export function useDeletePatches() {
-  const { syncEngine } = useContext(ValContext);
+  const syncEngine = useSyncEngine();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
       // Delete in batches of 100 patch ids (since it is added to request url as query param)
@@ -843,26 +783,18 @@ export function useAIContext() {
     subscribeToWsMessages,
     sendWsMessage,
     isWsConnected,
-    aiAuthError,
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
-    aiSessionImagesToPatchFile,
   } = useContext(ValContext);
   return {
     subscribeToWsMessages,
     sendWsMessage,
     isWsConnected,
-    aiAuthError,
     aiGetSessions,
     aiGetSessionMessages,
     aiSetSessionName,
-    aiSessionImagesToPatchFile,
   };
-}
-
-export function useSyncEngine() {
-  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {

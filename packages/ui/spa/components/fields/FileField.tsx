@@ -112,7 +112,15 @@ export async function createFilePatch(
   };
 }
 
-export function FileField({ path }: { path: SourcePath }) {
+export function FileField({
+  path,
+  readonly,
+  compact,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "file";
   const config = useValConfig();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
@@ -235,7 +243,7 @@ export function FileField({ path }: { path: SourcePath }) {
         ? []
         : [referencedModule]
       : [];
-  const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const disabled = readonly || remoteFileUploadDisabled || missingModules.length > 0;
   const acceptOptions = useMemo(() => {
     if (
       schemaAtPath.data.type !== "file" ||

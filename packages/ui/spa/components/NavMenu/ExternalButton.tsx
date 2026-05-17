@@ -1,4 +1,4 @@
-import { ChevronRight, Earth } from "lucide-react";
+import { AlertCircle, ChevronRight, Earth } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ExternalModule } from "./types";
 
@@ -13,6 +13,7 @@ export type ExternalButtonProps = {
 };
 
 export function ExternalButton({
+  external,
   isActive = false,
   onClick,
   showButtonBorder = false,
@@ -31,7 +32,19 @@ export function ExternalButton({
       onClick={onClick}
     >
       <Earth size={16} />
-      <span>External sites</span>
+      <span
+        className={cn({
+          "text-fg-error-primary": external.hasError,
+        })}
+      >
+        External sites
+      </span>
+      {external.hasError && (
+        <AlertCircle
+          size={14}
+          className="shrink-0 text-fg-error-primary"
+        />
+      )}
       <ChevronRight size={16} className="ml-auto" />
     </button>
   );

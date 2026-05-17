@@ -26,6 +26,7 @@ import {
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { getRefParts } from "../../utils/getFilenameFromRef";
 import { ValidationErrors } from "../ValidationError";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
@@ -141,6 +142,15 @@ export function ModuleGallery({
         const width = typeof meta.width === "number" ? meta.width : 0;
         const height = typeof meta.height === "number" ? meta.height : 0;
         const alt = typeof meta.alt === "string" ? meta.alt : undefined;
+        const hotspot =
+          typeof meta.hotspot === "object" &&
+          meta.hotspot !== null &&
+          "x" in (meta.hotspot as Record<string, unknown>) &&
+          "y" in (meta.hotspot as Record<string, unknown>) &&
+          typeof (meta.hotspot as Record<string, unknown>).x === "number" &&
+          typeof (meta.hotspot as Record<string, unknown>).y === "number"
+            ? { x: (meta.hotspot as { x: number }).x, y: (meta.hotspot as { y: number }).y }
+            : undefined;
         const itemPath = sourcePathOfItem(path, ref);
         const genericValidationErrors = [];
         const altSpecificValidationErrors = [];
@@ -176,16 +186,14 @@ export function ModuleGallery({
           filePatchesByAuthorIds[author].push(patch);
         }
 
-        const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-        const cleanFilePath =
-          remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
+        const { filename, folder } = getRefParts(ref);
 
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
-          filename: cleanFilePath.split("/").pop() || cleanFilePath,
-          folder: cleanFilePath.replace("/public/val", ""),
-          metadata: { mimeType, width, height, alt },
+          filename,
+          folder,
+          metadata: { mimeType, width, height, alt, hotspot },
           fieldSpecificErrors: {
             alt:
               altSpecificValidationErrors.length > 0
@@ -198,6 +206,7 @@ export function ModuleGallery({
               : undefined,
           patchesByAuthorIds: filePatchesByAuthorIds,
           profilesByAuthorIds,
+          sourcePath: itemPath,
         };
       })
     : [];

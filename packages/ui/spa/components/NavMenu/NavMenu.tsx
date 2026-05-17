@@ -140,8 +140,8 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
     }
 
     // Account for accordion triggers (sitemap and explorer)
-    if (data.sitemap) subtractHeight += 48;
-    if (data.explorer) subtractHeight += 48;
+    if (data.sitemap) subtractHeight += 40;
+    if (data.explorer) subtractHeight += 40;
 
     return `calc(100svh - ${subtractHeight}px)`;
   }, [data.external, data.sitemap, data.explorer]);
