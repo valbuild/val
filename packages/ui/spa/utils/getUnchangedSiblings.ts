@@ -26,8 +26,6 @@ export function getUnchangedSiblings(
   parentSource: Json,
   changedChildKeys: Set<string>,
 ): UnchangedSibling[] {
-  if (parentSchema.type === "record") return [];
-
   const allKeys = getAllChildKeys(parentSchema, parentSource);
   if (allKeys === null) return [];
 

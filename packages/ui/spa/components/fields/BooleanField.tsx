@@ -18,7 +18,6 @@ import { ValidationErrors } from "../../components/ValidationError";
 export function BooleanField({
   path,
   readonly,
-  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
