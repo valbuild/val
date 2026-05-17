@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
-import { useFilePatchIds, useSourceAtPath } from "../ValFieldProvider";
+import { useModuleMediaEntries } from "./useModuleMediaEntries";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -27,7 +27,7 @@ export interface GalleryEntry {
   modulePath: string;
 }
 
-export interface MediaPickerProps {
+export interface MediaPickerListProps {
   /** Gallery entries grouped by module: Record<modulePath, Record<filePath, metadata>> */
   moduleEntries: Record<string, Record<string, Record<string, unknown>>>;
   /** Currently selected file ref, if any */
@@ -36,16 +36,24 @@ export interface MediaPickerProps {
   onSelect: (entry: GalleryEntry) => void;
   /** Whether this is for images (shows thumbnails) or files */
   isImage?: boolean;
+  /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
+  getUrl?: (filePath: string) => string;
+  /** Auto-focus the search input on mount */
+  autoFocus?: boolean;
+  /** Max height for the scrollable list area (default 320) */
+  maxHeight?: number;
+  /** Called when user presses Escape */
+  onEscape?: () => void;
+}
+
+export interface MediaPickerProps extends MediaPickerListProps {
   disabled?: boolean;
   /** Portal container for the popover (shadow DOM support) */
   portalContainer?: HTMLElement | null;
-  /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
-  getUrl?: (filePath: string) => string;
 }
 
 const ROW_HEIGHT = 48;
 
-/** A flat row for the virtualized list. Can be a heading or an entry. */
 type PickerRow =
   | { kind: "heading"; modulePath: string }
   | {
@@ -95,16 +103,16 @@ function buildRows(
   return rows;
 }
 
-export function MediaPicker({
+export function MediaPickerList({
   moduleEntries,
   selectedRef,
   onSelect,
   isImage = false,
-  disabled = false,
-  portalContainer,
   getUrl,
-}: MediaPickerProps) {
-  const [open, setOpen] = React.useState(false);
+  autoFocus = false,
+  maxHeight: maxHeightProp,
+  onEscape,
+}: MediaPickerListProps) {
   const [filter, setFilter] = React.useState("");
   const [activeIndex, setActiveIndex] = React.useState(-1);
 
@@ -119,7 +127,6 @@ export function MediaPicker({
     [moduleEntries, filter, showHeadings],
   );
 
-  // Only entry rows are selectable
   const entryIndices = React.useMemo(
     () =>
       rows.reduce<number[]>((acc, row, i) => {
@@ -136,26 +143,19 @@ export function MediaPicker({
     overscan: 10,
   });
 
-  // Reset active index when filter changes
   React.useEffect(() => {
     setActiveIndex(entryIndices.length > 0 ? entryIndices[0] : -1);
   }, [filter, entryIndices]);
 
-  // Focus input and re-measure virtualizer when opening
   React.useEffect(() => {
-    if (open) {
-      // Delay until after the popover open animation completes so the
-      // scroll container has its real dimensions for the virtualizer.
+    if (autoFocus) {
       const t = setTimeout(() => {
         inputRef.current?.focus();
         virtualizer.measure();
       }, 100);
       return () => clearTimeout(t);
-    } else {
-      setFilter("");
-      setActiveIndex(-1);
     }
-  }, [open, virtualizer]);
+  }, [autoFocus, virtualizer]);
 
   const selectRow = React.useCallback(
     (index: number) => {
@@ -166,7 +166,6 @@ export function MediaPicker({
           metadata: row.metadata,
           modulePath: row.modulePath,
         });
-        setOpen(false);
       }
     },
     [rows, onSelect],
@@ -200,12 +199,155 @@ export function MediaPicker({
           selectRow(activeIndex);
         }
       } else if (e.key === "Escape") {
-        setOpen(false);
+        onEscape?.();
       }
     },
-    [entryIndices, activeIndex, virtualizer, selectRow],
+    [entryIndices, activeIndex, virtualizer, selectRow, onEscape],
   );
 
+  if (modulePaths.length === 0) {
+    return null;
+  }
+
+  const totalEntries = Object.values(moduleEntries).reduce(
+    (sum, entries) => sum + Object.keys(entries).length,
+    0,
+  );
+
+  const maxHeight =
+    maxHeightProp ?? Math.min(totalEntries * ROW_HEIGHT + 60, 320);
+
+  return (
+    <>
+      <div className="flex items-center border-b border-border-primary px-3">
+        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+        <input
+          ref={inputRef}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={isImage ? "Search images..." : "Search files..."}
+          className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+        />
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="py-6 text-center text-sm text-fg-secondary">
+          {isImage ? "No images found." : "No files found."}
+        </div>
+      ) : (
+        <div ref={scrollRef} className="overflow-auto" style={{ maxHeight }}>
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+
+              if (row.kind === "heading") {
+                return (
+                  <div
+                    key={`heading-${row.modulePath}`}
+                    className="absolute left-0 top-0 w-full px-3 py-1 text-xs font-medium text-fg-secondary"
+                    style={{
+                      transform: `translateY(${virtualRow.start}px)`,
+                      height: `${virtualRow.size}px`,
+                    }}
+                  >
+                    {prettyModuleName(row.modulePath)}
+                  </div>
+                );
+              }
+
+              const filename = row.filePath.split("/").pop() || row.filePath;
+              const isSelected = selectedRef === row.filePath;
+              const isActive = virtualRow.index === activeIndex;
+              const alt =
+                typeof row.metadata.alt === "string"
+                  ? row.metadata.alt
+                  : undefined;
+              const mimeType =
+                typeof row.metadata.mimeType === "string"
+                  ? row.metadata.mimeType
+                  : undefined;
+
+              return (
+                <div
+                  key={row.filePath}
+                  className={cn(
+                    "absolute left-0 top-0 flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
+                    isActive && "bg-bg-primary-hover text-fg-primary",
+                  )}
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${virtualRow.size}px`,
+                  }}
+                  onMouseEnter={() => setActiveIndex(virtualRow.index)}
+                  onClick={() => selectRow(virtualRow.index)}
+                >
+                  <Check
+                    className={cn(
+                      "h-4 w-4 shrink-0",
+                      isSelected ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {isImage && mimeType?.startsWith("image/") ? (
+                    <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-bg-secondary">
+                      <img
+                        src={
+                          getUrl
+                            ? getUrl(row.filePath)
+                            : row.filePath.startsWith("/public")
+                              ? row.filePath.slice("/public".length)
+                              : row.filePath
+                        }
+                        alt={alt || filename}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
+                      {isImage ? (
+                        <ImageIcon className="h-4 w-4 text-fg-secondary" />
+                      ) : (
+                        <FileIcon className="h-4 w-4 text-fg-secondary" />
+                      )}
+                    </div>
+                  )}
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="truncate">{filename}</span>
+                    {alt && (
+                      <span className="text-xs text-fg-secondary truncate">
+                        {alt}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function MediaPicker({
+  disabled = false,
+  portalContainer,
+  selectedRef,
+  isImage = false,
+  moduleEntries,
+  onSelect,
+  getUrl,
+}: MediaPickerProps) {
+  const [open, setOpen] = React.useState(false);
+
+  const modulePaths = Object.keys(moduleEntries);
   if (modulePaths.length === 0) {
     return null;
   }
@@ -213,13 +355,6 @@ export function MediaPicker({
   const selectedFilename = selectedRef
     ? selectedRef.split("/").pop() || selectedRef
     : null;
-
-  const totalEntries = Object.values(moduleEntries).reduce(
-    (sum, entries) => sum + Object.keys(entries).length,
-    0,
-  );
-
-  const maxHeight = Math.min(totalEntries * ROW_HEIGHT + 60, 320);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -242,127 +377,18 @@ export function MediaPicker({
         className="w-[var(--radix-popover-trigger-width)] p-0"
         container={portalContainer}
       >
-        {/* Search input */}
-        <div className="flex items-center border-b border-border-primary px-3">
-          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-          <input
-            ref={inputRef}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isImage ? "Search images..." : "Search files..."}
-            className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          />
-        </div>
-
-        {/* Virtualized list */}
-        {rows.length === 0 ? (
-          <div className="py-6 text-center text-sm text-fg-secondary">
-            {isImage ? "No images found." : "No files found."}
-          </div>
-        ) : (
-          <div
-            ref={scrollRef}
-            className="overflow-auto"
-            style={{
-              maxHeight: maxHeight,
-            }}
-          >
-            <div
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: "100%",
-                position: "relative",
-              }}
-            >
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const row = rows[virtualRow.index];
-
-                if (row.kind === "heading") {
-                  return (
-                    <div
-                      key={`heading-${row.modulePath}`}
-                      className="absolute left-0 top-0 w-full px-3 py-1 text-xs font-medium text-fg-secondary"
-                      style={{
-                        transform: `translateY(${virtualRow.start}px)`,
-                        height: `${virtualRow.size}px`,
-                      }}
-                    >
-                      {prettyModuleName(row.modulePath)}
-                    </div>
-                  );
-                }
-
-                const filename = row.filePath.split("/").pop() || row.filePath;
-                const isSelected = selectedRef === row.filePath;
-                const isActive = virtualRow.index === activeIndex;
-                const alt =
-                  typeof row.metadata.alt === "string"
-                    ? row.metadata.alt
-                    : undefined;
-                const mimeType =
-                  typeof row.metadata.mimeType === "string"
-                    ? row.metadata.mimeType
-                    : undefined;
-
-                return (
-                  <div
-                    key={row.filePath}
-                    className={cn(
-                      "absolute left-0 top-0 flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
-                      isActive && "bg-bg-primary-hover text-fg-primary",
-                    )}
-                    style={{
-                      transform: `translateY(${virtualRow.start}px)`,
-                      height: `${virtualRow.size}px`,
-                    }}
-                    onMouseEnter={() => setActiveIndex(virtualRow.index)}
-                    onClick={() => selectRow(virtualRow.index)}
-                  >
-                    <Check
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        isSelected ? "opacity-100" : "opacity-0",
-                      )}
-                    />
-                    {isImage && mimeType?.startsWith("image/") ? (
-                      <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-bg-secondary">
-                        <img
-                          src={
-                            getUrl
-                              ? getUrl(row.filePath)
-                              : row.filePath.startsWith("/public")
-                                ? row.filePath.slice("/public".length)
-                                : row.filePath
-                          }
-                          alt={alt || filename}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
-                      </div>
-                    ) : (
-                      <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
-                        {isImage ? (
-                          <ImageIcon className="h-4 w-4 text-fg-secondary" />
-                        ) : (
-                          <FileIcon className="h-4 w-4 text-fg-secondary" />
-                        )}
-                      </div>
-                    )}
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span className="truncate">{filename}</span>
-                      {alt && (
-                        <span className="text-xs text-fg-secondary truncate">
-                          {alt}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <MediaPickerList
+          moduleEntries={moduleEntries}
+          selectedRef={selectedRef}
+          isImage={isImage}
+          getUrl={getUrl}
+          autoFocus={open}
+          onSelect={(entry) => {
+            onSelect(entry);
+            setOpen(false);
+          }}
+          onEscape={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -371,31 +397,11 @@ export function MediaPicker({
 export function ModuleMediaPicker({
   modulePath,
   ...rest
-}: Omit<MediaPickerProps, "moduleEntries"> & { modulePath: ModuleFilePath }) {
-  const source = useSourceAtPath(modulePath);
-  const filePatchIds = useFilePatchIds();
-
-  const getUrl = React.useCallback(
-    (filePath: string): string => {
-      const patchId = filePatchIds.get(filePath);
-      if (patchId) {
-        return filePath.startsWith("/public")
-          ? `/api/val/files${filePath}?patch_id=${patchId}`
-          : `${filePath}?patch_id=${patchId}`;
-      }
-      return filePath.startsWith("/public")
-        ? filePath.slice("/public".length)
-        : filePath;
-    },
-    [filePatchIds],
-  );
-
-  if (source.status !== "success") {
-    return null;
-  }
-  const moduleEntries = {
-    [modulePath]: source.data as Record<string, Record<string, unknown>>,
-  };
+}: Omit<MediaPickerProps, "moduleEntries" | "getUrl"> & {
+  modulePath: ModuleFilePath;
+}) {
+  const { moduleEntries, getUrl, ready } = useModuleMediaEntries(modulePath);
+  if (!ready || !moduleEntries) return null;
   return (
     <MediaPicker moduleEntries={moduleEntries} getUrl={getUrl} {...rest} />
   );
