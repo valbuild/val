@@ -88,6 +88,17 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const AIContentBlock = z.union([
+    z.object({
+      type: z.literal("text"),
+      text: z.string(),
+    }),
+    z.object({
+      type: z.literal("image_url"),
+      url: z.string(),
+    }),
+  ]);
+  const AIMessageContent = z.union([z.string(), z.array(AIContentBlock)]);
   const ProfilesResponse = z.object({
     profiles: z.array(
       z.object({
@@ -1005,15 +1016,49 @@ export const ValServer = (
           };
         }
         if (serverOps instanceof ValOpsFS) {
-          // In FS mode we do not use the remote server at all and just return an url that points to this server
-          // which has an endpoint that handles this
-          // A bit hacky perhaps, but we want to have as similar semantics as possible in client code when it comes to FS / HTTP
+          // In FS mode patch-file uploads are buffered through this server (no remote round-trip),
+          // so baseUrl points at /api/val/upload. AI image uploads, however, go straight to the
+          // content host — we resolve a contentBaseUrl + a PAT-issued nonce here so the browser
+          // can POST directly without exposing the PAT.
           const host = `/api/val`;
+          let contentBaseUrl: string | null = null;
+          let contentAuthNonce: string | null = null;
+          if (!options.project) {
+            console.warn(
+              "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
+            );
+          } else {
+            const authDataRes = await getRemoteFileAuth();
+            if (authDataRes.status !== 200) {
+              console.warn(
+                "Direct content-host uploads (AI images) disabled: " +
+                  authDataRes.json.message,
+              );
+            } else {
+              const corsOrigin = "*"; // TODO: add cors origin
+              const presignedAuthNonce = await serverOps.getPresignedAuthNonce(
+                options.project,
+                corsOrigin,
+                authDataRes.json.remoteFileAuth,
+              );
+              if (presignedAuthNonce.status === "success") {
+                contentBaseUrl = presignedAuthNonce.data.baseUrl;
+                contentAuthNonce = presignedAuthNonce.data.nonce;
+              } else {
+                console.warn(
+                  "Direct content-host uploads (AI images) disabled: " +
+                    presignedAuthNonce.error.message,
+                );
+              }
+            }
+          }
           return {
             status: 200,
             json: {
               nonce: null,
               baseUrl: `${host}/upload`, // NOTE: this is the /upload/patches endpoint - the client will add /patches/:patchId/files to this and post to it
+              contentBaseUrl,
+              contentAuthNonce,
             },
           };
         }
@@ -1044,6 +1089,8 @@ export const ValServer = (
           json: {
             nonce: presignedAuthNonce.data.nonce,
             baseUrl: presignedAuthNonce.data.baseUrl,
+            contentBaseUrl: presignedAuthNonce.data.baseUrl,
+            contentAuthNonce: presignedAuthNonce.data.nonce,
           },
         };
       },
@@ -1849,14 +1896,14 @@ export const ValServer = (
         }
         if (!options.project) {
           return {
-            status: 500,
+            status: 401,
             json: { message: "Project is not configured" },
           };
         }
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
           return {
-            status: 500,
+            status: 401,
             json: {
               message: authDataRes.json.message,
             },
@@ -2143,7 +2190,7 @@ export const ValServer = (
               messages: z.array(
                 z.object({
                   role: z.string(),
-                  content: z.string(),
+                  content: AIMessageContent,
                 }),
               ),
               nextCursor: z
@@ -2154,7 +2201,16 @@ export const ValServer = (
                 .nullable()
                 .optional(),
             });
-            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages`;
+            const params = new URLSearchParams();
+            if (req.query.limit) params.set("limit", req.query.limit);
+            if (req.query.cursor_updatedAt)
+              params.set("cursor_updatedAt", req.query.cursor_updatedAt);
+            if (req.query.cursor_id)
+              params.set("cursor_id", req.query.cursor_id);
+            const qs = params.toString();
+            const upstreamUrl =
+              `${options.valContentUrl}/v1/${options.project}/ai/sessions/${encodeURIComponent(sessionId)}/messages` +
+              (qs ? `?${qs}` : "");
             const upstreamRes = await fetch(upstreamUrl, { headers });
             if (!upstreamRes.ok) {
               const text = await upstreamRes.text();
@@ -2212,6 +2268,301 @@ export const ValServer = (
             );
           },
         );
+      },
+    },
+    "/ai/session-image-to-patch-file": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        let headers: HeadersInit;
+        if (serverOps instanceof ValOpsFS) {
+          headers = getProfileAuthHeaders(authData, null, "application/json");
+        } else {
+          if (!("id" in auth) || !auth.id) {
+            return {
+              status: 401 as const,
+              json: { message: "Unauthorized" },
+            };
+          }
+          headers = getProfileAuthHeaders(
+            authData,
+            { sub: auth.id },
+            "application/json",
+          );
+        }
+        const execFetch = async () => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/patches/${encodeURIComponent(req.body.patchId)}/files/from-session-file`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                files: req.body.files.map((f) => ({
+                  filePath: f.filePath,
+                  key: f.key,
+                  ...(f.isRemote !== undefined ? { isRemote: f.isRemote } : {}),
+                })),
+              }),
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              let upstreamJson: {
+                message?: string;
+                details?: { availableKeys?: string[] };
+              } | null = null;
+              try {
+                upstreamJson = JSON.parse(text);
+              } catch {
+                upstreamJson = null;
+              }
+              if (upstreamRes.status === 400 && upstreamJson) {
+                return {
+                  status: 400 as const,
+                  json: {
+                    message:
+                      upstreamJson.message ??
+                      `AI session image to patch failed: ${text}`,
+                    ...(upstreamJson.details
+                      ? { details: upstreamJson.details }
+                      : {}),
+                  },
+                };
+              }
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI session image to patch failed: ${upstreamRes.status} ${upstreamJson?.message ?? text}`,
+                },
+              };
+            }
+            const rawUpstreamJson = await upstreamRes.json();
+            const UpstreamResponse = z.object({
+              patchId: z.string(),
+              files: z.array(
+                z.object({
+                  filePath: z.string(),
+                  metadata: z.object({
+                    width: z.number(),
+                    height: z.number(),
+                    mimeType: z.string(),
+                  }),
+                }),
+              ),
+            });
+            const json = UpstreamResponse.safeParse(rawUpstreamJson);
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI session image patch response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            if (json.data.patchId !== req.body.patchId) {
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI session image to patch upstream returned mismatched patchId: expected '${req.body.patchId}', got '${json.data.patchId}'`,
+                },
+              };
+            }
+            if (serverOps instanceof ValOpsFS) {
+              // Mirror the binaries from the content host into local patch
+              // storage so /files?patch_id=... can serve them. Match upstream
+              // entries to client-provided keys by filePath.
+              const keysByFilePath = new Map(
+                req.body.files.map((f) => [f.filePath, f.key]),
+              );
+              for (const file of json.data.files) {
+                const sessionKey = keysByFilePath.get(file.filePath);
+                if (!sessionKey) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `AI session image to patch: upstream returned file '${file.filePath}' which was not in the request`,
+                    },
+                  };
+                }
+                const downloadUrl = `${options.valContentUrl}/v1/${options.project}/ai/images?key=${encodeURIComponent(sessionKey)}`;
+                let binaryRes: Response;
+                try {
+                  binaryRes = await fetch(downloadUrl, { headers });
+                } catch (err) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not download AI session image '${file.filePath}' from content host: ${err instanceof Error ? err.message : String(err)}`,
+                    },
+                  };
+                }
+                if (!binaryRes.ok) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not download AI session image '${file.filePath}' from content host: ${binaryRes.status} ${binaryRes.statusText}`,
+                    },
+                  };
+                }
+                const arrayBuffer = await binaryRes.arrayBuffer();
+                const base64 = Buffer.from(arrayBuffer).toString("base64");
+                const dataUrl = `data:${file.metadata.mimeType};base64,${base64}`;
+                const type: "image" | "file" =
+                  file.metadata.mimeType.startsWith("image/")
+                    ? "image"
+                    : "file";
+                const saveRes =
+                  await serverOps.saveBase64EncodedBinaryFileFromPatch(
+                    file.filePath,
+                    req.body.parentRef,
+                    req.body.patchId,
+                    dataUrl,
+                    type,
+                    file.metadata,
+                  );
+                if (saveRes.error) {
+                  return {
+                    status: 500 as const,
+                    json: {
+                      message: `Could not save AI session image '${file.filePath}' to local patch storage: ${saveRes.error.message}`,
+                    },
+                  };
+                }
+              }
+            }
+            return {
+              status: 200 as const,
+              json: {
+                patchId: req.body.patchId,
+                files: json.data.files,
+              },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "AI session image to patch error",
+              },
+            };
+          }
+        };
+        return execFetch();
+      },
+    },
+    "/ai/images": {
+      PATCH: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!options.project) {
+          return {
+            status: 500,
+            json: { message: "Project is not configured" },
+          };
+        }
+        const authDataRes = await getRemoteFileAuth();
+        if (authDataRes.status !== 200) {
+          return {
+            status: 500,
+            json: {
+              message: authDataRes.json.message,
+            },
+          };
+        }
+        const authData = authDataRes.json.remoteFileAuth;
+        let headers: HeadersInit;
+        if (serverOps instanceof ValOpsFS) {
+          headers = getProfileAuthHeaders(authData, null, "application/json");
+        } else {
+          if (!("id" in auth) || !auth.id) {
+            return {
+              status: 401 as const,
+              json: { message: "Unauthorized" },
+            };
+          }
+          headers = getProfileAuthHeaders(
+            authData,
+            { sub: auth.id },
+            "application/json",
+          );
+        }
+        const execFetch = async () => {
+          try {
+            const upstreamUrl = `${options.valContentUrl}/v1/${options.project}/ai/images`;
+            const upstreamRes = await fetch(upstreamUrl, {
+              method: "PATCH",
+              headers,
+              body: JSON.stringify({
+                key: req.body.key,
+                metadata: req.body.metadata,
+                contentType: req.body.contentType,
+              }),
+            });
+            if (!upstreamRes.ok) {
+              const text = await upstreamRes.text();
+              return {
+                status: 500 as const,
+                json: {
+                  message: `AI images patch failed: ${upstreamRes.status} ${text}`,
+                },
+              };
+            }
+            const UpstreamResponse = z.object({
+              key: z.string(),
+            });
+            const json = UpstreamResponse.safeParse(await upstreamRes.json());
+            if (!json.success) {
+              return {
+                status: 500 as const,
+                json: {
+                  message:
+                    "Could not parse AI images patch response: " +
+                    fromError(json.error).toString(),
+                },
+              };
+            }
+            return {
+              status: 200 as const,
+              json: {
+                key: json.data.key,
+              },
+            };
+          } catch (err) {
+            return {
+              status: 500 as const,
+              json: {
+                message:
+                  err instanceof Error ? err.message : "AI images patch error",
+              },
+            };
+          }
+        };
+        return execFetch();
       },
     },
 
