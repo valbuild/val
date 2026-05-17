@@ -179,6 +179,8 @@ function RichTextEditorStory({
         data: {
           nonce: null,
           baseUrl: "https://mock-upload.example.com",
+          contentBaseUrl: null,
+          contentAuthNonce: null,
         },
       };
     },

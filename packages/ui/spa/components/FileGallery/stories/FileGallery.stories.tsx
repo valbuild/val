@@ -37,7 +37,12 @@ const meta: Meta<typeof FileGallery> = {
       const getDirectFileUploadSettings = useMemo(
         () => async () => ({
           status: "success" as const,
-          data: { nonce: null, baseUrl: "https://mock-upload.example.com" },
+          data: {
+            nonce: null,
+            baseUrl: "https://mock-upload.example.com",
+            contentBaseUrl: null,
+            contentAuthNonce: null,
+          },
         }),
         [],
       );

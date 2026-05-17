@@ -64,7 +64,9 @@ export function ToolsMenu() {
   const chatRef = useRef<AIChatHandle | null>(null);
   const {
     sendMessage,
+    uploadAiImage,
     isConnected,
+    authError,
     newSession,
     sessions,
     currentSessionId,
@@ -144,8 +146,11 @@ export function ToolsMenu() {
           <AIChat
             ref={chatRef}
             onSendMessage={sendMessage}
+            onUploadFile={uploadAiImage}
             onNewSession={newSession}
             isConnected={isConnected}
+            authError={authError}
+            mode={mode}
             sessions={sessions}
             currentSessionId={currentSessionId}
             onLoadSession={loadSession}
