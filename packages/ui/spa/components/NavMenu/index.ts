@@ -6,5 +6,6 @@ export * from "./ExplorerSection";
 export * from "./ExternalButton";
 export * from "./SitemapItem";
 export * from "./ExplorerItem";
+export * from "./NewPageForm";
 export * from "./useNavMenuData";
 export * from "./mockData";

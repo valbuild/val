@@ -16,6 +16,23 @@ const blogsRoutePattern: RoutePattern[] = [
 ];
 
 /**
+ * Mock route pattern for /docs/[...slug] — a catch-all route.
+ */
+const docsRoutePattern: RoutePattern[] = [
+  { type: "literal", name: "docs" },
+  { type: "array-param", paramName: "slug", optional: false },
+];
+
+/**
+ * Mock route pattern for /shop/[category]/[product] — multi dynamic segment.
+ */
+const shopRoutePattern: RoutePattern[] = [
+  { type: "literal", name: "shop" },
+  { type: "string-param", paramName: "category", optional: false },
+  { type: "string-param", paramName: "product", optional: false },
+];
+
+/**
  * Mock sitemap data for stories.
  */
 export const mockSitemap: SitemapItem = {
@@ -75,6 +92,59 @@ export const mockSitemap: SitemapItem = {
           urlPath: "/products/gadget",
           sourcePath: "/app/products/gadget/page.val.ts" as SourcePath,
           children: [],
+        },
+      ],
+    },
+    {
+      name: "docs",
+      urlPath: "/docs",
+      canAddChild: true,
+      moduleFilePath: "/app/docs/[...slug]/page.val.ts" as ModuleFilePath,
+      routePattern: docsRoutePattern,
+      existingKeys: ["/guides/intro", "/api/auth"],
+      children: [
+        {
+          name: "guides/intro",
+          urlPath: "/docs/guides/intro",
+          sourcePath:
+            '/app/docs/[...slug]/page.val.ts?p="/docs/guides/intro"' as SourcePath,
+          children: [],
+        },
+        {
+          name: "api/auth",
+          urlPath: "/docs/api/auth",
+          sourcePath:
+            '/app/docs/[...slug]/page.val.ts?p="/docs/api/auth"' as SourcePath,
+          children: [],
+        },
+      ],
+    },
+    {
+      name: "shop",
+      urlPath: "/shop",
+      canAddChild: true,
+      moduleFilePath:
+        "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+      routePattern: shopRoutePattern,
+      existingKeys: ["/electronics", "/clothing"],
+      children: [
+        {
+          name: "electronics",
+          urlPath: "/shop/electronics",
+          canAddChild: true,
+          moduleFilePath:
+            "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+          routePattern: shopRoutePattern,
+          existingKeys: ["/phone"],
+          children: [
+            {
+              name: "phone",
+              urlPath: "/shop/electronics/phone",
+              sourcePath:
+                '/app/shop/[category]/[product]/page.val.ts?p="/shop/electronics/phone"' as SourcePath,
+              children: [],
+            },
+          ],
         },
       ],
     },
