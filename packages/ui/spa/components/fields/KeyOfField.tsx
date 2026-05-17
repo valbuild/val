@@ -87,7 +87,6 @@ export function KeySelector({
                 title={selectedPreview.title}
                 subtitle={selectedPreview.subtitle ?? null}
                 image={selectedPreview.image ?? null}
-                placeholder={false}
               />
             ) : (
               <span className="truncate">{value}</span>
@@ -135,8 +134,7 @@ export function KeySelector({
                           title={preview.title}
                           subtitle={preview.subtitle ?? null}
                           image={preview.image ?? null}
-                          placeholder={false}
-                        />
+                                  />
                       ) : (
                         <span className="truncate">{key}</span>
                       )}

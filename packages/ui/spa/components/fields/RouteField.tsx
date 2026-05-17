@@ -118,7 +118,6 @@ export function RouteSelector({
               title={selectedRoute.preview.title}
               subtitle={selectedRoute.preview.subtitle ?? null}
               image={selectedRoute.preview.image ?? null}
-              placeholder={false}
             />
           ) : (
             <span className="truncate">{value || placeholder}</span>
@@ -170,8 +169,7 @@ export function RouteSelector({
                           title={preview.title}
                           subtitle={preview.subtitle ?? null}
                           image={preview.image ?? null}
-                          placeholder={false}
-                        />
+                                    />
                       ) : (
                         <span className="truncate">{routeInfo.route}</span>
                       )}

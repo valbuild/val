@@ -65,27 +65,7 @@ export const MixedRows: Story = {
         subtitle="aligned"
         image="https://placehold.co/64x64/dbeafe/1e40af?text=3"
       />
-    </div>
-  ),
-};
-
-export const MixedRowsNoPlaceholder: Story = {
-  render: () => (
-    <div className="flex flex-col gap-1">
-      <DropdownPreviewRow
-        title="Has image"
-        subtitle="https://example.com/with-image"
-        image="https://placehold.co/64x64/e2e8f0/475569?text=1"
-        placeholder={false}
-      />
-      <DropdownPreviewRow title="/plain-route" placeholder={false} />
-      <DropdownPreviewRow
-        title="Has image again"
-        subtitle="https://example.com/another"
-        image="https://placehold.co/64x64/dbeafe/1e40af?text=3"
-        placeholder={false}
-      />
-      <DropdownPreviewRow title="/another-plain" placeholder={false} />
+      <DropdownPreviewRow title="No image again" subtitle="aligned" />
     </div>
   ),
 };
