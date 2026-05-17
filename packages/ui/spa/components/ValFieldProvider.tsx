@@ -63,18 +63,19 @@ type ValFieldContextValue = {
   config: ValConfig | undefined;
 };
 
-const ValFieldContext = React.createContext<ValFieldContextValue>(
-  new Proxy(
-    {},
-    {
-      get: () => {
-        throw new Error(
-          "Cannot use ValFieldContext outside of ValFieldProvider",
-        );
-      },
-    },
-  ) as ValFieldContextValue,
-);
+const ValFieldContext = React.createContext<ValFieldContextValue | null>(null);
+
+function useValFieldContext(): ValFieldContextValue {
+  const ctx = useContext(ValFieldContext);
+  if (!ctx) {
+    throw new Error("Cannot use ValFieldContext outside of ValFieldProvider");
+  }
+  return ctx;
+}
+
+export function useIsInsideValFieldProvider(): boolean {
+  return useContext(ValFieldContext) !== null;
+}
 
 export function ValFieldProvider({
   children,
@@ -124,12 +125,12 @@ const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
 };
 
 export function useSyncEngine(): ValSyncEngine {
-  return useContext(ValFieldContext).syncEngine;
+  return useValFieldContext().syncEngine;
 }
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
 export function useLoadingStatus(): LoadingStatus {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const pendingOpsCount = useSyncExternalStore(
     syncEngine.subscribe("pending-ops-count"),
     () => syncEngine.getPendingOpsSnapshot(),
@@ -148,8 +149,7 @@ const SavePatchFileResponse = z.object({
 });
 
 export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
-  const { syncEngine, getDirectFileUploadSettings } =
-    useContext(ValFieldContext);
+  const { syncEngine, getDirectFileUploadSettings } = useValFieldContext();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
@@ -157,12 +157,23 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   }, [modulePath]);
   const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+      syncEngine.addPatch(
+        moduleFilePath,
+        type,
+        patch,
+        Date.now(),
+        sourcePath as SourcePath,
+      );
     },
-    [syncEngine, moduleFilePath],
+    [syncEngine, moduleFilePath, sourcePath],
   );
   const addPatchAwaitable = useCallback(
-    (patch: Patch, type: SerializedSchema["type"], patchId: PatchId) => {
+    (
+      patch: Patch,
+      type: SerializedSchema["type"],
+      patchId: PatchId,
+      parentRefOverride?: ParentRef,
+    ) => {
       return syncEngine.addPatchAwaitable(
         moduleFilePath,
         type,
@@ -170,9 +181,11 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         patchId,
         null,
         Date.now(),
+        sourcePath as SourcePath,
+        parentRefOverride,
       );
     },
-    [syncEngine, moduleFilePath],
+    [syncEngine, moduleFilePath, sourcePath],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -180,9 +193,15 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+      syncEngine.addPatch(
+        moduleFilePath,
+        type,
+        patch,
+        Date.now(),
+        sourcePath as SourcePath,
+      );
     },
-    [syncEngine],
+    [syncEngine, sourcePath],
   );
 
   const uploadPatchFile = useCallback(
@@ -390,7 +409,12 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         }
         currentFile++;
       }
-      const addPatchRes = await addPatchAwaitable(patchOps, type, patchId);
+      const addPatchRes = await addPatchAwaitable(
+        patchOps,
+        type,
+        patchId,
+        parentRef,
+      );
       if (addPatchRes.status !== "patch-synced") {
         onError(addPatchRes.message);
         return;
@@ -413,11 +437,11 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
 }
 
 export function useGetDirectFileUploadSettings() {
-  return useContext(ValFieldContext).getDirectFileUploadSettings;
+  return useValFieldContext().getDirectFileUploadSettings;
 }
 
 export function useValConfig() {
-  const { config } = useContext(ValFieldContext);
+  const { config } = useValFieldContext();
   const lastConfig = useRef<
     | (ValConfig & {
         remoteHost: string;
@@ -449,7 +473,7 @@ export function useValConfig() {
 export function useRenderOverrideAtPath(
   sourcePath: SourcePath | ModuleFilePath,
 ) {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const [moduleFilePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
   }, [sourcePath]);
@@ -489,8 +513,10 @@ type SchemaWithResolvedPathResult =
   | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath }
   | { status: "error"; error: string };
 
-function useSchemaAtPathInternal(sourcePath: SourcePath | ModuleFilePath): SchemaWithResolvedPathResult {
-  const { syncEngine } = useContext(ValFieldContext);
+function useSchemaAtPathInternal(
+  sourcePath: SourcePath | ModuleFilePath,
+): SchemaWithResolvedPathResult {
+  const { syncEngine } = useValFieldContext();
   const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -628,7 +654,7 @@ export function useSchemas():
       status: "success";
       data: Record<ModuleFilePath, SerializedSchema>;
     } {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const schemas = useSyncExternalStore(
     syncEngine.subscribe("schema"),
     () => syncEngine.getAllSchemasSnapshot(),
@@ -660,13 +686,23 @@ export function useSchemas():
 }
 
 export function useAllSources() {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const sources = useSyncExternalStore(
     syncEngine.subscribe("all-sources"),
     () => syncEngine.getAllSourcesSnapshot(),
     () => syncEngine.getAllSourcesSnapshot(),
   );
   return sources;
+}
+
+export function useAllRenders() {
+  const { syncEngine } = useValFieldContext();
+  const renders = useSyncExternalStore(
+    syncEngine.subscribe("all-renders"),
+    () => syncEngine.getAllRendersSnapshot(),
+    () => syncEngine.getAllRendersSnapshot(),
+  );
+  return renders;
 }
 
 function walkSourcePath(
@@ -1007,7 +1043,7 @@ export function useShallowSourceAtPath<
   sourcePath?: SourcePath | ModuleFilePath,
   type?: SchemaType,
 ): ShallowSourceOf<SchemaType> {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] = sourcePath
     ? Internal.splitModuleFilePathAndModulePath(sourcePath)
@@ -1059,6 +1095,11 @@ export function useShallowSourceAtPath<
   return source;
 }
 
+const noopSubscribe = () => () => {};
+const getNull = () => null;
+const NOT_FOUND = { status: "not-found" as const };
+const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
+
 export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "success";
@@ -1074,18 +1115,26 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "loading";
     } {
-  const { syncEngine } = useContext(ValFieldContext);
+  const ctx = useContext(ValFieldContext);
+  const syncEngine = ctx?.syncEngine ?? null;
   const sourceOverride = useContext(FieldSourceOverrideContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
   );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const initializedAt = useSyncExternalStore(
+    syncEngine ? syncEngine.subscribe("initialized-at") : noopSubscribe,
+    syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
+    syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
+  );
   return useMemo(() => {
-    if (initializedAt === null) {
+    if (!syncEngine) {
+      return NOT_FOUND;
+    }
+    if (initializedAt === null || initializedAt.data === null) {
       return { status: "loading" };
     }
     if (
@@ -1094,14 +1143,21 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
     ) {
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
     }
-    if (sourceSnapshot.status === "success") {
+    if (sourceSnapshot && sourceSnapshot.status === "success") {
       return walkSourcePath(modulePath, sourceSnapshot.data);
     }
     return {
       status: "error",
-      error: sourceSnapshot.message || "Unknown error",
+      error: (sourceSnapshot && sourceSnapshot.message) || "Unknown error",
     };
-  }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath, sourceOverride]);
+  }, [
+    syncEngine,
+    sourceSnapshot,
+    initializedAt,
+    modulePath,
+    moduleFilePath,
+    sourceOverride,
+  ]);
 }
 
 /**
@@ -1126,7 +1182,7 @@ export function useServerSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "loading";
     } {
-  const { syncEngine } = useContext(ValFieldContext);
+  const { syncEngine } = useValFieldContext();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   // Subscribe to the module-level "source" channel so we re-render when the
@@ -1152,15 +1208,17 @@ export function useServerSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
 }
 
 export function useFilePatchIds(): ReadonlyMap<string, string> {
-  const { syncEngine } = useContext(ValFieldContext);
+  const ctx = useContext(ValFieldContext);
+  const syncEngine = ctx?.syncEngine ?? null;
   const patchesSnapshot = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
+    syncEngine ? syncEngine.subscribe("all-patches") : noopSubscribe,
+    syncEngine ? () => syncEngine.getAllPatchesSnapshot() : getNull,
+    syncEngine ? () => syncEngine.getAllPatchesSnapshot() : getNull,
   );
   return useMemo(() => {
+    if (!patchesSnapshot) return EMPTY_PATCH_IDS;
     const map = new Map<string, string>();
-    for (const [patchId, data] of Object.entries(patchesSnapshot ?? {})) {
+    for (const [patchId, data] of Object.entries(patchesSnapshot)) {
       if (data && !data.isCommitted) {
         for (const op of data.patch) {
           if (op.op === "file" && "filePath" in op) {

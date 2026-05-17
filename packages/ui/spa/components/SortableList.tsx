@@ -137,7 +137,6 @@ export function SortableContainer({
 export function SortableList({
   source,
   render,
-  path,
   schema,
   disabled,
   onClick,

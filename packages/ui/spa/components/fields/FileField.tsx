@@ -115,7 +115,6 @@ export async function createFilePatch(
 export function FileField({
   path,
   readonly,
-  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;

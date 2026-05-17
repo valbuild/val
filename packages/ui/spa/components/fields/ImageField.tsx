@@ -1,5 +1,4 @@
 import {
-  ImageMetadata,
   Internal,
   ModuleFilePath,
   SourcePath,
@@ -25,8 +24,6 @@ import {
 } from "../ValRemoteProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { readImage } from "../../utils/readImage";
-import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
@@ -38,11 +35,11 @@ import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 import { JSONValue } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
+import { useImageUpload } from "./useImageUpload";
 
 export function ImageField({
   path,
   readonly,
-  compact,
   hideUpload,
 }: {
   path: SourcePath;
@@ -60,9 +57,7 @@ export function ImageField({
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
-  const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const {
     addPatch,
     patchPath,
@@ -70,9 +65,6 @@ export function ImageField({
     addModuleFilePatch,
   } = useAddPatch(path);
   const portalContainer = useValPortal();
-  const [progressPercentage, setProgressPercentage] = useState<number | null>(
-    null,
-  );
   const filePatchIds = useFilePatchIds();
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
@@ -96,7 +88,6 @@ export function ImageField({
                 ...(patchId ? { patch_id: patchId } : {}),
               }).url;
         setUrl(nextUrl);
-        setLoading(false);
       }
       if (maybeSourceData.metadata) {
         const metadata = maybeSourceData.metadata;
@@ -221,6 +212,19 @@ export function ImageField({
           remoteHost: config.remoteHost,
         }
       : null;
+  const existingAlt =
+    maybeSourceData && typeof maybeSourceData?.metadata?.alt === "string"
+      ? maybeSourceData.metadata.alt
+      : undefined;
+  const { uploadImage, loading, error, progressPercentage } = useImageUpload({
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+    remoteData,
+    directory: moduleDirectory ?? config.files?.directory,
+    referencedModule,
+    existingAlt,
+  });
   const metadataPath = Internal.createValPathOfItem(path, "metadata");
   const altPath = Internal.createValPathOfItem(metadataPath, "alt");
   const hotspotPath = Internal.createValPathOfItem(metadataPath, "hotspot");
@@ -511,102 +515,15 @@ export function ImageField({
               type="file"
               accept={acceptOptions ?? "image/*"}
               onChange={(ev) => {
-                readImage(ev).then((res) => {
-                  const type = "image";
-                  const prevUrl: string | null = url;
-                  setUrl(res.src);
-                  setLoading(true);
-
-                  const data = { src: res.src, filename: res.filename };
-                  let metadata: ImageMetadata | undefined;
-                  if (res.width && res.height && res.mimeType) {
-                    metadata = {
-                      width: res.width,
-                      height: res.height,
-                      mimeType: res.mimeType,
-                      alt:
-                        maybeSourceData &&
-                        typeof maybeSourceData?.metadata?.alt === "string"
-                          ? maybeSourceData.metadata.alt
-                          : undefined,
-                    };
+                const imageFile = ev.currentTarget.files?.[0];
+                if (!imageFile) return;
+                const prevUrl: string | null = url;
+                uploadImage(imageFile).then((result) => {
+                  if (!result) {
+                    setUrl(prevUrl);
                   }
-                  setError(null);
-                  createFilePatch(
-                    patchPath,
-                    data.src,
-                    data.filename ?? null,
-                    res.fileHash,
-                    metadata,
-                    type,
-                    remoteData,
-                    moduleDirectory ?? config.files?.directory,
-                    !!referencedModule,
-                  )
-                    .then(({ patch, filePath }) => {
-                      setLoading(true);
-                      setProgressPercentage(0);
-                      let hasError = false;
-                      addAndUploadPatchWithFileOps(
-                        patch,
-                        type,
-                        (errorMessage) => {
-                          hasError = true;
-                          setUrl(prevUrl);
-                          setError(errorMessage);
-                        },
-                        (bytesUploaded, totalBytes, currentFile, totalFiles) => {
-                          const overallProgress =
-                            (bytesUploaded * (currentFile + 1)) /
-                            (totalBytes * totalFiles);
-                          setProgressPercentage(Math.round(overallProgress * 100));
-                        },
-                      )
-                        .then(() => {
-                          if (
-                            !hasError &&
-                            filePath &&
-                            metadata?.mimeType &&
-                            metadata.width !== undefined &&
-                            metadata.height !== undefined
-                          ) {
-                            if (referencedModule) {
-                              addModuleFilePatch(
-                                referencedModule as ModuleFilePath,
-                                [
-                                  {
-                                    op: "add",
-                                    path: [filePath],
-                                    value: {
-                                      width: metadata.width,
-                                      height: metadata.height,
-                                      mimeType: metadata.mimeType,
-                                      alt:
-                                        typeof metadata.alt === "string"
-                                          ? metadata.alt
-                                          : null,
-                                    } as JSONValue,
-                                  },
-                                ],
-                                "record",
-                              );
-                            }
-                          }
-                        })
-                        .finally(() => {
-                          setProgressPercentage(null);
-                          setLoading(false);
-                        });
-                    })
-                    .catch((err) => {
-                      console.error("Failed to create file patch", err);
-                      setLoading(false);
-                      setUrl(prevUrl);
-                      setError("Could not upload file. Please try again later");
-                    });
-                  // reset the input value to allow re-uploading the same file
-                  ev.target.value = "";
                 });
+                ev.target.value = "";
               }}
             />
           </>

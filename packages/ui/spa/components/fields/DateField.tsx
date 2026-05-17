@@ -27,7 +27,6 @@ import { ValidationErrors } from "../../components/ValidationError";
 export function DateField({
   path,
   readonly,
-  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
