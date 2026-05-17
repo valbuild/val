@@ -1,0 +1,314 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`computeChangedSourcePaths add then remove same path cancels out 1`] = `
+{
+  "trees": [],
+}
+`;
+
+exports[`computeChangedSourcePaths field-level replace 1`] = `
+{
+  "trees": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "change": {
+                "authors": [
+                  "alice",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "alice",
+                "patchIds": [
+                  "patch-status-1",
+                ],
+                "patchesByAuthorIds": {
+                  "alice": [
+                    {
+                      "authorId": "alice",
+                      "createdAt": "2025-04-03T08:05:00Z",
+                      "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-status-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-03T08:05:00Z",
+              "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"."status"",
+            },
+            {
+              "change": {
+                "authors": [
+                  "alice",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "alice",
+                "patchIds": [
+                  "patch-title-1",
+                ],
+                "patchesByAuthorIds": {
+                  "alice": [
+                    {
+                      "authorId": "alice",
+                      "createdAt": "2025-04-03T08:00:00Z",
+                      "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-title-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-03T08:00:00Z",
+              "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"."title"",
+            },
+          ],
+          "lastUpdated": "2025-04-03T08:05:00Z",
+          "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"",
+        },
+      ],
+      "lastUpdated": "2025-04-03T08:05:00Z",
+      "sourcePath": "/app/pages/[page]/page.val.ts",
+    },
+  ],
+}
+`;
+
+exports[`computeChangedSourcePaths multiple modules sorted by last changed 1`] = `
+{
+  "trees": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "change": {
+                "authors": [
+                  "bob",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "bob",
+                "patchIds": [
+                  "patch-b-1",
+                ],
+                "patchesByAuthorIds": {
+                  "bob": [
+                    {
+                      "authorId": "bob",
+                      "createdAt": "2025-04-02T10:00:00Z",
+                      "moduleFilePath": "/app/pages/b.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-b-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-02T10:00:00Z",
+              "sourcePath": "/app/pages/b.val.ts?p="/page1"."title"",
+            },
+          ],
+          "lastUpdated": "2025-04-02T10:00:00Z",
+          "sourcePath": "/app/pages/b.val.ts?p="/page1"",
+        },
+      ],
+      "lastUpdated": "2025-04-02T10:00:00Z",
+      "sourcePath": "/app/pages/b.val.ts",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "change": {
+                "authors": [
+                  "alice",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "alice",
+                "patchIds": [
+                  "patch-a-1",
+                ],
+                "patchesByAuthorIds": {
+                  "alice": [
+                    {
+                      "authorId": "alice",
+                      "createdAt": "2025-04-01T10:00:00Z",
+                      "moduleFilePath": "/app/pages/a.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-a-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-01T10:00:00Z",
+              "sourcePath": "/app/pages/a.val.ts?p="/page1"."title"",
+            },
+          ],
+          "lastUpdated": "2025-04-01T10:00:00Z",
+          "sourcePath": "/app/pages/a.val.ts?p="/page1"",
+        },
+      ],
+      "lastUpdated": "2025-04-01T10:00:00Z",
+      "sourcePath": "/app/pages/a.val.ts",
+    },
+  ],
+}
+`;
+
+exports[`computeChangedSourcePaths nested field changes produce tree with alphabetical children 1`] = `
+{
+  "trees": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "change": {
+                "authors": [
+                  "bob",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "bob",
+                "patchIds": [
+                  "patch-body-1",
+                ],
+                "patchesByAuthorIds": {
+                  "bob": [
+                    {
+                      "authorId": "bob",
+                      "createdAt": "2025-04-03T09:00:00Z",
+                      "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-body-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-03T09:00:00Z",
+              "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"."body"",
+            },
+            {
+              "change": {
+                "authors": [
+                  "alice",
+                ],
+                "changeType": "field-change",
+                "lastUpdatedBy": "alice",
+                "patchIds": [
+                  "patch-status-1",
+                ],
+                "patchesByAuthorIds": {
+                  "alice": [
+                    {
+                      "authorId": "alice",
+                      "createdAt": "2025-04-03T08:00:00Z",
+                      "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                      "opType": "replace",
+                      "patchId": "patch-status-1",
+                    },
+                  ],
+                },
+              },
+              "children": [],
+              "lastUpdated": "2025-04-03T08:00:00Z",
+              "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"."status"",
+            },
+          ],
+          "lastUpdated": "2025-04-03T09:00:00Z",
+          "sourcePath": "/app/pages/[page]/page.val.ts?p="/home"",
+        },
+      ],
+      "lastUpdated": "2025-04-03T09:00:00Z",
+      "sourcePath": "/app/pages/[page]/page.val.ts",
+    },
+  ],
+}
+`;
+
+exports[`computeChangedSourcePaths single page added 1`] = `
+{
+  "trees": [
+    {
+      "children": [
+        {
+          "change": {
+            "authors": [
+              "alice",
+            ],
+            "changeType": "added",
+            "lastUpdatedBy": "alice",
+            "patchIds": [
+              "patch-add-1",
+            ],
+            "patchesByAuthorIds": {
+              "alice": [
+                {
+                  "authorId": "alice",
+                  "createdAt": "2025-04-01T10:00:00Z",
+                  "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                  "opType": "add",
+                  "patchId": "patch-add-1",
+                },
+              ],
+            },
+          },
+          "children": [],
+          "lastUpdated": "2025-04-01T10:00:00Z",
+          "sourcePath": "/app/pages/[page]/page.val.ts?p="/contact"",
+        },
+      ],
+      "lastUpdated": "2025-04-01T10:00:00Z",
+      "sourcePath": "/app/pages/[page]/page.val.ts",
+    },
+  ],
+}
+`;
+
+exports[`computeChangedSourcePaths single page removed 1`] = `
+{
+  "trees": [
+    {
+      "children": [
+        {
+          "change": {
+            "authors": [
+              "bob",
+            ],
+            "changeType": "removed",
+            "lastUpdatedBy": "bob",
+            "patchIds": [
+              "patch-remove-1",
+            ],
+            "patchesByAuthorIds": {
+              "bob": [
+                {
+                  "authorId": "bob",
+                  "createdAt": "2025-04-02T09:00:00Z",
+                  "moduleFilePath": "/app/pages/[page]/page.val.ts",
+                  "opType": "remove",
+                  "patchId": "patch-remove-1",
+                },
+              ],
+            },
+          },
+          "children": [],
+          "lastUpdated": "2025-04-02T09:00:00Z",
+          "sourcePath": "/app/pages/[page]/page.val.ts?p="/about"",
+        },
+      ],
+      "lastUpdated": "2025-04-02T09:00:00Z",
+      "sourcePath": "/app/pages/[page]/page.val.ts",
+    },
+  ],
+}
+`;
+
+exports[`getSegment returns last segment for source paths 1`] = `"title"`;
+
+exports[`getSegment returns moduleFilePath for root nodes 1`] = `"/app/pages.val.ts"`;

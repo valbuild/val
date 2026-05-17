@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ExternalLink, Link, Trash2 } from "lucide-react";
+import { Check, ExternalLink, GitCompare, Link, Trash2 } from "lucide-react";
 import { Internal, ModuleFilePath } from "@valbuild/core";
 import {
   Dialog,
@@ -137,6 +137,7 @@ export function FilePropertiesModal({
                       <FieldPatchAuthors
                         patchesByAuthorIds={file.patchesByAuthorIds}
                         profilesByAuthorIds={file.profilesByAuthorIds}
+                        sourcePath={file.sourcePath}
                       />
                     )}
                 </div>
@@ -227,6 +228,20 @@ export function FilePropertiesModal({
             <ExternalLink className="h-4 w-4" />
             Open in New Tab
           </button>
+          {file.sourcePath && (
+            <button
+              type="button"
+              onClick={() => {
+                navigate("/val/compare", {
+                  scrollToId: `compare-${file.sourcePath}`,
+                });
+              }}
+              className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
+            >
+              <GitCompare className="h-4 w-4" />
+              View in Compare
+            </button>
+          )}
           {onFileDelete && fileIndex !== null && (
             <div className="ml-auto flex items-center gap-2">
               {refs.length > 0 && (

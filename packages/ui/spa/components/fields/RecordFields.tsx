@@ -23,8 +23,20 @@ import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
+import { Field } from "../../components/Field";
+import { AnyField } from "../../components/AnyField";
 
-export function RecordFields({ path }: { path: SourcePath }) {
+export function RecordFields({
+  path,
+  readonly,
+  compact,
+  inline,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+}) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
   const { navigate } = useNavigation();
@@ -70,6 +82,40 @@ export function RecordFields({ path }: { path: SourcePath }) {
     return <ModuleGallery path={path} />;
   }
   const source = sourceAtPath.data;
+  const schema = schemaAtPath.data;
+
+  if (inline) {
+    const sourceEntries = source as Record<string, SourcePath> | null;
+    if (sourceEntries === null) {
+      return null;
+    }
+    return (
+      <div id={path}>
+        <ValidationErrors path={path} />
+        <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
+          {Object.entries(sourceEntries).map(([key, itemPath]) => (
+            <Field
+              key={itemPath}
+              label={key}
+              path={itemPath}
+              type={schema.item.type}
+              readonly={readonly}
+              compact={compact}
+            >
+              <AnyField
+                path={itemPath}
+                schema={schema.item}
+                readonly={readonly}
+                compact={compact}
+                inline={inline}
+              />
+            </Field>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const renderListAtPathData =
     renderAtPath &&
     "data" in renderAtPath &&

@@ -1,3 +1,4 @@
+import React from "react";
 import { CodeLanguage, SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
@@ -20,9 +21,13 @@ import { CodeEditor } from "../CodeEditor";
 export function StringField({
   path,
   autoFocus,
+  readonly,
+  compact,
 }: {
   path: SourcePath;
   autoFocus?: boolean;
+  readonly?: boolean;
+  compact?: boolean;
 }) {
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
@@ -92,8 +97,9 @@ export function StringField({
       />
     );
   }
+  let content: React.ReactNode;
   if (renderAsTextarea) {
-    return (
+    content = (
       <div id={path}>
         <ValidationErrors path={path} />
         <AutoGrowingTextarea
@@ -116,9 +122,8 @@ export function StringField({
         />
       </div>
     );
-  }
-  if (renderAsCodeLanguage) {
-    return (
+  } else if (renderAsCodeLanguage) {
+    content = (
       <div id={path}>
         <ValidationErrors path={path} />
         <CodeEditor
@@ -141,30 +146,40 @@ export function StringField({
         />
       </div>
     );
+  } else {
+    content = (
+      <div id={path}>
+        <ValidationErrors path={path} />
+        <Input
+          className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
+          autoFocus={autoFocus}
+          value={currentValue || ""}
+          onChange={(ev) => {
+            setCurrentValue(ev.target.value);
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: ev.target.value,
+                },
+              ],
+              type,
+            );
+          }}
+        />
+      </div>
+    );
   }
-  return (
-    <div id={path}>
-      <ValidationErrors path={path} />
-      <Input
-        className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
-        autoFocus={autoFocus}
-        value={currentValue || ""}
-        onChange={(ev) => {
-          setCurrentValue(ev.target.value);
-          addPatch(
-            [
-              {
-                op: "replace",
-                path: patchPath,
-                value: ev.target.value,
-              },
-            ],
-            type,
-          );
-        }}
-      />
-    </div>
-  );
+
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function StringPreview({ path }: { path: SourcePath }) {

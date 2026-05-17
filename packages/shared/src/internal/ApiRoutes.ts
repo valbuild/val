@@ -641,8 +641,6 @@ export const Api = {
           json: z.object({
             nonce: z.string().nullable(),
             baseUrl: z.string(),
-            contentBaseUrl: z.string().nullable(),
-            contentAuthNonce: z.string().nullable(),
           }),
         }),
       ]),
@@ -852,6 +850,7 @@ export const Api = {
               z.object({
                 render: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
+                baseSource: z.any().optional(),
                 patches: z
                   .object({
                     applied: z.array(PatchId),
@@ -1092,11 +1091,6 @@ export const Api = {
     GET: {
       req: {
         path: z.string(),
-        query: {
-          limit: onlyOneStringQueryParam.optional(),
-          cursor_updatedAt: onlyOneStringQueryParam.optional(),
-          cursor_id: onlyOneStringQueryParam.optional(),
-        },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
@@ -1107,21 +1101,7 @@ export const Api = {
             messages: z.array(
               z.object({
                 role: z.string(),
-                content: z.union([
-                  z.string(),
-                  z.array(
-                    z.union([
-                      z.object({
-                        type: z.literal("text"),
-                        text: z.string(),
-                      }),
-                      z.object({
-                        type: z.literal("image_url"),
-                        url: z.string(),
-                      }),
-                    ]),
-                  ),
-                ]),
+                content: z.string(),
               }),
             ),
             nextCursor: z
@@ -1131,85 +1111,6 @@ export const Api = {
               })
               .nullable()
               .optional(),
-          }),
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
-      ]),
-    },
-  },
-  "/ai/session-image-to-patch-file": {
-    POST: {
-      req: {
-        body: z.object({
-          patchId: PatchId,
-          parentRef: ParentRef,
-          files: z
-            .array(
-              z.object({
-                filePath: z.string(),
-                key: z.string(),
-                isRemote: z.boolean().optional(),
-              }),
-            )
-            .min(1),
-        }),
-        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patchId: PatchId,
-            files: z.array(
-              z.object({
-                filePath: z.string(),
-                metadata: z.object({
-                  width: z.number(),
-                  height: z.number(),
-                  mimeType: z.string(),
-                }),
-              }),
-            ),
-          }),
-        }),
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-            details: z
-              .object({
-                availableKeys: z.array(z.string()).optional(),
-              })
-              .optional(),
-          }),
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
-      ]),
-    },
-  },
-  "/ai/images": {
-    PATCH: {
-      req: {
-        body: z.object({
-          key: z.string(),
-          metadata: z.any(),
-          contentType: z.string(),
-        }),
-        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            key: z.string(),
           }),
         }),
         z.object({

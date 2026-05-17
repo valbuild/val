@@ -4,8 +4,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "./cn";
 
+const disabledBase =
+  "disabled:text-fg-disabled disabled:pointer-events-none disabled:opacity-50 aria-disabled:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:opacity-50";
+const disabledVariant =
+  "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary aria-disabled:bg-bg-disabled aria-disabled:text-fg-disabled aria-disabled:border aria-disabled:border-border-primary";
+
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-fg-disabled disabled:pointer-events-none disabled:opacity-50",
+  cn(
+    "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    disabledBase,
+  ),
   {
     variants: {
       variant: {
@@ -14,29 +22,30 @@ const buttonVariants = cva(
           "border border-border-brand-primary",
           "bg-bg-brand-primary text-fg-brand-primary",
           "hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          disabledVariant,
         ),
         destructive: cn(
           "cursor-pointer",
           "border border-bg-error-primary",
-          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary",
+          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary aria-disabled:text-fg-error-primary",
         ),
         outline: cn(
           "cursor-pointer",
           "border border-transparent",
           "bg-bg-background hover:bg-bg-secondary",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          disabledVariant,
         ),
         secondary: cn(
           "cursor-pointer",
           "border border-border-secondary",
           "bg-bg-secondary text-fg-secondary hover:bg-bg-secondary-hover",
+          disabledVariant,
         ),
         ghost: cn(
           "cursor-pointer",
           "border border-transparent",
           "bg-bg-background hover:bg-bg-secondary",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          disabledVariant,
           "hover:bg-bg-secondary-hover hover:text-fg-secondary",
         ),
         link: cn(
@@ -69,12 +78,14 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        disabled={disabled}
+        aria-disabled={disabled || undefined}
         {...props}
       />
     );

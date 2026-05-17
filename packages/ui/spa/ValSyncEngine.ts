@@ -90,6 +90,8 @@ export class ValSyncEngine {
   private patchSets: PatchSets;
   /** serverSources is the state on the server, it is the actual state */
   private serverSources: Record<ModuleFilePath, JSONValue | undefined> | null;
+  /** baseSources holds un-patched sources (before any pending patches are applied) for diff views */
+  private baseSources: Record<ModuleFilePath, JSONValue | undefined> | null;
   /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
   private optimisticClientSources: Record<
     ModuleFilePath,
@@ -176,6 +178,7 @@ export class ValSyncEngine {
     this.mode = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
+    this.baseSources = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -191,6 +194,8 @@ export class ValSyncEngine {
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
     this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
@@ -288,6 +293,7 @@ export class ValSyncEngine {
     this.sourcesSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
+    this.baseSources = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -303,6 +309,8 @@ export class ValSyncEngine {
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
     this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
@@ -445,6 +453,18 @@ export class ValSyncEngine {
     if (this.cachedSourceSnapshots !== null) {
       this.cachedSourceSnapshots = {
         ...this.cachedSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
+    }
+    if (this.cachedServerSourceSnapshots !== null) {
+      this.cachedServerSourceSnapshots = {
+        ...this.cachedServerSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
+    }
+    if (this.cachedBaseSourceSnapshots !== null) {
+      this.cachedBaseSourceSnapshots = {
+        ...this.cachedBaseSourceSnapshots,
         [moduleFilePath]: undefined,
       };
     }
@@ -672,6 +692,85 @@ export class ValSyncEngine {
       }
     }
     return this.cachedSourceSnapshots[sourcePath];
+  }
+
+  private cachedServerSourceSnapshots: Record<
+    ModuleFilePath,
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" }
+  > | null;
+  getServerSourceSnapshot(
+    sourcePath: ModuleFilePath,
+  ):
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" } {
+    if (this.cachedServerSourceSnapshots === null) {
+      this.cachedServerSourceSnapshots = {};
+    }
+    if (this.cachedServerSourceSnapshots[sourcePath] === undefined) {
+      if (this.schemas === null) {
+        this.cachedServerSourceSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else if (!this.schemas[sourcePath]) {
+        this.cachedServerSourceSnapshots[sourcePath] = {
+          status: "schema-not-found",
+        };
+      } else {
+        const moduleData = this.serverSources?.[sourcePath];
+        if (moduleData === undefined) {
+          this.cachedServerSourceSnapshots[sourcePath] = {
+            status: "source-not-found",
+          };
+        } else {
+          this.cachedServerSourceSnapshots[sourcePath] = {
+            status: "success",
+            data: deepClone(moduleData),
+          };
+        }
+      }
+    }
+    return this.cachedServerSourceSnapshots[sourcePath];
+  }
+
+  private cachedBaseSourceSnapshots: Record<
+    ModuleFilePath,
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" }
+  > | null;
+  getBaseSourceSnapshot(
+    sourcePath: ModuleFilePath,
+  ):
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" } {
+    if (this.cachedBaseSourceSnapshots === null) {
+      this.cachedBaseSourceSnapshots = {};
+    }
+    if (this.cachedBaseSourceSnapshots[sourcePath] === undefined) {
+      if (this.schemas === null) {
+        this.cachedBaseSourceSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else if (!this.schemas[sourcePath]) {
+        this.cachedBaseSourceSnapshots[sourcePath] = {
+          status: "schema-not-found",
+        };
+      } else {
+        const moduleData =
+          this.baseSources?.[sourcePath] ?? this.serverSources?.[sourcePath];
+        if (moduleData === undefined) {
+          this.cachedBaseSourceSnapshots[sourcePath] = {
+            status: "source-not-found",
+          };
+        } else {
+          this.cachedBaseSourceSnapshots[sourcePath] = {
+            status: "success",
+            data: deepClone(moduleData),
+          };
+        }
+      }
+    }
+    return this.cachedBaseSourceSnapshots[sourcePath];
   }
 
   private cachedAllSourcesSnapshot: Record<ModuleFilePath, Json> | null;
@@ -2144,6 +2243,13 @@ export class ValSyncEngine {
                 this.serverSources = {};
               }
               this.serverSources[moduleFilePath] = valModule.source;
+              if (this.baseSources === null) {
+                this.baseSources = {};
+              }
+              this.baseSources[moduleFilePath] =
+                valModule.baseSource !== undefined
+                  ? valModule.baseSource
+                  : valModule.source;
               if (this.renders === null) {
                 this.renders = {};
               }
@@ -2445,11 +2551,14 @@ export class ValSyncEngine {
 
   /**
    * Mock method for testing and Storybook.
-   * Sets both serverSources and optimisticClientSources to the same value and invalidates related caches.
+   * Sets serverSources (and baseSources to the same value) and invalidates related caches.
    */
   setSources(sources: Record<ModuleFilePath, JSONValue | undefined>): void {
     this.serverSources = sources;
+    this.baseSources = sources;
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
     for (const moduleFilePath in sources) {
@@ -2480,6 +2589,16 @@ export class ValSyncEngine {
     this.initializedAt = timestamp;
     this.cachedInitializedAtSnapshot = null;
     this.emit(this.listeners["initialized-at"]?.[globalNamespace]);
+  }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets baseSha so that getParentRef() returns a valid ref,
+   * which allows the sync loop to flush pending ops.
+   */
+  setBaseSha(sha: string): void {
+    this.baseSha = sha;
+    this.cachedParentRef = undefined;
   }
 }
 

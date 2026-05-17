@@ -370,6 +370,22 @@
   }
 }
 
+@keyframes val-scroll-highlight {
+  0%,
+  50% {
+    outline-color: var(--border-brand-primary);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+.val-scroll-highlight {
+  outline: 2px solid var(--border-brand-primary);
+  outline-offset: -4px;
+  border-radius: 6px;
+  animation: val-scroll-highlight 2.5s ease-out forwards;
+}
+
 #val-overlay-container {
   visibility: visible;
 }

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
+import { getFilenameFromRef } from "../../utils/getFilenameFromRef";
 import { useFilePatchIds, useSourceAtPath } from "../ValFieldProvider";
 
 export interface GalleryEntry {
@@ -67,7 +68,7 @@ function buildRows(
     const entries = moduleEntries[modulePath];
     const filtered = Object.keys(entries).filter((fp) => {
       if (!lowerFilter) return true;
-      const filename = fp.split("/").pop() || fp;
+      const filename = getFilenameFromRef(fp);
       const alt =
         typeof entries[fp].alt === "string" ? (entries[fp].alt as string) : "";
       return (
@@ -211,7 +212,7 @@ export function MediaPicker({
   }
 
   const selectedFilename = selectedRef
-    ? selectedRef.split("/").pop() || selectedRef
+    ? getFilenameFromRef(selectedRef)
     : null;
 
   const totalEntries = Object.values(moduleEntries).reduce(
@@ -293,7 +294,7 @@ export function MediaPicker({
                   );
                 }
 
-                const filename = row.filePath.split("/").pop() || row.filePath;
+                const filename = getFilenameFromRef(row.filePath);
                 const isSelected = selectedRef === row.filePath;
                 const isActive = virtualRow.index === activeIndex;
                 const alt =

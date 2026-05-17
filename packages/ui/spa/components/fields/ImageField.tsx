@@ -32,12 +32,24 @@ import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
 import { Button } from "../designSystem/button";
+import { Checkbox } from "../designSystem/checkbox";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 import { JSONValue } from "@valbuild/core/patch";
+import { array } from "@valbuild/core/fp";
 
-export function ImageField({ path }: { path: SourcePath }) {
+export function ImageField({
+  path,
+  readonly,
+  compact,
+  hideUpload,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  hideUpload?: boolean;
+}) {
   const type = "image";
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
@@ -95,7 +107,6 @@ export function ImageField({ path }: { path: SourcePath }) {
           console.warn(
             `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`,
           );
-          return;
         }
         if ("hotspot" in metadata) {
           if (
@@ -174,7 +185,8 @@ export function ImageField({ path }: { path: SourcePath }) {
         ? []
         : [referencedModule]
       : [];
-  const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const disabled =
+    readonly || remoteFileUploadDisabled || missingModules.length > 0;
   const acceptOptions = useMemo(() => {
     if (
       schemaAtPath.data.type !== "image" ||
@@ -310,10 +322,11 @@ export function ImageField({ path }: { path: SourcePath }) {
               draggable={false}
               className="object-contain max-h-[500px] w-full"
               style={{
-                cursor: "crosshair",
+                cursor: readonly ? "default" : "crosshair",
               }}
               id={hotspotPath}
               onClick={(ev) => {
+                if (readonly) return;
                 const { width, height, left, top } =
                   ev.currentTarget.getBoundingClientRect();
                 const hotspot = {
@@ -364,16 +377,103 @@ export function ImageField({ path }: { path: SourcePath }) {
             />
             {hotspot && (
               <div
-                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-primary border-2 absolute pointer-events-none"
+                className="absolute pointer-events-none"
                 style={{
                   top: `${hotspot.y * 100}%`,
                   left: `${hotspot.x * 100}%`,
+                  transform: "translate(-50%, -50%)",
+                  zIndex: 10,
                 }}
-              />
+              >
+                <div
+                  style={{
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "50%",
+                    border: "2px solid white",
+                    boxShadow:
+                      "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "4px",
+                    height: "4px",
+                    borderRadius: "50%",
+                    backgroundColor: "white",
+                    boxShadow: "0 0 2px rgba(0,0,0,0.5)",
+                  }}
+                />
+              </div>
             )}
           </div>
         )}
-        {referencedModule && (
+        {source && url && (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`hotspot_toggle:${path}`}
+              checked={!!hotspot}
+              disabled={disabled}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  const defaultHotspot = { x: 0.5, y: 0.5 };
+                  if (source.metadata && "hotspot" in source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath.concat(["metadata", "hotspot"]),
+                          value: defaultHotspot,
+                        },
+                      ],
+                      "object",
+                    );
+                  } else if (source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "add",
+                          path: patchPath.concat(["metadata", "hotspot"]),
+                          value: defaultHotspot,
+                        },
+                      ],
+                      "object",
+                    );
+                  }
+                } else {
+                  if (source.metadata && "hotspot" in source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "remove",
+                          path: patchPath.concat(["metadata", "hotspot"]) as array.NonEmptyArray<string>,
+                        },
+                      ],
+                      "object",
+                    );
+                  }
+                }
+              }}
+            />
+            <label
+              htmlFor={`hotspot_toggle:${path}`}
+              className="text-xs text-fg-secondary select-none"
+            >
+              Hotspot
+              {hotspot && (
+                <span className="ml-1 text-fg-tertiary">
+                  ({Math.round(hotspot.x * 100)}%,{" "}
+                  {Math.round(hotspot.y * 100)}%)
+                </span>
+              )}
+            </label>
+          </div>
+        )}
+        {!hideUpload && referencedModule && (
           <ModuleMediaPicker
             modulePath={referencedModule as ModuleFilePath}
             selectedRef={source?._ref ?? null}
@@ -399,114 +499,118 @@ export function ImageField({ path }: { path: SourcePath }) {
             portalContainer={portalContainer}
           />
         )}
-        <Button asChild variant={"secondary"} disabled={disabled}>
-          <label htmlFor={`img_input:${path}`}>Upload</label>
-        </Button>
-        <input
-          disabled={disabled}
-          hidden
-          id={`img_input:${path}`}
-          type="file"
-          accept={acceptOptions ?? "image/*"}
-          onChange={(ev) => {
-            readImage(ev).then((res) => {
-              const type = "image";
-              const prevUrl: string | null = url;
-              setUrl(res.src);
-              setLoading(true);
-
-              const data = { src: res.src, filename: res.filename };
-              let metadata: ImageMetadata | undefined;
-              if (res.width && res.height && res.mimeType) {
-                metadata = {
-                  width: res.width,
-                  height: res.height,
-                  mimeType: res.mimeType,
-                  alt:
-                    maybeSourceData &&
-                    typeof maybeSourceData?.metadata?.alt === "string"
-                      ? maybeSourceData.metadata.alt
-                      : undefined,
-                };
-              }
-              setError(null);
-              createFilePatch(
-                patchPath,
-                data.src,
-                data.filename ?? null,
-                res.fileHash,
-                metadata,
-                type,
-                remoteData,
-                moduleDirectory ?? config.files?.directory,
-                !!referencedModule,
-              )
-                .then(({ patch, filePath }) => {
+        {!hideUpload && (
+          <>
+            <Button asChild variant={"secondary"} disabled={disabled}>
+              <label htmlFor={`img_input:${path}`}>Upload</label>
+            </Button>
+            <input
+              disabled={disabled}
+              hidden
+              id={`img_input:${path}`}
+              type="file"
+              accept={acceptOptions ?? "image/*"}
+              onChange={(ev) => {
+                readImage(ev).then((res) => {
+                  const type = "image";
+                  const prevUrl: string | null = url;
+                  setUrl(res.src);
                   setLoading(true);
-                  setProgressPercentage(0);
-                  let hasError = false;
-                  addAndUploadPatchWithFileOps(
-                    patch,
+
+                  const data = { src: res.src, filename: res.filename };
+                  let metadata: ImageMetadata | undefined;
+                  if (res.width && res.height && res.mimeType) {
+                    metadata = {
+                      width: res.width,
+                      height: res.height,
+                      mimeType: res.mimeType,
+                      alt:
+                        maybeSourceData &&
+                        typeof maybeSourceData?.metadata?.alt === "string"
+                          ? maybeSourceData.metadata.alt
+                          : undefined,
+                    };
+                  }
+                  setError(null);
+                  createFilePatch(
+                    patchPath,
+                    data.src,
+                    data.filename ?? null,
+                    res.fileHash,
+                    metadata,
                     type,
-                    (errorMessage) => {
-                      hasError = true;
-                      setUrl(prevUrl);
-                      setError(errorMessage);
-                    },
-                    (bytesUploaded, totalBytes, currentFile, totalFiles) => {
-                      const overallProgress =
-                        (bytesUploaded * (currentFile + 1)) /
-                        (totalBytes * totalFiles);
-                      setProgressPercentage(Math.round(overallProgress * 100));
-                    },
+                    remoteData,
+                    moduleDirectory ?? config.files?.directory,
+                    !!referencedModule,
                   )
-                    .then(() => {
-                      if (
-                        !hasError &&
-                        filePath &&
-                        metadata?.mimeType &&
-                        metadata.width !== undefined &&
-                        metadata.height !== undefined
-                      ) {
-                        if (referencedModule) {
-                          addModuleFilePatch(
-                            referencedModule as ModuleFilePath,
-                            [
-                              {
-                                op: "add",
-                                path: [filePath],
-                                value: {
-                                  width: metadata.width,
-                                  height: metadata.height,
-                                  mimeType: metadata.mimeType,
-                                  alt:
-                                    typeof metadata.alt === "string"
-                                      ? metadata.alt
-                                      : null,
-                                } as JSONValue,
-                              },
-                            ],
-                            "record",
-                          );
-                        }
-                      }
+                    .then(({ patch, filePath }) => {
+                      setLoading(true);
+                      setProgressPercentage(0);
+                      let hasError = false;
+                      addAndUploadPatchWithFileOps(
+                        patch,
+                        type,
+                        (errorMessage) => {
+                          hasError = true;
+                          setUrl(prevUrl);
+                          setError(errorMessage);
+                        },
+                        (bytesUploaded, totalBytes, currentFile, totalFiles) => {
+                          const overallProgress =
+                            (bytesUploaded * (currentFile + 1)) /
+                            (totalBytes * totalFiles);
+                          setProgressPercentage(Math.round(overallProgress * 100));
+                        },
+                      )
+                        .then(() => {
+                          if (
+                            !hasError &&
+                            filePath &&
+                            metadata?.mimeType &&
+                            metadata.width !== undefined &&
+                            metadata.height !== undefined
+                          ) {
+                            if (referencedModule) {
+                              addModuleFilePatch(
+                                referencedModule as ModuleFilePath,
+                                [
+                                  {
+                                    op: "add",
+                                    path: [filePath],
+                                    value: {
+                                      width: metadata.width,
+                                      height: metadata.height,
+                                      mimeType: metadata.mimeType,
+                                      alt:
+                                        typeof metadata.alt === "string"
+                                          ? metadata.alt
+                                          : null,
+                                    } as JSONValue,
+                                  },
+                                ],
+                                "record",
+                              );
+                            }
+                          }
+                        })
+                        .finally(() => {
+                          setProgressPercentage(null);
+                          setLoading(false);
+                        });
                     })
-                    .finally(() => {
-                      setProgressPercentage(null);
+                    .catch((err) => {
+                      console.error("Failed to create file patch", err);
                       setLoading(false);
+                      setUrl(prevUrl);
+                      setError("Could not upload file. Please try again later");
                     });
-                })
-                .catch((err) => {
-                  console.error("Failed to create file patch", err);
-                  setLoading(false);
-                  setUrl(prevUrl);
-                  setError("Could not upload file. Please try again later");
+                  // reset the input value to allow re-uploading the same file
+                  ev.target.value = "";
                 });
-              // reset the input value to allow re-uploading the same file
-              ev.target.value = "";
-            });
-          }}
-        />
+              }}
+            />
+          </>
+        )}
       </div>
     </div>
   );

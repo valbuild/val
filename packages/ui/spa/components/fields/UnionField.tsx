@@ -43,7 +43,17 @@ function isStringUnion(
   return true;
 }
 
-export function UnionField({ path }: { path: SourcePath }) {
+export function UnionField({
+  path,
+  readonly,
+  compact,
+  inline,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+}) {
   const type = "union";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -94,12 +104,13 @@ export function UnionField({ path }: { path: SourcePath }) {
         />
       );
     }
-    return (
+    const stringUnionContent = (
       <div id={path}>
         <ValidationErrors path={path} />
         <SelectField
           path={path}
           source={source}
+          readonly={readonly}
           options={schemaAtPath.data.items
             .concat(schemaAtPath.data.key)
             .flatMap((item) => {
@@ -112,6 +123,14 @@ export function UnionField({ path }: { path: SourcePath }) {
         />
       </div>
     );
+    if (readonly) {
+      return (
+        <div className="pointer-events-none opacity-70" aria-disabled="true">
+          {stringUnionContent}
+        </div>
+      );
+    }
+    return stringUnionContent;
   } else if (!isStringUnion(schemaAtPath.data)) {
     if (typeof source !== "object") {
       return (
@@ -134,7 +153,13 @@ export function UnionField({ path }: { path: SourcePath }) {
     return (
       <div id={path}>
         <ValidationErrors path={path} />
-        <ObjectUnionField path={path} schema={schemaAtPath.data} />
+        <ObjectUnionField
+          path={path}
+          schema={schemaAtPath.data}
+          readonly={readonly}
+          compact={compact}
+          inline={inline}
+        />
       </div>
     );
   }
@@ -143,9 +168,15 @@ export function UnionField({ path }: { path: SourcePath }) {
 function ObjectUnionField({
   path,
   schema,
+  readonly,
+  compact,
+  inline,
 }: {
   path: SourcePath;
   schema: SerializedObjectUnionSchema;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
 }) {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
@@ -197,10 +228,12 @@ function ObjectUnionField({
     }
   }, [fullSourceAtPath, currentSourceKeyRes, path]);
   return (
-    <div className="grid gap-4">
+    <div className={`grid ${compact ? "gap-3" : "gap-4"}`}>
       <Select
+        disabled={readonly}
         value={currentSourceKeyRes.data ?? undefined}
         onValueChange={(value) => {
+          if (readonly) return;
           const selectedSchema = schema.items.find((item) => {
             const subSchema = item.items?.[schema.key];
             if (subSchema.type === "literal") {
@@ -258,11 +291,16 @@ function ObjectUnionField({
               foldLevel="1"
               label={key}
               type={selectedSchema?.items?.[key]?.type}
+              readonly={readonly}
+              compact={compact}
             >
               <AnyField
                 key={key}
                 path={itemPath}
                 schema={selectedSchema?.items?.[key]}
+                readonly={readonly}
+                compact={compact}
+                inline={inline}
               />
             </Field>
           );
@@ -275,17 +313,21 @@ function SelectField({
   path,
   source,
   options,
+  readonly,
 }: {
   path: SourcePath;
   source: string | null;
   options?: string[];
+  readonly?: boolean;
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
   const portalContainer = useValPortal();
   return (
     <Select
+      disabled={readonly}
       value={source ?? ""}
       onValueChange={(value) => {
+        if (readonly) return;
         addPatch(
           [
             {
