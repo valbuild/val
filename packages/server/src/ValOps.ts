@@ -752,12 +752,14 @@ export abstract class ValOps {
           for (const validationError of validationErrors) {
             if (isOnlyFileCheckValidationError(validationError)) {
               if (files[sourcePath]) {
-                throw new Error(
-                  "Cannot have multiple files with same path. Path: " +
+                addError({
+                  message:
+                    "Cannot have multiple files with same path. Path: " +
                     sourcePath +
                     "; Module: " +
                     path,
-                );
+                });
+                continue;
               }
               const value = validationError.value;
               if (isFileSource(value)) {
