@@ -109,7 +109,7 @@ export function RouteSelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            "w-full justify-start text-left border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
             className,
           )}
         >
@@ -120,7 +120,7 @@ export function RouteSelector({
               image={selectedRoute.preview.image ?? null}
             />
           ) : (
-            <span className="truncate">{value || placeholder}</span>
+            <span className="truncate flex-1">{value || placeholder}</span>
           )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -169,7 +169,7 @@ export function RouteSelector({
                           title={preview.title}
                           subtitle={preview.subtitle ?? null}
                           image={preview.image ?? null}
-                                    />
+                        />
                       ) : (
                         <span className="truncate">{routeInfo.route}</span>
                       )}

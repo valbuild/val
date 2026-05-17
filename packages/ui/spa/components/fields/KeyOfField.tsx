@@ -77,7 +77,7 @@ export function KeySelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            "w-full justify-start text-left border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
             className,
           )}
         >
@@ -89,10 +89,10 @@ export function KeySelector({
                 image={selectedPreview.image ?? null}
               />
             ) : (
-              <span className="truncate">{value}</span>
+              <span className="truncate flex-1">{value}</span>
             )
           ) : (
-            <span className="truncate">{placeholder}</span>
+            <span className="truncate flex-1">{placeholder}</span>
           )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -134,7 +134,7 @@ export function KeySelector({
                           title={preview.title}
                           subtitle={preview.subtitle ?? null}
                           image={preview.image ?? null}
-                                  />
+                        />
                       ) : (
                         <span className="truncate">{key}</span>
                       )}
