@@ -5,9 +5,7 @@ import { Internal } from "@valbuild/core";
  */
 function cleanRefPath(ref: string): string {
   const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  return remoteRefRes.status === "success"
-    ? `/${remoteRefRes.filePath}`
-    : ref;
+  return remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
 }
 
 /**
@@ -33,6 +31,7 @@ export function getRefParts(ref: string): {
 } {
   const cleanPath = cleanRefPath(ref);
   const filename = cleanPath.split("/").pop() || cleanPath;
-  const folder = cleanPath.replace("/public/val", "").replace(/\/[^/]+$/, "") || "/";
+  const folder =
+    cleanPath.replace("/public/val", "").replace(/\/[^/]+$/, "") || "/";
   return { cleanPath, filename, folder };
 }

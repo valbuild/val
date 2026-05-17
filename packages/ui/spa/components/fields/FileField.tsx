@@ -242,7 +242,8 @@ export function FileField({
         ? []
         : [referencedModule]
       : [];
-  const disabled = readonly || remoteFileUploadDisabled || missingModules.length > 0;
+  const disabled =
+    readonly || remoteFileUploadDisabled || missingModules.length > 0;
   const acceptOptions = useMemo(() => {
     if (
       schemaAtPath.data.type !== "file" ||

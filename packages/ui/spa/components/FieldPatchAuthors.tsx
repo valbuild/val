@@ -179,11 +179,7 @@ export function FieldPatchAuthorsPure({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          aria-label="Change history"
-        >
+        <Button variant="ghost" size="xs" aria-label="Change history">
           <PatchAuthorsSummary
             patchesByAuthorIds={patchesByAuthorIds}
             profilesByAuthorIds={profilesByAuthorIds}
@@ -278,9 +274,10 @@ export function FieldPatchAuthors({
   const authorIds = Object.keys(patchesByAuthorIds);
   if (authorIds.length === 0) return null;
 
-  const onNavigateToCompare = navigable && sourcePath
-    ? () => navigate("/val/compare", { scrollToId: `compare-${sourcePath}` })
-    : undefined;
+  const onNavigateToCompare =
+    navigable && sourcePath
+      ? () => navigate("/val/compare", { scrollToId: `compare-${sourcePath}` })
+      : undefined;
 
   if (!onNavigateToCompare) {
     return (

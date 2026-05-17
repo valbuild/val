@@ -220,9 +220,7 @@ export function computeChangedSourcePaths(
 
     const root = treesByModule[moduleFilePath];
     const patchIds = patchSet.patches.map((p) => p.patchId);
-    const authors = patchSet.authors.filter(
-      (a): a is string => a !== null,
-    );
+    const authors = patchSet.authors.filter((a): a is string => a !== null);
     const patchesByAuthorIds = buildPatchesByAuthorIds(
       moduleFilePath,
       patchSet.patches,

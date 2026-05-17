@@ -424,8 +424,7 @@ export const SideBySideComparison: Story = {
   ),
 };
 
-const profileModuleFilePath =
-  "/content/profile.val.ts" as ModuleFilePath;
+const profileModuleFilePath = "/content/profile.val.ts" as ModuleFilePath;
 const profilePath = profileModuleFilePath as unknown as SourcePath;
 
 export const DirectSourceSchema: Story = {

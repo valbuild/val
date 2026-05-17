@@ -26,10 +26,8 @@ export function useFieldState(
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const [showEmptyFileOrImage, setShowEmptyFileOrImage] = useState(false);
 
-  const sourceData =
-    "data" in sourceAtPath ? sourceAtPath.data : undefined;
-  const schemaData =
-    "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const sourceData = "data" in sourceAtPath ? sourceAtPath.data : undefined;
+  const schemaData = "data" in schemaAtPath ? schemaAtPath.data : undefined;
 
   useEffect(() => {
     if (overrides) return;
