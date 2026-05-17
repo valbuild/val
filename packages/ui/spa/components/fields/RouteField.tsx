@@ -1,5 +1,14 @@
 import * as React from "react";
-import { Internal, ModulePath, SourcePath } from "@valbuild/core";
+import {
+  ImageMetadata,
+  ImageSource,
+  Internal,
+  ListRecordRender,
+  ModuleFilePath,
+  ModulePath,
+  RemoteSource,
+  SourcePath,
+} from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -8,6 +17,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useAllRenders,
 } from "../ValFieldProvider";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -31,9 +41,20 @@ import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
+import { DropdownPreviewRow } from "../DropdownPreviewRow";
+
+export interface RouteSelectorRoute {
+  route: string;
+  moduleFilePath: string;
+  preview?: {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+  } | null;
+}
 
 export interface RouteSelectorProps {
-  routes: Array<{ route: string; moduleFilePath: string }>;
+  routes: RouteSelectorRoute[];
   value: string | null;
   onChange: (route: string) => void;
   includePattern?: RegExp;
@@ -74,6 +95,9 @@ export function RouteSelector({
     return true;
   });
 
+  const selectedRoute = value
+    ? filteredRoutes.find((r) => r.route === value)
+    : undefined;
   return (
     <Popover
       open={readonly ? false : open}
@@ -85,11 +109,20 @@ export function RouteSelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover",
+            "w-full justify-between border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
             className,
           )}
         >
-          <span className="truncate">{value || placeholder}</span>
+          {selectedRoute && selectedRoute.preview ? (
+            <DropdownPreviewRow
+              title={selectedRoute.preview.title}
+              subtitle={selectedRoute.preview.subtitle ?? null}
+              image={selectedRoute.preview.image ?? null}
+              placeholder={false}
+            />
+          ) : (
+            <span className="truncate">{value || placeholder}</span>
+          )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -109,24 +142,42 @@ export function RouteSelector({
               <CommandEmpty>No routes found.</CommandEmpty>
             ) : (
               <CommandGroup>
-                {filteredRoutes.map((routeInfo) => (
-                  <CommandItem
-                    key={routeInfo.route}
-                    value={routeInfo.route}
-                    onSelect={(currentValue) => {
-                      onChange(currentValue);
-                      setOpen(false);
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        value === routeInfo.route ? "opacity-100" : "opacity-0",
+                {filteredRoutes.map((routeInfo) => {
+                  const preview = routeInfo.preview;
+                  const filterValue = preview
+                    ? `${routeInfo.route} ${preview.title}`
+                    : routeInfo.route;
+                  return (
+                    <CommandItem
+                      key={routeInfo.route}
+                      value={filterValue}
+                      onSelect={() => {
+                        onChange(routeInfo.route);
+                        setOpen(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Check
+                        className={cn(
+                          "h-4 w-4 shrink-0",
+                          value === routeInfo.route
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      {preview ? (
+                        <DropdownPreviewRow
+                          title={preview.title}
+                          subtitle={preview.subtitle ?? null}
+                          image={preview.image ?? null}
+                          placeholder={false}
+                        />
+                      ) : (
+                        <span className="truncate">{routeInfo.route}</span>
                       )}
-                    />
-                    {routeInfo.route}
-                  </CommandItem>
-                ))}
+                    </CommandItem>
+                  );
+                })}
               </CommandGroup>
             )}
           </CommandList>
@@ -134,6 +185,47 @@ export function RouteSelector({
       </PopoverContent>
     </Popover>
   );
+}
+
+function useRouteSelectorRoutes(
+  routesWithModulePaths: Array<{ route: string; moduleFilePath: string }>,
+): RouteSelectorRoute[] {
+  const allRenders = useAllRenders();
+  return React.useMemo(() => {
+    const renderItemsByModule = new Map<
+      string,
+      Map<string, RouteSelectorRoute["preview"]>
+    >();
+    return routesWithModulePaths.map(({ route, moduleFilePath }) => {
+      if (!renderItemsByModule.has(moduleFilePath)) {
+        const itemMap = new Map<string, RouteSelectorRoute["preview"]>();
+        const renderAtModule = allRenders[moduleFilePath as ModuleFilePath];
+        if (renderAtModule) {
+          const moduleRender = renderAtModule[moduleFilePath as ModuleFilePath];
+          if (
+            moduleRender &&
+            "data" in moduleRender &&
+            moduleRender.data &&
+            moduleRender.data.layout === "list" &&
+            moduleRender.data.parent === "record"
+          ) {
+            const recordRender = moduleRender.data as ListRecordRender;
+            for (const [key, value] of recordRender.items) {
+              itemMap.set(key, {
+                title: value.title,
+                subtitle: value.subtitle ?? null,
+                image: value.image ?? null,
+              });
+            }
+          }
+        }
+        renderItemsByModule.set(moduleFilePath, itemMap);
+      }
+      const preview =
+        renderItemsByModule.get(moduleFilePath)?.get(route) ?? null;
+      return { route, moduleFilePath, preview };
+    });
+  }, [routesWithModulePaths, allRenders]);
 }
 
 export function RouteField({
@@ -151,6 +243,7 @@ export function RouteField({
   const { patchPath, addPatch } = useAddPatch(path);
   const portalContainer = useValPortal();
   const routesWithModulePaths = useRoutesWithModulePaths();
+  const routesWithPreview = useRouteSelectorRoutes(routesWithModulePaths);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -216,7 +309,7 @@ export function RouteField({
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <RouteSelector
-          routes={routesWithModulePaths}
+          routes={routesWithPreview}
           value={source}
           onChange={(route) => {
             if (readonly) return;
