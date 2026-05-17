@@ -416,7 +416,7 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
 }
 
 export function useGetDirectFileUploadSettings() {
-  return useContext(ValFieldContext).getDirectFileUploadSettings;
+  return useValFieldContext().getDirectFileUploadSettings;
 }
 
 export function useValConfig() {
