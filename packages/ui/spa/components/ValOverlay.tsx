@@ -837,7 +837,9 @@ function ChatWindow({
   const chatRef = useRef<AIChatHandle | null>(null);
   const {
     sendMessage,
+    uploadAiImage,
     isConnected,
+    authError,
     newSession,
     sessions,
     currentSessionId,
@@ -845,6 +847,7 @@ function ChatWindow({
     setSessionName,
     loadSession,
   } = useAI(chatRef);
+  const mode = useValMode();
   const [windowPos, setWindowPos] = useState({
     x: Math.max(20, window.innerWidth - 570),
     y: 80,
@@ -1003,8 +1006,11 @@ function ChatWindow({
           <AIChat
             ref={chatRef}
             onSendMessage={sendMessage}
+            onUploadFile={uploadAiImage}
             onNewSession={newSession}
             isConnected={isConnected}
+            authError={authError}
+            mode={mode}
             sessions={sessions}
             currentSessionId={currentSessionId}
             onLoadSession={loadSession}
@@ -1511,7 +1517,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
+          {isChatEnabled && (
             <HoverCard>
               <HoverCardTrigger className="inline-flex">
                 <MenuButton

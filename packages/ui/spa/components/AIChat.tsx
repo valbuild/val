@@ -16,6 +16,7 @@ import {
   Sparkles,
   Check,
   Loader2,
+  LogIn,
   Search,
   FileText,
   Database,
@@ -29,11 +30,16 @@ import {
   History,
   ChevronLeft,
   Tag,
+  Paperclip,
+  X,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
+import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
+import { urlOf } from "@valbuild/shared/internal";
+import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,14 +55,30 @@ export type ToolActivity = {
   status: ToolActivityStatus;
 };
 
+export type ChatMessageAttachment = {
+  key: string;
+  name: string;
+  mimeType?: string;
+  previewUrl?: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  content: AIMessageContent;
   status: ChatMessageStatus;
   error?: string;
   errorCode?: string;
   toolActivities?: ToolActivity[];
+  attachments?: ChatMessageAttachment[];
+};
+
+type AttachedFile = {
+  id: string;
+  file: File;
+  status: "uploading" | "done" | "error";
+  key?: string;
+  previewUrl?: string;
 };
 
 type CurrentMessage = {
@@ -91,7 +113,12 @@ export type AIChatHandle = {
 
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
-  onSendMessage?: (text: string) => boolean;
+  onSendMessage?: (
+    text: string,
+    attachments?: ChatMessageAttachment[],
+  ) => boolean;
+  /** Called to upload a file to the current AI session. Returns the server key. */
+  onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
@@ -100,6 +127,10 @@ export type AIChatProps = {
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
   isConnected: boolean;
+  /** Set when /ai/initialize returned 401 — the user needs to authenticate */
+  authError: boolean;
+  /** Val server mode — controls which auth instructions to show on authError */
+  mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
   sessions?: AISession[];
   /** The currently active session ID */
@@ -136,6 +167,31 @@ function nextId(): string {
   return `chat-${++_msgId}-${Date.now()}`;
 }
 
+function getTextContent(content: AIMessageContent): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  return content
+    .filter(
+      (block): block is Extract<AIContentBlock, { type: "text" }> =>
+        block.type === "text",
+    )
+    .map((block) => block.text)
+    .join("\n\n");
+}
+
+function getImageUrls(content: AIMessageContent): string[] {
+  if (typeof content === "string") {
+    return [];
+  }
+  return content
+    .filter(
+      (block): block is Extract<AIContentBlock, { type: "image_url" }> =>
+        block.type === "image_url",
+    )
+    .map((block) => block.url);
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -143,10 +199,13 @@ function nextId(): string {
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
     onSendMessage,
+    onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
     className,
     isConnected,
+    authError,
+    mode,
     sessions,
     currentSessionId,
     onLoadSession,
@@ -163,6 +222,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [inputValue, setInputValue] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
@@ -232,7 +293,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               ...prev,
               message: {
                 ...prev.message,
-                content: prev.message.content + chunk,
+                content: getTextContent(prev.message.content) + chunk,
               },
             }
           : prev,
@@ -325,14 +386,87 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // ---- Derived state ----
 
   const isStreaming = currentMessage !== null;
+  const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
 
   // ---- Handlers ----
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      if (files.length === 0) return;
+      // Reset input so the same file can be re-selected
+      e.target.value = "";
+
+      const newEntries: AttachedFile[] = files.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        status: "uploading" as const,
+        previewUrl: file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : undefined,
+      }));
+
+      setAttachedFiles((prev) => [...prev, ...newEntries]);
+
+      if (onUploadFile) {
+        newEntries.forEach((entry) => {
+          onUploadFile(entry.file)
+            .then(({ key }) => {
+              setAttachedFiles((prev) =>
+                prev.map((f) =>
+                  f.id === entry.id ? { ...f, status: "done", key } : f,
+                ),
+              );
+            })
+            .catch((err) => {
+              console.error("Failed to upload file", {
+                fileName: entry.file.name,
+                error: err,
+              });
+              setAttachedFiles((prev) =>
+                prev.map((f) =>
+                  f.id === entry.id ? { ...f, status: "error" } : f,
+                ),
+              );
+            });
+        });
+      }
+    },
+    [onUploadFile],
+  );
+
+  const removeAttachedFile = useCallback((id: string) => {
+    setAttachedFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      return prev.filter((f) => f.id !== id);
+    });
+  }, []);
 
   const handleSend = useCallback(
     (text?: string) => {
       const content = (text ?? inputValue).trim();
       if (!content || isStreaming) return;
+
+      const doneAttachments: ChatMessageAttachment[] = attachedFiles
+        .filter(
+          (f): f is AttachedFile & { key: string } =>
+            f.status === "done" && f.key !== undefined,
+        )
+        .map((f) => ({
+          key: f.key,
+          name: f.file.name,
+          mimeType: f.file.type || undefined,
+          previewUrl: f.previewUrl,
+        }));
+
+      // Revoke object URLs for files we're sending (they'll be in the message)
+      attachedFiles.forEach((f) => {
+        if (f.previewUrl && f.status !== "done")
+          URL.revokeObjectURL(f.previewUrl);
+      });
+      setAttachedFiles([]);
 
       const msgId = nextId();
       const userMsg: ChatMessage = {
@@ -340,11 +474,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         role: "user",
         content,
         status: "complete",
+        attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
       setInputValue("");
 
-      const sent = onSendMessage ? onSendMessage(content) : true;
+      const sent = onSendMessage
+        ? onSendMessage(
+            content,
+            doneAttachments.length > 0 ? doneAttachments : undefined,
+          )
+        : true;
       if (!sent) {
         setCompletedMessages((prev) =>
           prev.map((m) =>
@@ -358,7 +498,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       // Refocus textarea after send
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [inputValue, isStreaming, onSendMessage],
+    [inputValue, isStreaming, attachedFiles, onSendMessage],
   );
 
   const handleRetry = useCallback(
@@ -374,7 +514,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const sent = onSendMessage ? onSendMessage(errorMsg.content) : true;
+        const retryText = getTextContent(errorMsg.content);
+        const sent = onSendMessage
+          ? onSendMessage(retryText, errorMsg.attachments)
+          : true;
         if (!sent) {
           setCompletedMessages((prev) =>
             prev.map((m) =>
@@ -399,7 +542,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(prevUserMsg.content);
+      onSendMessage?.(
+        getTextContent(prevUserMsg.content),
+        prevUserMsg.attachments,
+      );
     },
     [messages, onSendMessage],
   );
@@ -574,7 +720,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col gap-4 p-4">
-          {isEmpty ? (
+          {authError ? (
+            <AuthPrompt mode={mode} />
+          ) : isEmpty ? (
             <EmptyState
               suggestions={effectiveSuggestions}
               title={emptyTitle}
@@ -592,20 +740,79 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
-        {!isConnected && (
-          <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-fg-secondary justify-center absolute top-0 left-0 right-0">
+        {!isConnected && !authError && (
+          <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
             <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
             Connecting…
           </div>
         )}
+        {/* Attached file previews */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {attachedFiles.map((f) => (
+              <div
+                key={f.id}
+                className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+              >
+                {f.previewUrl ? (
+                  <img
+                    src={f.previewUrl}
+                    alt={f.file.name}
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                )}
+                <span className="max-w-[120px] truncate">{f.file.name}</span>
+                {f.status === "uploading" && (
+                  <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
+                )}
+                {f.status === "error" && (
+                  <XCircle className="h-3 w-3 text-fg-error-primary" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAttachedFile(f.id)}
+                  className="ml-0.5 text-fg-secondary hover:text-fg-primary"
+                  aria-label={`Remove ${f.file.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {onUploadFile && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+            accept="image/*"
+          />
+        )}
         <div className="flex items-end gap-2">
+          {onUploadFile && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!isConnected || isStreaming || authError}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+              className="mb-1"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          )}
           <div className="flex-1 grid">
             <textarea
               ref={textareaRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isConnected ? "Ask something…" : ""}
+              disabled={authError}
+              placeholder={isConnected && !authError ? "Ask something…" : ""}
               rows={1}
               className={cn(
                 "resize-none overflow-hidden",
@@ -631,7 +838,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           <Button
             variant="ghost"
             size="icon-sm"
-            disabled={!isConnected || isStreaming || !inputValue.trim()}
+            disabled={
+              !isConnected ||
+              isStreaming ||
+              isUploading ||
+              authError ||
+              !inputValue.trim()
+            }
             onClick={() => handleSend()}
             aria-label="Send message"
             className="mb-1"
@@ -647,6 +860,43 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function AuthPrompt({ mode }: { mode: "http" | "fs" | "unknown" }) {
+  const isFs = mode === "fs";
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+      <div className="rounded-full bg-bg-secondary p-3">
+        <LogIn className="h-6 w-6" />
+      </div>
+      <div>
+        <h2 className="text-lg font-semibold text-fg-primary">
+          Login to use AI chat
+        </h2>
+        <p className="mt-1 text-sm text-fg-secondary">
+          {isFs
+            ? "Val is running in development mode. Run this command in your project root to create a personal access token, then refresh:"
+            : "Your session has expired. Sign in again to continue."}
+        </p>
+      </div>
+      {isFs ? (
+        <div className="w-full text-left">
+          <CopyableCodeBlock code="npx -p @valbuild/cli val login" />
+        </div>
+      ) : (
+        <Button asChild variant="default" size="sm">
+          <a
+            href={urlOf("/api/val/authorize", {
+              redirect_to: window.location.href,
+            })}
+          >
+            <LogIn className="mr-2 h-4 w-4" />
+            Sign in
+          </a>
+        </Button>
+      )}
+    </div>
+  );
+}
 
 function EmptyState({
   suggestions,
@@ -706,6 +956,8 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
+  const textContent = getTextContent(message.content);
+  const fileUrls = getImageUrls(message.content);
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -720,7 +972,43 @@ function MessageBubble({
       >
         {isUser ? (
           <>
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {message.attachments.map((a) =>
+                  a.mimeType?.startsWith("image/") && a.previewUrl ? (
+                    <img
+                      key={a.key}
+                      src={a.previewUrl}
+                      alt={a.name}
+                      className="h-16 w-16 rounded object-cover"
+                    />
+                  ) : (
+                    <div
+                      key={a.key}
+                      className="flex items-center gap-1 rounded border border-border-primary bg-bg-primary px-2 py-1 text-xs text-fg-secondary"
+                    >
+                      <FileText className="h-3 w-3 shrink-0" />
+                      <span className="max-w-[120px] truncate">{a.name}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
+            {fileUrls.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {fileUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="Session attachment"
+                    className="max-h-48 rounded object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {textContent && (
+              <p className="whitespace-pre-wrap">{textContent}</p>
+            )}
             {message.status === "complete" && (
               <div className="mt-1 flex justify-end">
                 <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
@@ -735,9 +1023,21 @@ function MessageBubble({
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator activities={message.toolActivities} />
             )}
-            {message.content ? (
-              <ReactMarkdown>{message.content}</ReactMarkdown>
-            ) : isStreamingMsg || isError ? null : (
+            {fileUrls.length > 0 && (
+              <div className="not-prose mb-3 flex flex-wrap gap-2">
+                {fileUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="AI session image"
+                    className="max-h-64 rounded border border-border-primary object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {textContent ? (
+              <ReactMarkdown>{textContent}</ReactMarkdown>
+            ) : isStreamingMsg || isError || fileUrls.length > 0 ? null : (
               <p className="text-fg-secondary italic">Empty response</p>
             )}
             {isStreamingMsg && <StreamingCursor />}
@@ -822,6 +1122,14 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
     create_patch: {
       label: "Updating content",
       icon: <Pencil className="h-3 w-3" />,
+    },
+    add_session_image_to_gallery: {
+      label: "Adding image to gallery",
+      icon: <Paperclip className="h-3 w-3" />,
+    },
+    remove_image_gallery_entry: {
+      label: "Removing image from gallery",
+      icon: <Paperclip className="h-3 w-3" />,
     },
     navigate_to: {
       label: "Navigating to content",
