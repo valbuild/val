@@ -16,6 +16,8 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import { AvailableRoute, NewPageForm } from "./NewPageForm";
+import { ErrorBadge } from "./ErrorBadge";
+import { totalSitemapErrorCount } from "./errorAggregation";
 
 export type SitemapSectionProps = {
   /** Sitemap data */
@@ -50,6 +52,11 @@ export function SitemapSection({
     [sitemap],
   );
 
+  const sectionErrorCount = useMemo(
+    () => totalSitemapErrorCount(sitemap),
+    [sitemap],
+  );
+
   const handleNewPageSubmit = (
     moduleFilePath: ModuleFilePath,
     urlPath: string,
@@ -73,6 +80,9 @@ export function SitemapSection({
           <div className="flex items-center gap-2">
             <Globe size={16} />
             <span>Pages</span>
+            {sectionErrorCount > 0 && (
+              <ErrorBadge count={sectionErrorCount} ownCount={0} size="sm" />
+            )}
           </div>
         </AccordionTrigger>
 

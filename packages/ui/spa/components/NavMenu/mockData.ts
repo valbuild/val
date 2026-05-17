@@ -60,6 +60,10 @@ export const mockSitemap: SitemapItem = {
           urlPath: "/blogs/blog-2",
           sourcePath:
             '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-2"' as SourcePath,
+          errors: {
+            ownCount: 2,
+            firstMessage: "Required field `title` is missing",
+          },
           children: [],
         },
         {
@@ -175,7 +179,10 @@ export const mockExplorer: ExplorerItem = {
           fullPath: "/content/settings.val.ts",
           isDirectory: false,
           children: [],
-          hasError: true,
+          errors: {
+            ownCount: 3,
+            firstMessage: "Field `siteUrl` must be a valid URL",
+          },
         },
       ],
     },
@@ -281,7 +288,13 @@ export const mockLargeExplorer: ExplorerItem = {
         fullPath: `/content/article-${i + 1}.val.ts`,
         isDirectory: false,
         children: [],
-        hasError: i === 5, // One file has an error
+        errors:
+          i === 5
+            ? {
+                ownCount: 1,
+                firstMessage: "Image alt text is required",
+              }
+            : undefined,
       })),
     },
     {
