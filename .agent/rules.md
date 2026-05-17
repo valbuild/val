@@ -193,6 +193,25 @@ pnpm format
 1. Never "fix" an issue by changing the test file
 2. Prefer to define test data in a type-safe manner using `s` and `c` from `initVal`. Search for examples.
 
+## CI
+
+CI (`.github/workflows/check.yml`) runs the following jobs on every push. Before declaring a change ready, run all of these from the repo root:
+
+```bash
+pnpm run lint                          # eslint .
+pnpm -w run format                     # prettier --check .  (use -w from subdirs)
+pnpm run -r typecheck                  # tsc --noEmit per package
+pnpm test                              # jest
+pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
+cd examples/next && pnpm run build     # next build for the example app
+```
+
+Notes:
+
+- `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
+- `examples/next` build is its own CI job and must be run separately.
+- `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
+
 ## Working with Images
 
 ### ImageSource Shape
