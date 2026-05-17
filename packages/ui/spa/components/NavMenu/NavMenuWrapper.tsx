@@ -151,10 +151,6 @@ export function NavMenuWrapper() {
   }
 
   return (
-    <NavMenu
-      data={enrichedData}
-      isLoading={false}
-      onAddPage={handleAddPage}
-    />
+    <NavMenu data={enrichedData} isLoading={false} onAddPage={handleAddPage} />
   );
 }

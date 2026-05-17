@@ -966,8 +966,7 @@ const imagesModule = c.define(
 );
 
 const imagesMockData = createMockData([imagesModule]);
-const imagesSerializedSchema =
-  imagesMockData.schemas[IMAGES_MODULE_FILE_PATH];
+const imagesSerializedSchema = imagesMockData.schemas[IMAGES_MODULE_FILE_PATH];
 
 /**
  * An image added to a media record. Shows the image thumbnail with a green

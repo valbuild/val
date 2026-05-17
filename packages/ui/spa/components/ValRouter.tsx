@@ -47,7 +47,10 @@ function findFieldWrapper(element: HTMLElement): HTMLElement {
   let el: HTMLElement | null = element.parentElement;
   while (el) {
     if (el.id === "val-content-area") break;
-    if (el.classList.contains("border") && el.classList.contains("rounded-lg")) {
+    if (
+      el.classList.contains("border") &&
+      el.classList.contains("rounded-lg")
+    ) {
       return el;
     }
     el = el.parentElement;

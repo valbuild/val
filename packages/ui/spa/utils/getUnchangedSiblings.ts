@@ -49,7 +49,11 @@ function getAllChildKeys(
       return Object.keys(schema.items);
 
     case "record":
-      if (source !== null && typeof source === "object" && !Array.isArray(source)) {
+      if (
+        source !== null &&
+        typeof source === "object" &&
+        !Array.isArray(source)
+      ) {
         return Object.keys(source);
       }
       return null;

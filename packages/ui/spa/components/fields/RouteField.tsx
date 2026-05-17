@@ -75,7 +75,10 @@ export function RouteSelector({
   });
 
   return (
-    <Popover open={readonly ? false : open} onOpenChange={readonly ? undefined : setOpen}>
+    <Popover
+      open={readonly ? false : open}
+      onOpenChange={readonly ? undefined : setOpen}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="ghost"

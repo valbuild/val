@@ -454,7 +454,10 @@ export function ImageField({
                       [
                         {
                           op: "remove",
-                          path: patchPath.concat(["metadata", "hotspot"]) as array.NonEmptyArray<string>,
+                          path: patchPath.concat([
+                            "metadata",
+                            "hotspot",
+                          ]) as array.NonEmptyArray<string>,
                         },
                       ],
                       "object",
@@ -470,8 +473,8 @@ export function ImageField({
               Hotspot
               {hotspot && (
                 <span className="ml-1 text-fg-tertiary">
-                  ({Math.round(hotspot.x * 100)}%,{" "}
-                  {Math.round(hotspot.y * 100)}%)
+                  ({Math.round(hotspot.x * 100)}%, {Math.round(hotspot.y * 100)}
+                  %)
                 </span>
               )}
             </label>

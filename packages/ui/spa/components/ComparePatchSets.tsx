@@ -202,9 +202,7 @@ type RowProps = {
   parentMediaType?: "images" | "files";
 };
 
-function collectModulePatchIds(
-  node: ChangeTreeNode,
-): PatchId[] {
+function collectModulePatchIds(node: ChangeTreeNode): PatchId[] {
   const ids: PatchId[] = [];
   const seen = new Set<string>();
   function walk(n: ChangeTreeNode) {
@@ -329,7 +327,7 @@ function ModuleGroup({
                 portalContainer={portalContainer}
                 ariaLabel="Discard all changes in this module"
               />
-          ))}
+            ))}
           {Object.keys(modulePatchesByAuthorIds).length > 0 && (
             <FieldPatchAuthorsPure
               patchesByAuthorIds={modulePatchesByAuthorIds}
@@ -432,7 +430,9 @@ function staticFileUrl(ref: string): string {
   const remoteRefRes = Internal.remote.splitRemoteRef(ref);
   const filePath =
     remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
-  return filePath.startsWith("/public") ? filePath.slice("/public".length) : filePath;
+  return filePath.startsWith("/public")
+    ? filePath.slice("/public".length)
+    : filePath;
 }
 
 function hasAnyChange(node: ChangeTreeNode): boolean {
@@ -969,7 +969,9 @@ function ChangeTypeLabel({
     );
   }
   if (changeType === "added") {
-    return <span className="text-sm text-fg-brand-primary shrink-0">Added</span>;
+    return (
+      <span className="text-sm text-fg-brand-primary shrink-0">Added</span>
+    );
   }
   if (changeType === "removed") {
     return <span className="text-sm text-fg-error shrink-0">Removed</span>;
@@ -1084,9 +1086,7 @@ function ChangeRowBody({
     );
   }
   if (changeType === "removed") {
-    return (
-      <RemovedSideContent sourcePath={sourcePath} />
-    );
+    return <RemovedSideContent sourcePath={sourcePath} />;
   }
   // moved: just show after for now
   return (
@@ -1129,8 +1129,14 @@ function MediaEntryMetadata({
     if (typeof metadata.mimeType === "string") {
       rows.push({ label: "mimeType", value: metadata.mimeType });
     }
-    if (typeof metadata.width === "number" && typeof metadata.height === "number") {
-      rows.push({ label: "dimensions", value: `${metadata.width} × ${metadata.height}` });
+    if (
+      typeof metadata.width === "number" &&
+      typeof metadata.height === "number"
+    ) {
+      rows.push({
+        label: "dimensions",
+        value: `${metadata.width} × ${metadata.height}`,
+      });
     }
   }
   if (rows.length === 0) return null;
@@ -1194,7 +1200,8 @@ function MediaEntryThumbnail({
         </div>
         {hotspot && (
           <div className="mt-1 text-xs text-fg-tertiary">
-            hotspot {Math.round(hotspot.x * 100)}%, {Math.round(hotspot.y * 100)}%
+            hotspot {Math.round(hotspot.x * 100)}%,{" "}
+            {Math.round(hotspot.y * 100)}%
           </div>
         )}
       </div>
@@ -1264,7 +1271,8 @@ function MediaEntryThumbnail({
 
 function useMediaEntryRef(sourcePath: SourcePath): string {
   return useMemo(() => {
-    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const [, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath);
     const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
     return segments[segments.length - 1] ?? "";
   }, [sourcePath]);
@@ -1326,7 +1334,11 @@ function MediaEntryDiff({
         <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0">
           <div className="flex items-start gap-4">
             {isImage && (
-              <MediaEntryThumbnail url={imageUrl} filename={filename} hotspot={afterHotspot} />
+              <MediaEntryThumbnail
+                url={imageUrl}
+                filename={filename}
+                hotspot={afterHotspot}
+              />
             )}
             <div className="flex-1 min-w-0">
               <MediaEntryAlt sourcePath={sourcePath} readonly showValidation />
@@ -1345,10 +1357,19 @@ function MediaEntryDiff({
         <DiffSide diffStyle="added">
           <div className="flex items-start gap-4">
             {isImage && (
-              <MediaEntryThumbnail url={imageUrl} filename={filename} diffStyle="added" hotspot={afterHotspot} />
+              <MediaEntryThumbnail
+                url={imageUrl}
+                filename={filename}
+                diffStyle="added"
+                hotspot={afterHotspot}
+              />
             )}
             <div className="flex-1 min-w-0">
-              <MediaEntryAlt sourcePath={sourcePath} readonly={readonly} showValidation />
+              <MediaEntryAlt
+                sourcePath={sourcePath}
+                readonly={readonly}
+                showValidation
+              />
             </div>
           </div>
           <MediaEntryMetadata metadata={afterMetadata} />
@@ -1396,10 +1417,19 @@ function MediaEntryDiff({
         <DiffSide diffStyle="added">
           <div className="flex items-start gap-4">
             {isImage && (
-              <MediaEntryThumbnail url={imageUrl} filename={filename} diffStyle="added" hotspot={afterHotspot} />
+              <MediaEntryThumbnail
+                url={imageUrl}
+                filename={filename}
+                diffStyle="added"
+                hotspot={afterHotspot}
+              />
             )}
             <div className="flex-1 min-w-0">
-              <MediaEntryAlt sourcePath={sourcePath} readonly={readonly} showValidation />
+              <MediaEntryAlt
+                sourcePath={sourcePath}
+                readonly={readonly}
+                showValidation
+              />
             </div>
           </div>
           <MediaEntryMetadata metadata={afterMetadata} />
@@ -1412,12 +1442,18 @@ function MediaEntryDiff({
     <div className="border-l-[3px] border-fg-brand-primary pl-3 py-2">
       <div className="flex items-start gap-4">
         {isImage && (
-          <MediaEntryThumbnail url={imageUrl} filename={filename} hotspot={afterHotspot} />
+          <MediaEntryThumbnail
+            url={imageUrl}
+            filename={filename}
+            hotspot={afterHotspot}
+          />
         )}
         <div className="flex-1 min-w-0">
           <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
             <div className="pr-1 min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">Before</div>
+              <div className="text-xs font-medium text-fg-tertiary mb-1">
+                Before
+              </div>
               <FieldSourceOverrideContext.Provider value={beforeOverride}>
                 <MediaEntryAlt sourcePath={sourcePath} readonly />
               </FieldSourceOverrideContext.Provider>
@@ -1429,8 +1465,14 @@ function MediaEntryDiff({
               <ArrowRight size={14} />
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
-              <MediaEntryAlt sourcePath={sourcePath} readonly={readonly} showValidation />
+              <div className="text-xs font-medium text-fg-tertiary mb-1">
+                After
+              </div>
+              <MediaEntryAlt
+                sourcePath={sourcePath}
+                readonly={readonly}
+                showValidation
+              />
             </div>
           </div>
         </div>
@@ -1440,11 +1482,7 @@ function MediaEntryDiff({
   );
 }
 
-function RemovedSideContent({
-  sourcePath,
-}: {
-  sourcePath: SourcePath;
-}) {
+function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
   const [moduleFilePath] = useMemo(
     () => Internal.splitModuleFilePathAndModulePath(sourcePath),
     [sourcePath],
@@ -1544,12 +1582,14 @@ function FieldChangeDiff({
     );
   }
 
-  {/* Side-by-side before/after.
+  {
+    /* Side-by-side before/after.
        The coloured border lives on the left column (not an outer wrapper)
        so the grid is fully symmetric and the arrow sits exactly midway
        between the two content areas.
        Both columns reserve a trailing size-6 slot (spacer left,
-       ValidationErrorLink right) so AnyField gets identical width. */}
+       ValidationErrorLink right) so AnyField gets identical width. */
+  }
   return (
     <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
       <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">

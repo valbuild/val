@@ -157,7 +157,10 @@ export function KeyOfField({
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
-        <Popover open={readonly ? false : open} onOpenChange={readonly ? undefined : setOpen}>
+        <Popover
+          open={readonly ? false : open}
+          onOpenChange={readonly ? undefined : setOpen}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="ghost"

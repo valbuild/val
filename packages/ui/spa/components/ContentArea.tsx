@@ -45,7 +45,11 @@ export function ContentArea() {
   return (
     <div className="flex flex-col h-svh bg-bg-primary">
       <ContentAreaHeader />
-      <ScrollArea viewportId="val-content-area" className="flex-1 min-h-0" orientation={isCompareView ? "both" : undefined}>
+      <ScrollArea
+        viewportId="val-content-area"
+        className="flex-1 min-h-0"
+        orientation={isCompareView ? "both" : undefined}
+      >
         {globalError !== null && (
           <>
             {globalError.type === "network-error" ? (
@@ -242,7 +246,8 @@ function CompareSummaryInHeader() {
   const mode = useValMode();
   const portalContainer = useValPortal();
 
-  const patchSets = patchSetsResult.status === "success" ? patchSetsResult.data : [];
+  const patchSets =
+    patchSetsResult.status === "success" ? patchSetsResult.data : [];
   const { trees } = usePatchSetsWorker(patchSets);
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
