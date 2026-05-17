@@ -8,19 +8,27 @@ import React, {
 } from "react";
 
 const VAL_COMPARE_ROUTE = "/val/compare";
+export const VAL_ERRORS_ROUTE = "/val/errors";
 
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
   navigate: (
-    path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
+    path:
+      | SourcePath
+      | ModuleFilePath
+      | typeof VAL_COMPARE_ROUTE
+      | typeof VAL_ERRORS_ROUTE,
     params?: {
       scrollToId?: string;
       replace?: true;
+      errorFields?: SourcePath[];
     },
   ) => void;
   currentSourcePath: SourcePath;
   isCompareView: boolean;
+  isErrorsView: boolean;
+  errorFields: SourcePath[];
 };
 const ValRouterContext = React.createContext<ValRouterContextValue>(
   new Proxy(
@@ -76,6 +84,8 @@ export function ValRouter({
   const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
   const [isCompareView, setIsCompareView] = useState(false);
+  const [isErrorsView, setIsErrorsView] = useState(false);
+  const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
@@ -84,11 +94,30 @@ export function ValRouter({
         location.pathname === VAL_COMPARE_ROUTE + "/"
       ) {
         setIsCompareView(true);
+        setIsErrorsView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      if (
+        location.pathname === VAL_ERRORS_ROUTE ||
+        location.pathname === VAL_ERRORS_ROUTE + "/"
+      ) {
+        setIsErrorsView(true);
+        setIsCompareView(false);
+        setErrorFields(
+          new URLSearchParams(location.search).getAll(
+            "error-field",
+          ) as SourcePath[],
+        );
         setSourcePath("" as SourcePath);
         setReady(true);
         return;
       }
       setIsCompareView(false);
+      setIsErrorsView(false);
+      setErrorFields([]);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
@@ -150,15 +179,37 @@ export function ValRouter({
   }, []);
   const navigate = useCallback(
     (
-      path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
-      params?: { scrollToId?: string; replace?: true },
+      path:
+        | SourcePath
+        | ModuleFilePath
+        | typeof VAL_COMPARE_ROUTE
+        | typeof VAL_ERRORS_ROUTE,
+      params?: {
+        scrollToId?: string;
+        replace?: true;
+        errorFields?: SourcePath[];
+      },
     ) => {
       const isCompare = path === VAL_COMPARE_ROUTE;
+      const isErrors = path === VAL_ERRORS_ROUTE;
+      const errorFieldsQuery =
+        isErrors && params?.errorFields && params.errorFields.length > 0
+          ? "?" +
+            params.errorFields
+              .map((p) => `error-field=${encodeURIComponent(p)}`)
+              .join("&")
+          : "";
       const navigateTo = isCompare
         ? VAL_COMPARE_ROUTE
-        : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+        : isErrors
+          ? VAL_ERRORS_ROUTE + errorFieldsQuery
+          : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setIsCompareView(isCompare);
-      setSourcePath(isCompare ? ("" as SourcePath) : (path as SourcePath));
+      setIsErrorsView(isErrors);
+      setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
+      setSourcePath(
+        isCompare || isErrors ? ("" as SourcePath) : (path as SourcePath),
+      );
       if (!overlay) {
         const shadowRoot =
           document.getElementById("val-shadow-root")?.shadowRoot;
@@ -204,6 +255,8 @@ export function ValRouter({
         navigate,
         ready,
         isCompareView,
+        isErrorsView,
+        errorFields,
       }}
     >
       {children}
@@ -212,13 +265,21 @@ export function ValRouter({
 }
 
 export function useNavigation() {
-  const { navigate, currentSourcePath, ready, isCompareView } =
-    useContext(ValRouterContext);
+  const {
+    navigate,
+    currentSourcePath,
+    ready,
+    isCompareView,
+    isErrorsView,
+    errorFields,
+  } = useContext(ValRouterContext);
   return {
     navigate,
     currentSourcePath,
     ready,
     isCompareView,
+    isErrorsView,
+    errorFields,
   };
 }
 

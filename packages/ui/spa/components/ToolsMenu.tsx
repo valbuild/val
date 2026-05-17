@@ -16,10 +16,16 @@ import {
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
   PatchErrorsDisplay,
-  ValidationErrorsDisplay,
   TransientErrorsDisplay,
 } from "./DraftChanges";
-import { GitCompareArrows, Globe, Loader2, PanelsTopLeft } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  GitCompareArrows,
+  Globe,
+  Loader2,
+  PanelsTopLeft,
+} from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
 import { Fragment, useMemo, useRef, useState } from "react";
@@ -29,7 +35,7 @@ import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { useNavigation } from "./ValRouter";
+import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
 import {
@@ -46,17 +52,23 @@ export function ToolsMenu() {
   const mode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
-  const [errorModules, sumValidationErrors] = useMemo(() => {
+  const [errorModules, sumValidationErrors, errorPaths] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
+    const errorPaths: SourcePath[] = [];
     let sumValidationErrors = 0;
     for (const sourcePath in validationErrors) {
       const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
         sourcePath as SourcePath,
       );
       modulesWithErrors.add(moduleFilePath);
+      errorPaths.push(sourcePath as SourcePath);
       sumValidationErrors += 1;
     }
-    return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
+    return [
+      Array.from(modulesWithErrors).sort(),
+      sumValidationErrors,
+      errorPaths,
+    ];
   }, [validationErrors]);
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
@@ -131,8 +143,11 @@ export function ToolsMenu() {
               </div>
             )}
           <PatchErrorsDisplay />
-          <ValidationErrorsDisplay />
           <TransientErrorsDisplay />
+          <ValidationErrorsButton
+            sumValidationErrors={sumValidationErrors}
+            errorPaths={errorPaths}
+          />
           {loadingStatus !== "not-asked" && (
             <CompareButton
               pendingChanges={pendingChanges}
@@ -230,6 +245,50 @@ function CompareButton({
         <span>Compare</span>
         {pendingChanges > 0 && <span>{pendingChanges}</span>}
         {isLoading && <Loader2 size={14} className="animate-spin" />}
+      </Button>
+    </div>
+  );
+}
+
+function ValidationErrorsButton({
+  sumValidationErrors,
+  errorPaths,
+}: {
+  sumValidationErrors: number;
+  errorPaths: SourcePath[];
+}) {
+  const { navigate } = useNavigation();
+  if (sumValidationErrors === 0) {
+    return (
+      <div className="flex justify-center px-4 pt-4">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex items-center text-fg-tertiary opacity-60"
+              aria-label="No validation errors"
+            >
+              <CheckCircle2 size={14} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>No validation errors</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+  return (
+    <div className="p-4">
+      <Button
+        variant="destructive"
+        className="flex gap-2 items-center w-full justify-center"
+        onClick={() =>
+          navigate(VAL_ERRORS_ROUTE, { errorFields: errorPaths })
+        }
+      >
+        <AlertTriangle size={14} />
+        <span>Validation errors</span>
+        <span>{sumValidationErrors}</span>
       </Button>
     </div>
   );
