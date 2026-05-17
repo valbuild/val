@@ -6,6 +6,7 @@ import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
 import { DateSchema } from "./date";
+import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageMetadata, ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
@@ -158,6 +159,8 @@ export function deserializeSchema(
       );
     case "date":
       return new DateSchema(serialized.options, serialized.opt);
+    case "dateTime":
+      return new DateTimeSchema(serialized.options, serialized.opt);
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;

@@ -14,6 +14,7 @@ import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
+import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
 import {
   ValidationError,
@@ -40,6 +41,7 @@ export type SerializedSchema =
   | SerializedKeyOfSchema
   | SerializedFileSchema
   | SerializedDateSchema
+  | SerializedDateTimeSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 

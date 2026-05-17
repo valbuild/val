@@ -1,6 +1,33 @@
 import { SerializedSchema, Json } from "@valbuild/core";
 import { format } from "date-fns";
 
+function clampDateString(
+  value: string,
+  options: { from?: string; to?: string } | undefined,
+): string {
+  if (options?.to && value > options.to) return options.to;
+  if (options?.from && value < options.from) return options.from;
+  return value;
+}
+
+function clampDateTimeString(
+  value: string,
+  options: { from?: string; to?: string } | undefined,
+): string {
+  if (!options) return value;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return value;
+  if (options.to) {
+    const toMs = Date.parse(options.to);
+    if (!Number.isNaN(toMs) && ms > toMs) return options.to;
+  }
+  if (options.from) {
+    const fromMs = Date.parse(options.from);
+    if (!Number.isNaN(fromMs) && ms < fromMs) return options.from;
+  }
+  return value;
+}
+
 export function emptyOf(schema: SerializedSchema): Json {
   if (schema.type === "object") {
     return Object.fromEntries(
@@ -38,7 +65,9 @@ export function emptyOf(schema: SerializedSchema): Json {
     }
     return schema.key.value;
   } else if (schema.type === "date") {
-    return format(new Date(), "yyyy-MM-dd");
+    return clampDateString(format(new Date(), "yyyy-MM-dd"), schema.options);
+  } else if (schema.type === "dateTime") {
+    return clampDateTimeString(new Date().toISOString(), schema.options);
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));

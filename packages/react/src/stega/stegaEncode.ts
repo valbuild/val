@@ -17,6 +17,7 @@ import {
   RichTextOptions,
   ImageSource,
   SerializedDateSchema,
+  SerializedDateTimeSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -365,6 +366,9 @@ export function stegaEncode(
     if (recOpts?.schema && isDateSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
+    if (recOpts?.schema && isDateTimeSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
       // Handle tagged union
       const taggedSchema = resolveTaggedUnionSchema(
@@ -543,6 +547,12 @@ function isDateSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedDateSchema {
   return schema?.type === "date";
+}
+
+function isDateTimeSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedDateTimeSchema {
+  return schema?.type === "dateTime";
 }
 
 function unknownSchema(schema: unknown) {
