@@ -40,10 +40,7 @@ export function ExternalButton({
         External sites
       </span>
       {external.hasError && (
-        <AlertCircle
-          size={14}
-          className="shrink-0 text-fg-error-primary"
-        />
+        <AlertCircle size={14} className="shrink-0 text-fg-error-primary" />
       )}
       <ChevronRight size={16} className="ml-auto" />
     </button>

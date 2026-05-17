@@ -119,7 +119,9 @@ export function InlineField({
               path={path}
               isNullable={isNullable}
               loadingStatus={effectiveReadonly ? "loading" : loadingStatus}
-              source={source as ShallowSource[keyof ShallowSource] | undefined | null}
+              source={
+                source as ShallowSource[keyof ShallowSource] | undefined | null
+              }
             />
           )}
           {typeof label === "string" && <Label>{label}</Label>}

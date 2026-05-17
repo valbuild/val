@@ -56,8 +56,7 @@ export function SitemapItemNode({
     return check(item.children);
   }, [item.children]);
 
-  const showErrorDot =
-    item.hasError || (!isOpen && hasDescendantError);
+  const showErrorDot = item.hasError || (!isOpen && hasDescendantError);
 
   // Scroll into view when this item becomes the exact active item
   useEffect(() => {
@@ -142,10 +141,8 @@ export function SitemapItemNode({
           <span
             className={cn("truncate", {
               "font-medium": isActive,
-              "text-fg-primary":
-                (isNavigable || isFolder) && !showErrorDot,
-              "text-fg-secondary":
-                !isNavigable && !isFolder && !showErrorDot,
+              "text-fg-primary": (isNavigable || isFolder) && !showErrorDot,
+              "text-fg-secondary": !isNavigable && !isFolder && !showErrorDot,
               "text-fg-error-primary": showErrorDot,
             })}
           >
@@ -154,10 +151,7 @@ export function SitemapItemNode({
         </button>
 
         {showErrorDot && (
-          <AlertCircle
-            size={14}
-            className="shrink-0 text-fg-error-primary"
-          />
+          <AlertCircle size={14} className="shrink-0 text-fg-error-primary" />
         )}
 
         {item.canAddChild &&

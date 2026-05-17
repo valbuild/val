@@ -570,9 +570,13 @@ function useSchemaAtPathInternal(
           status: "resolved-schema-not-found" as const,
         };
       }
-      const resolvedModulePath = resolvedSchemaAtPathRes.path as unknown as ModulePath;
+      const resolvedModulePath =
+        resolvedSchemaAtPathRes.path as unknown as ModulePath;
       const resolvedSourcePath = resolvedModulePath
-        ? Internal.joinModuleFilePathAndModulePath(moduleFilePath, resolvedModulePath)
+        ? Internal.joinModuleFilePathAndModulePath(
+            moduleFilePath,
+            resolvedModulePath,
+          )
         : (moduleFilePath as unknown as SourcePath);
       return {
         status: "success" as const,
@@ -623,7 +627,9 @@ function useSchemaAtPathInternal(
   return resolvedSchemaAtPathRes;
 }
 
-export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath): SchemaAtPathResult {
+export function useSchemaAtPath(
+  sourcePath: SourcePath | ModuleFilePath,
+): SchemaAtPathResult {
   const res = useSchemaAtPathInternal(sourcePath);
   if (res.status === "success") {
     return { status: "success", data: res.data };
@@ -638,7 +644,9 @@ export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath): Schema
  * (e.g. `metadata.hotspot`), the resolved path is truncated to the
  * schema boundary.
  */
-export function useSchemaWithResolvedPath(sourcePath: SourcePath | ModuleFilePath): SchemaWithResolvedPathResult {
+export function useSchemaWithResolvedPath(
+  sourcePath: SourcePath | ModuleFilePath,
+): SchemaWithResolvedPathResult {
   return useSchemaAtPathInternal(sourcePath);
 }
 
@@ -1091,7 +1099,14 @@ export function useShallowSourceAtPath<
       status: "error",
       error: sourcesRes.message || "Unknown error",
     };
-  }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type, sourceOverride]);
+  }, [
+    sourcesRes,
+    modulePath,
+    moduleFilePath,
+    initializedAt,
+    type,
+    sourceOverride,
+  ]);
   return source;
 }
 
@@ -1137,10 +1152,7 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
     if (initializedAt === null || initializedAt.data === null) {
       return { status: "loading" };
     }
-    if (
-      sourceOverride &&
-      sourceOverride.moduleFilePath === moduleFilePath
-    ) {
+    if (sourceOverride && sourceOverride.moduleFilePath === moduleFilePath) {
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
     }
     if (sourceSnapshot && sourceSnapshot.status === "success") {

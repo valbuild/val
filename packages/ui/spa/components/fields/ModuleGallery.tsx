@@ -132,7 +132,10 @@ export function ModuleGallery({
           "y" in (meta.hotspot as Record<string, unknown>) &&
           typeof (meta.hotspot as Record<string, unknown>).x === "number" &&
           typeof (meta.hotspot as Record<string, unknown>).y === "number"
-            ? { x: (meta.hotspot as { x: number }).x, y: (meta.hotspot as { y: number }).y }
+            ? {
+                x: (meta.hotspot as { x: number }).x,
+                y: (meta.hotspot as { y: number }).y,
+              }
             : undefined;
         const itemPath = sourcePathOfItem(path, ref);
         const genericValidationErrors = [];
