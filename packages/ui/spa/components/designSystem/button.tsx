@@ -29,6 +29,11 @@ const buttonVariants = cva(
           "border border-bg-error-primary",
           "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary aria-disabled:text-fg-error-primary",
         ),
+        warning: cn(
+          "cursor-pointer",
+          "border border-bg-warning-secondary",
+          "bg-bg-warning-secondary text-fg-warning-secondary hover:bg-bg-warning-secondary-hover disabled:text-fg-warning-secondary aria-disabled:text-fg-warning-secondary",
+        ),
         outline: cn(
           "cursor-pointer",
           "border border-transparent",

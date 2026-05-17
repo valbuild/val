@@ -73,7 +73,7 @@ export function Field({
         "px-4 pt-6 pb-4 rounded-lg": !compact,
         "px-3 pt-2 pb-2 rounded-md": compact,
         "bg-bg-tertiary": !transparent && !compact,
-        "border-bg-error-secondary":
+        "border-bg-warning-secondary":
           !hasOverrides && validationErrors.length > 0,
       })}
     >
@@ -140,7 +140,9 @@ export function Field({
               path={path}
               isNullable={isNullable}
               loadingStatus={effectiveReadonly ? "loading" : loadingStatus}
-              source={source as ShallowSource[keyof ShallowSource] | undefined | null}
+              source={
+                source as ShallowSource[keyof ShallowSource] | undefined | null
+              }
             />
           )}
           {typeof label === "string" && <Label>{label}</Label>}
@@ -194,7 +196,7 @@ export function Field({
         </Accordion>
       )}
       {!hasOverrides && validationErrors.length > 0 && (
-        <div className={compact ? "pb-4" : "pb-8"}>
+        <div className={compact ? "pb-0" : "pb-2"}>
           <FieldValidationError validationErrors={validationErrors} />
         </div>
       )}

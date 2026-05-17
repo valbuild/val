@@ -14,10 +14,7 @@ import {
   useValConfig,
 } from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
-import {
-  PatchErrorsDisplay,
-  TransientErrorsDisplay,
-} from "./DraftChanges";
+import { PatchErrorsDisplay, TransientErrorsDisplay } from "./DraftChanges";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -280,11 +277,9 @@ function ValidationErrorsButton({
   return (
     <div className="p-4">
       <Button
-        variant="destructive"
+        variant="warning"
         className="flex gap-2 items-center w-full justify-center"
-        onClick={() =>
-          navigate(VAL_ERRORS_ROUTE, { errorFields: errorPaths })
-        }
+        onClick={() => navigate(VAL_ERRORS_ROUTE, { errorFields: errorPaths })}
       >
         <AlertTriangle size={14} />
         <span>Validation errors</span>

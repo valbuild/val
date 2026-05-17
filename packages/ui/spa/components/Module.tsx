@@ -158,7 +158,7 @@ export function Module({
         )}
         <div
           className={cn({
-            "border rounded-lg border-bg-error-secondary p-4":
+            "border rounded-lg border-bg-warning-secondary p-4":
               keyErrors.length > 0,
           })}
         >
@@ -207,7 +207,7 @@ export function Module({
         )}
         <div
           className={cn({
-            "border rounded-lg border-bg-error-secondary p-4 mt-4":
+            "border rounded-lg border-bg-warning-secondary p-4 mt-4":
               nonKeyErrors.length > 0,
           })}
         >

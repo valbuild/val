@@ -63,7 +63,7 @@ export function InlineField({
   return (
     <div
       className={classNames("px-3 pt-4 pb-3 border rounded-md", {
-        "border-bg-error-secondary":
+        "border-bg-warning-secondary":
           !hasOverrides && validationErrors.length > 0,
       })}
     >
@@ -119,7 +119,9 @@ export function InlineField({
               path={path}
               isNullable={isNullable}
               loadingStatus={effectiveReadonly ? "loading" : loadingStatus}
-              source={source as ShallowSource[keyof ShallowSource] | undefined | null}
+              source={
+                source as ShallowSource[keyof ShallowSource] | undefined | null
+              }
             />
           )}
           {typeof label === "string" && <Label>{label}</Label>}
