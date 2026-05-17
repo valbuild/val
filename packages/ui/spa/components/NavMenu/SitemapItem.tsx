@@ -11,6 +11,8 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import { AvailableRoute, NewPageForm } from "./NewPageForm";
+import { ErrorBadge } from "./ErrorBadge";
+import { totalSitemapErrorCount } from "./errorAggregation";
 
 export type SitemapItemProps = {
   item: SitemapItemType;
@@ -121,6 +123,12 @@ export function SitemapItemNode({
     }
   };
 
+  // Errors for this row + everything beneath it. The data layer attaches
+  // `errors.ownCount`; the descendant sum is recomputed each render but cached
+  // by item identity (stable across renders from `useNavMenuData`).
+  const ownErrorCount = item.errors?.ownCount ?? 0;
+  const totalErrorCount = useMemo(() => totalSitemapErrorCount(item), [item]);
+
   const rowRoute: AvailableRoute | null = useMemo(() => {
     if (!item.canAddChild || !item.moduleFilePath || !item.routePattern) {
       return null;
@@ -198,6 +206,14 @@ export function SitemapItemNode({
             <DynamicSegmentPill part={nextDynamicSegment} />
           )}
         </button>
+
+        {totalErrorCount > 0 && (
+          <ErrorBadge
+            count={totalErrorCount}
+            ownCount={ownErrorCount}
+            firstMessage={item.errors?.firstMessage}
+          />
+        )}
 
         {rowRoute && (showActions || addPopoverOpen) && (
           <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>

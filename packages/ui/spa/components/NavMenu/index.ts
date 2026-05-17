@@ -7,5 +7,7 @@ export * from "./ExternalButton";
 export * from "./SitemapItem";
 export * from "./ExplorerItem";
 export * from "./NewPageForm";
+export * from "./ErrorBadge";
+export * from "./errorAggregation";
 export * from "./useNavMenuData";
 export * from "./mockData";

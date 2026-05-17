@@ -181,6 +181,20 @@ export const MultiSegmentRoute: Story = {
   name: "Multi-segment route (/shop/[category]/[product])",
 };
 
+export const WithValidationErrors: Story = {
+  render: () => (
+    <InteractiveSitemapSection
+      sitemap={mockSitemap}
+      currentPath="/app/about/page.val.ts"
+      onNavigate={(path) => console.log("Navigate to:", path)}
+      onAddPage={(moduleFilePath, urlPath) =>
+        console.log("Add page:", { moduleFilePath, urlPath })
+      }
+    />
+  ),
+  name: "With validation errors (hover badges for tooltip)",
+};
+
 export const LargeSitemap: Story = {
   render: () => (
     <InteractiveSitemapSection
