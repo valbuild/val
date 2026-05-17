@@ -16,6 +16,23 @@ const blogsRoutePattern: RoutePattern[] = [
 ];
 
 /**
+ * Mock route pattern for /docs/[...slug] — a catch-all route.
+ */
+const docsRoutePattern: RoutePattern[] = [
+  { type: "literal", name: "docs" },
+  { type: "array-param", paramName: "slug", optional: false },
+];
+
+/**
+ * Mock route pattern for /shop/[category]/[product] — multi dynamic segment.
+ */
+const shopRoutePattern: RoutePattern[] = [
+  { type: "literal", name: "shop" },
+  { type: "string-param", paramName: "category", optional: false },
+  { type: "string-param", paramName: "product", optional: false },
+];
+
+/**
  * Mock sitemap data for stories.
  */
 export const mockSitemap: SitemapItem = {
@@ -43,6 +60,10 @@ export const mockSitemap: SitemapItem = {
           urlPath: "/blogs/blog-2",
           sourcePath:
             '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-2"' as SourcePath,
+          errors: {
+            ownCount: 2,
+            firstMessage: "Required field `title` is missing",
+          },
           children: [],
         },
         {
@@ -78,6 +99,59 @@ export const mockSitemap: SitemapItem = {
         },
       ],
     },
+    {
+      name: "docs",
+      urlPath: "/docs",
+      canAddChild: true,
+      moduleFilePath: "/app/docs/[...slug]/page.val.ts" as ModuleFilePath,
+      routePattern: docsRoutePattern,
+      existingKeys: ["/guides/intro", "/api/auth"],
+      children: [
+        {
+          name: "guides/intro",
+          urlPath: "/docs/guides/intro",
+          sourcePath:
+            '/app/docs/[...slug]/page.val.ts?p="/docs/guides/intro"' as SourcePath,
+          children: [],
+        },
+        {
+          name: "api/auth",
+          urlPath: "/docs/api/auth",
+          sourcePath:
+            '/app/docs/[...slug]/page.val.ts?p="/docs/api/auth"' as SourcePath,
+          children: [],
+        },
+      ],
+    },
+    {
+      name: "shop",
+      urlPath: "/shop",
+      canAddChild: true,
+      moduleFilePath:
+        "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+      routePattern: shopRoutePattern,
+      existingKeys: ["/electronics", "/clothing"],
+      children: [
+        {
+          name: "electronics",
+          urlPath: "/shop/electronics",
+          canAddChild: true,
+          moduleFilePath:
+            "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+          routePattern: shopRoutePattern,
+          existingKeys: ["/phone"],
+          children: [
+            {
+              name: "phone",
+              urlPath: "/shop/electronics/phone",
+              sourcePath:
+                '/app/shop/[category]/[product]/page.val.ts?p="/shop/electronics/phone"' as SourcePath,
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 
@@ -105,7 +179,10 @@ export const mockExplorer: ExplorerItem = {
           fullPath: "/content/settings.val.ts",
           isDirectory: false,
           children: [],
-          hasError: true,
+          errors: {
+            ownCount: 3,
+            firstMessage: "Field `siteUrl` must be a valid URL",
+          },
         },
       ],
     },
@@ -211,7 +288,13 @@ export const mockLargeExplorer: ExplorerItem = {
         fullPath: `/content/article-${i + 1}.val.ts`,
         isDirectory: false,
         children: [],
-        hasError: i === 5, // One file has an error
+        errors:
+          i === 5
+            ? {
+                ownCount: 1,
+                firstMessage: "Image alt text is required",
+              }
+            : undefined,
       })),
     },
     {
