@@ -22,7 +22,6 @@ export function StringField({
   path,
   autoFocus,
   readonly,
-  compact,
 }: {
   path: SourcePath;
   autoFocus?: boolean;

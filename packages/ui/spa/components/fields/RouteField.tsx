@@ -136,7 +136,6 @@ export function RouteSelector({
 export function RouteField({
   path,
   readonly,
-  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
