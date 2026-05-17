@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { ValClient } from "@valbuild/shared/internal";
 
 // --- Shared types (must match server-side definitions) ---
 
@@ -99,11 +100,17 @@ export type AIServerMessage = z.infer<typeof AIServerMessage>;
 
 // --- Client → Server message types ---
 
+export const AIMessageContentBlock = z.union([
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image_key"), key: z.string() }),
+]);
+export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
+
 export const AIPromptMessage = z.object({
   type: z.literal("ai_prompt"),
   id: z.string(),
-  sessionId: z.string().uuid().optional(),
-  message: z.string(),
+  sessionId: z.uuid().optional(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
   agents: z.array(AIAgentDefinition).min(1),
@@ -182,36 +189,49 @@ export function getRecentSession(sessions: AISession[]): AISession | null {
 
 const RECONNECT_DELAY = 3000;
 
-export function useAIWebSocket(enabled: boolean): {
+export function useAIWebSocket(
+  enabled: boolean,
+  client: ValClient,
+): {
   subscribeToMessages: (handler: AIMessageHandler) => () => void;
   send: (message: AIClientMessage) => boolean;
   isConnected: boolean;
+  authError: boolean;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [authError, setAuthError] = useState(false);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const clientRef = useRef(client);
+  clientRef.current = client;
 
   const connect = useCallback(async () => {
     if (!enabledRef.current) return;
 
     try {
-      const res = await fetch("/api/val/ai/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await clientRef.current("/ai/initialize", "POST", {});
 
-      if (!res.ok) {
-        console.warn("AI WebSocket initialize failed:", res.status);
-        scheduleReconnect();
+      if (res.status === 401) {
+        setAuthError(true);
         return;
       }
 
-      const data = (await res.json()) as { nonce: string; wsUrl: string };
+      if (res.status !== 200) {
+        console.warn(
+          "AI WebSocket initialize failed:",
+          res.status,
+          res.json.message,
+        );
+        scheduleReconnect();
+        return;
+      }
+      setAuthError(false);
+
       const ws = new WebSocket(
-        data.wsUrl + "?nonce=" + encodeURIComponent(data.nonce),
+        res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
       );
 
       ws.onopen = () => {
@@ -304,5 +324,5 @@ export function useAIWebSocket(enabled: boolean): {
     return false;
   }, []);
 
-  return { subscribeToMessages, send, isConnected };
+  return { subscribeToMessages, send, isConnected, authError };
 }

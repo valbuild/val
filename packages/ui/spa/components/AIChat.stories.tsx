@@ -156,6 +156,8 @@ function AutoStartStreamingDemo() {
     <AIChat
       ref={chatRef}
       isConnected={true}
+      authError={false}
+      mode="http"
       initialMessages={[
         {
           id: "auto-stream-user-1",
@@ -329,7 +331,15 @@ function InteractiveDemo() {
     return true;
   };
 
-  return <AIChat ref={chatRef} onSendMessage={handleSend} isConnected={true} />;
+  return (
+    <AIChat
+      ref={chatRef}
+      onSendMessage={handleSend}
+      isConnected={true}
+      authError={false}
+      mode="http"
+    />
+  );
 }
 
 export const Interactive: Story = {
