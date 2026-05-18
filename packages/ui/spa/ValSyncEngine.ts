@@ -71,10 +71,13 @@ export class ValSyncEngine {
    */
   private savedButNotYetGlobalServerSidePatchIds: PatchId[];
   /**
-   * Maps each creator SourcePath to the ordered list of PatchIds it produced.
-   * Only populated when pathOfCreator is provided (i.e. user field edits, not AI).
+   * Maps each per-instance creator id (e.g. `useFieldCreatorId()`) to the
+   * ordered list of PatchIds it produced. Only populated when creatorId is
+   * provided (i.e. user field edits, not AI). Instance-scoped — never path —
+   * so a re-mounted field at the same path doesn't inherit the previous
+   * instance's "is editing" status.
    */
-  private patchIdsByCreatorPath: Map<SourcePath, PatchId[]>;
+  private patchIdsByCreatorId: Map<string, PatchId[]>;
   /**
    * Maps each ModuleFilePath to the set of PatchIds that belong to it.
    * Incrementally maintained alongside patchDataByPatchId.
@@ -193,7 +196,7 @@ export class ValSyncEngine {
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
-    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByCreatorId = new Map();
     this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
@@ -311,7 +314,7 @@ export class ValSyncEngine {
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
-    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByCreatorId = new Map();
     this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
@@ -689,16 +692,11 @@ export class ValSyncEngine {
         message?: string;
       }
   > | null;
-  getSourceSnapshot(
-    sourcePath: ModuleFilePath,
-    creatorSourcePath?: SourcePath,
-  ) {
+  getSourceSnapshot(sourcePath: ModuleFilePath, creatorId?: string) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    const cacheKey = creatorSourcePath
-      ? `${sourcePath}\0${creatorSourcePath}`
-      : sourcePath;
+    const cacheKey = creatorId ? `${sourcePath}\0${creatorId}` : sourcePath;
     if (this.cachedSourceSnapshots[cacheKey] === undefined) {
       const moduleData =
         this.optimisticClientSources[sourcePath] !== undefined
@@ -721,7 +719,7 @@ export class ValSyncEngine {
         this.cachedSourceSnapshots[cacheKey] = {
           status: "success",
           data: deepClone(moduleData),
-          optimistic: this.isEditedByComponent(sourcePath, creatorSourcePath),
+          optimistic: this.isEditedByComponent(sourcePath, creatorId),
         };
       }
     }
@@ -1240,7 +1238,7 @@ export class ValSyncEngine {
     patchId: PatchId,
     sessionId: string | null,
     now: number,
-    pathOfCreator?: SourcePath,
+    creatorId?: string,
     parentRefOverride?: ParentRef,
   ): Promise<
     | {
@@ -1267,8 +1265,8 @@ export class ValSyncEngine {
 
     const { moduleFilePath, patch: addedPatch } = res;
     this.addToPatchIdsByModule(moduleFilePath, patchId);
-    if (pathOfCreator) {
-      this.addToCreatorPath(pathOfCreator, patchId);
+    if (creatorId) {
+      this.addToCreatorId(creatorId, patchId);
     }
     const addOp: AddPatchOp = {
       type: "add-patches",
@@ -1319,7 +1317,7 @@ export class ValSyncEngine {
     type: SerializedSchema["type"],
     patch: Patch,
     now: number,
-    pathOfCreator?: SourcePath,
+    creatorId?: string,
   ):
     | {
         status: "patch-merged";
@@ -1398,8 +1396,8 @@ export class ValSyncEngine {
         this.invalidateAllPatches();
         this.addToPatchIdsByModule(moduleFilePath, patchId);
         this.patchSetInsert(moduleFilePath, patchId, patch, now);
-        if (pathOfCreator) {
-          this.addToCreatorPath(pathOfCreator, patchId);
+        if (creatorId) {
+          this.addToCreatorId(creatorId, patchId);
         }
 
         this.invalidateSyncStatus(sourcePath);
@@ -1433,8 +1431,8 @@ export class ValSyncEngine {
       this.invalidateAllPatches();
       this.addToPatchIdsByModule(moduleFilePath, patchId);
       this.patchSetInsert(moduleFilePath, patchId, patch, now);
-      if (pathOfCreator) {
-        this.addToCreatorPath(pathOfCreator, patchId);
+      if (creatorId) {
+        this.addToCreatorId(creatorId, patchId);
       }
 
       this.invalidateSyncStatus(sourcePath);
@@ -1453,11 +1451,11 @@ export class ValSyncEngine {
     return patchId;
   }
 
-  private addToCreatorPath(creatorPath: SourcePath, patchId: PatchId) {
-    let arr = this.patchIdsByCreatorPath.get(creatorPath);
+  private addToCreatorId(creatorId: string, patchId: PatchId) {
+    let arr = this.patchIdsByCreatorId.get(creatorId);
     if (!arr) {
       arr = [];
-      this.patchIdsByCreatorPath.set(creatorPath, arr);
+      this.patchIdsByCreatorId.set(creatorId, arr);
     }
     arr.push(patchId);
   }
@@ -1497,11 +1495,11 @@ export class ValSyncEngine {
 
   private isEditedByComponent(
     moduleFilePath: ModuleFilePath,
-    creatorSourcePath?: SourcePath,
+    creatorId?: string,
   ): boolean {
-    if (!creatorSourcePath) return false;
+    if (!creatorId) return false;
     this.patchIdsByModuleFilePath.get(moduleFilePath);
-    const creatorPatchIds = this.patchIdsByCreatorPath.get(creatorSourcePath);
+    const creatorPatchIds = this.patchIdsByCreatorId.get(creatorId);
     if (!creatorPatchIds) {
       return false;
     }
@@ -2610,7 +2608,7 @@ export class ValSyncEngine {
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
         this.savedButNotYetGlobalServerSidePatchIds = [];
-        this.patchIdsByCreatorPath = new Map();
+        this.patchIdsByCreatorId = new Map();
         this.patchIdsByModuleFilePath = new Map();
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();

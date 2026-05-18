@@ -22,6 +22,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useFieldCreatorId,
   useSchemas,
   useFilePatchIds,
 } from "../ValFieldProvider";
@@ -121,12 +122,13 @@ export function FileField({
   compact?: boolean;
 }) {
   const type = "file";
+  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const remoteFiles = useRemoteFiles();
   const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const [showAsVideo, setShowAsVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function FileField({
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path);
+  } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,

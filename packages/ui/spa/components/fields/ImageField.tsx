@@ -14,6 +14,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useFieldCreatorId,
   useValConfig,
   useSchemas,
   useFilePatchIds,
@@ -48,12 +49,13 @@ export function ImageField({
   hideUpload?: boolean;
 }) {
   const type = "image";
+  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
@@ -63,7 +65,7 @@ export function ImageField({
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path);
+  } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
   const filePatchIds = useFilePatchIds();
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
