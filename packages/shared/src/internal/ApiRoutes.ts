@@ -852,7 +852,7 @@ export const Api = {
               z.object({
                 render: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
-                baseSource: z.any().optional(), // pre-patch source for compare view; server-side population is a follow-up
+                baseSource: z.any().optional(), // pre-patch source for compare view; set only when the module has pending patches
                 patches: z
                   .object({
                     applied: z.array(PatchId),
