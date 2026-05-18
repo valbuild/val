@@ -368,7 +368,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     const getImageAccept = () => imageAcceptRef.current;
     const getUploadProgress = () => uploadProgressRef.current;
 
-    if (features.fixedToolbar && !readOnly) {
+    if (features.fixedToolbar) {
       plugins.push(
         createFixedToolbarPlugin(schema, {
           getMount: () => fixedToolbarMountRef.current,
@@ -384,6 +384,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
           linkHelper,
           styleConfig,
           features,
+          readOnly,
         }),
       );
     }
@@ -569,7 +570,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     reset,
   ]);
 
-  const showFixedToolbar = features.fixedToolbar && !readOnly;
+  const showFixedToolbar = features.fixedToolbar;
 
   const applyLink = useCallback((href: string | null) => {
     const view = viewRef.current;

@@ -17,6 +17,7 @@ import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
+  useFieldCreatorId,
   useSchemaAtPath,
   useSchemas,
   useShallowSourceAtPath,
@@ -38,17 +39,21 @@ const DEBOUNCE_MS = 400;
 
 export function RichTextField({
   path,
+  readonly,
 }: {
   path: SourcePath;
   autoFocus?: boolean; // TODO: implement autoFocus
+  readonly?: boolean;
+  compact?: boolean; // TODO: implement compact
 }) {
   const type = "richtext";
+  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
@@ -68,7 +73,7 @@ export function RichTextField({
     addPatch,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path);
+  } = useAddPatch(path, creatorId);
 
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
@@ -366,7 +371,7 @@ export function RichTextField({
         ref={editorRef}
         features={features}
         linkCatalog={linkCatalog}
-        readOnly={disabledRef.current}
+        readOnly={readonly || disabledRef.current}
         onDirty={handleDirty}
         imageModulePath={imageModulePath}
         onImageUpload={onImageUpload}

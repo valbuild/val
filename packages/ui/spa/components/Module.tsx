@@ -189,6 +189,7 @@ export function Module({
                   <FieldPatchAuthors
                     patchesByAuthorIds={patchesByAuthorIds}
                     profilesByAuthorIds={profilesByAuthorIds}
+                    sourcePath={path}
                   />
                 )}
                 <ArrayAndRecordTools path={path} variant={"module"} />

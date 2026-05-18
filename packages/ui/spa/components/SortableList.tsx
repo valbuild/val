@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   MouseSensor,
@@ -34,10 +35,108 @@ import {
 import { cn } from "./designSystem/cn";
 import { FieldValidationError } from "./FieldValidationError";
 
+export function SortableContainer({
+  source,
+  disabled,
+  onMove,
+  renderItem,
+  className,
+}: {
+  source: SourcePath[];
+  disabled?: boolean;
+  onMove: (from: number, to: number) => void;
+  renderItem: (item: {
+    path: SourcePath;
+    id: number;
+    index: number;
+  }) => React.ReactNode;
+  className?: string;
+}) {
+  const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
+  useEffect(() => {
+    const nextItems: {
+      path: SourcePath;
+      id: number;
+    }[] = [];
+    let id = 1; // NB: starts 1 - 0 doesn't work with DndKit (???) plus we want to show 1-based index
+    for (const path of source) {
+      nextItems.push({ path: path, id });
+      id++;
+    }
+    setItems(nextItems);
+  }, [source]);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor),
+    useSensor(TouchSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const activeItem =
+    activeId !== null ? items.find((item) => item.id === activeId) : undefined;
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (active?.id !== over?.id) {
+        const oldIndex = items.findIndex(
+          (item) => item.id === Number(active?.id),
+        );
+        const newIndex = items.findIndex(
+          (item) => item.id === Number(over?.id),
+        );
+        setItems((prev) => {
+          return arrayMove(prev, oldIndex, newIndex);
+        });
+        onMove(oldIndex, newIndex);
+      }
+      setActiveId(null);
+    },
+    [items],
+  );
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={(event) => setActiveId(Number(event.active.id))}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      <SortableContext
+        items={items}
+        strategy={verticalListSortingStrategy}
+        disabled={disabled}
+      >
+        <div className={className ?? "flex flex-col gap-y-4 w-full"}>
+          {items.map(({ path, id }, index) => (
+            <div
+              key={id}
+              style={{ opacity: id === activeId ? 0.3 : undefined }}
+            >
+              {renderItem({ path, id, index })}
+            </div>
+          ))}
+        </div>
+      </SortableContext>
+      <DragOverlay>
+        {activeItem
+          ? renderItem({
+              path: activeItem.path,
+              id: activeItem.id,
+              index: items.indexOf(activeItem),
+            })
+          : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
 export function SortableList({
   source,
   render,
-  path,
   schema,
   disabled,
   onClick,
@@ -55,96 +154,44 @@ export function SortableList({
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
-  const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
-  useEffect(() => {
-    const items: {
-      path: SourcePath;
-      id: number;
-    }[] = [];
-    let id = 1; // NB: starts 1 - 0 doesn't work with DndKit (???) plus we want to show 1-based index
-    for (const path of source) {
-      items.push({ path: path, id });
-      id++;
-    }
-    setItems(items);
-  }, [source, path]);
-
-  const sensors = useSensors(
-    useSensor(MouseSensor),
-    useSensor(TouchSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-
-      if (active?.id !== over?.id) {
-        const oldIndex = items.findIndex(
-          (item) => item.id === Number(active?.id),
-        );
-        const newIndex = items.findIndex(
-          (item) => item.id === Number(over?.id),
-        );
-        setItems((items) => {
-          return arrayMove(items, oldIndex, newIndex);
-        });
-        onMove(oldIndex, newIndex); // DndKit is 1-based, we're 0-based
-      }
-    },
-    [items],
-  );
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
-    >
-      <SortableContext
-        items={items}
-        strategy={verticalListSortingStrategy}
-        disabled={disabled}
-      >
-        <div className="flex flex-col gap-y-4 w-full">
-          {items.map(({ path, id }) => {
-            return (
-              <SortableItem
-                key={id}
-                id={id}
-                schema={schema}
-                disabled={disabled}
-                renderLayout={render?.layout}
-                render={
-                  /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                  render?.items[id - 1]
-                }
-                path={path}
-                onClick={onClick}
-                onDelete={(id) => {
-                  onDelete(
-                    /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                    id - 1,
-                  );
-                }}
-                onDuplicate={(id) => {
-                  onDuplicate(
-                    /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                    id - 1,
-                  );
-                }}
-              />
+    <SortableContainer
+      source={source}
+      disabled={disabled}
+      onMove={onMove}
+      renderItem={({ path, id }) => (
+        <SortableItemRow
+          id={id}
+          schema={schema}
+          disabled={disabled}
+          renderLayout={render?.layout}
+          render={
+            /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+            render?.items[id - 1]
+          }
+          path={path}
+          onClick={onClick}
+          onDelete={(id) => {
+            onDelete(
+              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+              id - 1,
             );
-          })}
-        </div>
-      </SortableContext>
-    </DndContext>
+          }}
+          onDuplicate={(id) => {
+            onDuplicate(
+              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+              id - 1,
+            );
+          }}
+        />
+      )}
+    />
   );
 }
 
 export const LIST_ITEM_MAX_HEIGHT = 170;
 
-export function SortableItem({
+export function SortableItemRow({
   id,
   path,
   schema,

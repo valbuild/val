@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ModuleFilePath } from "@valbuild/core";
-import { FieldPatchAuthorsPure } from "./FieldPatchAuthors";
+import {
+  FieldPatchAuthorsPure,
+  PatchAuthorsSummary,
+} from "./FieldPatchAuthors";
 import { PendingPatch, Profile } from "./ValProvider";
 
 const now = new Date("2025-03-24T12:00:00Z");
@@ -147,5 +150,44 @@ export const UnknownAuthor: Story = {
       mode="http"
       portalContainer={null}
     />
+  ),
+};
+
+export const SummaryLinkOnly: Story = {
+  name: "Summary (link-only, outside compare)",
+  render: () => (
+    <button
+      className="flex items-center"
+      onClick={() => alert("Would navigate to compare view")}
+    >
+      <PatchAuthorsSummary
+        patchesByAuthorIds={{
+          alice: basePatches("alice"),
+          bob: basePatches("bob"),
+        }}
+        profilesByAuthorIds={{ alice, bob }}
+        now={now}
+        mode="http"
+      />
+    </button>
+  ),
+};
+
+export const SummaryWithHistoryIcon: Story = {
+  name: "Summary (with history icon, inside compare)",
+  render: () => (
+    <button className="flex items-center">
+      <PatchAuthorsSummary
+        patchesByAuthorIds={{
+          alice: basePatches("alice"),
+          bob: basePatches("bob"),
+          carol: basePatches("carol"),
+        }}
+        profilesByAuthorIds={{ alice, bob, carol }}
+        now={now}
+        mode="http"
+        showHistoryIcon
+      />
+    </button>
   ),
 };

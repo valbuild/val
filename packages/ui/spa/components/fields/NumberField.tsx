@@ -13,7 +13,14 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function NumberField({ path }: { path: SourcePath }) {
+export function NumberField({
+  path,
+  readonly,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "number";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -54,7 +61,7 @@ export function NumberField({ path }: { path: SourcePath }) {
     );
   }
   const source = sourceAtPath.data;
-  return (
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <Input
@@ -78,6 +85,14 @@ export function NumberField({ path }: { path: SourcePath }) {
       />
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function NumberPreview({ path }: { path: SourcePath }) {

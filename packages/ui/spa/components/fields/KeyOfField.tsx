@@ -31,7 +31,14 @@ import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function KeyOfField({ path }: { path: SourcePath }) {
+export function KeyOfField({
+  path,
+  readonly,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "keyOf";
   const [open, setOpen] = React.useState(false);
   const { navigate } = useNavigation();
@@ -146,11 +153,14 @@ export function KeyOfField({ path }: { path: SourcePath }) {
     keyOf === undefined ||
     keys === undefined;
 
-  return (
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={readonly ? false : open}
+          onOpenChange={readonly ? undefined : setOpen}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
@@ -224,6 +234,14 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       </div>
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function KeyOfPreview({ path }: { path: SourcePath }) {

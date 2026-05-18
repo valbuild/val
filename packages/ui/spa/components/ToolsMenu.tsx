@@ -15,20 +15,13 @@ import {
 } from "./ValFieldProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
-  DraftChanges,
   PatchErrorsDisplay,
   ValidationErrorsDisplay,
   TransientErrorsDisplay,
 } from "./DraftChanges";
-import { Globe, Loader2, PanelsTopLeft } from "lucide-react";
+import { GitCompareArrows, Globe, Loader2, PanelsTopLeft } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
-import {
-  AccordionContent,
-  AccordionTrigger,
-  Accordion,
-  AccordionItem,
-} from "./designSystem/accordion";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
 import { AIChat } from "./AIChat";
@@ -141,34 +134,14 @@ export function ToolsMenu() {
           <ValidationErrorsDisplay />
           <TransientErrorsDisplay />
           {loadingStatus !== "not-asked" && (
-            <Accordion type="single" collapsible>
-              <AccordionItem value="draft-changes" className="border-b-0">
-                <AccordionTrigger className="p-4 font-normal text-left">
-                  <div className="flex items-center flex-1 mr-2">
-                    <div className="flex gap-2 items-center">
-                      <span>
-                        {pendingChanges <= 0 ? "No" : pendingChanges} change
-                        {pendingChanges === 1 ? "" : "s"}
-                      </span>
-                      {loadingStatus === "loading" && (
-                        <Loader2 size={14} className="animate-spin" />
-                      )}
-                    </div>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="[&>div]:pt-0 [&>div]:pb-0">
-                  <ScrollArea>
-                    <div className="max-h-[calc(50svh-128px)] border-b border-border-primary">
-                      <DraftChanges />
-                    </div>
-                  </ScrollArea>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+            <CompareButton
+              pendingChanges={pendingChanges}
+              isLoading={loadingStatus === "loading"}
+            />
           )}
         </div>
       </div>
-      {isChatEnabled && (
+      {(mode === "http" || mode === "fs") && isChatEnabled && (
         <div className="flex-1 min-h-0 border-t border-border-primary">
           <AIChat
             ref={chatRef}
@@ -233,6 +206,34 @@ function ShortenedErrorMessage({ error }: { error: string }) {
       onClick={() => setIsExpanded(!isExpanded)}
     >
       {error}
+    </div>
+  );
+}
+
+function CompareButton({
+  pendingChanges,
+  isLoading,
+}: {
+  pendingChanges: number;
+  isLoading: boolean;
+}) {
+  const { navigate } = useNavigation();
+  return (
+    <div className="p-4 flex justify-end">
+      <Button
+        variant="secondary"
+        className="relative flex gap-2 items-center justify-center w-full max-w-[220px]"
+        disabled={pendingChanges <= 0 && !isLoading}
+        onClick={() => navigate("/val/compare")}
+      >
+        <GitCompareArrows size={14} />
+        <span>Compare</span>
+        {isLoading && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            <Loader2 size={14} className=" animate-spin" />
+          </div>
+        )}
+      </Button>
     </div>
   );
 }

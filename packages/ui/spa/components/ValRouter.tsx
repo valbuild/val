@@ -7,17 +7,20 @@ import React, {
   useState,
 } from "react";
 
+const VAL_COMPARE_ROUTE = "/val/compare";
+
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
   navigate: (
-    path: SourcePath | ModuleFilePath,
+    path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
     params?: {
       scrollToId?: string;
       replace?: true;
     },
   ) => void;
   currentSourcePath: SourcePath;
+  isCompareView: boolean;
 };
 const ValRouterContext = React.createContext<ValRouterContextValue>(
   new Proxy(
@@ -32,11 +35,35 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
+function findFieldWrapper(element: HTMLElement): HTMLElement {
+  let el: HTMLElement | null = element.parentElement;
+  while (el) {
+    if (el.id === "val-content-area") break;
+    if (
+      el.classList.contains("border") &&
+      el.classList.contains("rounded-lg")
+    ) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return element;
+}
+
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
+  const target = findFieldWrapper(element);
   shadowRoot.getElementById("val-content-area")?.scrollTo({
-    top: element.offsetTop,
+    top: Math.max(0, target.offsetTop - 16),
     behavior: "smooth",
   });
+  target.classList.remove("val-scroll-highlight");
+  void target.offsetWidth;
+  target.classList.add("val-scroll-highlight");
+  target.addEventListener(
+    "animationend",
+    () => target.classList.remove("val-scroll-highlight"),
+    { once: true },
+  );
 }
 
 /**
@@ -51,9 +78,20 @@ export function ValRouter({
 }) {
   const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
+  const [isCompareView, setIsCompareView] = useState(false);
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
+      if (
+        location.pathname === VAL_COMPARE_ROUTE ||
+        location.pathname === VAL_COMPARE_ROUTE + "/"
+      ) {
+        setIsCompareView(true);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      setIsCompareView(false);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
@@ -115,11 +153,15 @@ export function ValRouter({
   }, []);
   const navigate = useCallback(
     (
-      path: SourcePath | ModuleFilePath,
+      path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
       params?: { scrollToId?: string; replace?: true },
     ) => {
-      const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
-      setSourcePath(path as SourcePath);
+      const isCompare = path === VAL_COMPARE_ROUTE;
+      const navigateTo = isCompare
+        ? VAL_COMPARE_ROUTE
+        : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+      setIsCompareView(isCompare);
+      setSourcePath(isCompare ? ("" as SourcePath) : (path as SourcePath));
       if (!overlay) {
         const shadowRoot =
           document.getElementById("val-shadow-root")?.shadowRoot;
@@ -127,12 +169,17 @@ export function ValRouter({
         const prevScrollPos = scrollContainer?.scrollTop;
         const scrollId = params?.scrollToId;
         if (scrollId && shadowRoot) {
-          setTimeout(() => {
+          let retriesLeft = 10;
+          const execScroll = () => {
             const element = shadowRoot.getElementById(scrollId);
-            if (element && shadowRoot) {
+            if (element) {
               doScroll(shadowRoot, element);
+            } else if (retriesLeft > 0) {
+              retriesLeft--;
+              setTimeout(execScroll, 100);
             }
-          }, 100);
+          };
+          setTimeout(execScroll, 100);
         } else {
           scrollContainer?.scrollTo(0, 0);
         }
@@ -159,6 +206,7 @@ export function ValRouter({
         currentSourcePath,
         navigate,
         ready,
+        isCompareView,
       }}
     >
       {children}
@@ -167,11 +215,13 @@ export function ValRouter({
 }
 
 export function useNavigation() {
-  const { navigate, currentSourcePath, ready } = useContext(ValRouterContext);
+  const { navigate, currentSourcePath, ready, isCompareView } =
+    useContext(ValRouterContext);
   return {
     navigate,
     currentSourcePath,
     ready,
+    isCompareView,
   };
 }
 

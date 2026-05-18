@@ -18,37 +18,99 @@ export function AnyField({
   path,
   schema,
   autoFocus,
+  readonly,
+  compact,
+  inline,
+  hideUpload,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
   autoFocus?: boolean;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+  hideUpload?: boolean;
 }) {
+  const leafProps = { readonly, compact };
   if (schema.type === "string") {
-    return <StringField key={path} path={path} autoFocus={autoFocus} />;
+    return (
+      <StringField
+        key={path}
+        path={path}
+        autoFocus={autoFocus}
+        {...leafProps}
+      />
+    );
   } else if (schema.type === "number") {
-    return <NumberField key={path} path={path} />;
+    return <NumberField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "boolean") {
-    return <BooleanField key={path} path={path} />;
+    return <BooleanField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "image") {
-    return <ImageField key={path} path={path} />;
+    return (
+      <ImageField
+        key={path}
+        path={path}
+        {...leafProps}
+        hideUpload={hideUpload}
+      />
+    );
   } else if (schema.type === "object") {
-    return <ObjectFields key={path} path={path} />;
+    return (
+      <ObjectFields
+        key={path}
+        path={path}
+        readonly={readonly}
+        compact={compact}
+        inline={inline}
+      />
+    );
   } else if (schema.type === "array") {
-    return <ArrayFields key={path} path={path} />;
+    return (
+      <ArrayFields
+        key={path}
+        path={path}
+        readonly={readonly}
+        compact={compact}
+        inline={inline}
+      />
+    );
   } else if (schema.type === "record") {
-    return <RecordFields key={path} path={path} />;
+    return (
+      <RecordFields
+        key={path}
+        path={path}
+        readonly={readonly}
+        compact={compact}
+        inline={inline}
+      />
+    );
   } else if (schema.type === "union") {
-    return <UnionField key={path} path={path} />;
+    return (
+      <UnionField
+        key={path}
+        path={path}
+        readonly={readonly}
+        compact={compact}
+        inline={inline}
+      />
+    );
   } else if (schema.type === "keyOf") {
-    return <KeyOfField key={path} path={path} />;
+    return <KeyOfField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "route") {
-    return <RouteField key={path} path={path} />;
+    return <RouteField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "richtext") {
-    return <RichTextField key={path} path={path} autoFocus={autoFocus} />;
+    return (
+      <RichTextField
+        key={path}
+        path={path}
+        autoFocus={autoFocus}
+        {...leafProps}
+      />
+    );
   } else if (schema.type === "date") {
-    return <DateField key={path} path={path} />;
+    return <DateField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
-    return <FileField key={path} path={path} />;
+    return <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {
     return (
       <FieldSchemaError path={path} error="Literal fields are not editable" />

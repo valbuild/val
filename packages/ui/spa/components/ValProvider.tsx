@@ -40,7 +40,8 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { useSchemas } from "./ValFieldProvider";
+import { useSchemas, useSyncEngine } from "./ValFieldProvider";
+export { useSyncEngine } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -821,7 +822,7 @@ export function useAddModuleFilePatch() {
 }
 
 export function useDeletePatches() {
-  const { syncEngine } = useContext(ValContext);
+  const syncEngine = useSyncEngine();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
       // Delete in batches of 100 patch ids (since it is added to request url as query param)
@@ -859,10 +860,6 @@ export function useAIContext() {
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   };
-}
-
-export function useSyncEngine() {
-  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {

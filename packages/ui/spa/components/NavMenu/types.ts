@@ -22,6 +22,8 @@ export type SitemapItem = {
   existingKeys?: string[];
   /** Child pages/folders */
   children: SitemapItem[];
+  /** Whether this item or any descendant has validation errors */
+  hasError?: boolean;
 };
 
 /**
@@ -47,6 +49,8 @@ export type ExplorerItem = {
 export type ExternalModule = {
   /** Module file path for the external URL module */
   moduleFilePath: ModuleFilePath;
+  /** Whether this module has validation errors */
+  hasError?: boolean;
 };
 
 /**

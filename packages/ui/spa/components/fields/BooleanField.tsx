@@ -15,7 +15,14 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { Check } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function BooleanField({ path }: { path: SourcePath }) {
+export function BooleanField({
+  path,
+  readonly,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "boolean";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -62,8 +69,10 @@ export function BooleanField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       <Checkbox
+        disabled={readonly}
         checked={current}
         onCheckedChange={() => {
+          if (readonly) return;
           let nextValue: boolean | null = false;
           // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
           if (schemaAtPath.data.opt) {

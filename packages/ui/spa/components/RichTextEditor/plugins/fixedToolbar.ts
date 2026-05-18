@@ -45,6 +45,7 @@ export interface FixedToolbarOptions {
   linkHelper?: LinkHelper;
   styleConfig?: EditorStyleConfig;
   features?: ResolvedEditorFeatures;
+  readOnly?: boolean;
 }
 
 export function createFixedToolbarPlugin(
@@ -81,6 +82,7 @@ export function createFixedToolbarPlugin(
         detailsVariants: options.getDetailsVariants?.(),
         linkCatalog: options.getLinkCatalog?.(),
         styleConfig: options.styleConfig,
+        readOnly: options.readOnly,
       }),
     );
   }

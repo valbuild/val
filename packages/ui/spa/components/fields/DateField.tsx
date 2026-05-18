@@ -24,7 +24,14 @@ import {
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function DateField({ path }: { path: SourcePath }) {
+export function DateField({
+  path,
+  readonly,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "date";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -84,23 +91,24 @@ export function DateField({ path }: { path: SourcePath }) {
   }
 
   const schema = schemaAtPath.data;
-  return (
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <Popover
-        open={isPopoverOpen}
+        open={readonly ? false : isPopoverOpen}
         onOpenChange={(next) => {
-          setPopoverOpen(next);
+          if (!readonly) setPopoverOpen(next);
         }}
       >
         <PopoverTrigger
           asChild
           onClick={() => {
-            setPopoverOpen(true);
+            if (!readonly) setPopoverOpen(true);
           }}
         >
           <Button
             variant={"outline"}
+            disabled={readonly}
             className={classNames(
               "w-[280px] justify-start text-left font-normal bg-bg-primary hover:bg-bg-secondary",
             )}
@@ -147,6 +155,14 @@ export function DateField({ path }: { path: SourcePath }) {
       </Popover>
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function DatePreview({ path }: { path: SourcePath }) {
