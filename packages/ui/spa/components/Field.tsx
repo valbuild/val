@@ -150,7 +150,7 @@ export function Field({
         </div>
         <div
           className={classNames("flex items-center", {
-            "gap-2": !compact,
+            "gap-2 min-h-8": !compact,
             "gap-1.5": compact,
           })}
         >
