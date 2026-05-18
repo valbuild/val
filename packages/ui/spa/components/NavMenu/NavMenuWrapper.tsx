@@ -21,7 +21,11 @@ function hasErrorAtPath(
   allErrors: Record<SourcePath, ValidationError[]>,
 ): boolean {
   for (const errorPath in allErrors) {
-    if (errorPath.startsWith(path)) {
+    if (
+      errorPath === path ||
+      errorPath.startsWith(path + Internal.ModuleFilePathSep) ||
+      errorPath.startsWith(path + ".")
+    ) {
       return true;
     }
   }

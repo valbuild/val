@@ -760,23 +760,24 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {isEqual && !readonly ? (
-          <Button
-            variant="default"
-            size="icon-sm"
-            onClick={onDiscard}
-            aria-label="Discard unchanged"
-          >
-            <Undo2 size={14} />
-          </Button>
-        ) : (
-          <DiscardConfirmPopover
-            description="Discard this change? This cannot be undone."
-            onConfirm={onDiscard}
-            portalContainer={portalContainer}
-            ariaLabel="Discard this change"
-          />
-        )}
+        {!readonly &&
+          (isEqual ? (
+            <Button
+              variant="default"
+              size="icon-sm"
+              onClick={onDiscard}
+              aria-label="Discard unchanged"
+            >
+              <Undo2 size={14} />
+            </Button>
+          ) : (
+            <DiscardConfirmPopover
+              description="Discard this change? This cannot be undone."
+              onConfirm={onDiscard}
+              portalContainer={portalContainer}
+              ariaLabel="Discard this change"
+            />
+          ))}
         <FieldPatchAuthorsPure
           patchesByAuthorIds={patchesByAuthorIds}
           profilesByAuthorIds={profilesByAuthorIds}
