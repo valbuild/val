@@ -718,45 +718,6 @@ export const RouterPageAdded: Story = {
   ),
 };
 
-/**
- * Exercises hidden chunks: changes to /home's `title` and `status` with
- * `body` and `sections` unchanged. Should render a "1 unchanged field hidden"
- * chunk between title and status, and another chunk after status.
- */
-export const WithHiddenChunks: Story = {
-  render: () => (
-    <StorySetup
-      mockData={mockData}
-      moduleFilePath={MODULE_FILE_PATH}
-      serializedSchema={serializedSchema}
-      patches={[
-        {
-          patch: [
-            {
-              op: "replace",
-              path: ["/home", "title"],
-              value: "Welcome Home — Updated",
-            },
-          ],
-          createdAt: "2025-04-03T08:00:00Z",
-          author: "alice",
-        },
-        {
-          patch: [
-            {
-              op: "replace",
-              path: ["/home", "status"],
-              value: "published",
-            },
-          ],
-          createdAt: "2025-04-03T08:05:00Z",
-          author: "alice",
-        },
-      ]}
-    />
-  ),
-};
-
 const ARRAY_MODULE_FILE_PATH = "/app/tags.val.ts" as ModuleFilePath;
 
 const arrayModule = c.define(

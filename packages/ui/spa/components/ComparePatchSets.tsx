@@ -12,7 +12,6 @@ import classNames from "classnames";
 import {
   AlertTriangle,
   ArrowRight,
-  ChevronsUpDown,
   ChevronDown,
   Equal,
   ExternalLink,
@@ -29,7 +28,6 @@ import { SerializedPatchSet } from "../utils/PatchSets";
 import {
   ChangeTreeNode,
   ChangeType,
-  getSegment,
 } from "../utils/computeChangedSourcePaths";
 import {
   FieldSourceOverrideContext,
@@ -64,11 +62,6 @@ import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { urlOf } from "@valbuild/shared/internal";
 import { getNavPathFromAll } from "./getNavPath";
-import {
-  getUnchangedSiblings,
-  buildOrderedItems,
-  UnchangedSibling,
-} from "../utils/getUnchangedSiblings";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -351,7 +344,7 @@ function ModuleGroup({
       </header>
       {!isCollapsed && (
         <div className="divide-y divide-border-primary">
-          <RenderTree node={tree} rowProps={rowProps} isModuleRoot />
+          <RenderTree node={tree} rowProps={rowProps} />
         </div>
       )}
     </section>
@@ -361,11 +354,9 @@ function ModuleGroup({
 function RenderTree({
   node,
   rowProps,
-  isModuleRoot = false,
 }: {
   node: ChangeTreeNode;
   rowProps: RowProps;
-  isModuleRoot?: boolean;
 }) {
   if (node.change) {
     if (
@@ -378,11 +369,7 @@ function RenderTree({
       <>
         <ChangeRow key={node.sourcePath} row={node} {...rowProps} />
         {node.children.length > 0 && (
-          <ChangeCluster
-            parent={node}
-            rowProps={rowProps}
-            isModuleRoot={false}
-          />
+          <ChangeCluster parent={node} rowProps={rowProps} />
         )}
       </>
     );
@@ -390,13 +377,7 @@ function RenderTree({
 
   const hasChangingChildren = node.children.some((c) => hasAnyChange(c));
   if (hasChangingChildren) {
-    return (
-      <ChangeCluster
-        parent={node}
-        rowProps={rowProps}
-        isModuleRoot={isModuleRoot}
-      />
-    );
+    return <ChangeCluster parent={node} rowProps={rowProps} />;
   }
 
   return null;
@@ -440,32 +421,17 @@ function hasAnyChange(node: ChangeTreeNode): boolean {
   return node.children.some(hasAnyChange);
 }
 
-const MAX_MODULE_ROOT_UNCHANGED = 50;
-
 function ChangeCluster({
   parent,
   rowProps,
-  isModuleRoot,
 }: {
   parent: ChangeTreeNode;
   rowProps: RowProps;
-  isModuleRoot: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(parent.sourcePath as SourcePath);
-  const sourceAtPath = useSourceAtPath(parent.sourcePath as SourcePath);
-
-  if (schemaAtPath.status !== "success" || sourceAtPath.status !== "success") {
-    return (
-      <>
-        {parent.children.map((child) => (
-          <RenderTree key={child.sourcePath} node={child} rowProps={rowProps} />
-        ))}
-      </>
-    );
-  }
 
   const mediaType =
-    schemaAtPath.data.type === "record"
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "record"
       ? schemaAtPath.data.mediaType
       : undefined;
 
@@ -473,112 +439,18 @@ function ChangeCluster({
     ? { ...rowProps, parentMediaType: mediaType }
     : rowProps;
 
-  const changedKeys = new Set(parent.children.map(getSegment));
-  const unchanged = getUnchangedSiblings(
-    parent.sourcePath,
-    schemaAtPath.data,
-    sourceAtPath.data,
-    changedKeys,
-  );
-
-  const cappedUnchanged =
-    isModuleRoot && unchanged.length > MAX_MODULE_ROOT_UNCHANGED
-      ? unchanged.slice(0, MAX_MODULE_ROOT_UNCHANGED)
-      : unchanged;
-
-  const items = buildOrderedItems(
-    schemaAtPath.data,
-    sourceAtPath.data,
-    parent.children.filter((c) => hasAnyChange(c)),
-    cappedUnchanged,
-  );
-
   return (
     <>
-      {items.map((item, i) => {
-        if (item.kind === "change") {
-          return (
-            <RenderTree
-              key={item.node.sourcePath}
-              node={item.node}
-              rowProps={childRowProps}
-            />
-          );
-        }
-        return (
-          <HiddenChunk
-            key={`chunk-${i}`}
-            siblings={item.siblings}
-            readonly={rowProps.readonly}
+      {parent.children
+        .filter((c) => hasAnyChange(c))
+        .map((child) => (
+          <RenderTree
+            key={child.sourcePath}
+            node={child}
+            rowProps={childRowProps}
           />
-        );
-      })}
+        ))}
     </>
-  );
-}
-
-// #region HiddenChunk
-
-function HiddenChunk({
-  siblings,
-  readonly,
-}: {
-  siblings: UnchangedSibling[];
-  readonly: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (siblings.length === 0) return null;
-
-  const n = siblings.length;
-  return (
-    <div className="flex flex-col pt-0 pb-2">
-      <div className="relative flex items-center py-1.5 px-5">
-        <div className="flex-1 border-t border-dashed border-border-secondary" />
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="mx-3 flex items-center gap-1.5 text-xs text-fg-tertiary hover:text-fg-secondary transition-colors whitespace-nowrap"
-        >
-          <ChevronsUpDown size={12} />
-          {n} unchanged {n === 1 ? "field" : "fields"}{" "}
-          {expanded ? "" : "hidden"}
-        </button>
-        <div className="flex-1 border-t border-dashed border-border-secondary" />
-      </div>
-      {expanded && (
-        <div className="mx-5 rounded bg-bg-secondary/50 py-1">
-          {siblings.map((s) => (
-            <UnchangedFieldRow
-              key={s.sourcePath}
-              sourcePath={s.sourcePath}
-              readonly={readonly}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UnchangedFieldRow({
-  sourcePath,
-  readonly,
-}: {
-  sourcePath: SourcePath;
-  readonly: boolean;
-}) {
-  const schemaAtPath = useSchemaAtPath(sourcePath);
-  if (schemaAtPath.status !== "success") return null;
-  return (
-    <div className="px-3 py-1.5 min-w-0 opacity-50 border-l-[3px] border-transparent">
-      <AnyField
-        path={sourcePath}
-        schema={schemaAtPath.data}
-        readonly={readonly}
-        compact
-        inline
-        hideUpload
-      />
-    </div>
   );
 }
 
