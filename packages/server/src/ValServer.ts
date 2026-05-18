@@ -1418,6 +1418,7 @@ export const ValServer = (
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
+        const unpatchedSources = sourcesRes.sources;
         const onlyPatchedTreeModules = await serverOps.getSources({
           ...patchAnalysis,
           ...patchOps,
@@ -1480,6 +1481,7 @@ export const ValServer = (
           ModuleFilePath,
           {
             source: Json;
+            baseSource?: Json;
             render: ReifiedRender | null;
             patches?: {
               applied: PatchId[];
@@ -1514,8 +1516,13 @@ export const ValServer = (
                 appliedPatches.push(patchId);
               }
             }
+            const hasPatches =
+              (patchAnalysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
             modules[moduleFilePath] = {
               source: module,
+              baseSource: hasPatches
+                ? unpatchedSources[moduleFilePath]
+                : undefined,
               render: renderRes.renders[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
