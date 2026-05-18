@@ -25,10 +25,7 @@ import {
   User,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import {
-  ChangeTreeNode,
-  ChangeType,
-} from "../utils/computeChangedSourcePaths";
+import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
 import {
   FieldSourceOverrideContext,
   useAllSources,
