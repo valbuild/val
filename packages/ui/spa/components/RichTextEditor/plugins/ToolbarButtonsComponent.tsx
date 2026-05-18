@@ -123,9 +123,11 @@ function Separator() {
 }
 
 // Override the ghost variant's default disabled background/border so toolbar
-// buttons remain visually flush with the toolbar surface when disabled.
+// buttons remain visually flush with the toolbar surface when disabled. The
+// Button component sets both `disabled` and `aria-disabled` attributes, so
+// both variant selectors must be overridden.
 const TOOLBAR_BUTTON_DISABLED_CLASS =
-  "disabled:bg-transparent disabled:border-transparent";
+  "disabled:bg-transparent disabled:border-transparent aria-disabled:bg-transparent aria-disabled:border-transparent";
 
 export function ToolbarButtons({
   view,
