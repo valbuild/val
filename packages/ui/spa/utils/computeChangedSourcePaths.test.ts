@@ -4,15 +4,10 @@ import {
   PatchId,
   Schema,
   SelectorSource,
-  SourcePath,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { PatchSets, SerializedPatchSet } from "./PatchSets";
-import {
-  ChangeTreeNode,
-  computeChangedSourcePaths,
-  getSegment,
-} from "./computeChangedSourcePaths";
+import { computeChangedSourcePaths } from "./computeChangedSourcePaths";
 
 const { s } = initVal();
 
@@ -235,26 +230,5 @@ describe("computeChangedSourcePaths", () => {
 
     const result = computeChangedSourcePaths(patchSets);
     expect(result).toMatchSnapshot();
-  });
-});
-
-describe("getSegment", () => {
-  test("returns moduleFilePath for root nodes", () => {
-    const node: ChangeTreeNode = {
-      sourcePath: "/app/pages.val.ts" as ModuleFilePath,
-      lastUpdated: "2025-01-01T00:00:00Z",
-      children: [],
-    };
-    expect(getSegment(node)).toMatchSnapshot();
-  });
-
-  test("returns last segment for source paths", () => {
-    const node: ChangeTreeNode = {
-      sourcePath:
-        '/app/pages.val.ts?p="/home"."title"' as unknown as SourcePath,
-      lastUpdated: "2025-01-01T00:00:00Z",
-      children: [],
-    };
-    expect(getSegment(node)).toMatchSnapshot();
   });
 });
