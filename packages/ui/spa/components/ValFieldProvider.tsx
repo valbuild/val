@@ -1058,8 +1058,10 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () =>
+      syncEngine.getSourceSnapshot(moduleFilePath, sourcePath as SourcePath),
+    () =>
+      syncEngine.getSourceSnapshot(moduleFilePath, sourcePath as SourcePath),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
