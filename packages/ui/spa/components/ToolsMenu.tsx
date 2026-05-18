@@ -219,17 +219,20 @@ function CompareButton({
 }) {
   const { navigate } = useNavigation();
   return (
-    <div className="p-4">
+    <div className="p-4 flex justify-end">
       <Button
         variant="secondary"
-        className="flex gap-2 items-center w-full justify-center"
+        className="relative flex gap-2 items-center justify-center w-full max-w-[220px]"
         disabled={pendingChanges <= 0 && !isLoading}
         onClick={() => navigate("/val/compare")}
       >
         <GitCompareArrows size={14} />
         <span>Compare</span>
-        {pendingChanges > 0 && <span>{pendingChanges}</span>}
-        {isLoading && <Loader2 size={14} className="animate-spin" />}
+        {isLoading && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            <Loader2 size={14} className=" animate-spin" />
+          </div>
+        )}
       </Button>
     </div>
   );
