@@ -1,5 +1,6 @@
 import { Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
+import { fromCamelToTitleCase } from "../utils/prettifyText";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
@@ -174,7 +175,7 @@ export function Field({
                 onClick={handleLabelNavigate}
                 className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
               >
-                {label}
+                {fromCamelToTitleCase(label)}
               </button>
             ) : (
               <Label>{label}</Label>
