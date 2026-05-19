@@ -299,25 +299,16 @@ function ModuleGroup({
       <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
         <ModulePathLabel moduleFilePath={moduleFilePath} />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!readonly &&
-            modulePatchIds.length > 0 &&
-            (isModuleEqual ? (
-              <Button
-                variant="default"
-                size="icon-sm"
-                onClick={() => deletePatches(modulePatchIds)}
-                aria-label="Discard all unchanged in this module"
-              >
-                <Undo2 size={14} />
-              </Button>
-            ) : (
-              <DiscardConfirmPopover
-                description="Discard all changes in this module? This cannot be undone."
-                onConfirm={() => deletePatches(modulePatchIds)}
-                portalContainer={portalContainer}
-                ariaLabel="Discard all changes in this module"
-              />
-            ))}
+          {!readonly && modulePatchIds.length > 0 && (
+            <DiscardControl
+              isEqual={isModuleEqual}
+              onDiscard={() => deletePatches(modulePatchIds)}
+              confirmDescription="Discard all changes in this module? This cannot be undone."
+              unchangedAriaLabel="Discard all unchanged in this module"
+              confirmAriaLabel="Discard all changes in this module"
+              portalContainer={portalContainer}
+            />
+          )}
           {Object.keys(modulePatchesByAuthorIds).length > 0 && (
             <FieldPatchAuthorsPure
               patchesByAuthorIds={modulePatchesByAuthorIds}
@@ -327,16 +318,12 @@ function ModuleGroup({
               mode={mode}
             />
           )}
-          <button
-            onClick={() => setIsCollapsed((v) => !v)}
-            className={classNames(
-              "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
-              { "rotate-180": !isCollapsed },
-            )}
-            aria-label={isCollapsed ? "Expand module" : "Collapse module"}
-          >
-            <ChevronDown size={14} />
-          </button>
+          <CollapseToggle
+            isOpen={!isCollapsed}
+            onToggle={() => setIsCollapsed((v) => !v)}
+            openLabel="Collapse module"
+            closedLabel="Expand module"
+          />
         </div>
       </header>
       {!isCollapsed && (
@@ -629,24 +616,16 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {!readonly &&
-          (isEqual ? (
-            <Button
-              variant="default"
-              size="icon-sm"
-              onClick={onDiscard}
-              aria-label="Discard unchanged"
-            >
-              <Undo2 size={14} />
-            </Button>
-          ) : (
-            <DiscardConfirmPopover
-              description="Discard this change? This cannot be undone."
-              onConfirm={onDiscard}
-              portalContainer={portalContainer}
-              ariaLabel="Discard this change"
-            />
-          ))}
+        {!readonly && (
+          <DiscardControl
+            isEqual={isEqual}
+            onDiscard={onDiscard}
+            confirmDescription="Discard this change? This cannot be undone."
+            unchangedAriaLabel="Discard unchanged"
+            confirmAriaLabel="Discard this change"
+            portalContainer={portalContainer}
+          />
+        )}
         <FieldPatchAuthorsPure
           patchesByAuthorIds={patchesByAuthorIds}
           profilesByAuthorIds={profilesByAuthorIds}
@@ -654,16 +633,12 @@ function ChangeRowHeader({
           portalContainer={portalContainer}
           mode={mode}
         />
-        <button
-          onClick={onToggleExpand}
-          className={classNames(
-            "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
-            { "rotate-180": isExpanded },
-          )}
-          aria-label={isExpanded ? "Collapse" : "Expand"}
-        >
-          <ChevronDown size={14} />
-        </button>
+        <CollapseToggle
+          isOpen={isExpanded}
+          onToggle={onToggleExpand}
+          openLabel="Collapse"
+          closedLabel="Expand"
+        />
       </div>
     </div>
   );
@@ -1168,11 +1143,6 @@ function MediaEntryDiff({
   const isImage = mediaType === "images";
 
   const afterSource = useSourceAtPath(sourcePath);
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
-  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
   const beforeSource = useServerSourceAtPath(sourcePath);
 
   const afterMetadata =
@@ -1188,12 +1158,6 @@ function MediaEntryDiff({
   const beforeHotspot = extractHotspot(beforeMetadata);
 
   const imageUrl = isImage ? refToUrl(fileRef, filePatchIds) : null;
-
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
-
   const filename = getFilenameFromRef(fileRef);
 
   if (!isExpanded && changeType !== "field-change") return null;
@@ -1202,19 +1166,16 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt sourcePath={sourcePath} readonly showValidation />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly
+            showValidation
+          />
         </div>
       </div>
     );
@@ -1225,24 +1186,17 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <DiffSide diffStyle="added">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                diffStyle="added"
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            diffStyle="added"
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly={readonly}
+            showValidation
+          />
         </DiffSide>
       </div>
     );
@@ -1252,26 +1206,22 @@ function MediaEntryDiff({
     if (!isExpanded) return null;
     const originalUrl = isImage ? staticFileUrl(fileRef) : null;
     return (
-      <FieldSourceOverrideContext.Provider value={beforeOverride}>
+      <BeforeSourceOverride sourcePath={sourcePath}>
         <div className="max-w-xl">
           <DiffSide diffStyle="removed">
-            <div className="flex items-start gap-4">
-              {isImage && (
-                <MediaEntryThumbnail
-                  url={originalUrl}
-                  filename={filename}
-                  diffStyle="removed"
-                  hotspot={beforeHotspot}
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <MediaEntryAlt sourcePath={sourcePath} readonly />
-              </div>
-            </div>
-            <MediaEntryMetadata metadata={beforeMetadata} />
+            <MediaEntryCard
+              isImage={isImage}
+              url={originalUrl}
+              filename={filename}
+              diffStyle="removed"
+              hotspot={beforeHotspot}
+              metadata={beforeMetadata}
+              sourcePath={sourcePath}
+              altReadonly
+            />
           </DiffSide>
         </div>
-      </FieldSourceOverrideContext.Provider>
+      </BeforeSourceOverride>
     );
   }
 
@@ -1285,24 +1235,17 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <DiffSide diffStyle="added">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                diffStyle="added"
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            diffStyle="added"
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly={readonly}
+            showValidation
+          />
         </DiffSide>
       </div>
     );
@@ -1319,32 +1262,21 @@ function MediaEntryDiff({
           />
         )}
         <div className="flex-1 min-w-0">
-          <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
-            <div className="pr-1 min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">
-                Before
-              </div>
-              <FieldSourceOverrideContext.Provider value={beforeOverride}>
+          <BeforeAfterLayout
+            variant="media"
+            before={
+              <BeforeSourceOverride sourcePath={sourcePath}>
                 <MediaEntryAlt sourcePath={sourcePath} readonly />
-              </FieldSourceOverrideContext.Provider>
-            </div>
-            <div
-              className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
-              aria-hidden
-            >
-              <ArrowRight size={14} />
-            </div>
-            <div className="pl-1 min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">
-                After
-              </div>
+              </BeforeSourceOverride>
+            }
+            after={
               <MediaEntryAlt
                 sourcePath={sourcePath}
                 readonly={readonly}
                 showValidation
               />
-            </div>
-          </div>
+            }
+          />
         </div>
       </div>
       <MediaEntryMetadata metadata={afterMetadata} />
@@ -1353,25 +1285,15 @@ function MediaEntryDiff({
 }
 
 function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
-  const serverModuleSource = useServerSourceAtPath(moduleFilePath);
-  const beforeOverride =
-    serverModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: serverModuleSource.data }
-      : null;
-
   return (
-    <FieldSourceOverrideContext.Provider value={beforeOverride}>
+    <BeforeSourceOverride sourcePath={sourcePath}>
       <SingleSideContent
         sourcePath={sourcePath}
         side="after"
         diffStyle="removed"
         readonly
       />
-    </FieldSourceOverrideContext.Provider>
+    </BeforeSourceOverride>
   );
 }
 
@@ -1387,15 +1309,10 @@ function FieldChangeDiff({
   isEqual: boolean;
 }) {
   const schemaWithPath = useSchemaWithResolvedPath(sourcePath);
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
   const effectivePath =
     schemaWithPath.status === "success"
       ? schemaWithPath.resolvedPath
       : sourcePath;
-  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
   const beforeSource = useServerSourceAtPath(effectivePath);
 
   if (schemaWithPath.status !== "success") return null;
@@ -1404,55 +1321,36 @@ function FieldChangeDiff({
   const beforeAvailable = beforeSource.status === "success";
   const beforeIsNull = beforeAvailable && beforeSource.data === null;
 
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
-
   if (!isExpanded) return null;
 
   if (isEqual) {
     return (
-      <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
-        <div className="border-l-[3px] border-border-secondary pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1">
-          <div className="hidden lg:flex  items-center px-1">
-            <div className="size-6 shrink-0" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <FieldSourceOverrideContext.Provider value={beforeOverride}>
-              <AnyField
-                path={effectivePath}
-                schema={schema}
-                readonly
-                compact
-                inline
-                hideUpload
-              />
-            </FieldSourceOverrideContext.Provider>
-          </div>
-        </div>
-        <div
-          className="hidden lg:flex items-center justify-center text-fg-tertiary"
-          aria-hidden
-        >
-          <Equal size={14} />
-        </div>
-        <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
-          <div className="flex-1 min-w-0">
+      <BeforeAfterLayout
+        variant="equal"
+        before={
+          <BeforeSourceOverride sourcePath={sourcePath}>
             <AnyField
               path={effectivePath}
               schema={schema}
-              readonly={readonly}
+              readonly
               compact
               inline
               hideUpload
             />
-          </div>
-          <div className="flex items-center px-1">
-            <ValidationErrorLink sourcePath={effectivePath} />
-          </div>
-        </div>
-      </div>
+          </BeforeSourceOverride>
+        }
+        after={
+          <AnyField
+            path={effectivePath}
+            schema={schema}
+            readonly={readonly}
+            compact
+            inline
+            hideUpload
+          />
+        }
+        trailingSlot={<ValidationErrorLink sourcePath={effectivePath} />}
+      />
     );
   }
 
@@ -1477,56 +1375,32 @@ function FieldChangeDiff({
     );
   }
 
-  {
-    /* Side-by-side before/after.
-       The coloured border lives on the left column (not an outer wrapper)
-       so the grid is fully symmetric and the arrow sits exactly midway
-       between the two content areas.
-       Left column reserves a leading size-6 slot; right column reserves
-       a trailing ValidationErrorLink slot. Combined with mirrored padding
-       (pl-3/pr-1 vs pl-1/pr-3), both AnyFields have identical width and
-       sit equidistant from the centre arrow. */
-  }
   return (
-    <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
-      <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="hidden lg:flex items-center px-1">
-          <div className="size-6 shrink-0" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <FieldSourceOverrideContext.Provider value={beforeOverride}>
-            <AnyField
-              path={effectivePath}
-              schema={schema}
-              readonly
-              compact
-              inline
-              hideUpload
-            />
-          </FieldSourceOverrideContext.Provider>
-        </div>
-      </div>
-      <div
-        className="hidden lg:flex items-center justify-center text-fg-tertiary"
-        aria-hidden
-      >
-        <ArrowRight size={14} />
-      </div>
-      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="flex-1 min-w-0">
+    <BeforeAfterLayout
+      variant="changed"
+      before={
+        <BeforeSourceOverride sourcePath={sourcePath}>
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
+            hideUpload
           />
-        </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
-        </div>
-      </div>
-    </div>
+        </BeforeSourceOverride>
+      }
+      after={
+        <AnyField
+          path={effectivePath}
+          schema={schema}
+          readonly={readonly}
+          compact
+          inline
+        />
+      }
+      trailingSlot={<ValidationErrorLink sourcePath={effectivePath} />}
+    />
   );
 }
 
@@ -1715,6 +1589,214 @@ function SummaryAvatar({
     >
       {getInitials(profile.fullName)}
     </span>
+  );
+}
+
+// #region CollapseToggle
+
+function CollapseToggle({
+  isOpen,
+  onToggle,
+  openLabel,
+  closedLabel,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  openLabel: string;
+  closedLabel: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={classNames(
+        "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
+        { "rotate-180": isOpen },
+      )}
+      aria-label={isOpen ? openLabel : closedLabel}
+    >
+      <ChevronDown size={14} />
+    </button>
+  );
+}
+
+// #region DiscardControl
+
+function DiscardControl({
+  isEqual,
+  onDiscard,
+  confirmDescription,
+  unchangedAriaLabel,
+  confirmAriaLabel,
+  portalContainer,
+}: {
+  isEqual: boolean;
+  onDiscard: () => void;
+  confirmDescription: string;
+  unchangedAriaLabel: string;
+  confirmAriaLabel: string;
+  portalContainer: HTMLElement | null;
+}) {
+  if (isEqual) {
+    return (
+      <Button
+        variant="default"
+        size="icon-sm"
+        onClick={onDiscard}
+        aria-label={unchangedAriaLabel}
+      >
+        <Undo2 size={14} />
+      </Button>
+    );
+  }
+  return (
+    <DiscardConfirmPopover
+      description={confirmDescription}
+      onConfirm={onDiscard}
+      portalContainer={portalContainer}
+      ariaLabel={confirmAriaLabel}
+    />
+  );
+}
+
+// #region BeforeSourceOverride
+
+function BeforeSourceOverride({
+  sourcePath,
+  children,
+}: {
+  sourcePath: SourcePath;
+  children: React.ReactNode;
+}) {
+  const [moduleFilePath] = useMemo(
+    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
+    [sourcePath],
+  );
+  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
+  const beforeOverride =
+    beforeModuleSource.status === "success"
+      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
+      : null;
+  return (
+    <FieldSourceOverrideContext.Provider value={beforeOverride}>
+      {children}
+    </FieldSourceOverrideContext.Provider>
+  );
+}
+
+// #region BeforeAfterLayout
+
+function BeforeAfterLayout({
+  variant,
+  before,
+  after,
+  trailingSlot,
+}: {
+  variant: "equal" | "changed" | "media";
+  before: React.ReactNode;
+  after: React.ReactNode;
+  trailingSlot?: React.ReactNode;
+}) {
+  if (variant === "media") {
+    return (
+      <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
+        <div className="pr-1 min-w-0">
+          <div className="text-xs font-medium text-fg-tertiary mb-1">
+            Before
+          </div>
+          {before}
+        </div>
+        <div
+          className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
+          aria-hidden
+        >
+          <ArrowRight size={14} />
+        </div>
+        <div className="pl-1 min-w-0">
+          <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
+          {after}
+        </div>
+      </div>
+    );
+  }
+  const borderColor =
+    variant === "equal" ? "border-border-secondary" : "border-fg-brand-primary";
+  const MiddleIcon = variant === "equal" ? Equal : ArrowRight;
+  // Mirrored padding (pl-3/pr-1 ↔ pl-1/pr-3) plus a reserved size-6 slot on
+  // the left and a trailing slot on the right keep the two content columns
+  // identical in width and equidistant from the center icon.
+  return (
+    <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
+      <div
+        className={classNames(
+          "border-l-[3px] pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1",
+          borderColor,
+        )}
+      >
+        <div className="hidden lg:flex items-center px-1">
+          <div className="size-6 shrink-0" />
+        </div>
+        <div className="flex-1 min-w-0">{before}</div>
+      </div>
+      <div
+        className="hidden lg:flex items-center justify-center text-fg-tertiary"
+        aria-hidden
+      >
+        <MiddleIcon size={14} />
+      </div>
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
+        <div className="flex-1 min-w-0">{after}</div>
+        {trailingSlot !== undefined && (
+          <div className="flex items-center px-1">{trailingSlot}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// #region MediaEntryCard
+
+function MediaEntryCard({
+  isImage,
+  url,
+  filename,
+  hotspot,
+  diffStyle,
+  metadata,
+  sourcePath,
+  altReadonly,
+  showValidation,
+}: {
+  isImage: boolean;
+  url: string | null;
+  filename: string;
+  hotspot?: { x: number; y: number };
+  diffStyle?: "added" | "removed";
+  metadata: Record<string, unknown> | null;
+  sourcePath: SourcePath;
+  altReadonly: boolean;
+  showValidation?: boolean;
+}) {
+  return (
+    <>
+      <div className="flex items-start gap-4">
+        {isImage && (
+          <MediaEntryThumbnail
+            url={url}
+            filename={filename}
+            diffStyle={diffStyle}
+            hotspot={hotspot}
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <MediaEntryAlt
+            sourcePath={sourcePath}
+            readonly={altReadonly}
+            showValidation={showValidation}
+          />
+        </div>
+      </div>
+      <MediaEntryMetadata metadata={metadata} />
+    </>
   );
 }
 
