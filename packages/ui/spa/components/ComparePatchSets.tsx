@@ -1414,8 +1414,8 @@ function FieldChangeDiff({
   if (isEqual) {
     return (
       <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
-        <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
-          <div className="flex items-center px-1">
+        <div className="border-l-[3px] border-border-secondary pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1">
+          <div className="hidden lg:flex  items-center px-1">
             <div className="size-6 shrink-0" />
           </div>
           <div className="flex-1 min-w-0">
@@ -1437,7 +1437,7 @@ function FieldChangeDiff({
         >
           <Equal size={14} />
         </div>
-        <div className="pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
+        <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
           <div className="flex-1 min-w-0">
             <AnyField
               path={effectivePath}
@@ -1489,8 +1489,8 @@ function FieldChangeDiff({
   }
   return (
     <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
-      <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="flex items-center px-1">
+      <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1">
+        <div className="hidden lg:flex items-center px-1">
           <div className="size-6 shrink-0" />
         </div>
         <div className="flex-1 min-w-0">
@@ -1512,7 +1512,7 @@ function FieldChangeDiff({
       >
         <ArrowRight size={14} />
       </div>
-      <div className="pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
         <div className="flex-1 min-w-0">
           <AnyField
             path={effectivePath}
