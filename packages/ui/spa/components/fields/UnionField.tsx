@@ -48,11 +48,13 @@ export function UnionField({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "union";
   const schemaAtPath = useSchemaAtPath(path);
@@ -159,6 +161,7 @@ export function UnionField({
           readonly={readonly}
           compact={compact}
           inline={inline}
+          errorDisplay={errorDisplay}
         />
       </div>
     );
@@ -171,12 +174,14 @@ function ObjectUnionField({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   schema: SerializedObjectUnionSchema;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
@@ -293,6 +298,7 @@ function ObjectUnionField({
               type={selectedSchema?.items?.[key]?.type}
               readonly={readonly}
               compact={compact}
+              errorDisplay={errorDisplay}
             >
               <AnyField
                 key={key}
@@ -301,6 +307,7 @@ function ObjectUnionField({
                 readonly={readonly}
                 compact={compact}
                 inline={inline}
+                errorDisplay={errorDisplay}
               />
             </Field>
           );

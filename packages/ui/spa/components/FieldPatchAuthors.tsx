@@ -276,7 +276,7 @@ export function FieldPatchAuthors({
 
   const onNavigateToCompare =
     navigable && sourcePath
-      ? () => navigate("/val/compare", { scrollToId: `compare-${sourcePath}` })
+      ? () => navigate("/val/compare", { scrollToPath: sourcePath })
       : undefined;
 
   if (!onNavigateToCompare) {

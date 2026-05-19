@@ -28,11 +28,13 @@ export function ArrayFields({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "array";
   const creatorId = useFieldCreatorId();
@@ -123,6 +125,7 @@ export function ArrayFields({
                 type={schema.item.type}
                 readonly={readonly}
                 compact={compact}
+                errorDisplay={errorDisplay}
               >
                 <AnyField
                   path={itemPath}
@@ -130,6 +133,7 @@ export function ArrayFields({
                   readonly={readonly}
                   compact={compact}
                   inline={inline}
+                  errorDisplay={errorDisplay}
                 />
               </Field>
             </InlineSortableItem>

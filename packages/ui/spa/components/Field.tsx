@@ -1,5 +1,6 @@
 import { Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
+import { fromCamelToTitleCase } from "../utils/prettifyText";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
@@ -14,8 +15,10 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
-import { ShallowSource } from "./ValFieldProvider";
+import { ShallowSource, useAllSources, useSchemas } from "./ValFieldProvider";
 import { useFieldState } from "./useFieldState";
+import { useNavigation } from "./ValRouter";
+import { getNavPathFromAll } from "./getNavPath";
 
 export function Field({
   label,
@@ -29,6 +32,7 @@ export function Field({
   source: sourceProp,
   schema: schemaProp,
   initialExpanded,
+  errorDisplay = "default",
 }: {
   label?: string | React.ReactNode;
   children: React.ReactNode;
@@ -41,6 +45,7 @@ export function Field({
   source?: Json | null;
   schema?: SerializedSchema;
   initialExpanded?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   if ((sourceProp !== undefined) !== (schemaProp !== undefined)) {
     throw new Error(
@@ -67,14 +72,29 @@ export function Field({
     isNullable,
   } = useFieldState(path, type, overrides, initialExpanded);
   const effectiveReadonly = readonly || hasOverrides;
+  const { navigate } = useNavigation();
+  const schemas = useSchemas();
+  const allSources = useAllSources();
+  const handleLabelNavigate = () => {
+    const schemasData = schemas.status === "success" ? schemas.data : undefined;
+    const navPath = getNavPathFromAll(path, allSources, schemasData);
+    const target = navPath ?? path;
+    navigate(target, {
+      scrollToPath: target !== path ? path : undefined,
+    });
+  };
+  const labelClickable = errorDisplay === "compact";
   return (
     <div
+      data-val-studio-path={path}
       className={classNames("border", {
         "px-4 pt-6 pb-4 rounded-lg": !compact,
         "px-3 pt-2 pb-2 rounded-md": compact,
         "bg-bg-tertiary": !transparent && !compact,
         "border-bg-error-secondary":
-          !hasOverrides && validationErrors.length > 0,
+          !hasOverrides &&
+          errorDisplay === "default" &&
+          validationErrors.length > 0,
       })}
     >
       <div
@@ -145,7 +165,17 @@ export function Field({
               }
             />
           )}
-          {typeof label === "string" && <Label>{label}</Label>}
+          {typeof label === "string" &&
+            (labelClickable ? (
+              <button
+                onClick={handleLabelNavigate}
+                className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
+              >
+                {fromCamelToTitleCase(label)}
+              </button>
+            ) : (
+              <Label>{label}</Label>
+            ))}
           {label && typeof label !== "string" && label}
         </div>
         <div
@@ -195,11 +225,13 @@ export function Field({
           </AccordionItem>
         </Accordion>
       )}
-      {!hasOverrides && validationErrors.length > 0 && (
-        <div className={compact ? "pb-4" : "pb-8"}>
-          <FieldValidationError validationErrors={validationErrors} />
-        </div>
-      )}
+      {!hasOverrides &&
+        errorDisplay === "default" &&
+        validationErrors.length > 0 && (
+          <div className={compact ? "pb-4" : "pb-8"}>
+            <FieldValidationError validationErrors={validationErrors} />
+          </div>
+        )}
     </div>
   );
 }

@@ -17,11 +17,13 @@ export function ObjectFields({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
@@ -76,6 +78,7 @@ export function ObjectFields({
               type={itemSchema.type}
               readonly={readonly}
               compact={compact}
+              errorDisplay={errorDisplay}
             >
               <AnyField
                 key={subPath}
@@ -84,6 +87,7 @@ export function ObjectFields({
                 readonly={readonly}
                 compact={compact}
                 inline={inline}
+                errorDisplay={errorDisplay}
               />
             </Field>
           );
