@@ -14,8 +14,14 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
-import { ShallowSource } from "./ValFieldProvider";
+import {
+  ShallowSource,
+  useAllSources,
+  useSchemas,
+} from "./ValFieldProvider";
 import { useFieldState } from "./useFieldState";
+import { useNavigation } from "./ValRouter";
+import { getNavPathFromAll } from "./getNavPath";
 
 export function Field({
   label,
@@ -69,6 +75,18 @@ export function Field({
     isNullable,
   } = useFieldState(path, type, overrides, initialExpanded);
   const effectiveReadonly = readonly || hasOverrides;
+  const { navigate } = useNavigation();
+  const schemas = useSchemas();
+  const allSources = useAllSources();
+  const handleLabelNavigate = () => {
+    const schemasData = schemas.status === "success" ? schemas.data : undefined;
+    const navPath = getNavPathFromAll(path, allSources, schemasData);
+    const target = navPath ?? path;
+    navigate(target, {
+      scrollToPath: target !== path ? path : undefined,
+    });
+  };
+  const labelClickable = errorDisplay === "compact";
   return (
     <div
       data-val-studio-path={path}
@@ -150,7 +168,17 @@ export function Field({
               }
             />
           )}
-          {typeof label === "string" && <Label>{label}</Label>}
+          {typeof label === "string" &&
+            (labelClickable ? (
+              <button
+                onClick={handleLabelNavigate}
+                className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
+              >
+                {label}
+              </button>
+            ) : (
+              <Label>{label}</Label>
+            ))}
           {label && typeof label !== "string" && label}
         </div>
         <div
