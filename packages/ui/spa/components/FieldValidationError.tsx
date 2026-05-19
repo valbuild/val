@@ -69,7 +69,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
             });
           }}
           className={classNames(
-            "inline-flex items-center justify-center size-6 rounded bg-bg-error-secondary text-fg-error hover:bg-bg-error-primary transition-colors",
+            "inline-flex items-center justify-center size-6 rounded bg-bg-warning-secondary text-fg-warning-secondary hover:bg-bg-warning-secondary-hover transition-colors",
             { "opacity-80": isLoading },
           )}
           aria-label="Go to validation error"
@@ -83,7 +83,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
       </TooltipTrigger>
       <TooltipContent
         side="right"
-        className="max-w-xs bg-bg-error-secondary text-fg-error border-fg-error/20"
+        className="max-w-xs bg-bg-warning-secondary text-fg-warning-secondary border-fg-warning-secondary/20"
       >
         {messages.length === 1 ? (
           <p className="text-xs">{messages[0]}</p>
