@@ -141,16 +141,13 @@ export function ToolsMenu() {
             )}
           <PatchErrorsDisplay />
           <TransientErrorsDisplay />
-          <ValidationErrorsButton
+          <ValidationAndCompareRow
             sumValidationErrors={sumValidationErrors}
             errorPaths={errorPaths}
+            showCompare={loadingStatus !== "not-asked"}
+            pendingChanges={pendingChanges}
+            isLoading={loadingStatus === "loading"}
           />
-          {loadingStatus !== "not-asked" && (
-            <CompareButton
-              pendingChanges={pendingChanges}
-              isLoading={loadingStatus === "loading"}
-            />
-          )}
         </div>
       </div>
       {(mode === "http" || mode === "fs") && isChatEnabled && (
@@ -222,6 +219,89 @@ function ShortenedErrorMessage({ error }: { error: string }) {
   );
 }
 
+function ValidationAndCompareRow({
+  sumValidationErrors,
+  errorPaths,
+  showCompare,
+  pendingChanges,
+  isLoading,
+}: {
+  sumValidationErrors: number;
+  errorPaths: SourcePath[];
+  showCompare: boolean;
+  pendingChanges: number;
+  isLoading: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 p-4">
+      <ValidationStatusPill
+        sumValidationErrors={sumValidationErrors}
+        errorPaths={errorPaths}
+      />
+      {showCompare && (
+        <CompareButton isLoading={isLoading} pendingChanges={pendingChanges} />
+      )}
+    </div>
+  );
+}
+
+function ValidationStatusPill({
+  sumValidationErrors,
+  errorPaths,
+}: {
+  sumValidationErrors: number;
+  errorPaths: SourcePath[];
+}) {
+  const { navigate } = useNavigation();
+  const pillBase =
+    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap";
+  if (sumValidationErrors === 0) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={cn(
+              pillBase,
+              "border border-border-secondary bg-bg-secondary text-fg-secondary",
+            )}
+            aria-label="No validation errors"
+          >
+            <CheckCircle2 size={12} aria-hidden />
+            <span>No errors</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>No validation errors</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  const label =
+    sumValidationErrors === 1 ? "1 error" : `${sumValidationErrors} errors`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            pillBase,
+            "cursor-pointer border border-bg-warning-secondary bg-bg-warning-secondary text-fg-warning-secondary transition-colors hover:bg-bg-warning-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          )}
+          onClick={() =>
+            navigate(VAL_ERRORS_ROUTE, { errorFields: errorPaths })
+          }
+        >
+          <AlertTriangle size={12} aria-hidden />
+          <span>{label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Open validation errors</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function CompareButton({
   pendingChanges,
   isLoading,
@@ -231,64 +311,17 @@ function CompareButton({
 }) {
   const { navigate } = useNavigation();
   return (
-    <div className="p-4 flex justify-end">
-      <Button
-        variant="secondary"
-        className="relative flex gap-2 items-center justify-center w-full max-w-[220px]"
-        disabled={pendingChanges <= 0 && !isLoading}
-        onClick={() => navigate("/val/compare")}
-      >
-        <GitCompareArrows size={14} />
-        <span>Compare</span>
-        {isLoading && (
-          <div className="absolute right-2 top-1/2 -translate-y-1/2">
-            <Loader2 size={14} className=" animate-spin" />
-          </div>
-        )}
-      </Button>
-    </div>
-  );
-}
-
-function ValidationErrorsButton({
-  sumValidationErrors,
-  errorPaths,
-}: {
-  sumValidationErrors: number;
-  errorPaths: SourcePath[];
-}) {
-  const { navigate } = useNavigation();
-  if (sumValidationErrors === 0) {
-    return (
-      <div className="flex justify-center px-4 pt-4">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="inline-flex items-center text-fg-tertiary opacity-60"
-              aria-label="No validation errors"
-            >
-              <CheckCircle2 size={14} />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>No validation errors</p>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    );
-  }
-  return (
-    <div className="p-4">
-      <Button
-        variant="warning"
-        className="flex gap-2 items-center w-full justify-center"
-        onClick={() => navigate(VAL_ERRORS_ROUTE, { errorFields: errorPaths })}
-      >
-        <AlertTriangle size={14} />
-        <span>Validation errors</span>
-        <span>{sumValidationErrors}</span>
-      </Button>
-    </div>
+    <Button
+      variant="secondary"
+      size="sm"
+      className="relative flex shrink-0 items-center gap-2"
+      disabled={pendingChanges <= 0 && !isLoading}
+      onClick={() => navigate("/val/compare")}
+    >
+      <GitCompareArrows size={14} />
+      <span>Compare</span>
+      {isLoading && <Loader2 size={14} className="animate-spin" aria-hidden />}
+    </Button>
   );
 }
 

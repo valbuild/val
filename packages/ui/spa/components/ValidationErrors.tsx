@@ -283,8 +283,8 @@ function CountPill({
 
 function AllFixedBanner({ total }: { total: number }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border-brand-primary bg-bg-brand-primary px-4 py-3 text-sm text-fg-brand-primary">
-      <CheckCircle2 size={18} aria-hidden />
+    <div className="flex items-center gap-3 rounded-lg border border-border-primary bg-bg-secondary px-4 py-3 text-sm text-fg-primary">
+      <CheckCircle2 size={16} className="text-fg-secondary" aria-hidden />
       <span>
         All <span className="font-medium">{total}</span>{" "}
         {total === 1 ? "error is" : "errors are"} fixed. Ready to publish.
