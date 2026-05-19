@@ -1413,19 +1413,44 @@ function FieldChangeDiff({
 
   if (isEqual) {
     return (
-      <div className="max-w-xl flex items-stretch">
-        <div className="flex-1 min-w-0 border-l-[3px] border-border-secondary pl-3 pr-1 py-2">
-          <AnyField
-            path={effectivePath}
-            schema={schema}
-            readonly={readonly}
-            compact
-            inline
-            hideUpload
-          />
+      <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
+        <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+          <div className="flex-1 min-w-0">
+            <FieldSourceOverrideContext.Provider value={beforeOverride}>
+              <AnyField
+                path={effectivePath}
+                schema={schema}
+                readonly
+                compact
+                inline
+                hideUpload
+              />
+            </FieldSourceOverrideContext.Provider>
+          </div>
+          <div className="flex items-center px-1">
+            <div className="size-6 shrink-0" />
+          </div>
         </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
+        <div
+          className="hidden lg:flex items-center justify-center text-fg-tertiary"
+          aria-hidden
+        >
+          <Equal size={14} />
+        </div>
+        <div className="pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+          <div className="flex-1 min-w-0">
+            <AnyField
+              path={effectivePath}
+              schema={schema}
+              readonly={readonly}
+              compact
+              inline
+              hideUpload
+            />
+          </div>
+          <div className="flex items-center px-1">
+            <ValidationErrorLink sourcePath={effectivePath} />
+          </div>
         </div>
       </div>
     );
