@@ -27,27 +27,26 @@ export function FieldErrorList({
     return null;
   }
   return (
-    <ul
-      className={classNames(
-        "relative flex flex-col gap-1.5 pl-3 text-sm text-fg-warning-primary",
-        className,
-      )}
-      aria-label={ariaLabel}
-    >
+    <div className={classNames("relative pl-3", className)}>
       <span
         className="absolute left-0 top-1 bottom-1 w-[2px] rounded bg-bg-warning-secondary"
         aria-hidden
       />
-      {validationErrors.map((err, i) => (
-        <li key={i} className="flex items-start gap-1.5">
-          <CircleAlert
-            size={13}
-            className="mt-[3px] shrink-0 text-fg-warning-primary-alt"
-            aria-hidden
-          />
-          <span>{err.message}</span>
-        </li>
-      ))}
-    </ul>
+      <ul
+        className="flex flex-col gap-1.5 text-sm text-fg-warning-primary"
+        aria-label={ariaLabel}
+      >
+        {validationErrors.map((err, i) => (
+          <li key={i} className="flex items-start gap-1.5">
+            <CircleAlert
+              size={13}
+              className="mt-[3px] shrink-0 text-fg-warning-primary-alt"
+              aria-hidden
+            />
+            <span>{err.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
