@@ -13,7 +13,6 @@ import {
   ArrowRight,
   ChevronDown,
   Equal,
-  ExternalLink,
   Globe,
   Minus,
   Pencil,
@@ -691,7 +690,6 @@ function ChangeTargetLabel({
     });
     return (
       <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-        <Globe size={12} className="shrink-0 text-fg-tertiary" />
         <button onClick={handleNavigate} className={codeCls}>
           {segment}
         </button>
@@ -702,7 +700,7 @@ function ChangeTargetLabel({
           className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
           title={`Preview ${segment}`}
         >
-          <ExternalLink size={12} />
+          <Globe size={12} />
         </a>
       </span>
     );
