@@ -251,7 +251,3 @@ export function computeChangedSourcePaths(
 
   return { trees };
 }
-
-export function getSegment(node: ChangeTreeNode): string {
-  return getLastSegment(node.sourcePath);
-}

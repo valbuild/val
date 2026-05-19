@@ -148,7 +148,21 @@ const SavePatchFileResponse = z.object({
   filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
 });
 
-export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
+// Module-scoped monotonic counter; useRef captures the value once per mount,
+// so each component instance gets a unique stable id for its lifetime.
+let creatorIdCounter = 0;
+export function useFieldCreatorId(): string {
+  const ref = useRef<string | null>(null);
+  if (ref.current === null) {
+    ref.current = `c${++creatorIdCounter}`;
+  }
+  return ref.current;
+}
+
+export function useAddPatch(
+  sourcePath: SourcePath | ModuleFilePath,
+  creatorId?: string,
+) {
   const { syncEngine, getDirectFileUploadSettings } = useValFieldContext();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -157,15 +171,9 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   }, [modulePath]);
   const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
-      syncEngine.addPatch(
-        moduleFilePath,
-        type,
-        patch,
-        Date.now(),
-        sourcePath as SourcePath,
-      );
+      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
     },
-    [syncEngine, moduleFilePath, sourcePath],
+    [syncEngine, moduleFilePath, creatorId],
   );
   const addPatchAwaitable = useCallback(
     (
@@ -181,11 +189,11 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
         patchId,
         null,
         Date.now(),
-        sourcePath as SourcePath,
+        creatorId,
         parentRefOverride,
       );
     },
-    [syncEngine, moduleFilePath, sourcePath],
+    [syncEngine, moduleFilePath, creatorId],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -193,15 +201,9 @@ export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(
-        moduleFilePath,
-        type,
-        patch,
-        Date.now(),
-        sourcePath as SourcePath,
-      );
+      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
     },
-    [syncEngine, sourcePath],
+    [syncEngine, creatorId],
   );
 
   const uploadPatchFile = useCallback(
@@ -1050,6 +1052,7 @@ export function useShallowSourceAtPath<
 >(
   sourcePath?: SourcePath | ModuleFilePath,
   type?: SchemaType,
+  creatorId?: string,
 ): ShallowSourceOf<SchemaType> {
   const { syncEngine } = useValFieldContext();
   const sourceOverride = useContext(FieldSourceOverrideContext);
@@ -1058,8 +1061,8 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
+    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
@@ -1115,7 +1118,10 @@ const getNull = () => null;
 const NOT_FOUND = { status: "not-found" as const };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
-export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
+export function useSourceAtPath(
+  sourcePath: SourcePath | ModuleFilePath,
+  creatorId?: string,
+):
   | {
       status: "success";
       data: Json;
@@ -1137,8 +1143,12 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
-    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
-    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
+    syncEngine
+      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
+      : getNull,
+    syncEngine
+      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
+      : getNull,
   );
   const initializedAt = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("initialized-at") : noopSubscribe,

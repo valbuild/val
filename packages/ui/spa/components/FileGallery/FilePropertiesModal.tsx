@@ -233,7 +233,7 @@ export function FilePropertiesModal({
               type="button"
               onClick={() => {
                 navigate("/val/compare", {
-                  scrollToId: `compare-${file.sourcePath}`,
+                  scrollToPath: file.sourcePath,
                 });
               }}
               className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"

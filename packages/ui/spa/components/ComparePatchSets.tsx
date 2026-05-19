@@ -10,14 +10,10 @@ import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
-  AlertTriangle,
   ArrowRight,
-  ChevronsUpDown,
   ChevronDown,
   Equal,
-  ExternalLink,
   Globe,
-  Loader2,
   Minus,
   Pencil,
   Plus,
@@ -26,16 +22,11 @@ import {
   User,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import {
-  ChangeTreeNode,
-  ChangeType,
-  getSegment,
-} from "../utils/computeChangedSourcePaths";
+import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
 import {
   FieldSourceOverrideContext,
   useAllSources,
   useFilePatchIds,
-  useLoadingStatus,
   useSchemaAtPath,
   useSchemaWithResolvedPath,
   useSchemas,
@@ -44,7 +35,6 @@ import {
 } from "./ValFieldProvider";
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import { useDeletePatches, Profile } from "./ValProvider";
-import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
@@ -55,20 +45,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "./designSystem/tooltip";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
+import { fromCamelToTitleCase } from "../utils/prettifyText";
 import { urlOf } from "@valbuild/shared/internal";
 import { getNavPathFromAll } from "./getNavPath";
-import {
-  getUnchangedSiblings,
-  buildOrderedItems,
-  UnchangedSibling,
-} from "../utils/getUnchangedSiblings";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -303,31 +284,22 @@ function ModuleGroup({
 
   return (
     <section
-      id={`compare-${tree.sourcePath}`}
+      data-val-studio-path={tree.sourcePath}
       className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
     >
       <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
         <ModulePathLabel moduleFilePath={moduleFilePath} />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!readonly &&
-            modulePatchIds.length > 0 &&
-            (isModuleEqual ? (
-              <Button
-                variant="default"
-                size="icon-sm"
-                onClick={() => deletePatches(modulePatchIds)}
-                aria-label="Discard all unchanged in this module"
-              >
-                <Undo2 size={14} />
-              </Button>
-            ) : (
-              <DiscardConfirmPopover
-                description="Discard all changes in this module? This cannot be undone."
-                onConfirm={() => deletePatches(modulePatchIds)}
-                portalContainer={portalContainer}
-                ariaLabel="Discard all changes in this module"
-              />
-            ))}
+          {!readonly && modulePatchIds.length > 0 && (
+            <DiscardControl
+              isEqual={isModuleEqual}
+              onDiscard={() => deletePatches(modulePatchIds)}
+              confirmDescription="Discard all changes in this module? This cannot be undone."
+              unchangedAriaLabel="Discard all unchanged in this module"
+              confirmAriaLabel="Discard all changes in this module"
+              portalContainer={portalContainer}
+            />
+          )}
           {Object.keys(modulePatchesByAuthorIds).length > 0 && (
             <FieldPatchAuthorsPure
               patchesByAuthorIds={modulePatchesByAuthorIds}
@@ -337,21 +309,17 @@ function ModuleGroup({
               mode={mode}
             />
           )}
-          <button
-            onClick={() => setIsCollapsed((v) => !v)}
-            className={classNames(
-              "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
-              { "rotate-180": !isCollapsed },
-            )}
-            aria-label={isCollapsed ? "Expand module" : "Collapse module"}
-          >
-            <ChevronDown size={14} />
-          </button>
+          <CollapseToggle
+            isOpen={!isCollapsed}
+            onToggle={() => setIsCollapsed((v) => !v)}
+            openLabel="Collapse module"
+            closedLabel="Expand module"
+          />
         </div>
       </header>
       {!isCollapsed && (
         <div className="divide-y divide-border-primary">
-          <RenderTree node={tree} rowProps={rowProps} isModuleRoot />
+          <RenderTree node={tree} rowProps={rowProps} />
         </div>
       )}
     </section>
@@ -361,11 +329,9 @@ function ModuleGroup({
 function RenderTree({
   node,
   rowProps,
-  isModuleRoot = false,
 }: {
   node: ChangeTreeNode;
   rowProps: RowProps;
-  isModuleRoot?: boolean;
 }) {
   if (node.change) {
     if (
@@ -378,11 +344,7 @@ function RenderTree({
       <>
         <ChangeRow key={node.sourcePath} row={node} {...rowProps} />
         {node.children.length > 0 && (
-          <ChangeCluster
-            parent={node}
-            rowProps={rowProps}
-            isModuleRoot={false}
-          />
+          <ChangeCluster parent={node} rowProps={rowProps} />
         )}
       </>
     );
@@ -390,13 +352,7 @@ function RenderTree({
 
   const hasChangingChildren = node.children.some((c) => hasAnyChange(c));
   if (hasChangingChildren) {
-    return (
-      <ChangeCluster
-        parent={node}
-        rowProps={rowProps}
-        isModuleRoot={isModuleRoot}
-      />
-    );
+    return <ChangeCluster parent={node} rowProps={rowProps} />;
   }
 
   return null;
@@ -440,32 +396,17 @@ function hasAnyChange(node: ChangeTreeNode): boolean {
   return node.children.some(hasAnyChange);
 }
 
-const MAX_MODULE_ROOT_UNCHANGED = 50;
-
 function ChangeCluster({
   parent,
   rowProps,
-  isModuleRoot,
 }: {
   parent: ChangeTreeNode;
   rowProps: RowProps;
-  isModuleRoot: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(parent.sourcePath as SourcePath);
-  const sourceAtPath = useSourceAtPath(parent.sourcePath as SourcePath);
-
-  if (schemaAtPath.status !== "success" || sourceAtPath.status !== "success") {
-    return (
-      <>
-        {parent.children.map((child) => (
-          <RenderTree key={child.sourcePath} node={child} rowProps={rowProps} />
-        ))}
-      </>
-    );
-  }
 
   const mediaType =
-    schemaAtPath.data.type === "record"
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "record"
       ? schemaAtPath.data.mediaType
       : undefined;
 
@@ -473,112 +414,18 @@ function ChangeCluster({
     ? { ...rowProps, parentMediaType: mediaType }
     : rowProps;
 
-  const changedKeys = new Set(parent.children.map(getSegment));
-  const unchanged = getUnchangedSiblings(
-    parent.sourcePath,
-    schemaAtPath.data,
-    sourceAtPath.data,
-    changedKeys,
-  );
-
-  const cappedUnchanged =
-    isModuleRoot && unchanged.length > MAX_MODULE_ROOT_UNCHANGED
-      ? unchanged.slice(0, MAX_MODULE_ROOT_UNCHANGED)
-      : unchanged;
-
-  const items = buildOrderedItems(
-    schemaAtPath.data,
-    sourceAtPath.data,
-    parent.children.filter((c) => hasAnyChange(c)),
-    cappedUnchanged,
-  );
-
   return (
     <>
-      {items.map((item, i) => {
-        if (item.kind === "change") {
-          return (
-            <RenderTree
-              key={item.node.sourcePath}
-              node={item.node}
-              rowProps={childRowProps}
-            />
-          );
-        }
-        return (
-          <HiddenChunk
-            key={`chunk-${i}`}
-            siblings={item.siblings}
-            readonly={rowProps.readonly}
+      {parent.children
+        .filter((c) => hasAnyChange(c))
+        .map((child) => (
+          <RenderTree
+            key={child.sourcePath}
+            node={child}
+            rowProps={childRowProps}
           />
-        );
-      })}
+        ))}
     </>
-  );
-}
-
-// #region HiddenChunk
-
-function HiddenChunk({
-  siblings,
-  readonly,
-}: {
-  siblings: UnchangedSibling[];
-  readonly: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (siblings.length === 0) return null;
-
-  const n = siblings.length;
-  return (
-    <div className="flex flex-col pt-0 pb-2">
-      <div className="relative flex items-center py-1.5 px-5">
-        <div className="flex-1 border-t border-dashed border-border-secondary" />
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="mx-3 flex items-center gap-1.5 text-xs text-fg-tertiary hover:text-fg-secondary transition-colors whitespace-nowrap"
-        >
-          <ChevronsUpDown size={12} />
-          {n} unchanged {n === 1 ? "field" : "fields"}{" "}
-          {expanded ? "" : "hidden"}
-        </button>
-        <div className="flex-1 border-t border-dashed border-border-secondary" />
-      </div>
-      {expanded && (
-        <div className="mx-5 rounded bg-bg-secondary/50 py-1">
-          {siblings.map((s) => (
-            <UnchangedFieldRow
-              key={s.sourcePath}
-              sourcePath={s.sourcePath}
-              readonly={readonly}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UnchangedFieldRow({
-  sourcePath,
-  readonly,
-}: {
-  sourcePath: SourcePath;
-  readonly: boolean;
-}) {
-  const schemaAtPath = useSchemaAtPath(sourcePath);
-  if (schemaAtPath.status !== "success") return null;
-  return (
-    <div className="px-3 py-1.5 min-w-0 opacity-50 border-l-[3px] border-transparent">
-      <AnyField
-        path={sourcePath}
-        schema={schemaAtPath.data}
-        readonly={readonly}
-        compact
-        inline
-        hideUpload
-      />
-    </div>
   );
 }
 
@@ -670,7 +517,7 @@ function ChangeRow({
 
   return (
     <article
-      id={`compare-${row.sourcePath}`}
+      data-val-studio-path={row.sourcePath}
       className={classNames("px-5 py-5", {
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
@@ -760,21 +607,14 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {isEqual && !readonly ? (
-          <Button
-            variant="default"
-            size="icon-sm"
-            onClick={onDiscard}
-            aria-label="Discard unchanged"
-          >
-            <Undo2 size={14} />
-          </Button>
-        ) : (
-          <DiscardConfirmPopover
-            description="Discard this change? This cannot be undone."
-            onConfirm={onDiscard}
+        {!readonly && (
+          <DiscardControl
+            isEqual={isEqual}
+            onDiscard={onDiscard}
+            confirmDescription="Discard this change? This cannot be undone."
+            unchangedAriaLabel="Discard unchanged"
+            confirmAriaLabel="Discard this change"
             portalContainer={portalContainer}
-            ariaLabel="Discard this change"
           />
         )}
         <FieldPatchAuthorsPure
@@ -784,16 +624,12 @@ function ChangeRowHeader({
           portalContainer={portalContainer}
           mode={mode}
         />
-        <button
-          onClick={onToggleExpand}
-          className={classNames(
-            "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
-            { "rotate-180": isExpanded },
-          )}
-          aria-label={isExpanded ? "Collapse" : "Expand"}
-        >
-          <ChevronDown size={14} />
-        </button>
+        <CollapseToggle
+          isOpen={isExpanded}
+          onToggle={onToggleExpand}
+          openLabel="Collapse"
+          closedLabel="Expand"
+        />
       </div>
     </div>
   );
@@ -825,7 +661,7 @@ function ChangeTargetLabel({
     const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
     const target = navPath ?? sourcePath;
     navigate(target, {
-      scrollToId: target !== sourcePath ? sourcePath : undefined,
+      scrollToPath: target !== sourcePath ? sourcePath : undefined,
     });
   };
 
@@ -854,7 +690,6 @@ function ChangeTargetLabel({
     });
     return (
       <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-        <Globe size={12} className="shrink-0 text-fg-tertiary" />
         <button onClick={handleNavigate} className={codeCls}>
           {segment}
         </button>
@@ -865,7 +700,7 @@ function ChangeTargetLabel({
           className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
           title={`Preview ${segment}`}
         >
-          <ExternalLink size={12} />
+          <Globe size={12} />
         </a>
       </span>
     );
@@ -878,80 +713,15 @@ function ChangeTargetLabel({
 }
 
 function prettifyModulePath(modulePath: string): string {
-  // Show "home / title" instead of '"home"."title"'.
+  // Show "Home / Title" instead of '"home"."title"'. Router-page slugs like
+  // "/blogs/blog-12" start with "/" so the casing helper leaves them intact.
   if (!modulePath) return modulePath;
   // splitModulePath accepts the same string the engine uses internally; it's
   // a branded type at the boundary but the existing helpers are tolerant.
   const segments = Internal.splitModulePath(
     modulePath as Parameters<typeof Internal.splitModulePath>[0],
   );
-  return segments.join(" / ");
-}
-
-function ValidationErrorLink({ sourcePath }: { sourcePath: SourcePath }) {
-  const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
-  const validationErrors = useAllValidationErrors();
-  const loadingStatus = useLoadingStatus();
-  const isLoading = loadingStatus === "loading";
-  const messages: string[] = [];
-  if (validationErrors) {
-    for (const errorPath in validationErrors) {
-      if (errorPath.startsWith(sourcePath)) {
-        for (const err of validationErrors[errorPath as SourcePath] ?? []) {
-          messages.push(err.message);
-        }
-      }
-    }
-  }
-  if (messages.length === 0) return <div className="size-6 shrink-0" />;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={() => {
-            const schemasData =
-              schemas.status === "success" ? schemas.data : undefined;
-            const navPath = getNavPathFromAll(
-              sourcePath,
-              allSources,
-              schemasData,
-            );
-            navigate(navPath ?? sourcePath, {
-              scrollToId: sourcePath,
-            });
-          }}
-          className={classNames(
-            "inline-flex items-center justify-center size-6 rounded bg-bg-error-secondary text-fg-error hover:bg-bg-error-primary transition-colors",
-            { "opacity-80": isLoading },
-          )}
-          aria-label="Go to validation error"
-        >
-          {isLoading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <AlertTriangle size={16} />
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="right"
-        className="max-w-xs bg-bg-error-secondary text-fg-error border-fg-error/20"
-      >
-        {messages.length === 1 ? (
-          <p className="text-xs">{messages[0]}</p>
-        ) : (
-          <ul className="text-xs list-disc pl-3 space-y-0.5">
-            {messages.map((msg, i) => (
-              <li key={i}>{msg}</li>
-            ))}
-          </ul>
-        )}
-      </TooltipContent>
-    </Tooltip>
-  );
+  return segments.map(fromCamelToTitleCase).join(" / ");
 }
 
 function ChangeTypeLabel({
@@ -1167,16 +937,12 @@ function MediaEntryAlt({
   return (
     <div>
       <label className="text-sm font-medium mb-1 block">Alt</label>
-      <div className="flex items-center gap-1">
-        <div className="flex-1 min-w-0">
-          <AnyField
-            path={altPath as SourcePath}
-            schema={schemaAtPath.data}
-            readonly={readonly}
-          />
-        </div>
-        {showValidation && <ValidationErrorLink sourcePath={sourcePath} />}
-      </div>
+      <AnyField
+        path={altPath as SourcePath}
+        schema={schemaAtPath.data}
+        readonly={readonly}
+        errorDisplay={showValidation ? "compact" : "none"}
+      />
     </div>
   );
 }
@@ -1298,11 +1064,6 @@ function MediaEntryDiff({
   const isImage = mediaType === "images";
 
   const afterSource = useSourceAtPath(sourcePath);
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
-  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
   const beforeSource = useServerSourceAtPath(sourcePath);
 
   const afterMetadata =
@@ -1318,12 +1079,6 @@ function MediaEntryDiff({
   const beforeHotspot = extractHotspot(beforeMetadata);
 
   const imageUrl = isImage ? refToUrl(fileRef, filePatchIds) : null;
-
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
-
   const filename = getFilenameFromRef(fileRef);
 
   if (!isExpanded && changeType !== "field-change") return null;
@@ -1332,19 +1087,16 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt sourcePath={sourcePath} readonly showValidation />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly
+            showValidation
+          />
         </div>
       </div>
     );
@@ -1355,24 +1107,17 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <DiffSide diffStyle="added">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                diffStyle="added"
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            diffStyle="added"
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly={readonly}
+            showValidation
+          />
         </DiffSide>
       </div>
     );
@@ -1382,26 +1127,22 @@ function MediaEntryDiff({
     if (!isExpanded) return null;
     const originalUrl = isImage ? staticFileUrl(fileRef) : null;
     return (
-      <FieldSourceOverrideContext.Provider value={beforeOverride}>
+      <BeforeSourceOverride sourcePath={sourcePath}>
         <div className="max-w-xl">
           <DiffSide diffStyle="removed">
-            <div className="flex items-start gap-4">
-              {isImage && (
-                <MediaEntryThumbnail
-                  url={originalUrl}
-                  filename={filename}
-                  diffStyle="removed"
-                  hotspot={beforeHotspot}
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <MediaEntryAlt sourcePath={sourcePath} readonly />
-              </div>
-            </div>
-            <MediaEntryMetadata metadata={beforeMetadata} />
+            <MediaEntryCard
+              isImage={isImage}
+              url={originalUrl}
+              filename={filename}
+              diffStyle="removed"
+              hotspot={beforeHotspot}
+              metadata={beforeMetadata}
+              sourcePath={sourcePath}
+              altReadonly
+            />
           </DiffSide>
         </div>
-      </FieldSourceOverrideContext.Provider>
+      </BeforeSourceOverride>
     );
   }
 
@@ -1415,24 +1156,17 @@ function MediaEntryDiff({
     return (
       <div className="max-w-xl">
         <DiffSide diffStyle="added">
-          <div className="flex items-start gap-4">
-            {isImage && (
-              <MediaEntryThumbnail
-                url={imageUrl}
-                filename={filename}
-                diffStyle="added"
-                hotspot={afterHotspot}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            </div>
-          </div>
-          <MediaEntryMetadata metadata={afterMetadata} />
+          <MediaEntryCard
+            isImage={isImage}
+            url={imageUrl}
+            filename={filename}
+            diffStyle="added"
+            hotspot={afterHotspot}
+            metadata={afterMetadata}
+            sourcePath={sourcePath}
+            altReadonly={readonly}
+            showValidation
+          />
         </DiffSide>
       </div>
     );
@@ -1449,32 +1183,21 @@ function MediaEntryDiff({
           />
         )}
         <div className="flex-1 min-w-0">
-          <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
-            <div className="pr-1 min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">
-                Before
-              </div>
-              <FieldSourceOverrideContext.Provider value={beforeOverride}>
+          <BeforeAfterLayout
+            variant="media"
+            before={
+              <BeforeSourceOverride sourcePath={sourcePath}>
                 <MediaEntryAlt sourcePath={sourcePath} readonly />
-              </FieldSourceOverrideContext.Provider>
-            </div>
-            <div
-              className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
-              aria-hidden
-            >
-              <ArrowRight size={14} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-fg-tertiary mb-1">
-                After
-              </div>
+              </BeforeSourceOverride>
+            }
+            after={
               <MediaEntryAlt
                 sourcePath={sourcePath}
                 readonly={readonly}
                 showValidation
               />
-            </div>
-          </div>
+            }
+          />
         </div>
       </div>
       <MediaEntryMetadata metadata={afterMetadata} />
@@ -1483,25 +1206,15 @@ function MediaEntryDiff({
 }
 
 function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
-  const serverModuleSource = useServerSourceAtPath(moduleFilePath);
-  const beforeOverride =
-    serverModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: serverModuleSource.data }
-      : null;
-
   return (
-    <FieldSourceOverrideContext.Provider value={beforeOverride}>
+    <BeforeSourceOverride sourcePath={sourcePath}>
       <SingleSideContent
         sourcePath={sourcePath}
         side="after"
         diffStyle="removed"
         readonly
       />
-    </FieldSourceOverrideContext.Provider>
+    </BeforeSourceOverride>
   );
 }
 
@@ -1517,15 +1230,10 @@ function FieldChangeDiff({
   isEqual: boolean;
 }) {
   const schemaWithPath = useSchemaWithResolvedPath(sourcePath);
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
-    [sourcePath],
-  );
   const effectivePath =
     schemaWithPath.status === "success"
       ? schemaWithPath.resolvedPath
       : sourcePath;
-  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
   const beforeSource = useServerSourceAtPath(effectivePath);
 
   if (schemaWithPath.status !== "success") return null;
@@ -1534,67 +1242,14 @@ function FieldChangeDiff({
   const beforeAvailable = beforeSource.status === "success";
   const beforeIsNull = beforeAvailable && beforeSource.data === null;
 
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
-
   if (!isExpanded) return null;
 
   if (isEqual) {
     return (
-      <div className="max-w-xl flex items-stretch">
-        <div className="flex-1 min-w-0 border-l-[3px] border-border-secondary pl-3 pr-1 py-2">
-          <AnyField
-            path={effectivePath}
-            schema={schema}
-            readonly={readonly}
-            compact
-            inline
-            hideUpload
-          />
-        </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
-        </div>
-      </div>
-    );
-  }
-
-  if (beforeIsNull || !beforeAvailable) {
-    return (
-      <div className="max-w-xl flex items-stretch">
-        <div className="flex-1 min-w-0">
-          <DiffSide diffStyle="added">
-            <AnyField
-              path={effectivePath}
-              schema={schema}
-              readonly={readonly}
-              compact
-              inline
-            />
-          </DiffSide>
-        </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
-        </div>
-      </div>
-    );
-  }
-
-  {
-    /* Side-by-side before/after.
-       The coloured border lives on the left column (not an outer wrapper)
-       so the grid is fully symmetric and the arrow sits exactly midway
-       between the two content areas.
-       Both columns reserve a trailing size-6 slot (spacer left,
-       ValidationErrorLink right) so AnyField gets identical width. */
-  }
-  return (
-    <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
-      <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="flex-1 min-w-0">
-          <FieldSourceOverrideContext.Provider value={beforeOverride}>
+      <BeforeAfterLayout
+        variant="equal"
+        before={
+          <BeforeSourceOverride sourcePath={sourcePath}>
             <AnyField
               path={effectivePath}
               schema={schema}
@@ -1602,34 +1257,69 @@ function FieldChangeDiff({
               compact
               inline
               hideUpload
+              errorDisplay="none"
             />
-          </FieldSourceOverrideContext.Provider>
-        </div>
-        <div className="flex items-center px-1">
-          <div className="size-6 shrink-0" />
-        </div>
-      </div>
-      <div
-        className="hidden lg:flex items-center justify-center text-fg-tertiary"
-        aria-hidden
-      >
-        <ArrowRight size={14} />
-      </div>
-      <div className="pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="flex-1 min-w-0">
+          </BeforeSourceOverride>
+        }
+        after={
           <AnyField
             path={effectivePath}
             schema={schema}
             readonly={readonly}
             compact
             inline
+            hideUpload
+            errorDisplay="compact"
           />
-        </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
-        </div>
+        }
+      />
+    );
+  }
+
+  if (beforeIsNull || !beforeAvailable) {
+    return (
+      <div className="max-w-xl">
+        <DiffSide diffStyle="added">
+          <AnyField
+            path={effectivePath}
+            schema={schema}
+            readonly={readonly}
+            compact
+            inline
+            errorDisplay="compact"
+          />
+        </DiffSide>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <BeforeAfterLayout
+      variant="changed"
+      before={
+        <BeforeSourceOverride sourcePath={sourcePath}>
+          <AnyField
+            path={effectivePath}
+            schema={schema}
+            readonly
+            compact
+            inline
+            hideUpload
+            errorDisplay="none"
+          />
+        </BeforeSourceOverride>
+      }
+      after={
+        <AnyField
+          path={effectivePath}
+          schema={schema}
+          readonly={readonly}
+          compact
+          inline
+          errorDisplay="compact"
+        />
+      }
+    />
   );
 }
 
@@ -1689,36 +1379,31 @@ function SingleSideContentInner({
   const schema = schemaAtPath.data;
 
   return (
-    <div className="max-w-xl flex items-stretch">
-      <div className="flex-1 min-w-0">
-        <DiffSide diffStyle={diffStyle}>
-          {diffStyle === "removed" ? (
-            <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
-              <AnyField
-                path={sourcePath}
-                schema={schema}
-                readonly
-                compact
-                inline
-                hideUpload
-              />
-            </div>
-          ) : (
+    <div className="max-w-xl">
+      <DiffSide diffStyle={diffStyle}>
+        {diffStyle === "removed" ? (
+          <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
             <AnyField
               path={sourcePath}
               schema={schema}
-              readonly={readonly}
+              readonly
               compact
               inline
+              hideUpload
+              errorDisplay="none"
             />
-          )}
-        </DiffSide>
-      </div>
-      {diffStyle === "added" && (
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={sourcePath} />
-        </div>
-      )}
+          </div>
+        ) : (
+          <AnyField
+            path={sourcePath}
+            schema={schema}
+            readonly={readonly}
+            compact
+            inline
+            errorDisplay="compact"
+          />
+        )}
+      </DiffSide>
     </div>
   );
 }
@@ -1818,6 +1503,201 @@ function SummaryAvatar({
     >
       {getInitials(profile.fullName)}
     </span>
+  );
+}
+
+// #region CollapseToggle
+
+function CollapseToggle({
+  isOpen,
+  onToggle,
+  openLabel,
+  closedLabel,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  openLabel: string;
+  closedLabel: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={classNames(
+        "size-5 flex items-center justify-center text-fg-secondary hover:text-fg-primary transition-transform",
+        { "rotate-180": isOpen },
+      )}
+      aria-label={isOpen ? openLabel : closedLabel}
+    >
+      <ChevronDown size={14} />
+    </button>
+  );
+}
+
+// #region DiscardControl
+
+function DiscardControl({
+  isEqual,
+  onDiscard,
+  confirmDescription,
+  unchangedAriaLabel,
+  confirmAriaLabel,
+  portalContainer,
+}: {
+  isEqual: boolean;
+  onDiscard: () => void;
+  confirmDescription: string;
+  unchangedAriaLabel: string;
+  confirmAriaLabel: string;
+  portalContainer: HTMLElement | null;
+}) {
+  if (isEqual) {
+    return (
+      <Button
+        variant="default"
+        size="icon-sm"
+        onClick={onDiscard}
+        aria-label={unchangedAriaLabel}
+      >
+        <Undo2 size={14} />
+      </Button>
+    );
+  }
+  return (
+    <DiscardConfirmPopover
+      description={confirmDescription}
+      onConfirm={onDiscard}
+      portalContainer={portalContainer}
+      ariaLabel={confirmAriaLabel}
+    />
+  );
+}
+
+// #region BeforeSourceOverride
+
+function BeforeSourceOverride({
+  sourcePath,
+  children,
+}: {
+  sourcePath: SourcePath;
+  children: React.ReactNode;
+}) {
+  const [moduleFilePath] = useMemo(
+    () => Internal.splitModuleFilePathAndModulePath(sourcePath),
+    [sourcePath],
+  );
+  const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
+  const beforeOverride =
+    beforeModuleSource.status === "success"
+      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
+      : null;
+  return (
+    <FieldSourceOverrideContext.Provider value={beforeOverride}>
+      {children}
+    </FieldSourceOverrideContext.Provider>
+  );
+}
+
+// #region BeforeAfterLayout
+
+function BeforeAfterLayout({
+  variant,
+  before,
+  after,
+}: {
+  variant: "equal" | "changed" | "media";
+  before: React.ReactNode;
+  after: React.ReactNode;
+}) {
+  if (variant === "media") {
+    return (
+      <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
+        <div className="pr-1 min-w-0">
+          <div className="text-xs font-medium text-fg-tertiary mb-1">
+            Before
+          </div>
+          {before}
+        </div>
+        <div
+          className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
+          aria-hidden
+        >
+          <ArrowRight size={14} />
+        </div>
+        <div className="pl-1 min-w-0">
+          <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
+          {after}
+        </div>
+      </div>
+    );
+  }
+  const borderColor =
+    variant === "equal" ? "border-border-secondary" : "border-fg-brand-primary";
+  const MiddleIcon = variant === "equal" ? Equal : ArrowRight;
+  return (
+    <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
+      <div
+        className={classNames(
+          "border-l-[3px] pl-3 pr-12 lg:pr-1 py-2 min-w-0",
+          borderColor,
+        )}
+      >
+        {before}
+      </div>
+      <div
+        className="hidden lg:flex items-center justify-center text-fg-tertiary"
+        aria-hidden
+      >
+        <MiddleIcon size={14} />
+      </div>
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">{after}</div>
+    </div>
+  );
+}
+
+// #region MediaEntryCard
+
+function MediaEntryCard({
+  isImage,
+  url,
+  filename,
+  hotspot,
+  diffStyle,
+  metadata,
+  sourcePath,
+  altReadonly,
+  showValidation,
+}: {
+  isImage: boolean;
+  url: string | null;
+  filename: string;
+  hotspot?: { x: number; y: number };
+  diffStyle?: "added" | "removed";
+  metadata: Record<string, unknown> | null;
+  sourcePath: SourcePath;
+  altReadonly: boolean;
+  showValidation?: boolean;
+}) {
+  return (
+    <>
+      <div className="flex items-start gap-4">
+        {isImage && (
+          <MediaEntryThumbnail
+            url={url}
+            filename={filename}
+            diffStyle={diffStyle}
+            hotspot={hotspot}
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <MediaEntryAlt
+            sourcePath={sourcePath}
+            readonly={altReadonly}
+            showValidation={showValidation}
+          />
+        </div>
+      </div>
+      <MediaEntryMetadata metadata={metadata} />
+    </>
   );
 }
 

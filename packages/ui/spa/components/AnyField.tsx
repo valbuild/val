@@ -13,6 +13,9 @@ import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
+import { FieldValidationErrorCompact } from "./FieldValidationError";
+
+export type ErrorDisplay = "default" | "compact" | "none";
 
 export function AnyField({
   path,
@@ -22,6 +25,7 @@ export function AnyField({
   compact,
   inline,
   hideUpload,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   schema: SerializedSchema;
@@ -30,10 +34,12 @@ export function AnyField({
   compact?: boolean;
   inline?: boolean;
   hideUpload?: boolean;
+  errorDisplay?: ErrorDisplay;
 }) {
   const leafProps = { readonly, compact };
+  let leaf: React.ReactNode;
   if (schema.type === "string") {
-    return (
+    leaf = (
       <StringField
         key={path}
         path={path}
@@ -42,11 +48,11 @@ export function AnyField({
       />
     );
   } else if (schema.type === "number") {
-    return <NumberField key={path} path={path} {...leafProps} />;
+    leaf = <NumberField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "boolean") {
-    return <BooleanField key={path} path={path} {...leafProps} />;
+    leaf = <BooleanField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "image") {
-    return (
+    leaf = (
       <ImageField
         key={path}
         path={path}
@@ -62,6 +68,7 @@ export function AnyField({
         readonly={readonly}
         compact={compact}
         inline={inline}
+        errorDisplay={errorDisplay}
       />
     );
   } else if (schema.type === "array") {
@@ -72,6 +79,7 @@ export function AnyField({
         readonly={readonly}
         compact={compact}
         inline={inline}
+        errorDisplay={errorDisplay}
       />
     );
   } else if (schema.type === "record") {
@@ -82,6 +90,7 @@ export function AnyField({
         readonly={readonly}
         compact={compact}
         inline={inline}
+        errorDisplay={errorDisplay}
       />
     );
   } else if (schema.type === "union") {
@@ -92,14 +101,15 @@ export function AnyField({
         readonly={readonly}
         compact={compact}
         inline={inline}
+        errorDisplay={errorDisplay}
       />
     );
   } else if (schema.type === "keyOf") {
-    return <KeyOfField key={path} path={path} {...leafProps} />;
+    leaf = <KeyOfField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "route") {
-    return <RouteField key={path} path={path} {...leafProps} />;
+    leaf = <RouteField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "richtext") {
-    return (
+    leaf = (
       <RichTextField
         key={path}
         path={path}
@@ -108,20 +118,32 @@ export function AnyField({
       />
     );
   } else if (schema.type === "date") {
-    return <DateField key={path} path={path} {...leafProps} />;
+    leaf = <DateField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
-    return <FileField key={path} path={path} {...leafProps} />;
+    leaf = <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {
-    return (
+    leaf = (
       <FieldSchemaError path={path} error="Literal fields are not editable" />
     );
   } else {
     const exhaustiveCheck: never = schema;
-    return (
+    leaf = (
       <FieldSchemaError
         path={path}
         error={"Unexpected field schema: " + JSON.stringify(exhaustiveCheck)}
       />
     );
   }
+
+  if (errorDisplay === "compact") {
+    return (
+      <div className="flex items-stretch gap-1 min-w-0">
+        <div className="flex-1 min-w-0">{leaf}</div>
+        <div className="flex items-center px-1">
+          <FieldValidationErrorCompact path={path} />
+        </div>
+      </div>
+    );
+  }
+  return <>{leaf}</>;
 }

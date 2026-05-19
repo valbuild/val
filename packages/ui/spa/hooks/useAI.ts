@@ -311,6 +311,17 @@ const SET_SESSION_NAME_TOOL: AITool = {
     required: ["name"],
   },
 };
+const SHOW_COMPARE_VIEW_TOOL: AITool = {
+  name: "show_compare_view",
+  description:
+    "Navigate the user to the compare view to show pending changes (patches that have not yet been published). " +
+    "Use when the user wants to review, inspect, or compare their unpublished changes.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -324,6 +335,7 @@ const ALL_TOOLS: AITool[] = [
   GET_PATCHES_TOOL,
   GET_SOURCE_PATH_FROM_ROUTE_TOOL,
   SET_SESSION_NAME_TOOL,
+  SHOW_COMPARE_VIEW_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -1165,6 +1177,14 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (message.name === "show_compare_view") {
+          navigate("/val/compare");
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: { success: true },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
           console.error("Received unknown tool call in useAI", message.name);
           sendWsMessage({

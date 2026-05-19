@@ -308,7 +308,3 @@ exports[`computeChangedSourcePaths single page removed 1`] = `
   ],
 }
 `;
-
-exports[`getSegment returns last segment for source paths 1`] = `"title"`;
-
-exports[`getSegment returns moduleFilePath for root nodes 1`] = `"/app/pages.val.ts"`;

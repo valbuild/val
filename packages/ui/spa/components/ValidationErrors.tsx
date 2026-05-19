@@ -228,7 +228,7 @@ function FieldPathLabel({ sourcePath }: { sourcePath: SourcePath }) {
     const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
     const target = navPath ?? sourcePath;
     navigate(target, {
-      scrollToId: target !== sourcePath ? sourcePath : undefined,
+      scrollToPath: target !== sourcePath ? sourcePath : undefined,
     });
   };
 

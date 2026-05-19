@@ -1,6 +1,7 @@
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
   useAddPatch,
+  useFieldCreatorId,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -27,20 +28,23 @@ export function ArrayFields({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "array";
+  const creatorId = useFieldCreatorId();
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const renderAtPath = useRenderOverrideAtPath(path);
-  const shallowSourceAtPath = useShallowSourceAtPath(path, type);
-  const sourceAtPath = useSourceAtPath(path);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const sourceAtPath = useSourceAtPath(path, creatorId);
 
-  const { addPatch, patchPath } = useAddPatch(path);
+  const { addPatch, patchPath } = useAddPatch(path, creatorId);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -121,6 +125,7 @@ export function ArrayFields({
                 type={schema.item.type}
                 readonly={readonly}
                 compact={compact}
+                errorDisplay={errorDisplay}
               >
                 <AnyField
                   path={itemPath}
@@ -128,6 +133,7 @@ export function ArrayFields({
                   readonly={readonly}
                   compact={compact}
                   inline={inline}
+                  errorDisplay={errorDisplay}
                 />
               </Field>
             </InlineSortableItem>

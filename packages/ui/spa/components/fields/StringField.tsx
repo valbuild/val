@@ -3,6 +3,7 @@ import { CodeLanguage, SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
   useAddPatch,
+  useFieldCreatorId,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -29,9 +30,10 @@ export function StringField({
   compact?: boolean;
 }) {
   const type = "string";
+  const creatorId = useFieldCreatorId();
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, "string");
-  const { patchPath, addPatch } = useAddPatch(path);
+  const sourceAtPath = useShallowSourceAtPath(path, "string", creatorId);
+  const { patchPath, addPatch } = useAddPatch(path, creatorId);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
