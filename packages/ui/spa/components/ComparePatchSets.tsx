@@ -47,7 +47,7 @@ import {
 } from "./designSystem/popover";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { fromCamelToTitleCase } from "../utils/prettifyText";
+import { prettifyModulePath } from "../utils/prettifyText";
 import { urlOf } from "@valbuild/shared/internal";
 import { getNavPathFromAll } from "./getNavPath";
 
@@ -710,18 +710,6 @@ function ChangeTargetLabel({
       {prettifyModulePath(modulePath)}
     </button>
   );
-}
-
-function prettifyModulePath(modulePath: string): string {
-  // Show "Home / Title" instead of '"home"."title"'. Router-page slugs like
-  // "/blogs/blog-12" start with "/" so the casing helper leaves them intact.
-  if (!modulePath) return modulePath;
-  // splitModulePath accepts the same string the engine uses internally; it's
-  // a branded type at the boundary but the existing helpers are tolerant.
-  const segments = Internal.splitModulePath(
-    modulePath as Parameters<typeof Internal.splitModulePath>[0],
-  );
-  return segments.map(fromCamelToTitleCase).join(" / ");
 }
 
 function ChangeTypeLabel({

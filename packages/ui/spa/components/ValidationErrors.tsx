@@ -7,7 +7,13 @@ import {
 } from "@valbuild/core";
 import { Fragment, useMemo } from "react";
 import classNames from "classnames";
-import { CheckCircle2, FileCode2, Loader2, TriangleAlert } from "lucide-react";
+import {
+  CheckCircle2,
+  FileCode2,
+  Globe,
+  Loader2,
+  TriangleAlert,
+} from "lucide-react";
 import { AnyField } from "./AnyField";
 import { FieldErrorList } from "./FieldErrorList";
 import { getNavPathFromAll } from "./getNavPath";
@@ -15,6 +21,8 @@ import { useAllValidationErrors } from "./ValErrorProvider";
 import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
 import { prettifyFilename } from "../utils/prettifyFilename";
+import { prettifyModulePath } from "../utils/prettifyText";
+import { urlOf } from "@valbuild/shared/internal";
 
 /**
  * The list of rows shown on `/val/errors` is driven entirely by the
@@ -218,13 +226,21 @@ function FieldPathLabel({ sourcePath }: { sourcePath: SourcePath }) {
   const { navigate } = useNavigation();
   const schemas = useSchemas();
   const allSources = useAllSources();
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const moduleSegments = modulePath
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = modulePath
     ? Internal.splitModulePath(modulePath as ModulePath)
     : [];
+  const schemasData = schemas.status === "success" ? schemas.data : undefined;
+  const moduleSchema = schemasData?.[moduleFilePath];
+  const isRouterModule =
+    moduleSchema?.type === "record" && Boolean(moduleSchema.router);
+  const isRouterPageKey = isRouterModule && segments.length === 1;
 
-  const handleClick = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
+  const codeCls =
+    "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block";
+
+  const handleNavigate = () => {
     const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
     const target = navPath ?? sourcePath;
     navigate(target, {
@@ -232,29 +248,49 @@ function FieldPathLabel({ sourcePath }: { sourcePath: SourcePath }) {
     });
   };
 
+  if (!modulePath) {
+    return (
+      <button
+        onClick={handleNavigate}
+        className={classNames(codeCls, "self-start max-w-full")}
+      >
+        {prettifyFilename(
+          Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
+        )}
+      </button>
+    );
+  }
+
+  if (isRouterPageKey) {
+    const segment = segments[0];
+    const previewHref = urlOf("/api/val/enable", {
+      redirect_to:
+        (typeof window !== "undefined" ? window.location.origin : "") + segment,
+    });
+    return (
+      <span className="inline-flex self-start items-center gap-1.5 truncate min-w-0 max-w-full">
+        <button onClick={handleNavigate} className={codeCls}>
+          {segment}
+        </button>
+        <a
+          href={previewHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
+          title={`Preview ${segment}`}
+        >
+          <Globe size={12} />
+        </a>
+      </span>
+    );
+  }
+
   return (
     <button
-      onClick={handleClick}
-      className="self-start min-w-0 flex flex-wrap items-center gap-1 text-left text-fg-secondary hover:text-fg-primary transition-colors"
-      aria-label={`Open ${sourcePath} in module view`}
+      onClick={handleNavigate}
+      className={classNames(codeCls, "self-start max-w-full")}
     >
-      {moduleSegments.length === 0 ? (
-        <span className="font-mono text-xs text-fg-primary">·</span>
-      ) : (
-        moduleSegments.map((seg, i) => (
-          <Fragment key={`s-${i}`}>
-            {i > 0 && <span className="text-fg-tertiary">/</span>}
-            <span
-              className={classNames("font-mono text-xs", {
-                "text-fg-secondary": i < moduleSegments.length - 1,
-                "text-fg-primary": i === moduleSegments.length - 1,
-              })}
-            >
-              {seg}
-            </span>
-          </Fragment>
-        ))
-      )}
+      {prettifyModulePath(modulePath)}
     </button>
   );
 }
