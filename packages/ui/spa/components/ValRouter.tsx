@@ -15,7 +15,7 @@ type ValRouterContextValue = {
   navigate: (
     path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
     params?: {
-      scrollToId?: string;
+      scrollToPath?: SourcePath | ModuleFilePath;
       replace?: true;
     },
   ) => void;
@@ -35,33 +35,32 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
-function findFieldWrapper(element: HTMLElement): HTMLElement {
-  let el: HTMLElement | null = element.parentElement;
-  while (el) {
-    if (el.id === "val-content-area") break;
-    if (
-      el.classList.contains("border") &&
-      el.classList.contains("rounded-lg")
-    ) {
-      return el;
-    }
-    el = el.parentElement;
+const STUDIO_PATH_ATTR = "data-val-studio-path";
+
+function findStudioPathTarget(
+  root: ShadowRoot,
+  path: string,
+): HTMLElement | null {
+  const candidates = Array.from(
+    root.querySelectorAll<HTMLElement>(`[${STUDIO_PATH_ATTR}]`),
+  );
+  for (const el of candidates) {
+    if (el.getAttribute(STUDIO_PATH_ATTR) === path) return el;
   }
-  return element;
+  return null;
 }
 
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
-  const target = findFieldWrapper(element);
   shadowRoot.getElementById("val-content-area")?.scrollTo({
-    top: Math.max(0, target.offsetTop - 16),
+    top: Math.max(0, element.offsetTop - 16),
     behavior: "smooth",
   });
-  target.classList.remove("val-scroll-highlight");
-  void target.offsetWidth;
-  target.classList.add("val-scroll-highlight");
-  target.addEventListener(
+  element.classList.remove("val-scroll-highlight");
+  void element.offsetWidth;
+  element.classList.add("val-scroll-highlight");
+  element.addEventListener(
     "animationend",
-    () => target.classList.remove("val-scroll-highlight"),
+    () => element.classList.remove("val-scroll-highlight"),
     { once: true },
   );
 }
@@ -112,7 +111,7 @@ export function ValRouter({
             }
           }, 50);
         } else if (location.hash) {
-          const scrollToId = decodeURIComponent(location.hash.slice(1));
+          const scrollToPath = decodeURIComponent(location.hash.slice(1));
           // remove hash:
           window.history.replaceState(
             null,
@@ -121,10 +120,12 @@ export function ValRouter({
           );
           let retriesLeft = 100;
           const execScroll = () => {
-            if (scrollToId) {
+            if (scrollToPath) {
               const shadowRoot =
                 document.getElementById("val-shadow-root")?.shadowRoot;
-              const element = shadowRoot?.getElementById(scrollToId);
+              const element = shadowRoot
+                ? findStudioPathTarget(shadowRoot, scrollToPath)
+                : null;
               if (element && shadowRoot) {
                 doScroll(shadowRoot, element);
               } else if (retriesLeft > 0) {
@@ -154,7 +155,10 @@ export function ValRouter({
   const navigate = useCallback(
     (
       path: SourcePath | ModuleFilePath | typeof VAL_COMPARE_ROUTE,
-      params?: { scrollToId?: string; replace?: true },
+      params?: {
+        scrollToPath?: SourcePath | ModuleFilePath;
+        replace?: true;
+      },
     ) => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const navigateTo = isCompare
@@ -167,11 +171,11 @@ export function ValRouter({
           document.getElementById("val-shadow-root")?.shadowRoot;
         const scrollContainer = shadowRoot?.getElementById("val-content-area");
         const prevScrollPos = scrollContainer?.scrollTop;
-        const scrollId = params?.scrollToId;
-        if (scrollId && shadowRoot) {
+        const scrollToPath = params?.scrollToPath;
+        if (scrollToPath && shadowRoot) {
           let retriesLeft = 10;
           const execScroll = () => {
-            const element = shadowRoot.getElementById(scrollId);
+            const element = findStudioPathTarget(shadowRoot, scrollToPath);
             if (element) {
               doScroll(shadowRoot, element);
             } else if (retriesLeft > 0) {
@@ -194,7 +198,10 @@ export function ValRouter({
         }
       } else {
         window.location.href =
-          navigateTo + (params?.scrollToId ? `#${params.scrollToId}` : "");
+          navigateTo +
+          (params?.scrollToPath
+            ? `#${encodeURIComponent(params.scrollToPath)}`
+            : "");
       }
     },
     [overlay],

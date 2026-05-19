@@ -293,7 +293,7 @@ function ModuleGroup({
 
   return (
     <section
-      id={`compare-${tree.sourcePath}`}
+      data-val-studio-path={tree.sourcePath}
       className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
     >
       <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
@@ -539,7 +539,7 @@ function ChangeRow({
 
   return (
     <article
-      id={`compare-${row.sourcePath}`}
+      data-val-studio-path={row.sourcePath}
       className={classNames("px-5 py-5", {
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
@@ -695,7 +695,7 @@ function ChangeTargetLabel({
     const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
     const target = navPath ?? sourcePath;
     navigate(target, {
-      scrollToId: target !== sourcePath ? sourcePath : undefined,
+      scrollToPath: target !== sourcePath ? sourcePath : undefined,
     });
   };
 
@@ -790,7 +790,7 @@ function ValidationErrorLink({ sourcePath }: { sourcePath: SourcePath }) {
               schemasData,
             );
             navigate(navPath ?? sourcePath, {
-              scrollToId: sourcePath,
+              scrollToPath: sourcePath,
             });
           }}
           className={classNames(

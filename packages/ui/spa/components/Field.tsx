@@ -69,6 +69,7 @@ export function Field({
   const effectiveReadonly = readonly || hasOverrides;
   return (
     <div
+      data-val-studio-path={path}
       className={classNames("border", {
         "px-4 pt-6 pb-4 rounded-lg": !compact,
         "px-3 pt-2 pb-2 rounded-md": compact,
