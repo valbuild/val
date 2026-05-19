@@ -15,11 +15,7 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
-import {
-  ShallowSource,
-  useAllSources,
-  useSchemas,
-} from "./ValFieldProvider";
+import { ShallowSource, useAllSources, useSchemas } from "./ValFieldProvider";
 import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
 import { getNavPathFromAll } from "./getNavPath";
