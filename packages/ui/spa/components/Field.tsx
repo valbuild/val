@@ -29,6 +29,7 @@ export function Field({
   source: sourceProp,
   schema: schemaProp,
   initialExpanded,
+  errorDisplay = "default",
 }: {
   label?: string | React.ReactNode;
   children: React.ReactNode;
@@ -41,6 +42,7 @@ export function Field({
   source?: Json | null;
   schema?: SerializedSchema;
   initialExpanded?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   if ((sourceProp !== undefined) !== (schemaProp !== undefined)) {
     throw new Error(
@@ -75,7 +77,9 @@ export function Field({
         "px-3 pt-2 pb-2 rounded-md": compact,
         "bg-bg-tertiary": !transparent && !compact,
         "border-bg-error-secondary":
-          !hasOverrides && validationErrors.length > 0,
+          !hasOverrides &&
+          errorDisplay === "default" &&
+          validationErrors.length > 0,
       })}
     >
       <div
@@ -196,11 +200,13 @@ export function Field({
           </AccordionItem>
         </Accordion>
       )}
-      {!hasOverrides && validationErrors.length > 0 && (
-        <div className={compact ? "pb-4" : "pb-8"}>
-          <FieldValidationError validationErrors={validationErrors} />
-        </div>
-      )}
+      {!hasOverrides &&
+        errorDisplay === "default" &&
+        validationErrors.length > 0 && (
+          <div className={compact ? "pb-4" : "pb-8"}>
+            <FieldValidationError validationErrors={validationErrors} />
+          </div>
+        )}
     </div>
   );
 }

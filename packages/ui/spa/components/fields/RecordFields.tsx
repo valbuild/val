@@ -31,11 +31,13 @@ export function RecordFields({
   readonly,
   compact,
   inline,
+  errorDisplay = "default",
 }: {
   path: SourcePath;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
@@ -101,6 +103,7 @@ export function RecordFields({
               type={schema.item.type}
               readonly={readonly}
               compact={compact}
+              errorDisplay={errorDisplay}
             >
               <AnyField
                 path={itemPath}
@@ -108,6 +111,7 @@ export function RecordFields({
                 readonly={readonly}
                 compact={compact}
                 inline={inline}
+                errorDisplay={errorDisplay}
               />
             </Field>
           ))}

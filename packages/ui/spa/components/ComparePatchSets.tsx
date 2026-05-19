@@ -10,13 +10,11 @@ import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
-  AlertTriangle,
   ArrowRight,
   ChevronDown,
   Equal,
   ExternalLink,
   Globe,
-  Loader2,
   Minus,
   Pencil,
   Plus,
@@ -30,7 +28,6 @@ import {
   FieldSourceOverrideContext,
   useAllSources,
   useFilePatchIds,
-  useLoadingStatus,
   useSchemaAtPath,
   useSchemaWithResolvedPath,
   useSchemas,
@@ -39,7 +36,6 @@ import {
 } from "./ValFieldProvider";
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import { useDeletePatches, Profile } from "./ValProvider";
-import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
@@ -50,11 +46,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "./designSystem/tooltip";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { urlOf } from "@valbuild/shared/internal";
@@ -733,72 +724,6 @@ function prettifyModulePath(modulePath: string): string {
   return segments.join(" / ");
 }
 
-function ValidationErrorLink({ sourcePath }: { sourcePath: SourcePath }) {
-  const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
-  const validationErrors = useAllValidationErrors();
-  const loadingStatus = useLoadingStatus();
-  const isLoading = loadingStatus === "loading";
-  const messages: string[] = [];
-  if (validationErrors) {
-    for (const errorPath in validationErrors) {
-      if (errorPath.startsWith(sourcePath)) {
-        for (const err of validationErrors[errorPath as SourcePath] ?? []) {
-          messages.push(err.message);
-        }
-      }
-    }
-  }
-  if (messages.length === 0) return <div className="size-6 shrink-0" />;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={() => {
-            const schemasData =
-              schemas.status === "success" ? schemas.data : undefined;
-            const navPath = getNavPathFromAll(
-              sourcePath,
-              allSources,
-              schemasData,
-            );
-            navigate(navPath ?? sourcePath, {
-              scrollToPath: sourcePath,
-            });
-          }}
-          className={classNames(
-            "inline-flex items-center justify-center size-6 rounded bg-bg-error-secondary text-fg-error hover:bg-bg-error-primary transition-colors",
-            { "opacity-80": isLoading },
-          )}
-          aria-label="Go to validation error"
-        >
-          {isLoading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <AlertTriangle size={16} />
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="right"
-        className="max-w-xs bg-bg-error-secondary text-fg-error border-fg-error/20"
-      >
-        {messages.length === 1 ? (
-          <p className="text-xs">{messages[0]}</p>
-        ) : (
-          <ul className="text-xs list-disc pl-3 space-y-0.5">
-            {messages.map((msg, i) => (
-              <li key={i}>{msg}</li>
-            ))}
-          </ul>
-        )}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 function ChangeTypeLabel({
   changeType,
   isEqual,
@@ -1012,16 +937,12 @@ function MediaEntryAlt({
   return (
     <div>
       <label className="text-sm font-medium mb-1 block">Alt</label>
-      <div className="flex items-center gap-1">
-        <div className="flex-1 min-w-0">
-          <AnyField
-            path={altPath as SourcePath}
-            schema={schemaAtPath.data}
-            readonly={readonly}
-          />
-        </div>
-        {showValidation && <ValidationErrorLink sourcePath={sourcePath} />}
-      </div>
+      <AnyField
+        path={altPath as SourcePath}
+        schema={schemaAtPath.data}
+        readonly={readonly}
+        errorDisplay={showValidation ? "compact" : "none"}
+      />
     </div>
   );
 }
@@ -1336,6 +1257,7 @@ function FieldChangeDiff({
               compact
               inline
               hideUpload
+              errorDisplay="none"
             />
           </BeforeSourceOverride>
         }
@@ -1347,30 +1269,26 @@ function FieldChangeDiff({
             compact
             inline
             hideUpload
+            errorDisplay="compact"
           />
         }
-        trailingSlot={<ValidationErrorLink sourcePath={effectivePath} />}
       />
     );
   }
 
   if (beforeIsNull || !beforeAvailable) {
     return (
-      <div className="max-w-xl flex items-stretch">
-        <div className="flex-1 min-w-0">
-          <DiffSide diffStyle="added">
-            <AnyField
-              path={effectivePath}
-              schema={schema}
-              readonly={readonly}
-              compact
-              inline
-            />
-          </DiffSide>
-        </div>
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={effectivePath} />
-        </div>
+      <div className="max-w-xl">
+        <DiffSide diffStyle="added">
+          <AnyField
+            path={effectivePath}
+            schema={schema}
+            readonly={readonly}
+            compact
+            inline
+            errorDisplay="compact"
+          />
+        </DiffSide>
       </div>
     );
   }
@@ -1387,6 +1305,7 @@ function FieldChangeDiff({
             compact
             inline
             hideUpload
+            errorDisplay="none"
           />
         </BeforeSourceOverride>
       }
@@ -1397,9 +1316,9 @@ function FieldChangeDiff({
           readonly={readonly}
           compact
           inline
+          errorDisplay="compact"
         />
       }
-      trailingSlot={<ValidationErrorLink sourcePath={effectivePath} />}
     />
   );
 }
@@ -1460,36 +1379,31 @@ function SingleSideContentInner({
   const schema = schemaAtPath.data;
 
   return (
-    <div className="max-w-xl flex items-stretch">
-      <div className="flex-1 min-w-0">
-        <DiffSide diffStyle={diffStyle}>
-          {diffStyle === "removed" ? (
-            <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
-              <AnyField
-                path={sourcePath}
-                schema={schema}
-                readonly
-                compact
-                inline
-                hideUpload
-              />
-            </div>
-          ) : (
+    <div className="max-w-xl">
+      <DiffSide diffStyle={diffStyle}>
+        {diffStyle === "removed" ? (
+          <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
             <AnyField
               path={sourcePath}
               schema={schema}
-              readonly={readonly}
+              readonly
               compact
               inline
+              hideUpload
+              errorDisplay="none"
             />
-          )}
-        </DiffSide>
-      </div>
-      {diffStyle === "added" && (
-        <div className="flex items-center px-1">
-          <ValidationErrorLink sourcePath={sourcePath} />
-        </div>
-      )}
+          </div>
+        ) : (
+          <AnyField
+            path={sourcePath}
+            schema={schema}
+            readonly={readonly}
+            compact
+            inline
+            errorDisplay="compact"
+          />
+        )}
+      </DiffSide>
     </div>
   );
 }
@@ -1689,12 +1603,10 @@ function BeforeAfterLayout({
   variant,
   before,
   after,
-  trailingSlot,
 }: {
   variant: "equal" | "changed" | "media";
   before: React.ReactNode;
   after: React.ReactNode;
-  trailingSlot?: React.ReactNode;
 }) {
   if (variant === "media") {
     return (
@@ -1721,21 +1633,15 @@ function BeforeAfterLayout({
   const borderColor =
     variant === "equal" ? "border-border-secondary" : "border-fg-brand-primary";
   const MiddleIcon = variant === "equal" ? Equal : ArrowRight;
-  // Mirrored padding (pl-3/pr-1 ↔ pl-1/pr-3) plus a reserved size-6 slot on
-  // the left and a trailing slot on the right keep the two content columns
-  // identical in width and equidistant from the center icon.
   return (
     <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
       <div
         className={classNames(
-          "border-l-[3px] pl-3 pr-12 lg:pr-1 py-2 min-w-0 flex items-stretch gap-1",
+          "border-l-[3px] pl-3 pr-12 lg:pr-1 py-2 min-w-0",
           borderColor,
         )}
       >
-        <div className="hidden lg:flex items-center px-1">
-          <div className="size-6 shrink-0" />
-        </div>
-        <div className="flex-1 min-w-0">{before}</div>
+        {before}
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -1743,12 +1649,7 @@ function BeforeAfterLayout({
       >
         <MiddleIcon size={14} />
       </div>
-      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
-        <div className="flex-1 min-w-0">{after}</div>
-        {trailingSlot !== undefined && (
-          <div className="flex items-center px-1">{trailingSlot}</div>
-        )}
-      </div>
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">{after}</div>
     </div>
   );
 }
