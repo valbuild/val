@@ -1334,7 +1334,7 @@ function MediaEntryDiff({
             >
               <ArrowRight size={14} />
             </div>
-            <div className="min-w-0">
+            <div className="pl-1 min-w-0">
               <div className="text-xs font-medium text-fg-tertiary mb-1">
                 After
               </div>
@@ -1415,6 +1415,9 @@ function FieldChangeDiff({
     return (
       <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
         <div className="border-l-[3px] border-border-secondary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+          <div className="flex items-center px-1">
+            <div className="size-6 shrink-0" />
+          </div>
           <div className="flex-1 min-w-0">
             <FieldSourceOverrideContext.Provider value={beforeOverride}>
               <AnyField
@@ -1427,9 +1430,6 @@ function FieldChangeDiff({
               />
             </FieldSourceOverrideContext.Provider>
           </div>
-          <div className="flex items-center px-1">
-            <div className="size-6 shrink-0" />
-          </div>
         </div>
         <div
           className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -1437,7 +1437,7 @@ function FieldChangeDiff({
         >
           <Equal size={14} />
         </div>
-        <div className="pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+        <div className="pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
           <div className="flex-1 min-w-0">
             <AnyField
               path={effectivePath}
@@ -1482,12 +1482,17 @@ function FieldChangeDiff({
        The coloured border lives on the left column (not an outer wrapper)
        so the grid is fully symmetric and the arrow sits exactly midway
        between the two content areas.
-       Both columns reserve a trailing size-6 slot (spacer left,
-       ValidationErrorLink right) so AnyField gets identical width. */
+       Left column reserves a leading size-6 slot; right column reserves
+       a trailing ValidationErrorLink slot. Combined with mirrored padding
+       (pl-3/pr-1 vs pl-1/pr-3), both AnyFields have identical width and
+       sit equidistant from the centre arrow. */
   }
   return (
     <div className="grid gap-3 lg:gap-0 lg:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-stretch">
       <div className="border-l-[3px] border-fg-brand-primary pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+        <div className="flex items-center px-1">
+          <div className="size-6 shrink-0" />
+        </div>
         <div className="flex-1 min-w-0">
           <FieldSourceOverrideContext.Provider value={beforeOverride}>
             <AnyField
@@ -1500,9 +1505,6 @@ function FieldChangeDiff({
             />
           </FieldSourceOverrideContext.Provider>
         </div>
-        <div className="flex items-center px-1">
-          <div className="size-6 shrink-0" />
-        </div>
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -1510,7 +1512,7 @@ function FieldChangeDiff({
       >
         <ArrowRight size={14} />
       </div>
-      <div className="pl-3 pr-1 py-2 min-w-0 flex items-stretch gap-1">
+      <div className="pl-1 pr-3 py-2 min-w-0 flex items-stretch gap-1">
         <div className="flex-1 min-w-0">
           <AnyField
             path={effectivePath}
