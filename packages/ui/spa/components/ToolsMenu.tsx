@@ -49,23 +49,19 @@ export function ToolsMenu() {
   const mode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
-  const [errorModules, sumValidationErrors, errorPaths] = useMemo(() => {
+  const [errorModules, fieldsWithErrors, errorPaths] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     const errorPaths: SourcePath[] = [];
-    let sumValidationErrors = 0;
+    let fieldsWithErrors = 0;
     for (const sourcePath in validationErrors) {
       const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
         sourcePath as SourcePath,
       );
       modulesWithErrors.add(moduleFilePath);
       errorPaths.push(sourcePath as SourcePath);
-      sumValidationErrors += 1;
+      fieldsWithErrors += 1;
     }
-    return [
-      Array.from(modulesWithErrors).sort(),
-      sumValidationErrors,
-      errorPaths,
-    ];
+    return [Array.from(modulesWithErrors).sort(), fieldsWithErrors, errorPaths];
   }, [validationErrors]);
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
@@ -105,14 +101,13 @@ export function ToolsMenu() {
         <div className="max-h-[50svh]">
           {globalErrors &&
             globalErrors.length > 0 &&
-            globalErrors.length !== sumValidationErrors && (
+            globalErrors.length !== fieldsWithErrors && (
               <div className="p-4 bg-bg-error-primary text-fg-error-primary">
                 <div>
                   Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
                   {globalErrors?.length} errors in all.{" "}
-                  {globalErrors.length - sumValidationErrors} were
-                  non-validation errors. A developer might need to fix these
-                  issues.
+                  {globalErrors.length - fieldsWithErrors} were non-validation
+                  errors. A developer might need to fix these issues.
                 </div>
                 <ScrollArea>
                   <div className="max-h-[calc(50svh-64px)] max-w-[var(--menu-width)]">
@@ -123,7 +118,7 @@ export function ToolsMenu() {
                 </ScrollArea>
               </div>
             )}
-          {globalErrors?.length === sumValidationErrors &&
+          {globalErrors?.length === fieldsWithErrors &&
             errorModules.length > 0 && (
               <div className="p-4 bg-bg-error-primary text-fg-error-primary">
                 <div>
@@ -142,7 +137,7 @@ export function ToolsMenu() {
           <PatchErrorsDisplay />
           <TransientErrorsDisplay />
           <ValidationAndCompareRow
-            sumValidationErrors={sumValidationErrors}
+            fieldsWithErrors={fieldsWithErrors}
             errorPaths={errorPaths}
             showCompare={loadingStatus !== "not-asked"}
             pendingChanges={pendingChanges}
@@ -220,13 +215,13 @@ function ShortenedErrorMessage({ error }: { error: string }) {
 }
 
 function ValidationAndCompareRow({
-  sumValidationErrors,
+  fieldsWithErrors,
   errorPaths,
   showCompare,
   pendingChanges,
   isLoading,
 }: {
-  sumValidationErrors: number;
+  fieldsWithErrors: number;
   errorPaths: SourcePath[];
   showCompare: boolean;
   pendingChanges: number;
@@ -235,7 +230,7 @@ function ValidationAndCompareRow({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 p-4">
       <ValidationStatusPill
-        sumValidationErrors={sumValidationErrors}
+        fieldsWithErrors={fieldsWithErrors}
         errorPaths={errorPaths}
       />
       {showCompare && (
@@ -246,16 +241,16 @@ function ValidationAndCompareRow({
 }
 
 function ValidationStatusPill({
-  sumValidationErrors,
+  fieldsWithErrors,
   errorPaths,
 }: {
-  sumValidationErrors: number;
+  fieldsWithErrors: number;
   errorPaths: SourcePath[];
 }) {
   const { navigate } = useNavigation();
   const pillBase =
     "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap";
-  if (sumValidationErrors === 0) {
+  if (fieldsWithErrors === 0) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
@@ -277,7 +272,7 @@ function ValidationStatusPill({
     );
   }
   const label =
-    sumValidationErrors === 1 ? "1 error" : `${sumValidationErrors} errors`;
+    fieldsWithErrors === 1 ? "1 field" : `${fieldsWithErrors} fields`;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
