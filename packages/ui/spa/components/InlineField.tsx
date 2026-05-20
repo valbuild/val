@@ -63,7 +63,7 @@ export function InlineField({
   return (
     <div
       className={classNames("px-3 pt-4 pb-3 border rounded-md", {
-        "border-bg-error-secondary":
+        "border-bg-warning-secondary":
           !hasOverrides && validationErrors.length > 0,
       })}
     >

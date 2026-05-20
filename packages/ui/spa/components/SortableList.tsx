@@ -260,7 +260,7 @@ export function SortableItemRow({
       {!render && schema?.item?.type === "string" && (
         <div
           className={cn("flex-grow w-full", {
-            "p-2 border border-bg-error-secondary rounded-lg":
+            "p-2 border border-bg-warning-secondary rounded-lg":
               !!validationErrors[path],
           })}
         >

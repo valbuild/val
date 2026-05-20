@@ -16,6 +16,7 @@ import {
   CompareSummaryStrip,
   flattenChanges,
 } from "./ComparePatchSets";
+import { ValidationErrorsView } from "./ValidationErrors";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import { useValPortal } from "./ValPortalProvider";
 import { useLayout } from "./Layout";
@@ -39,7 +40,8 @@ import {
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
   const globalError = useGlobalError();
-  const { isCompareView } = useNavigation();
+  const { isCompareView, isErrorsView } = useNavigation();
+  const isWideView = isCompareView || isErrorsView;
   return (
     <div className="flex flex-col h-svh bg-bg-primary">
       <ContentAreaHeader />
@@ -78,7 +80,7 @@ export function ContentArea() {
         )}
         <div
           className={
-            isCompareView
+            isWideView
               ? "h-full max-w-[1400px] px-4 pt-6 mx-auto"
               : "h-full max-w-[800px] px-4 mx-auto"
           }
@@ -90,6 +92,8 @@ export function ContentArea() {
             </div>
           ) : isCompareView ? (
             <CompareView />
+          ) : isErrorsView ? (
+            <ValidationErrorsView />
           ) : (
             <SourceFields />
           )}

@@ -114,7 +114,18 @@
     --border-brand-secondary: var(--colors-brand-green-500);
 
     /* Warning colors */
+    /* Warning primary: soft tinted surface for cards/banners */
     --bg-warning-primary: var(--colors-warning-yellow-50);
+    --bg-warning-primary-hover: var(--colors-warning-yellow-100);
+    --fg-warning-primary: var(--colors-warning-yellow-800);
+    --fg-warning-primary-alt: var(--colors-warning-yellow-700);
+    --border-warning-primary: var(--colors-warning-yellow-300);
+    /* Warning secondary: filled accent (rail, icon, pill) */
+    --bg-warning-secondary: var(--colors-warning-yellow-500);
+    --bg-warning-secondary-hover: var(--colors-warning-yellow-600);
+    --fg-warning-secondary: var(--colors-warning-yellow-50);
+    --fg-warning-secondary-alt: var(--colors-warning-yellow-100);
+    --border-warning-secondary: var(--colors-warning-yellow-600);
 
     /* Error colors */
     /* Error primary */
@@ -174,7 +185,18 @@
     --border-brand-secondary: var(--colors-brand-green-400);
 
     /* Warning colors */
-    --bg-warning-primary: var(--colors-warning-yellow-500);
+    /* Warning primary: soft tinted surface for cards/banners */
+    --bg-warning-primary: var(--colors-warning-yellow-950);
+    --bg-warning-primary-hover: var(--colors-warning-yellow-900);
+    --fg-warning-primary: var(--colors-warning-yellow-100);
+    --fg-warning-primary-alt: var(--colors-warning-yellow-200);
+    --border-warning-primary: var(--colors-warning-yellow-700);
+    /* Warning secondary: filled accent (rail, icon, pill) */
+    --bg-warning-secondary: var(--colors-warning-yellow-400);
+    --bg-warning-secondary-hover: var(--colors-warning-yellow-300);
+    --fg-warning-secondary: var(--colors-warning-yellow-950);
+    --fg-warning-secondary-alt: var(--colors-warning-yellow-900);
+    --border-warning-secondary: var(--colors-warning-yellow-500);
 
     /* Error colors */
     /* Error primary */
