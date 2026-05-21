@@ -225,8 +225,8 @@ function ReferencesPopover({
         <ConnectedReferencesList
           refs={refs}
           currentPath={currentSourcePath}
-          onSelect={(path) => {
-            navigate(path);
+          onSelect={(navPath, { scrollToPath }) => {
+            navigate(navPath, { scrollToPath });
             setOpen(false);
           }}
         />

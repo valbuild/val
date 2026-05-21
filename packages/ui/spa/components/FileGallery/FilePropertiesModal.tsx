@@ -253,8 +253,8 @@ export function FilePropertiesModal({
                     <ConnectedReferencesList
                       refs={refs}
                       currentPath={currentSourcePath}
-                      onSelect={(path) => {
-                        navigate(path);
+                      onSelect={(navPath, { scrollToPath }) => {
+                        navigate(navPath, { scrollToPath });
                         setRefsOpen(false);
                       }}
                     />

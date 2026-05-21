@@ -12,7 +12,8 @@ import {
 import { cn } from "./designSystem/cn";
 import { DropdownPreviewRow, DropdownPreviewImage } from "./DropdownPreviewRow";
 import { useRefPreview } from "./useRefPreview";
-import { useSchemas } from "./ValFieldProvider";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { getNavPathFromAll } from "./getNavPath";
 import { prettifyFilename } from "../utils/prettifyFilename";
 
 export type ReferencesListItem = {
@@ -76,7 +77,15 @@ export function ReferencesList({
 export interface ConnectedReferencesListProps {
   refs: SourcePath[];
   currentPath?: SourcePath | null;
-  onSelect: (path: SourcePath) => void;
+  /**
+   * Called with the resolved "best" navigational target (the nearest navigable
+   * schema stop, via {@link getNavPathFromAll}) and the original full reference
+   * path to scroll to once navigated.
+   */
+  onSelect: (
+    navPath: SourcePath | ModuleFilePath,
+    opts: { scrollToPath: SourcePath },
+  ) => void;
   searchPlaceholder?: string;
 }
 
@@ -93,6 +102,7 @@ export function ConnectedReferencesList({
 }: ConnectedReferencesListProps) {
   const schemasRes = useSchemas();
   const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
+  const allSources = useAllSources();
   const items = refs.map((ref) => {
     const item = buildBaseItem(ref);
     const schema = schemas?.[item.moduleFilePath];
@@ -114,7 +124,12 @@ export function ConnectedReferencesList({
                 key={item.path}
                 item={item}
                 isCurrent={currentPath === item.path}
-                onSelect={() => onSelect(item.path)}
+                onSelect={() => {
+                  const navPath =
+                    getNavPathFromAll(item.path, allSources, schemas) ??
+                    item.path;
+                  onSelect(navPath, { scrollToPath: item.path });
+                }}
               />
             ))}
           </CommandGroup>
