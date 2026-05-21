@@ -414,28 +414,10 @@ export class RichTextSchema<
               ],
             };
           }
-          const children = node.children;
-          for (let i = 0; i < children.length; i++) {
-            const child = children[i];
-            if (typeof child === "object") {
-              const childPath = unsafeCreateSourcePath(path, "children");
-              const res = recurse(childPath, [child], current);
-              if (res) {
-                return res;
-              }
-            } else if (typeof child === "string") {
-              length += child.length;
-              continue;
-            } else {
-              return {
-                [path]: [
-                  {
-                    message: `Expected 'object' or 'string', got '${typeof child}'`,
-                    typeError: true,
-                  },
-                ],
-              };
-            }
+          const childPath = unsafeCreateSourcePath(path, "children");
+          const res = recurse(childPath, node.children, current);
+          if (res) {
+            return res;
           }
         }
       }

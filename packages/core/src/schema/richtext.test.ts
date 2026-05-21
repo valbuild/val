@@ -144,8 +144,8 @@ describe("RichTextSchema", () => {
         "/richtext.val.ts?p=0",
         "/richtext.val.ts?p=2",
         '/richtext.val.ts?p=2."children".0',
-        '/richtext.val.ts?p=2."children".0."children".0."children".0."styles".0',
-        '/richtext.val.ts?p=3."children".0',
+        '/richtext.val.ts?p=2."children".0."children".0."children".1."styles".0',
+        '/richtext.val.ts?p=3."children".1',
       ],
     );
   });
@@ -163,8 +163,8 @@ describe("RichTextSchema", () => {
         "/richtext.val.ts?p=0",
         "/richtext.val.ts?p=2",
         '/richtext.val.ts?p=2."children".0',
-        '/richtext.val.ts?p=2."children".0."children".0."children".0."styles".0',
-        '/richtext.val.ts?p=3."children".0',
+        '/richtext.val.ts?p=2."children".0."children".0."children".1."styles".0',
+        '/richtext.val.ts?p=3."children".1',
       ],
     );
   });
@@ -313,12 +313,13 @@ describe("RichTextSchema", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input as any,
     );
-    // Route validation returns router:check-route error for internal processing
-    if (errors !== false) {
-      expect(Object.keys(errors).length).toBeGreaterThan(0);
-      const firstError = errors[Object.keys(errors)[0] as SourcePath][0];
-      expect(firstError.message).toContain("router:check-route");
-    }
+    expect(errors).not.toBe(false);
+    if (!errors) return;
+    const errorPaths = Object.keys(errors);
+    expect(errorPaths).toEqual(['/richtext.val.ts?p=0."children".1."href"']);
+    const firstError = errors[errorPaths[0] as SourcePath][0];
+    expect(firstError.message).toContain("router:check-route");
+    expect(firstError.fixes).toEqual(["router:check-route"]);
   });
 
   test("validate: a: string().maxLength(30) with valid short URL (green test)", () => {
@@ -396,11 +397,15 @@ describe("RichTextSchema", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input as any,
     );
-    // Route validation returns router:check-route error for internal processing
-    if (errors !== false) {
-      const firstError = errors[Object.keys(errors)[0] as SourcePath][0];
-      expect(firstError.message).toContain("router:check-route");
-    }
+    expect(errors).not.toBe(false);
+    if (!errors) return;
+    const errorPaths = Object.keys(errors);
+    expect(errorPaths).toEqual(['/richtext.val.ts?p=0."children".1."href"']);
+    const firstError = errors[errorPaths[0] as SourcePath][0];
+    expect(firstError.message).toContain("router:check-route");
+    expect((firstError.value as { include?: RegExp }).include).toEqual(
+      /^\/blog/,
+    );
   });
 
   test("validate: a: route().exclude(/^\\/admin/) with excluded route (red test)", () => {
@@ -424,11 +429,15 @@ describe("RichTextSchema", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input as any,
     );
-    // Route validation returns router:check-route error for internal processing
-    if (errors !== false) {
-      const firstError = errors[Object.keys(errors)[0] as SourcePath][0];
-      expect(firstError.message).toContain("router:check-route");
-    }
+    expect(errors).not.toBe(false);
+    if (!errors) return;
+    const errorPaths = Object.keys(errors);
+    expect(errorPaths).toEqual(['/richtext.val.ts?p=0."children".1."href"']);
+    const firstError = errors[errorPaths[0] as SourcePath][0];
+    expect(firstError.message).toContain("router:check-route");
+    expect((firstError.value as { exclude?: RegExp }).exclude).toEqual(
+      /^\/admin/,
+    );
   });
 
   test("validate: a tag without href attribute (red test)", () => {
@@ -558,6 +567,92 @@ describe("RichTextSchema", () => {
         inputInvalid as any,
       ),
       ['/richtext.val.ts?p=0."children".0."href"'],
+    );
+  });
+
+  test("validate: a: route() reports error at the correct index when anchor is not the first child", () => {
+    const schema = richtext({
+      inline: {
+        a: route(),
+      },
+    });
+    const input = [
+      {
+        tag: "p",
+        children: [
+          "leading ",
+          { tag: "a", href: "/not-a-real-route", children: ["link"] },
+        ],
+      },
+    ];
+    const errors = schema["executeValidate"](
+      "/richtext.val.ts" as SourcePath,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      input as any,
+    );
+    expect(errors).not.toBe(false);
+    if (!errors) return;
+    const errorPaths = Object.keys(errors);
+    expect(errorPaths).toEqual(['/richtext.val.ts?p=0."children".1."href"']);
+    const firstError = errors[errorPaths[0] as SourcePath][0];
+    expect(firstError.fixes).toEqual(["router:check-route"]);
+  });
+
+  test("validate: a: route() reports one error per invalid anchor sibling at distinct child indexes", () => {
+    const schema = richtext({
+      inline: {
+        a: route(),
+      },
+    });
+    const input = [
+      {
+        tag: "p",
+        children: [
+          "visit ",
+          { tag: "a", href: "/first-bad", children: ["one"] },
+          " and ",
+          { tag: "a", href: "/second-bad", children: ["two"] },
+        ],
+      },
+    ];
+    const errors = schema["executeValidate"](
+      "/richtext.val.ts" as SourcePath,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      input as any,
+    );
+    expect(errors).not.toBe(false);
+    if (!errors) return;
+    const errorPaths = Object.keys(errors).sort();
+    expect(errorPaths).toEqual([
+      '/richtext.val.ts?p=0."children".1."href"',
+      '/richtext.val.ts?p=0."children".3."href"',
+    ]);
+    for (const p of errorPaths) {
+      expect(errors[p as SourcePath][0].fixes).toEqual(["router:check-route"]);
+    }
+  });
+
+  test("validate: maxLength counts nested string children exactly once", () => {
+    const schema = richtext({
+      inline: {
+        a: string(),
+      },
+    }).maxLength(7);
+    // Total string length across the tree: "abc" (3) + "de" (2) + "fg" (2) = 7.
+    // If the recursion change ever double- or under-counted, this hits the boundary.
+    const input = [
+      {
+        tag: "p",
+        children: ["abc", { tag: "a", href: "/x", children: ["de"] }, "fg"],
+      },
+    ];
+    expectedErrorAtPaths(
+      schema["executeValidate"](
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        input as any,
+      ),
+      [],
     );
   });
 });
