@@ -1,4 +1,5 @@
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
+import { Fragment } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   Command,
@@ -11,6 +12,7 @@ import {
 import { cn } from "./designSystem/cn";
 import { DropdownPreviewRow, DropdownPreviewImage } from "./DropdownPreviewRow";
 import { useRefPreview } from "./useRefPreview";
+import { useSchemas } from "./ValFieldProvider";
 import { prettifyFilename } from "../utils/prettifyFilename";
 
 export type ReferencesListItem = {
@@ -18,6 +20,12 @@ export type ReferencesListItem = {
   moduleFilePath: ModuleFilePath;
   /** Module-internal path segments (record key / field path) following the module file path. */
   patchPath: string[];
+  /**
+   * Whether the target module is a router (`s.record().router()`). When true the
+   * first {@link patchPath} segment is a route key (e.g. `/blogs/blog2`) and is
+   * rendered as a route path; the remaining segments are the field inside it.
+   */
+  isRouter?: boolean;
   /** Render-derived preview for this reference, if available. */
   preview?: {
     title: string;
@@ -50,47 +58,19 @@ export function ReferencesList({
           <CommandEmpty>No references found.</CommandEmpty>
         ) : (
           <CommandGroup>
-            {items.map((item) => {
-              const isCurrent = currentPath === item.path;
-              const title = item.preview?.title ?? item.fallbackLabel;
-              const subtitle = item.preview
-                ? item.preview.subtitle
-                : buildSubtitle(item);
-              const image = item.preview?.image ?? null;
-              const filterValue = `${title} ${item.fallbackLabel}`;
-              return (
-                <CommandItem
-                  key={item.path}
-                  value={filterValue}
-                  onSelect={() => onSelect(item)}
-                  className="flex items-center gap-2"
-                >
-                  <Check
-                    className={cn(
-                      "h-4 w-4 shrink-0",
-                      isCurrent ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <DropdownPreviewRow
-                    title={title}
-                    subtitle={subtitle}
-                    image={image}
-                  />
-                </CommandItem>
-              );
-            })}
+            {items.map((item) => (
+              <ReferenceRow
+                key={item.path}
+                item={item}
+                isCurrent={currentPath === item.path}
+                onSelect={() => onSelect(item)}
+              />
+            ))}
           </CommandGroup>
         )}
       </CommandList>
     </Command>
   );
-}
-
-function buildSubtitle(item: ReferencesListItem): string | null {
-  if (item.patchPath.length === 0) {
-    return null;
-  }
-  return item.patchPath.join(" → ");
 }
 
 export interface ConnectedReferencesListProps {
@@ -111,7 +91,16 @@ export function ConnectedReferencesList({
   onSelect,
   searchPlaceholder = "Filter",
 }: ConnectedReferencesListProps) {
-  const items = refs.map(buildBaseItem);
+  const schemasRes = useSchemas();
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
+  const items = refs.map((ref) => {
+    const item = buildBaseItem(ref);
+    const schema = schemas?.[item.moduleFilePath];
+    return {
+      ...item,
+      isRouter: schema?.type === "record" && Boolean(schema.router),
+    };
+  });
   return (
     <Command>
       <CommandInput placeholder={searchPlaceholder} />
@@ -125,7 +114,7 @@ export function ConnectedReferencesList({
                 key={item.path}
                 item={item}
                 isCurrent={currentPath === item.path}
-                onSelect={onSelect}
+                onSelect={() => onSelect(item.path)}
               />
             ))}
           </CommandGroup>
@@ -135,6 +124,30 @@ export function ConnectedReferencesList({
   );
 }
 
+/**
+ * Row used by the pure {@link ReferencesList}. The render-derived preview image
+ * (if any) is taken from the item; the label is always derived from the path.
+ */
+function ReferenceRow({
+  item,
+  isCurrent,
+  onSelect,
+}: {
+  item: ReferencesListItem;
+  isCurrent: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <ReferenceRowView
+      item={item}
+      isCurrent={isCurrent}
+      onSelect={onSelect}
+      image={item.preview?.image ?? null}
+    />
+  );
+}
+
+/** Connected row: only the preview image is hydrated; the label is path-derived. */
 function ConnectedReferenceRow({
   item,
   isCurrent,
@@ -142,16 +155,36 @@ function ConnectedReferenceRow({
 }: {
   item: ReferencesListItem;
   isCurrent: boolean;
-  onSelect: (path: SourcePath) => void;
+  onSelect: () => void;
 }) {
   const preview = useRefPreview(item.path);
-  const title = preview?.title ?? item.fallbackLabel;
-  const subtitle = preview ? preview.subtitle : buildSubtitle(item);
-  const filterValue = `${title} ${item.fallbackLabel}`;
+  return (
+    <ReferenceRowView
+      item={item}
+      isCurrent={isCurrent}
+      onSelect={onSelect}
+      image={preview?.image ?? null}
+    />
+  );
+}
+
+function ReferenceRowView({
+  item,
+  isCurrent,
+  onSelect,
+  image,
+}: {
+  item: ReferencesListItem;
+  isCurrent: boolean;
+  onSelect: () => void;
+  image: DropdownPreviewImage;
+}) {
+  const hasPatchPath = item.patchPath.length > 0;
+  const moduleFilePathLabel = prettifyModuleFilePath(item.moduleFilePath);
   return (
     <CommandItem
-      value={filterValue}
-      onSelect={() => onSelect(item.path)}
+      value={`${item.preview?.title ?? ""} ${item.fallbackLabel}`}
+      onSelect={onSelect}
       className="flex items-center gap-2"
     >
       <Check
@@ -161,12 +194,86 @@ function ConnectedReferenceRow({
         )}
       />
       <DropdownPreviewRow
-        title={title}
-        subtitle={subtitle}
-        image={preview?.image ?? null}
+        title={
+          hasPatchPath ? (
+            <ReferenceLabel
+              patchPath={item.patchPath}
+              isRouter={item.isRouter ?? false}
+            />
+          ) : (
+            moduleFilePathLabel
+          )
+        }
+        subtitle={hasPatchPath ? moduleFilePathLabel : undefined}
+        image={image}
       />
     </CommandItem>
   );
+}
+
+/**
+ * Primary label for a reference row. The first {@link patchPath} segment is the
+ * "entry": for routers it is a route key (e.g. `/blogs/blog2`) rendered as a
+ * `/`-separated route path; otherwise it is a record/array key shown verbatim.
+ * The remaining segments are the field inside, prettified and `/`-joined, set
+ * off with a chevron. Wraps (no truncation) so long labels flow onto new lines.
+ */
+function ReferenceLabel({
+  patchPath,
+  isRouter,
+}: {
+  patchPath: string[];
+  isRouter: boolean;
+}) {
+  const [entryKey, ...fields] = patchPath;
+  return (
+    <span className="whitespace-normal [overflow-wrap:anywhere]">
+      {isRouter ? (
+        <RouteKey route={entryKey} />
+      ) : (
+        <span className="text-fg-primary">{entryKey}</span>
+      )}
+      {fields.length > 0 && (
+        <>
+          <ChevronRight
+            size={12}
+            className="mx-0.5 inline-block shrink-0 text-fg-tertiary align-[-1px]"
+          />
+          {fields.map((field, index) => (
+            <Fragment key={index}>
+              {index > 0 && <span className="text-fg-tertiary"> / </span>}
+              <span className="text-fg-primary">{prettifyFilename(field)}</span>
+            </Fragment>
+          ))}
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Renders a route key (e.g. `/blogs/blog2`) as a `/`-separated path with muted slashes. */
+function RouteKey({ route }: { route: string }) {
+  const parts = route.split("/").filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return <span className="text-fg-primary">{route}</span>;
+  }
+  return (
+    <span>
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          <span className="text-fg-tertiary">/</span>
+          <span className="text-fg-primary">{part}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/** Prettified, `/`-separated module file path, e.g. `App / Blogs / Blog`. */
+function prettifyModuleFilePath(moduleFilePath: ModuleFilePath): string {
+  return Internal.splitModuleFilePath(moduleFilePath)
+    .map(prettifyFilename)
+    .join(" / ");
 }
 
 export function buildBaseItem(path: SourcePath): ReferencesListItem {

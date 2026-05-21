@@ -5,6 +5,7 @@ import {
   RemoteSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
+import { ReactNode } from "react";
 import { cn } from "./designSystem/cn";
 
 export type DropdownPreviewImage =
@@ -20,8 +21,8 @@ export function DropdownPreviewRow({
   image,
   className,
 }: {
-  title: string;
-  subtitle?: string | null;
+  title?: ReactNode;
+  subtitle?: ReactNode;
   image?: DropdownPreviewImage;
   className?: string;
 }) {
@@ -29,16 +30,28 @@ export function DropdownPreviewRow({
   return (
     <div className={cn("flex min-w-0 flex-1 items-center gap-2", className)}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-medium">{title}</span>
-        {subtitle && (
-          <span className="truncate text-xs text-fg-secondary">{subtitle}</span>
-        )}
+        {title != null &&
+          title !== "" &&
+          (typeof title === "string" ? (
+            <span className="truncate font-medium">{title}</span>
+          ) : (
+            <div className="font-medium">{title}</div>
+          ))}
+        {subtitle != null &&
+          subtitle !== "" &&
+          (typeof subtitle === "string" ? (
+            <span className="truncate text-xs text-fg-secondary">
+              {subtitle}
+            </span>
+          ) : (
+            <div className="text-xs text-fg-secondary">{subtitle}</div>
+          ))}
       </div>
       {imageUrl && (
         <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary">
           <img
             src={imageUrl}
-            alt={title}
+            alt={typeof title === "string" ? title : ""}
             className="h-full w-full object-cover"
             loading="lazy"
           />
