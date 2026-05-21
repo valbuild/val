@@ -1,6 +1,10 @@
+import { Schema, SerializedSchema } from ".";
+import { SelectorSource } from "../selector";
 import { array } from "./array";
 import { boolean } from "./boolean";
 import { date } from "./date";
+import { deserializeSchema } from "./deserialize";
+import { image } from "./image";
 import { literal } from "./literal";
 import { number } from "./number";
 import { object } from "./object";
@@ -8,6 +12,7 @@ import { record } from "./record";
 import { richtext } from "./richtext";
 import { route } from "./route";
 import { string } from "./string";
+import { union } from "./union";
 
 describe("Schema.describe()", () => {
   test("string: describe is serialized", () => {
@@ -225,6 +230,152 @@ describe("Schema.describe()", () => {
     expect(serialized.item).toMatchObject({
       type: "object",
       description: undefined,
+    });
+  });
+});
+
+describe("Schema.describe() survives serialize → deserialize round-trip", () => {
+  // executeSerialize → deserializeSchema → executeSerialize must preserve the
+  // description for every schema type that supports describe().
+  function roundTrip(schema: Schema<SelectorSource>): SerializedSchema {
+    const serialized = schema["executeSerialize"]();
+    return deserializeSchema(serialized)["executeSerialize"]();
+  }
+
+  test("string", () => {
+    expect(roundTrip(string().describe("Authors name"))).toMatchObject({
+      type: "string",
+      description: "Authors name",
+    });
+  });
+
+  test("number", () => {
+    expect(roundTrip(number().describe("Age"))).toMatchObject({
+      type: "number",
+      description: "Age",
+    });
+  });
+
+  test("boolean", () => {
+    expect(roundTrip(boolean().describe("Is published"))).toMatchObject({
+      type: "boolean",
+      description: "Is published",
+    });
+  });
+
+  test("date", () => {
+    expect(roundTrip(date().describe("Birthday"))).toMatchObject({
+      type: "date",
+      description: "Birthday",
+    });
+  });
+
+  test("literal", () => {
+    expect(roundTrip(literal("admin").describe("Access tier"))).toMatchObject({
+      type: "literal",
+      description: "Access tier",
+    });
+  });
+
+  test("route", () => {
+    expect(roundTrip(route().describe("Page route"))).toMatchObject({
+      type: "route",
+      description: "Page route",
+    });
+  });
+
+  test("richtext", () => {
+    expect(roundTrip(richtext({}).describe("Body copy"))).toMatchObject({
+      type: "richtext",
+      description: "Body copy",
+    });
+  });
+
+  test("image", () => {
+    expect(roundTrip(image().describe("Cover image"))).toMatchObject({
+      type: "image",
+      description: "Cover image",
+    });
+  });
+
+  test("object (and nested item description)", () => {
+    const serialized = roundTrip(
+      object({ name: string().describe("Authors name") }).describe(
+        "Author of blog",
+      ),
+    );
+    expect(serialized).toMatchObject({
+      type: "object",
+      description: "Author of blog",
+    });
+    expect(
+      (serialized as { items: Record<string, unknown> }).items.name,
+    ).toMatchObject({
+      type: "string",
+      description: "Authors name",
+    });
+  });
+
+  test("array (and nested item description)", () => {
+    const serialized = roundTrip(
+      array(string().describe("Tag")).describe("Tags"),
+    );
+    expect(serialized).toMatchObject({ type: "array", description: "Tags" });
+    expect((serialized as { item: unknown }).item).toMatchObject({
+      type: "string",
+      description: "Tag",
+    });
+  });
+
+  test("union (and nested member description)", () => {
+    const serialized = roundTrip(
+      union(
+        literal("a").describe("First"),
+        literal("b").describe("Second"),
+      ).describe("Either"),
+    );
+    expect(serialized).toMatchObject({ type: "union", description: "Either" });
+    // The first literal becomes the union `key`; the rest land in `items`.
+    expect((serialized as { key: unknown }).key).toMatchObject({
+      type: "literal",
+      description: "First",
+    });
+    expect((serialized as { items: unknown[] }).items[0]).toMatchObject({
+      type: "literal",
+      description: "Second",
+    });
+  });
+
+  test("record (and nested key/value descriptions)", () => {
+    const serialized = roundTrip(
+      record(
+        object({ name: string().describe("Authors name") }).describe("Author"),
+      ),
+    );
+    expect(serialized).toMatchObject({
+      type: "record",
+      description: undefined,
+    });
+    expect((serialized as { item: unknown }).item).toMatchObject({
+      type: "object",
+      description: "Author",
+    });
+  });
+
+  test("keyOf", () => {
+    // keyOf requires a module selector to construct via the factory, so build
+    // the serialized form directly to exercise the deserializer.
+    const serialized: SerializedSchema = {
+      type: "keyOf",
+      path: "/foo" as never,
+      schema: { type: "object", keys: [], opt: false },
+      opt: false,
+      values: ["a", "b"],
+      description: "Which key",
+    };
+    expect(deserializeSchema(serialized)["executeSerialize"]()).toMatchObject({
+      type: "keyOf",
+      description: "Which key",
     });
   });
 });
