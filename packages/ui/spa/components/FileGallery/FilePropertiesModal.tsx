@@ -1,6 +1,6 @@
 import * as React from "react";
-import { Check, ExternalLink, GitCompare, Link, Trash2 } from "lucide-react";
-import { Internal, ModuleFilePath } from "@valbuild/core";
+import { ExternalLink, GitCompare, Link, Trash2 } from "lucide-react";
+import { ModuleFilePath } from "@valbuild/core";
 import {
   Dialog,
   DialogContent,
@@ -22,21 +22,12 @@ import {
   TooltipTrigger,
 } from "../designSystem/tooltip";
 import { useNavigation } from "../ValRouter";
-import { ValPath } from "../ValPath";
-import { prettifyFilename } from "../../utils/prettifyFilename";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../designSystem/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../designSystem/command";
+import { ConnectedReferencesList } from "../ReferencesList";
 
 interface FilePropertiesModalProps {
   file: GalleryFile | null;
@@ -259,43 +250,14 @@ export function FilePropertiesModal({
                     className="w-[clamp(300px,40vw,400px)] p-0 z-[8999]"
                     container={container}
                   >
-                    <Command>
-                      <CommandInput placeholder="Filter" />
-                      <CommandList>
-                        <CommandEmpty>No references found.</CommandEmpty>
-                        <CommandGroup>
-                          {refs.map((ref) => {
-                            const [refModuleFilePath, modulePath] =
-                              Internal.splitModuleFilePathAndModulePath(ref);
-                            const patchPath =
-                              Internal.createPatchPath(modulePath);
-                            const label = `${prettifyFilename(Internal.splitModuleFilePath(refModuleFilePath).pop() || "")}${modulePath ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}` : ""}`;
-                            const isCurrent = currentSourcePath === ref;
-                            return (
-                              <CommandItem
-                                key={ref}
-                                value={label}
-                                onSelect={() => {
-                                  navigate(ref);
-                                  setRefsOpen(false);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    isCurrent ? "opacity-100" : "opacity-0",
-                                  )}
-                                />
-                                <ValPath
-                                  moduleFilePath={refModuleFilePath}
-                                  patchPath={patchPath}
-                                />
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
+                    <ConnectedReferencesList
+                      refs={refs}
+                      currentPath={currentSourcePath}
+                      onSelect={(navPath, { scrollToPath }) => {
+                        navigate(navPath, { scrollToPath });
+                        setRefsOpen(false);
+                      }}
+                    />
                   </PopoverContent>
                 </Popover>
               )}

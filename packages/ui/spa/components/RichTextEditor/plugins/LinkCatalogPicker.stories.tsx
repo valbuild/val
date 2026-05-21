@@ -111,6 +111,39 @@ export const LongCatalog: Story = {
   },
 };
 
+export const MixedImages: Story = {
+  args: {
+    catalog: [
+      {
+        title: "First with image",
+        subtitle: "https://first.example.com",
+        image: "https://placehold.co/64x64/e2e8f0/475569?text=1",
+        href: "https://first.example.com",
+      },
+      {
+        title: "Second without image",
+        subtitle: "https://second.example.com",
+        href: "https://second.example.com",
+      },
+      {
+        title: "Third with image",
+        subtitle: "https://third.example.com",
+        image: "https://placehold.co/64x64/dbeafe/1e40af?text=3",
+        href: "https://third.example.com",
+      },
+      {
+        title: "Fourth without image",
+        subtitle: "https://fourth.example.com",
+        href: "https://fourth.example.com",
+      },
+    ],
+    currentHref: null,
+    onApplyLink: (item) => console.log("Apply link:", item),
+    onRemoveLink: null,
+    onClose: () => console.log("Close"),
+  },
+};
+
 export const WithRemoveLink: Story = {
   args: {
     catalog: sampleCatalog,
