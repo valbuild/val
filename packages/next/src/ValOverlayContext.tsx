@@ -10,12 +10,17 @@ export class ValExternalStore {
   // per-subscriberId records so load state can be queried for any combination
   // of paths, even ones no subscriber has registered yet.
   private readonly loadedSources: Map<ModuleFilePath, Json>;
+  // One-shot listeners used solely by waitForLoad. Kept separate from the
+  // useSyncExternalStore subscribers/listeners so waitForLoad never has to
+  // register (and leak) a subscriberId.
+  private readonly loadListeners: Set<() => void>;
 
   constructor() {
     this.subscribers = new Map();
     this.listeners = {};
     this.loadPromises = new Map();
     this.loadedSources = new Map();
+    this.loadListeners = new Set();
   }
 
   subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
@@ -46,6 +51,9 @@ export class ValExternalStore {
         });
         this.emitChange(subscriberId);
       }
+    }
+    for (const listener of Array.from(this.loadListeners)) {
+      listener();
     }
   }
 
@@ -93,13 +101,14 @@ export class ValExternalStore {
       return existing;
     }
     const promise = new Promise<void>((resolve) => {
-      const unsubscribe = this.subscribe(paths)(() => {
+      const listener = () => {
         if (this.hasAllLoaded(paths)) {
-          unsubscribe();
+          this.loadListeners.delete(listener);
           this.loadPromises.delete(subscriberId);
           resolve();
         }
-      });
+      };
+      this.loadListeners.add(listener);
     });
     this.loadPromises.set(subscriberId, promise);
     return promise;
