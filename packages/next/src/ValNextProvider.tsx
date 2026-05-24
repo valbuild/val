@@ -28,6 +28,15 @@ export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
   disableRefresh?: boolean;
+  /**
+   * Whether Val is enabled (the VAL_ENABLE cookie is set). Pass this from a
+   * Server Component that reads the cookie (e.g. via next/headers) so that
+   * `useValStega` can suspend on the very first render — including during SSR.
+   * Without it, enabled is only known after the client reads the cookie on
+   * mount, which is too late for hooks like useValRoute that call notFound()
+   * for routes that only exist in an uncommitted draft.
+   */
+  enabled?: boolean;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -348,7 +357,9 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider
       draftMode={draftMode}
-      enabled={!!mountOverlay}
+      // Prefer the server-provided value (known synchronously, incl. SSR) and
+      // fall back to the client-only mountOverlay for apps that don't pass it.
+      enabled={props.enabled ?? !!mountOverlay}
       store={valStore}
     >
       {props.children}
