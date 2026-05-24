@@ -77,22 +77,13 @@ function resolveParams(
   if (!params) {
     return null;
   }
-  let resolvedParams: Record<string, string | string[]> | undefined =
-    "then" in params ? undefined : params;
   if ("then" in params) {
-    if ("use" in React) {
-      // This feels fairly safe: use should be possible to use inside if (?) and the if should most likely
-      resolvedParams = React.use(
-        params as Promise<Record<string, string | string[]>>,
-      );
-    } else {
-      console.error(
-        `Val: useValRoute params argument was promise, but the React.use hook is unavailable. Please resolve the promise before passing it to useValRoute (or upgrade to React 19+).`,
-      );
-      return null;
-    }
+    // Suspend on the params promise. valSuspense centralizes the React.use
+    // (React 19) vs throw-promise (React 18) split, so both paths just need a
+    // <Suspense> boundary higher up the tree.
+    return valSuspense(params as Promise<Record<string, string | string[]>>);
   }
-  return resolvedParams;
+  return params;
 }
 
 function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
