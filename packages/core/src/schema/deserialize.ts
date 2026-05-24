@@ -21,9 +21,12 @@ import { UnionSchema } from "./union";
 export function deserializeSchema(
   serialized: SerializedSchema,
 ): Schema<SelectorSource> {
-  const schema = deserializeSchemaImpl(serialized);
+  let schema = deserializeSchemaImpl(serialized);
   if (serialized.readonly) {
-    return schema.readonly();
+    schema = schema.readonly();
+  }
+  if (serialized.hidden) {
+    schema = schema.hidden();
   }
   return schema;
 }

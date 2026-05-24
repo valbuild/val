@@ -22,6 +22,7 @@ export type SerializedNumberSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
@@ -30,6 +31,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -42,6 +44,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -141,6 +144,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       true,
       [],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -149,6 +153,17 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): NumberSchema<Src> {
+    return new NumberSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -159,6 +174,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -168,6 +184,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -180,6 +197,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

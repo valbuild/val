@@ -32,6 +32,7 @@ export type SerializedDateSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
@@ -40,6 +41,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -50,6 +52,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -168,6 +171,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -177,11 +181,18 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
   nullable(): DateSchema<Src | null> {
-    return new DateSchema<Src | null>(this.options, true, [], this.isReadonly);
+    return new DateSchema<Src | null>(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+    );
   }
 
   readonly(): DateSchema<Src> {
@@ -189,6 +200,17 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): DateSchema<Src> {
+    return new DateSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -202,6 +224,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

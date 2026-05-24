@@ -30,6 +30,7 @@ export type SerializedFileSchema = {
   customValidate?: boolean;
   referencedModule?: string;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export type FileMetadata = {
@@ -51,6 +52,7 @@ export class FileSchema<
       Record<string, FilesEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -63,6 +65,7 @@ export class FileSchema<
       this.customValidateFunctions,
       this.moduleMetadata,
       this.isReadonly,
+      this.isHidden,
     ) as FileSchema<Src | RemoteSource<FileMetadata | undefined>>;
   }
 
@@ -74,6 +77,7 @@ export class FileSchema<
       [...this.customValidateFunctions, validationFunction],
       this.moduleMetadata,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -325,6 +329,7 @@ export class FileSchema<
       this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.moduleMetadata,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -335,6 +340,19 @@ export class FileSchema<
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): FileSchema<Src> {
+    return new FileSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
       true,
     );
   }
@@ -354,6 +372,7 @@ export class FileSchema<
       referencedModule:
         modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

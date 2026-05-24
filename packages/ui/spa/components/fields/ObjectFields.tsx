@@ -69,6 +69,9 @@ export function ObjectFields({
       <ValidationErrors path={path} />
       <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
         {Object.entries(schema.items).map(([key, itemSchema]) => {
+          if (itemSchema.hidden) {
+            return null;
+          }
           const subPath = sourcePathOfItem(path, key);
           const itemReadonly = readonly || itemSchema.readonly;
           return (
@@ -147,7 +150,10 @@ export function ObjectLikePreview({
         size === "compact" ? "max-h-[60px] overflow-hidden" : ""
       }`}
     >
-      {Object.keys(schema.items).map((key) => {
+      {Object.entries(schema.items).map(([key, itemSchema]) => {
+        if (itemSchema.hidden) {
+          return null;
+        }
         const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>

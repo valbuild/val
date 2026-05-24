@@ -37,6 +37,7 @@ export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
     opt: z.boolean(),
     raw: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedLiteralSchema: z.ZodType<SerializedLiteralSchemaT> =
@@ -45,6 +46,7 @@ export const SerializedLiteralSchema: z.ZodType<SerializedLiteralSchemaT> =
     value: z.string(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedBooleanSchema: z.ZodType<SerializedBooleanSchemaT> =
@@ -52,6 +54,7 @@ export const SerializedBooleanSchema: z.ZodType<SerializedBooleanSchemaT> =
     type: z.literal("boolean"),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
@@ -65,6 +68,7 @@ export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
       .optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedObjectSchema: z.ZodType<SerializedObjectSchemaT> =
@@ -74,6 +78,7 @@ export const SerializedObjectSchema: z.ZodType<SerializedObjectSchemaT> =
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),
       readonly: z.boolean().optional(),
+      hidden: z.boolean().optional(),
     });
   });
 
@@ -84,6 +89,7 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
       item: SerializedSchema,
       opt: z.boolean(),
       readonly: z.boolean().optional(),
+      hidden: z.boolean().optional(),
     });
   },
 );
@@ -97,6 +103,7 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
         items: z.array(SerializedLiteralSchema),
         opt: z.boolean(),
         readonly: z.boolean().optional(),
+        hidden: z.boolean().optional(),
       }),
       z.object({
         type: z.literal("union"),
@@ -104,6 +111,7 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
         items: z.array(SerializedObjectSchema),
         opt: z.boolean(),
         readonly: z.boolean().optional(),
+        hidden: z.boolean().optional(),
       }),
     ]);
   },
@@ -123,6 +131,7 @@ export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
     options: ImageOptions.optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
@@ -163,6 +172,7 @@ export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
     options: RichTextOptions.optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
@@ -185,6 +195,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
           .record(z.string(), z.record(z.string(), z.any()))
           .optional(),
         readonly: z.boolean().optional(),
+        hidden: z.boolean().optional(),
       })
       .passthrough();
   });
@@ -207,6 +218,7 @@ export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
       values: z.union([z.literal("string"), z.array(z.string())]),
       opt: z.boolean(),
       readonly: z.boolean().optional(),
+      hidden: z.boolean().optional(),
     });
   },
 );
@@ -219,12 +231,14 @@ export const SerializedFileSchema: z.ZodType<SerializedFileSchemaT> = z.object({
   options: FileOptions.optional(),
   opt: z.boolean(),
   readonly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
 });
 
 export const SerializedDateSchema: z.ZodType<SerializedDateSchemaT> = z.object({
   type: z.literal("date"),
   opt: z.boolean(),
   readonly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
 });
 
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
@@ -250,6 +264,7 @@ export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
     opt: z.boolean(),
     customValidate: z.boolean().optional(),
     readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   });
 
 export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([

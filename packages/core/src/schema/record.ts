@@ -45,6 +45,7 @@ export type SerializedRecordSchema = {
   remote?: boolean;
   alt?: SerializedSchema;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class RecordSchema<
@@ -60,6 +61,7 @@ export class RecordSchema<
     private readonly keySchema: Schema<string> | null = null,
     private readonly mediaOptions?: MediaOptions,
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -75,6 +77,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -499,6 +502,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
+      this.isHidden,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -510,6 +514,20 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
       true,
     );
   }
@@ -523,6 +541,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -535,6 +554,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -611,6 +631,7 @@ export class RecordSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;

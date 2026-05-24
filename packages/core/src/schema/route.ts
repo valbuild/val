@@ -27,6 +27,7 @@ export type SerializedRouteSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class RouteSchema<Src extends string | null> extends Schema<Src> {
@@ -37,6 +38,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       src: Src,
     ) => false | string)[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -59,6 +61,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -80,6 +83,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -89,6 +93,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -162,6 +167,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     ) as unknown as RouteSchema<Src | null>;
   }
 
@@ -170,6 +176,17 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): RouteSchema<Src> {
+    return new RouteSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -195,6 +212,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

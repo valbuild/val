@@ -14,6 +14,7 @@ export type SerializedBooleanSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
@@ -21,6 +22,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -32,6 +34,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -92,11 +95,30 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   }
 
   nullable(): BooleanSchema<Src | null> {
-    return new BooleanSchema<Src | null>(true, [], this.isReadonly);
+    return new BooleanSchema<Src | null>(
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+    );
   }
 
   readonly(): BooleanSchema<Src> {
-    return new BooleanSchema<Src>(this.opt, this.customValidateFunctions, true);
+    return new BooleanSchema<Src>(
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): BooleanSchema<Src> {
+    return new BooleanSchema<Src>(
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -107,6 +129,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

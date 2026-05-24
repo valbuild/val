@@ -31,6 +31,7 @@ export type SerializedStringUnionSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
@@ -39,6 +40,7 @@ export type SerializedObjectUnionSchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 type SourceOf<
@@ -76,6 +78,7 @@ export class UnionSchema<
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -471,7 +474,14 @@ export class UnionSchema<
   }
 
   nullable(): UnionSchema<Key, T, Src | null> {
-    return new UnionSchema(this.key, this.items, true, [], this.isReadonly);
+    return new UnionSchema(
+      this.key,
+      this.items,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+    );
   }
 
   readonly(): UnionSchema<Key, T, Src> {
@@ -480,6 +490,18 @@ export class UnionSchema<
       this.items,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): UnionSchema<Key, T, Src> {
+    return new UnionSchema(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -495,6 +517,7 @@ export class UnionSchema<
           this.customValidateFunctions &&
           this.customValidateFunctions?.length > 0,
         readonly: this.isReadonly,
+        hidden: this.isHidden,
       } as SerializedObjectUnionSchema;
     }
     return {
@@ -506,6 +529,7 @@ export class UnionSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     } as SerializedStringUnionSchema;
   }
 
@@ -515,6 +539,7 @@ export class UnionSchema<
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }

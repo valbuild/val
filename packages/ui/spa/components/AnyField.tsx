@@ -36,6 +36,9 @@ export function AnyField({
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
 }) {
+  if (schema.hidden) {
+    return null;
+  }
   const effectiveReadonly = readonly || schema.readonly;
   const leafProps = { readonly: effectiveReadonly, compact };
   let leaf: React.ReactNode;

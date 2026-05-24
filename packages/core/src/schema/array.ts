@@ -20,6 +20,7 @@ export type SerializedArraySchema = {
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class ArraySchema<
@@ -33,6 +34,7 @@ export class ArraySchema<
       src: Src,
     ) => false | string)[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -45,6 +47,7 @@ export class ArraySchema<
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -124,7 +127,7 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(this.item, true, [], this.isReadonly);
+    return new ArraySchema(this.item, true, [], this.isReadonly, this.isHidden);
   }
 
   readonly(): ArraySchema<T, Src> {
@@ -132,6 +135,17 @@ export class ArraySchema<
       this.item,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -145,6 +159,7 @@ export class ArraySchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 

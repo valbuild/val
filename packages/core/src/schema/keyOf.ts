@@ -26,6 +26,7 @@ export type SerializedKeyOfSchema = {
   values: "string" | string[];
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 type SerializedRefSchema =
   | {
@@ -61,6 +62,7 @@ export class KeyOfSchema<
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -74,6 +76,7 @@ export class KeyOfSchema<
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -279,6 +282,7 @@ export class KeyOfSchema<
       true,
       [],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -288,6 +292,18 @@ export class KeyOfSchema<
       this.sourcePath,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -328,6 +344,7 @@ export class KeyOfSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     } satisfies SerializedKeyOfSchema;
   }
 

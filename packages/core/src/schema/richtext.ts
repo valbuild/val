@@ -33,6 +33,7 @@ export type SerializedRichTextSchema = {
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
   readonly?: boolean;
+  hidden?: boolean;
 };
 
 export class RichTextSchema<
@@ -44,6 +45,7 @@ export class RichTextSchema<
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
   ) {
     super();
   }
@@ -57,6 +59,7 @@ export class RichTextSchema<
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -69,6 +72,7 @@ export class RichTextSchema<
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -80,6 +84,7 @@ export class RichTextSchema<
       this.opt,
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
+      this.isHidden,
     );
   }
 
@@ -632,7 +637,13 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(this.options, true, [], this.isReadonly);
+    return new RichTextSchema(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+    );
   }
 
   readonly(): RichTextSchema<O, Src> {
@@ -640,6 +651,17 @@ export class RichTextSchema<
       this.options,
       this.opt,
       this.customValidateFunctions,
+      true,
+      this.isHidden,
+    );
+  }
+
+  hidden(): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
       true,
     );
   }
@@ -685,6 +707,7 @@ export class RichTextSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
+      hidden: this.isHidden,
     };
   }
 
