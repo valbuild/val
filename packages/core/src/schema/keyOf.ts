@@ -25,6 +25,7 @@ export type SerializedKeyOfSchema = {
   opt: boolean;
   values: "string" | string[];
   customValidate?: boolean;
+  readonly?: boolean;
 };
 type SerializedRefSchema =
   | {
@@ -59,6 +60,7 @@ export class KeyOfSchema<
     private readonly sourcePath?: SourcePath,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
@@ -66,10 +68,13 @@ export class KeyOfSchema<
   validate(
     validationFunction: (src: Src) => false | string,
   ): KeyOfSchema<Sel, Src> {
-    return new KeyOfSchema(this.schema, this.sourcePath, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -268,7 +273,23 @@ export class KeyOfSchema<
   }
 
   nullable(): KeyOfSchema<Sel, Src | null> {
-    return new KeyOfSchema(this.schema, this.sourcePath, true);
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      true,
+      [],
+      this.isReadonly,
+    );
+  }
+
+  readonly(): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -306,6 +327,7 @@ export class KeyOfSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     } satisfies SerializedKeyOfSchema;
   }
 

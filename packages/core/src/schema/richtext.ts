@@ -32,6 +32,7 @@ export type SerializedRichTextSchema = {
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
+  readonly?: boolean;
 };
 
 export class RichTextSchema<
@@ -42,6 +43,7 @@ export class RichTextSchema<
     private readonly options: O & ValidationOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
@@ -53,6 +55,8 @@ export class RichTextSchema<
         maxLength: max,
       },
       this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
     );
   }
 
@@ -63,16 +67,20 @@ export class RichTextSchema<
         minLength: min,
       },
       this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
     );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): RichTextSchema<O, Src> {
-    return new RichTextSchema(this.options, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -624,7 +632,16 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(this.options, true);
+    return new RichTextSchema(this.options, true, [], this.isReadonly);
+  }
+
+  readonly(): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -667,6 +684,7 @@ export class RichTextSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     };
   }
 

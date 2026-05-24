@@ -21,6 +21,7 @@ export type SerializedNumberSchema = {
   options?: NumberOptions;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
 };
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
@@ -28,6 +29,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     private readonly options?: NumberOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
@@ -35,10 +37,12 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   validate(
     validationFunction: (src: Src) => false | string,
   ): NumberSchema<Src> {
-    return new NumberSchema(this.options, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new NumberSchema(
+      this.options,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -132,15 +136,39 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   }
 
   nullable(): NumberSchema<Src | null> {
-    return new NumberSchema<Src | null>(this.options, true);
+    return new NumberSchema<Src | null>(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+    );
+  }
+
+  readonly(): NumberSchema<Src> {
+    return new NumberSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+    );
   }
 
   max(max: number): NumberSchema<Src> {
-    return new NumberSchema<Src>({ ...this.options, max }, this.opt);
+    return new NumberSchema<Src>(
+      { ...this.options, max },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+    );
   }
 
   min(min: number): NumberSchema<Src> {
-    return new NumberSchema<Src>({ ...this.options, min }, this.opt);
+    return new NumberSchema<Src>(
+      { ...this.options, min },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -151,6 +179,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     };
   }
 

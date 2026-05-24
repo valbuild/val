@@ -31,6 +31,7 @@ export type SerializedDateSchema = {
   options?: DateOptions;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
 };
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
@@ -38,15 +39,18 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     private readonly options?: DateOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
 
   validate(validationFunction: (src: Src) => false | string): DateSchema<Src> {
-    return new DateSchema(this.options, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new DateSchema(
+      this.options,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -159,15 +163,34 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 
   from(from: string): DateSchema<Src> {
-    return new DateSchema<Src>({ ...this.options, from }, this.opt);
+    return new DateSchema<Src>(
+      { ...this.options, from },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+    );
   }
 
   to(to: string): DateSchema<Src> {
-    return new DateSchema<Src>({ ...this.options, to }, this.opt);
+    return new DateSchema<Src>(
+      { ...this.options, to },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+    );
   }
 
   nullable(): DateSchema<Src | null> {
-    return new DateSchema<Src | null>(this.options, true);
+    return new DateSchema<Src | null>(this.options, true, [], this.isReadonly);
+  }
+
+  readonly(): DateSchema<Src> {
+    return new DateSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -178,6 +201,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     };
   }
 

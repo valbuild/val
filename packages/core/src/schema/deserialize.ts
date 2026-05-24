@@ -21,6 +21,16 @@ import { UnionSchema } from "./union";
 export function deserializeSchema(
   serialized: SerializedSchema,
 ): Schema<SelectorSource> {
+  const schema = deserializeSchemaImpl(serialized);
+  if (serialized.readonly) {
+    return schema.readonly();
+  }
+  return schema;
+}
+
+function deserializeSchemaImpl(
+  serialized: SerializedSchema,
+): Schema<SelectorSource> {
   switch (serialized.type) {
     case "string":
       return new StringSchema(

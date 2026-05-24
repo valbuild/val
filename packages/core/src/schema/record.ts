@@ -44,6 +44,7 @@ export type SerializedRecordSchema = {
   directory?: string;
   remote?: boolean;
   alt?: SerializedSchema;
+  readonly?: boolean;
 };
 
 export class RecordSchema<
@@ -58,6 +59,7 @@ export class RecordSchema<
     private readonly currentRouter: ValRouter | null = null,
     private readonly keySchema: Schema<string> | null = null,
     private readonly mediaOptions?: MediaOptions,
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
@@ -72,6 +74,7 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
     );
   }
 
@@ -495,7 +498,20 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
     ) as RecordSchema<T, K, Src | null>;
+  }
+
+  readonly(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      true,
+    );
   }
 
   router(router: ValRouter): RecordSchema<T, K, Src> {
@@ -506,6 +522,7 @@ export class RecordSchema<
       router,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
     );
   }
 
@@ -517,6 +534,7 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
+      this.isReadonly,
     );
   }
 
@@ -592,6 +610,7 @@ export class RecordSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     };
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;

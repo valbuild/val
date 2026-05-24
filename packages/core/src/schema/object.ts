@@ -25,6 +25,7 @@ export type SerializedObjectSchema = {
   items: Record<string, SerializedSchema>;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
@@ -58,6 +59,7 @@ export class ObjectSchema<
     private readonly items: Props,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
   ) {
     super();
   }
@@ -65,10 +67,12 @@ export class ObjectSchema<
   validate(
     validationFunction: (src: Src) => false | string,
   ): ObjectSchema<Props, Src> {
-    return new ObjectSchema(this.items, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -209,7 +213,16 @@ export class ObjectSchema<
   }
 
   nullable(): ObjectSchema<Props, Src | null> {
-    return new ObjectSchema(this.items, true);
+    return new ObjectSchema(this.items, true, [], this.isReadonly);
+  }
+
+  readonly(): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -225,6 +238,7 @@ export class ObjectSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
     };
   }
 

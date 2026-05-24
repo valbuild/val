@@ -70,13 +70,14 @@ export function ObjectFields({
       <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
         {Object.entries(schema.items).map(([key, itemSchema]) => {
           const subPath = sourcePathOfItem(path, key);
+          const itemReadonly = readonly || itemSchema.readonly;
           return (
             <Field
               key={subPath}
               label={key}
               path={subPath}
               type={itemSchema.type}
-              readonly={readonly}
+              readonly={itemReadonly}
               compact={compact}
               errorDisplay={errorDisplay}
             >
@@ -84,7 +85,7 @@ export function ObjectFields({
                 key={subPath}
                 path={subPath}
                 schema={itemSchema}
-                readonly={readonly}
+                readonly={itemReadonly}
                 compact={compact}
                 inline={inline}
                 errorDisplay={errorDisplay}

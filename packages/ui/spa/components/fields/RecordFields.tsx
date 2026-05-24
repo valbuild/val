@@ -101,14 +101,14 @@ export function RecordFields({
               label={key}
               path={itemPath}
               type={schema.item.type}
-              readonly={readonly}
+              readonly={readonly || schema.item.readonly}
               compact={compact}
               errorDisplay={errorDisplay}
             >
               <AnyField
                 path={itemPath}
                 schema={schema.item}
-                readonly={readonly}
+                readonly={readonly || schema.item.readonly}
                 compact={compact}
                 inline={inline}
                 errorDisplay={errorDisplay}
