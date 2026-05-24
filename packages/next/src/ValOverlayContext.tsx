@@ -6,11 +6,16 @@ export class ValExternalStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
   private readonly loadPromises: Map<SubscriberId, Promise<void>>;
+  // Path-keyed cache of every source seen via update(). Independent of the
+  // per-subscriberId records so load state can be queried for any combination
+  // of paths, even ones no subscriber has registered yet.
+  private readonly loadedSources: Map<ModuleFilePath, Json>;
 
   constructor() {
     this.subscribers = new Map();
     this.listeners = {};
     this.loadPromises = new Map();
+    this.loadedSources = new Map();
   }
 
   subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
@@ -30,6 +35,7 @@ export class ValExternalStore {
   };
 
   update(path: ModuleFilePath, source: Json) {
+    this.loadedSources.set(path, source);
     const subscriberIds = Array.from(this.subscribers.keys());
     for (const subscriberId of subscriberIds) {
       const isSubscribedToModule = subscriberId.includes(path); // TODO: hash paths instead
@@ -63,12 +69,8 @@ export class ValExternalStore {
   };
 
   hasAllLoaded = (paths: ModuleFilePath[]): boolean => {
-    const map = this.get(paths);
-    if (!map) {
-      return false;
-    }
     for (const p of paths) {
-      if (!(p in map)) {
+      if (!this.loadedSources.has(p)) {
         return false;
       }
     }
