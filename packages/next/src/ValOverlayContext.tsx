@@ -7,52 +7,60 @@ import React from "react";
 const LOAD_TIMEOUT_MS = 10000;
 
 export class ValExternalStore {
-  private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
-  private readonly listeners: Record<SubscriberId, (() => void)[]>;
+  private readonly listeners: Map<SubscriberId, (() => void)[]>;
   private readonly loadPromises: Map<SubscriberId, Promise<void>>;
-  // Path-keyed cache of every source seen via update(). Independent of the
-  // per-subscriberId records so load state can be queried for any combination
-  // of paths, even ones no subscriber has registered yet.
+  // Path-keyed cache of every source seen via update(). The single source of
+  // truth: load state and snapshots are both derived from this, so data can be
+  // queried for any combination of paths even before a subscriber registers.
   private readonly loadedSources: Map<ModuleFilePath, Json>;
+  // Reference-stable per-subscriberId snapshot cache for useSyncExternalStore.
+  // Built lazily from loadedSources in get() and invalidated in update().
+  private readonly snapshots: Map<
+    SubscriberId,
+    Record<ModuleFilePath, Json> | undefined
+  >;
   // One-shot listeners used solely by waitForLoad. Kept separate from the
-  // useSyncExternalStore subscribers/listeners so waitForLoad never has to
-  // register (and leak) a subscriberId.
+  // useSyncExternalStore listeners so waitForLoad never has to register (and
+  // leak) a subscriberId.
   private readonly loadListeners: Set<() => void>;
 
   constructor() {
-    this.subscribers = new Map();
-    this.listeners = {};
+    this.listeners = new Map();
     this.loadPromises = new Map();
     this.loadedSources = new Map();
+    this.snapshots = new Map();
     this.loadListeners = new Set();
   }
 
   subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
     const subscriberId = createSubscriberId(paths);
-    if (!this.listeners[subscriberId]) {
-      this.listeners[subscriberId] = [];
-      this.subscribers.set(subscriberId, {});
+    const existing = this.listeners.get(subscriberId);
+    if (existing) {
+      existing.push(listener);
+    } else {
+      this.listeners.set(subscriberId, [listener]);
     }
-    this.listeners[subscriberId].push(listener);
 
     return () => {
-      this.listeners[subscriberId].splice(
-        this.listeners[subscriberId].indexOf(listener),
-        1,
-      );
+      const current = this.listeners.get(subscriberId);
+      if (current) {
+        current.splice(current.indexOf(listener), 1);
+      }
     };
   };
 
   update(path: ModuleFilePath, source: Json) {
     this.loadedSources.set(path, source);
-    const subscriberIds = Array.from(this.subscribers.keys());
-    for (const subscriberId of subscriberIds) {
-      const isSubscribedToModule = subscriberId.includes(path); // TODO: hash paths instead
-      if (isSubscribedToModule) {
-        this.subscribers.set(subscriberId, {
-          ...this.subscribers.get(subscriberId),
-          [path]: source,
-        });
+    // Invalidate cached snapshots that include this path so the next get()
+    // rebuilds a fresh (new-reference) record, then notify their listeners.
+    for (const subscriberId of Array.from(this.snapshots.keys())) {
+      if (subscriberId.includes(path)) {
+        // TODO: hash paths instead
+        this.snapshots.delete(subscriberId);
+      }
+    }
+    for (const subscriberId of this.listeners.keys()) {
+      if (subscriberId.includes(path)) {
         this.emitChange(subscriberId);
       }
     }
@@ -62,7 +70,7 @@ export class ValExternalStore {
   }
 
   private emitChange(subscriberId: SubscriberId) {
-    for (const listener of this.listeners[subscriberId]) {
+    for (const listener of this.listeners.get(subscriberId) ?? []) {
       listener();
     }
   }
@@ -77,7 +85,25 @@ export class ValExternalStore {
 
   get = (paths: ModuleFilePath[]): Record<ModuleFilePath, Json> | undefined => {
     const subscriberId = createSubscriberId(paths);
-    return this.subscribers.get(subscriberId);
+    if (this.snapshots.has(subscriberId)) {
+      return this.snapshots.get(subscriberId);
+    }
+    // Build the snapshot from the path-keyed loadedSources so data that arrived
+    // before this subscriber registered is still returned. Cache it for a
+    // reference-stable result (required by useSyncExternalStore).
+    let record: Record<ModuleFilePath, Json> | undefined;
+    for (const p of paths) {
+      // Json never holds `undefined`, so a defined value means the path loaded.
+      const loaded = this.loadedSources.get(p);
+      if (loaded !== undefined) {
+        if (!record) {
+          record = {};
+        }
+        record[p] = loaded;
+      }
+    }
+    this.snapshots.set(subscriberId, record);
+    return record;
   };
 
   hasAllLoaded = (paths: ModuleFilePath[]): boolean => {

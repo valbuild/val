@@ -50,3 +50,43 @@ describe("ValExternalStore.waitForLoad", () => {
     await expect(second).resolves.toBeUndefined();
   });
 });
+
+describe("ValExternalStore.get", () => {
+  const path = "/content/page.val.ts" as ModuleFilePath;
+
+  it("is undefined before any source has loaded", () => {
+    const store = new ValExternalStore();
+    expect(store.get([path])).toBeUndefined();
+  });
+
+  it("returns data that arrived before a subscription registered", () => {
+    // Regression: a suspended first render never commits, so the source can be
+    // update()'d before useSyncExternalStore subscribes. get() must still
+    // return it (otherwise useValStega falls back to the static source -> 404).
+    const store = new ValExternalStore();
+    store.update(path, { foo: "bar" });
+    expect(store.get([path])).toEqual({ [path]: { foo: "bar" } });
+  });
+
+  it("returns a stable reference until a relevant update changes it", () => {
+    const store = new ValExternalStore();
+    store.update(path, { foo: "bar" });
+    const a = store.get([path]);
+    const b = store.get([path]);
+    expect(a).toBe(b);
+
+    store.update(path, { foo: "baz" });
+    const c = store.get([path]);
+    expect(c).not.toBe(a);
+    expect(c).toEqual({ [path]: { foo: "baz" } });
+  });
+
+  it("is unaffected by updates to unrelated paths", () => {
+    const store = new ValExternalStore();
+    const other = "/content/other.val.ts" as ModuleFilePath;
+    store.update(path, { foo: "bar" });
+    const a = store.get([path]);
+    store.update(other, { unrelated: true });
+    expect(store.get([path])).toBe(a);
+  });
+});

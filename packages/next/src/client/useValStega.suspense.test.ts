@@ -37,13 +37,11 @@ function tree(store: ValExternalStore, enabled: boolean) {
 describe("useValStega Suspense", () => {
   it("suspends while Val is enabled until the module loads, then renders the draft value", async () => {
     const store = new ValExternalStore();
-    // Register the subscriber up front so the source update is reflected in
-    // getSnapshot when React re-renders after Suspense resolves (a suspended
-    // first render never commits, so it cannot register the subscription
-    // itself).
-    store.subscribe([path])(() => {});
 
-    // Enabled with no data loaded yet -> the component suspends.
+    // Enabled with no data loaded yet -> the component suspends. Note we do NOT
+    // pre-subscribe: a suspended first render never commits, so the source is
+    // update()'d before useSyncExternalStore subscribes. The store must still
+    // surface it on the retry render (otherwise useValRoute would 404).
     render(tree(store, true));
     expect(screen.getByTestId("fallback")).toBeTruthy();
     expect(screen.queryByTestId("val")).toBeNull();
