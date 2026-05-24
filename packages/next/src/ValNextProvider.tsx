@@ -346,7 +346,11 @@ export const ValNextProvider = (props: {
   }, [valPrefixedClass]);
 
   return (
-    <ValOverlayProvider draftMode={draftMode} store={valStore}>
+    <ValOverlayProvider
+      draftMode={draftMode}
+      enabled={!!mountOverlay}
+      store={valStore}
+    >
       {props.children}
       {dropZone !== null &&
         !spaLoaded &&

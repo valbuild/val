@@ -153,22 +153,29 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
 export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
   readonly draftMode: boolean | null;
+  // Whether Val is enabled (the VAL_ENABLE cookie is set). Unlike draftMode
+  // this is stable for the lifetime of the page, so it is what gates the
+  // Suspense call in useValStega.
+  readonly enabled: boolean;
 }>({
   store: undefined,
   draftMode: false,
+  enabled: false,
 });
 
 export function ValOverlayProvider({
   store,
   draftMode,
+  enabled,
   children,
 }: {
   store?: ValExternalStore;
   draftMode: boolean | null;
+  enabled: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <ValOverlayContext.Provider value={{ store, draftMode }}>
+    <ValOverlayContext.Provider value={{ store, draftMode, enabled }}>
       {children}
     </ValOverlayContext.Provider>
   );
