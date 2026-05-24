@@ -41,10 +41,10 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
           return;
         },
   );
-  // Suspense (Val-enabled branch only). The conditional call intentionally
-  // violates the rules of hooks: draftMode === true is stable for the
-  // lifetime of a draft session, so this branch is effectively a per-session
-  // constant. The production path (no draft mode) skips the call entirely.
+  // Suspense (Val-enabled branch only). Calling valSuspense conditionally is
+  // safe: it either calls React.use — which React permits inside conditionals
+  // and loops — or throws the promise for classic Suspense, neither of which is
+  // a hook. The production path (no draft mode) skips the call entirely.
   if (
     valOverlayContext.draftMode === true &&
     store &&
