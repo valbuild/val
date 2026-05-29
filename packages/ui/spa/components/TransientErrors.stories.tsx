@@ -99,20 +99,25 @@ function DemoInner({
         </Button>
       </div>
       <p className="text-sm text-fg-secondary">
-        The bar below is the sidebar entry — click it to open the full list.
-        Newly added errors also pop up as auto-dismissing toasts.
+        The bell icon below is the sidebar entry — a red dot appears when there
+        are unseen errors. Click it to open the full list. Newly added errors
+        also pop up as auto-dismissing toasts.
       </p>
-      <div className="w-[320px] border border-border-primary rounded-md overflow-hidden">
+      <div className="flex items-center gap-2 w-[320px] border border-border-primary rounded-md p-2">
         <TransientErrorsList
           errors={errors}
           container={container}
           onDismiss={onDismiss}
           onClear={onClear}
         />
-        {errors.length === 0 && (
-          <div className="p-4 text-sm text-fg-secondary">
-            No transient errors (the bar is hidden, just like in the app).
-          </div>
+        {errors.length === 0 ? (
+          <span className="text-sm text-fg-secondary">
+            No transient errors (the button is hidden, just like in the app).
+          </span>
+        ) : (
+          <span className="text-sm text-fg-secondary">
+            {errors.length} error{errors.length > 1 ? "s" : ""} in the list
+          </span>
         )}
       </div>
     </div>

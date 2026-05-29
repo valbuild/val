@@ -8,8 +8,8 @@ type ToasterProps = React.ComponentProps<typeof SonnerToaster>;
  *
  * Differences from the stock shadcn wrapper:
  * - Theme comes from Val's own ValThemeProvider (not next-themes).
- * - Toasts are styled with Val's error color tokens so transient errors match
- *   the rest of the UI.
+ * - Toasts use a neutral surface with a red error icon (rather than a fully red
+ *   fill) so they read as alerts without being visually loud.
  * - `position` defaults to bottom-center to avoid overlapping the left nav and
  *   right tools sidebars.
  *
@@ -27,14 +27,12 @@ export function Toaster(props: ToasterProps) {
       toastOptions={{
         classNames: {
           toast:
-            "group rounded-lg border border-border-primary shadow-lg font-serif",
-          error:
-            "bg-bg-error-primary text-fg-error-primary border-border-primary",
+            "group rounded-lg border border-border-primary bg-bg-primary text-fg-primary shadow-lg font-serif",
           title: "font-bold",
-          description: "text-fg-error-primary opacity-90",
-          icon: "text-fg-error-primary",
+          description: "text-fg-secondary",
+          icon: "text-fg-error-secondary",
           closeButton:
-            "bg-bg-error-primary text-fg-error-primary border-border-primary",
+            "bg-bg-primary text-fg-secondary border-border-primary hover:text-fg-primary",
         },
       }}
       {...props}
