@@ -20,6 +20,7 @@ export const schema = s
     select: ({ val }) => ({
       title: val.name,
       subtitle: val.birthdate,
+      image: val.image,
     }),
   });
 
