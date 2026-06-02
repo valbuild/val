@@ -2672,6 +2672,12 @@ export class ValSyncEngine {
       timestamp: now,
       id: crypto.randomUUID(),
     });
+    // Keep the in-memory history bounded - this is a transient/debugging list.
+    const MAX_TRANSIENT_ERRORS = 100;
+    if (this.errors.globalTransientErrorQueue.length > MAX_TRANSIENT_ERRORS) {
+      this.errors.globalTransientErrorQueue =
+        this.errors.globalTransientErrorQueue.slice(-MAX_TRANSIENT_ERRORS);
+    }
     this.invalidateGlobalTransientErrors();
   }
 
