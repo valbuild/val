@@ -32,6 +32,7 @@ export type SerializedRichTextSchema = {
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
+  description?: string;
 };
 
 export class RichTextSchema<
@@ -42,8 +43,18 @@ export class RichTextSchema<
     private readonly options: O & ValidationOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
   }
 
   maxLength(max: number): RichTextSchema<O, Src> {
@@ -53,6 +64,8 @@ export class RichTextSchema<
         maxLength: max,
       },
       this.opt,
+      this.customValidateFunctions,
+      this.description,
     );
   }
 
@@ -63,16 +76,20 @@ export class RichTextSchema<
         minLength: min,
       },
       this.opt,
+      this.customValidateFunctions,
+      this.description,
     );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): RichTextSchema<O, Src> {
-    return new RichTextSchema(this.options, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -624,7 +641,7 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(this.options, true);
+    return new RichTextSchema(this.options, true, [], this.description);
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -667,6 +684,7 @@ export class RichTextSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     };
   }
 

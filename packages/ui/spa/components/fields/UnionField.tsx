@@ -295,6 +295,7 @@ function ObjectUnionField({
               path={itemPath}
               foldLevel="1"
               label={key}
+              description={selectedSchema?.items?.[key]?.description}
               type={selectedSchema?.items?.[key]?.type}
               readonly={readonly}
               compact={compact}

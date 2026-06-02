@@ -30,6 +30,7 @@ export type SerializedStringUnionSchema = {
   items: SerializedLiteralSchema[];
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
@@ -37,6 +38,7 @@ export type SerializedObjectUnionSchema = {
   items: SerializedObjectSchema[];
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 
 type SourceOf<
@@ -65,6 +67,16 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
+  describe(description: string | null): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
+  }
+
   validate(
     validationFunction: (src: Src) => false | string,
   ): UnionSchema<Key, T, Src> {
@@ -73,6 +85,7 @@ export class UnionSchema<
       this.items,
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
+      this.description,
     );
   }
 
@@ -468,7 +481,7 @@ export class UnionSchema<
   }
 
   nullable(): UnionSchema<Key, T, Src | null> {
-    return new UnionSchema(this.key, this.items, true);
+    return new UnionSchema(this.key, this.items, true, [], this.description);
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -481,6 +494,7 @@ export class UnionSchema<
         customValidate:
           this.customValidateFunctions &&
           this.customValidateFunctions?.length > 0,
+        description: this.description,
       } as SerializedObjectUnionSchema;
     }
     return {
@@ -491,6 +505,7 @@ export class UnionSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     } as SerializedStringUnionSchema;
   }
 
@@ -499,6 +514,7 @@ export class UnionSchema<
     private readonly items: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly description?: string,
   ) {
     super();
   }
