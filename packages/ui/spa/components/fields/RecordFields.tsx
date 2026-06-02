@@ -95,26 +95,28 @@ export function RecordFields({
       <div id={path}>
         <ValidationErrors path={path} />
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
-          {Object.entries(sourceEntries).map(([key, itemPath]) => (
-            <Field
-              key={itemPath}
-              label={key}
-              path={itemPath}
-              type={schema.item.type}
-              readonly={readonly || schema.item.readonly}
-              compact={compact}
-              errorDisplay={errorDisplay}
-            >
-              <AnyField
-                path={itemPath}
-                schema={schema.item}
-                readonly={readonly || schema.item.readonly}
-                compact={compact}
-                inline={inline}
-                errorDisplay={errorDisplay}
-              />
-            </Field>
-          ))}
+          {schema.item.hidden
+            ? null
+            : Object.entries(sourceEntries).map(([key, itemPath]) => (
+                <Field
+                  key={itemPath}
+                  label={key}
+                  path={itemPath}
+                  type={schema.item.type}
+                  readonly={readonly || schema.item.readonly}
+                  compact={compact}
+                  errorDisplay={errorDisplay}
+                >
+                  <AnyField
+                    path={itemPath}
+                    schema={schema.item}
+                    readonly={readonly || schema.item.readonly}
+                    compact={compact}
+                    inline={inline}
+                    errorDisplay={errorDisplay}
+                  />
+                </Field>
+              ))}
         </div>
       </div>
     );
