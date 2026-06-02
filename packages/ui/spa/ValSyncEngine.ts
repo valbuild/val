@@ -1,5 +1,8 @@
 import {
   deserializeSchema,
+  ExtractedModuleError,
+  ExtractedValModules,
+  extractValModules,
   Internal,
   Json,
   ModuleFilePath,
@@ -7,9 +10,11 @@ import {
   Schema,
   SelectorSource,
   SerializedSchema,
+  Source,
   SourcePath,
   ValidationError,
   ValidationErrors,
+  ValModules,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import {
@@ -24,6 +29,7 @@ import { ParentRef, ValClient, Patch } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
+import { ValidationWorkerClient } from "./validation/ValidationWorkerClient";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
@@ -114,6 +120,29 @@ export class ValSyncEngine {
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
+  /**
+   * Schemas extracted client-side from a ValModules registry. When non-null
+   * these are adopted as authoritative — `syncSchema()` skips the /schema
+   * fetch and `syncWithUpdatedStat()` no longer resets+inits on a remote
+   * schema-SHA change (it flags `schemaOutOfDate` in http mode instead).
+   */
+  private localSchemas: Record<ModuleFilePath, SerializedSchema> | null;
+  private localSchemaSha: string | null;
+  /**
+   * Sources extracted client-side from a ValModules registry. Adopted as the
+   * initial serverSources/baseSources when extraction succeeds, then the
+   * server's /sources/~ is only fetched when localSourcesSha diverges from
+   * the SHA reported by /stat.
+   */
+  private localSources: Record<ModuleFilePath, Source> | null;
+  private localBaseSources: Record<ModuleFilePath, Source> | null;
+  private localSourcesSha: string | null;
+  /**
+   * Status of the client-side extraction. Drives both the schema/source
+   * adoption decisions and the dev-only LocalModulesErrorBanner.
+   */
+  private localModulesStatus: LocalModulesStatus;
+  private schemaOutOfDate: boolean;
   private mode: "fs" | "http" | null;
 
   private commitSha: string | null;
@@ -172,6 +201,14 @@ export class ValSyncEngine {
    */
   private forceSyncAllModules: boolean;
 
+  /**
+   * Owns the validation worker. Lazily created on first use so tests / SSR
+   * (where `Worker` is undefined) don't pay the cost. When local schemas are
+   * present this is the sole source of `validationErrors` — server-side
+   * validation is suppressed via `validate_sources=false` on `/sources/~`.
+   */
+  private validationWorker: ValidationWorkerClient | null;
+
   constructor(
     private readonly client: ValClient,
     private readonly overlayEmitter:
@@ -186,6 +223,13 @@ export class ValSyncEngine {
     this.schemas = null;
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
+    this.localSchemas = null;
+    this.localSchemaSha = null;
+    this.localSources = null;
+    this.localBaseSources = null;
+    this.localSourcesSha = null;
+    this.localModulesStatus = { type: "absent" };
+    this.schemaOutOfDate = false;
     this.baseSha = null;
     this.sourcesSha = null;
     this.mode = null;
@@ -230,9 +274,13 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.cachedLocalModulesStatusSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.validationWorker = null;
   }
 
   setAutoPublish(now: number, autoPublish: boolean) {
@@ -268,7 +316,9 @@ export class ValSyncEngine {
     this.mode = mode;
     this.baseSha = baseSha;
     this.commitSha = commitSha;
-    this.sourcesSha = sourcesSha;
+    // Do NOT pre-set this.sourcesSha — syncWithUpdatedStat compares the
+    // previous value (which adoptLocalSources may have set to
+    // localSourcesSha) against the new server SHA to detect divergence.
     this.authorId = authorId;
     const start = Date.now();
     if (mode === "fs") {
@@ -306,6 +356,13 @@ export class ValSyncEngine {
     this.schemas = null;
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
+    this.localSchemas = null;
+    this.localSchemaSha = null;
+    this.localSources = null;
+    this.localBaseSources = null;
+    this.localSourcesSha = null;
+    this.localModulesStatus = { type: "absent" };
+    this.schemaOutOfDate = false;
     this.sourcesSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
@@ -347,6 +404,8 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.cachedLocalModulesStatusSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
@@ -405,6 +464,8 @@ export class ValSyncEngine {
     type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
+  subscribe(type: "schema-out-of-date"): (listener: () => void) => () => void;
+  subscribe(type: "local-modules-status"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(type: "all-patches"): (listener: () => void) => () => void;
@@ -614,6 +675,16 @@ export class ValSyncEngine {
   private invalidatePublishDisabled() {
     this.cachedPublishDisabledSnapshot = null;
     this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
+  }
+
+  private invalidateSchemaOutOfDate() {
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.emit(this.listeners["schema-out-of-date"]?.[globalNamespace]);
+  }
+
+  private invalidateLocalModulesStatus() {
+    this.cachedLocalModulesStatusSnapshot = null;
+    this.emit(this.listeners["local-modules-status"]?.[globalNamespace]);
   }
 
   private invalidateAutoPublish() {
@@ -1055,6 +1126,22 @@ export class ValSyncEngine {
     return this.cachedPublishDisabledSnapshot;
   }
 
+  private cachedSchemaOutOfDateSnapshot: boolean | null;
+  getSchemaOutOfDateSnapshot() {
+    if (this.cachedSchemaOutOfDateSnapshot === null) {
+      this.cachedSchemaOutOfDateSnapshot = this.schemaOutOfDate;
+    }
+    return this.cachedSchemaOutOfDateSnapshot;
+  }
+
+  private cachedLocalModulesStatusSnapshot: LocalModulesStatus | null;
+  getLocalModulesStatusSnapshot(): LocalModulesStatus {
+    if (this.cachedLocalModulesStatusSnapshot === null) {
+      this.cachedLocalModulesStatusSnapshot = this.localModulesStatus;
+    }
+    return this.cachedLocalModulesStatusSnapshot;
+  }
+
   private cachedAutoPublishSnapshot: boolean | null;
   getAutoPublishSnapshot() {
     if (this.cachedAutoPublishSnapshot === null) {
@@ -1168,12 +1255,94 @@ export class ValSyncEngine {
         this.optimisticClientSources[moduleFilePath] as JSONValue,
       );
       this.optimisticClientSources[moduleFilePath] = newSource;
+      this.requestModuleValidation(moduleFilePath);
       return {
         status: "optimistic-client-sources-updated",
         moduleFilePath,
         prevSource,
         patch,
       } as const;
+    }
+  }
+
+  private hasLocalSchemas(): boolean {
+    return this.localSchemas !== null && this.localSchemaSha !== null;
+  }
+
+  private ensureValidationWorker(): ValidationWorkerClient {
+    if (!this.validationWorker) {
+      this.validationWorker = new ValidationWorkerClient(
+        (moduleFilePath, errors) => {
+          this.applyValidationResult(moduleFilePath, errors);
+        },
+      );
+    }
+    return this.validationWorker;
+  }
+
+  private requestModuleValidation(moduleFilePath: ModuleFilePath): void {
+    if (!this.hasLocalSchemas()) return;
+    const schemaSha = this.localSchemaSha;
+    if (!schemaSha) return;
+    const serializedSchema = this.schemas?.[moduleFilePath];
+    if (!serializedSchema) return;
+    const source =
+      this.optimisticClientSources[moduleFilePath] ??
+      this.serverSources?.[moduleFilePath];
+    if (source === undefined) return;
+    this.ensureValidationWorker().validate(
+      moduleFilePath,
+      source as Source,
+      serializedSchema,
+      schemaSha,
+    );
+  }
+
+  private requestAllModuleValidation(): void {
+    if (!this.hasLocalSchemas()) return;
+    const schemas = this.schemas;
+    if (!schemas) return;
+    for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
+      this.requestModuleValidation(moduleFilePath);
+    }
+  }
+
+  private applyValidationResult(
+    moduleFilePath: ModuleFilePath,
+    errors: ValidationErrors,
+  ): void {
+    if (!this.errors.validationErrors) {
+      this.errors.validationErrors = {};
+    }
+    const changed = new Set<SourcePath>();
+    // Drop any previous entries that belong to this module — schema validation
+    // returns the full set of errors for the module on each call, so anything
+    // not present in `errors` should be cleared.
+    for (const sourcePathS in this.errors.validationErrors) {
+      const sourcePath = sourcePathS as SourcePath;
+      if (
+        (sourcePath as string) === (moduleFilePath as string) ||
+        sourcePath.startsWith(moduleFilePath + ".") ||
+        sourcePath.startsWith(moduleFilePath + "?")
+      ) {
+        if (this.errors.validationErrors[sourcePath] !== undefined) {
+          this.errors.validationErrors[sourcePath] = undefined;
+          changed.add(sourcePath);
+        }
+      }
+    }
+    if (errors !== false) {
+      for (const sourcePathS in errors) {
+        const sourcePath = sourcePathS as SourcePath;
+        this.errors.validationErrors[sourcePath] = errors[sourcePath];
+        changed.add(sourcePath);
+      }
+    }
+    if (changed.size > 0) {
+      this.invalidateAllValidationErrors();
+      for (const sourcePath of changed) {
+        this.invalidateValidationError(sourcePath);
+      }
     }
   }
 
@@ -1305,6 +1474,7 @@ export class ValSyncEngine {
     }
     // Reset optimistic state on failure
     this.optimisticClientSources[moduleFilePath] = res.prevSource;
+    this.requestModuleValidation(moduleFilePath);
     return {
       status: "patch-sync-error",
       message: "Could not sync patch. Tried 3 times.",
@@ -1624,6 +1794,7 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
+    const haveLocal = this.localModulesStatus.type === "loaded";
     const sourcesShaDidChange = this.sourcesSha !== sourcesSha;
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
@@ -1632,19 +1803,32 @@ export class ValSyncEngine {
       this.serverSideSchemaSha !== schemaSha ||
       this.commitSha !== commitSha
     ) {
-      this.reset();
-      this.serverSideSchemaSha = schemaSha;
-      this.commitSha = commitSha;
-      return this.init(
-        mode,
-        baseSha,
-        schemaSha,
-        sourcesSha,
-        patchIds,
-        authorId,
-        commitSha,
-        now,
-      );
+      if (haveLocal) {
+        // Local schemas are authoritative. Flag the divergence (http-only
+        // dialog) but do NOT reset+init — that would discard local state.
+        // Source-sync below continues to run: source updates remain useful
+        // even while the schema-out-of-date dialog is open.
+        this.serverSideSchemaSha = schemaSha;
+        this.commitSha = commitSha;
+        this.recomputeSchemaOutOfDate();
+      } else {
+        // No local: classic reset+init. The new SHAs are stashed AFTER
+        // reset() (which clears them) so the recursive init's stat-compare
+        // doesn't immediately re-trigger the reset path.
+        this.reset();
+        this.serverSideSchemaSha = schemaSha;
+        this.commitSha = commitSha;
+        return this.init(
+          mode,
+          baseSha,
+          schemaSha,
+          sourcesSha,
+          patchIds,
+          authorId,
+          commitSha,
+          now,
+        );
+      }
     }
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||
@@ -1689,6 +1873,16 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
+    if (this.schemaOutOfDate) {
+      this.addGlobalTransientError(
+        "Cannot save: a new version has been deployed. Reload to continue editing.",
+        now,
+      );
+      return {
+        status: "retry",
+        reason: "schema-out-of-date",
+      };
+    }
     const postPatchesBody: {
       path: ModuleFilePath;
       patch: Patch;
@@ -1900,6 +2094,140 @@ export class ValSyncEngine {
     };
   }
 
+  async setValModules(valModules: ValModules | null): Promise<void> {
+    console.debug("setValModules: called", { hasModules: !!valModules });
+    if (!valModules) {
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localBaseSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = { type: "absent" };
+      this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
+      return;
+    }
+    this.localModulesStatus = { type: "loading" };
+    this.invalidateLocalModulesStatus();
+    let extracted: ExtractedValModules;
+    try {
+      extracted = await extractValModules(valModules);
+    } catch (e) {
+      console.debug("setValModules: extractValModules threw", e);
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localBaseSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = {
+        type: "error",
+        moduleErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      };
+      this.invalidateLocalModulesStatus();
+      return;
+    }
+    if (extracted.moduleErrors.length > 0) {
+      console.debug(
+        "setValModules: moduleErrors present, falling back to server",
+        extracted.moduleErrors,
+      );
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localBaseSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = {
+        type: "error",
+        moduleErrors: extracted.moduleErrors,
+      };
+      this.invalidateLocalModulesStatus();
+      return;
+    }
+    console.debug("setValModules: extracted", {
+      moduleCount: Object.keys(extracted.serializedSchemas).length,
+      paths: Object.keys(extracted.serializedSchemas),
+      schemaSha: extracted.schemaSha,
+      sourcesSha: extracted.sourcesSha,
+      serverSideSchemaSha: this.serverSideSchemaSha,
+    });
+    this.localSchemas = extracted.serializedSchemas;
+    this.localSchemaSha = extracted.schemaSha;
+    this.localSources = extracted.sources;
+    this.localBaseSources = extracted.sources;
+    this.localSourcesSha = extracted.sourcesSha;
+    this.localModulesStatus = {
+      type: "loaded",
+      schemaSha: extracted.schemaSha,
+      sourcesSha: extracted.sourcesSha,
+      moduleCount: Object.keys(extracted.serializedSchemas).length,
+    };
+    this.adoptLocalSchemas();
+    this.adoptLocalSources();
+    // Validate every module with the freshly-adopted local schema so the UI
+    // shows existing errors even when the user makes no edits. Also covers
+    // HMR — setValModules re-runs and re-validates on every schema change.
+    this.requestAllModuleValidation();
+    // Make schemas + sources renderable immediately, before /stat arrives.
+    // The server-driven init() that follows will still run via the
+    // ValProvider init effect, and will reconcile any remote divergence
+    // through syncWithUpdatedStat without resetting the local content.
+    if (this.initializedAt === null) {
+      this.initializedAt = Date.now();
+      this.invalidateInitializedAt();
+    }
+    this.invalidateLocalModulesStatus();
+    this.recomputeSchemaOutOfDate();
+    console.debug("setValModules: done", {
+      clientSideSchemaSha: this.clientSideSchemaSha,
+      sourcesSha: this.sourcesSha,
+    });
+  }
+
+  private adoptLocalSchemas(): void {
+    if (!this.localSchemas || !this.localSchemaSha) return;
+    this.schemas = this.localSchemas;
+    this.clientSideSchemaSha = this.localSchemaSha;
+    this.resetSchemaError();
+    this.invalidateSchema();
+  }
+
+  private adoptLocalSources(): void {
+    if (!this.localSources || !this.localBaseSources || !this.localSourcesSha) {
+      return;
+    }
+    // Sources at runtime are JSON-compatible; the Source type carries
+    // tagged variants (ImageSource, RemoteSource, ...) that are still plain
+    // JSON-serialisable objects, matching how /sources/~ delivers them.
+    this.serverSources = this.localSources as Record<ModuleFilePath, JSONValue>;
+    this.baseSources = this.localBaseSources as Record<
+      ModuleFilePath,
+      JSONValue
+    >;
+    this.sourcesSha = this.localSourcesSha;
+    this.optimisticClientSources = {
+      ...(this.localSources as Record<ModuleFilePath, JSONValue>),
+    };
+    for (const path of Object.keys(this.localSources) as ModuleFilePath[]) {
+      this.invalidateSource(path);
+    }
+  }
+
+  private recomputeSchemaOutOfDate() {
+    const next =
+      this.mode === "http" &&
+      this.localSchemaSha !== null &&
+      this.serverSideSchemaSha !== null &&
+      this.localSchemaSha !== this.serverSideSchemaSha;
+    if (next !== this.schemaOutOfDate) {
+      this.schemaOutOfDate = next;
+      this.invalidateSchemaOutOfDate();
+      if (next) {
+        this.publishDisabled = true;
+        this.invalidatePublishDisabled();
+      }
+    }
+  }
+
   async syncSchema(): Promise<
     | {
         status: "done";
@@ -1909,6 +2237,14 @@ export class ValSyncEngine {
         reason: "error";
       }
   > {
+    if (this.localSchemas && this.localSchemaSha) {
+      this.schemas = this.localSchemas;
+      this.clientSideSchemaSha = this.localSchemaSha;
+      this.resetSchemaError();
+      this.invalidateSchema();
+      return { status: "done" };
+    }
+
     const schemaRes = await this.client("/schema", "GET", {});
     if (schemaRes.status === 200) {
       this.schemas = {};
@@ -2198,8 +2534,14 @@ export class ValSyncEngine {
       // We are not initialized yet, so we need to sync everything
       changedModules = "all";
     }
-    if (this.clientSideSchemaSha !== this.serverSideSchemaSha) {
-      // Schema has changed, so we need to sync everything
+    if (
+      !this.localSchemas &&
+      this.clientSideSchemaSha !== this.serverSideSchemaSha
+    ) {
+      // Schema has changed, so we need to sync everything.
+      // Skip when local schemas are present: they're authoritative in fs mode,
+      // and any genuine remote/local schema divergence in http mode is surfaced
+      // via the blocking SchemaOutOfDateDialog rather than driving sync churn.
       changedModules = "all";
     }
 
@@ -2342,10 +2684,11 @@ export class ValSyncEngine {
             : undefined;
 
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
+        const useLocalValidation = this.hasLocalSchemas();
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
           query: {
-            validate_sources: true,
+            validate_sources: !useLocalValidation,
             validate_binary_files: false,
             exclude_patches: false,
           },
@@ -2438,14 +2781,20 @@ export class ValSyncEngine {
                   .errors as Record<PatchId, { message: string }>;
               }
               // NOTE: we clean up relevant validation errors above
-              for (const sourcePathS in valModule.validationErrors) {
-                const sourcePath = sourcePathS as SourcePath;
-                if (!this.errors.validationErrors) {
-                  this.errors.validationErrors = {};
+              if (useLocalValidation) {
+                // Server validation was suppressed (validate_sources=false) —
+                // re-derive errors from the fresh source via the worker.
+                this.requestModuleValidation(moduleFilePath);
+              } else {
+                for (const sourcePathS in valModule.validationErrors) {
+                  const sourcePath = sourcePathS as SourcePath;
+                  if (!this.errors.validationErrors) {
+                    this.errors.validationErrors = {};
+                  }
+                  this.errors.validationErrors[sourcePath] =
+                    valModule.validationErrors[sourcePath];
+                  changedValidationErrors.add(sourcePath);
                 }
-                this.errors.validationErrors[sourcePath] =
-                  valModule.validationErrors[sourcePath];
-                changedValidationErrors.add(sourcePath);
               }
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
@@ -2795,7 +3144,22 @@ type RetryReason =
   | "publishing"
   | "error"
   | "patch-ids-changed"
-  | "already-syncing";
+  | "already-syncing"
+  | "schema-out-of-date";
+export type LocalModulesStatus =
+  | { type: "absent" }
+  | { type: "loading" }
+  | {
+      type: "loaded";
+      schemaSha: string;
+      sourcesSha: string;
+      moduleCount: number;
+    }
+  | {
+      type: "error";
+      moduleErrors: ExtractedModuleError[];
+    };
+
 type SyncEngineListenerType =
   | "schema"
   | "initialized-at"
@@ -2816,6 +3180,8 @@ type SyncEngineListenerType =
   | "synced-server-side-patch-ids"
   | "saved-server-side-patch-ids"
   | "publish-disabled"
+  | "schema-out-of-date"
+  | "local-modules-status"
   | "pending-ops-count"
   | "all-sources"
   | "all-renders"

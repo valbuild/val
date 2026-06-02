@@ -51,23 +51,29 @@ export type SelectorSource =
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 
+// Identity symbols are registered in the global Symbol registry so that
+// multiple bundled copies of @valbuild/core (e.g. the editor SPA bundle vs.
+// the host Next.js bundle) resolve to the same Symbol instance. Without
+// this, a value produced by one copy reads as `undefined` when accessed
+// via these keys from the other copy — extractValModules running in the
+// SPA against `.val.ts` modules loaded from the host bundle was hitting
+// this exact failure mode.
 /**
  * @internal
  */
-export const GetSchema = Symbol("GetSchema");
-/**
-/**
- * @internal
- */
-export const Path = Symbol("Path");
+export const GetSchema = Symbol.for("@valbuild/core/GetSchema");
 /**
  * @internal
  */
-export const GetSource = Symbol("GetSource");
+export const Path = Symbol.for("@valbuild/core/Path");
 /**
  * @internal
  */
-export const ValError = Symbol("ValError");
+export const GetSource = Symbol.for("@valbuild/core/GetSource");
+/**
+ * @internal
+ */
+export const ValError = Symbol.for("@valbuild/core/ValError");
 export abstract class GenericSelector<
   out T extends Source,
   Error extends string | undefined = undefined,

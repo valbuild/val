@@ -2,7 +2,6 @@
 import {
   FILE_REF_PROP,
   FileMetadata,
-  FileSchema,
   FileSource,
   ImageMetadata,
   ImageSchema,
@@ -10,10 +9,8 @@ import {
   ModuleFilePath,
   PatchId,
   RemoteSource,
-  RichTextSchema,
   Schema,
   SelectorSource,
-  SerializedSchema,
   Source,
   SourcePath,
   VAL_EXTENSION,
@@ -21,6 +18,7 @@ import {
   ValModules,
   ValidationError,
   ValidationErrors,
+  extractValModules,
 } from "@valbuild/core";
 import { pipe, result } from "@valbuild/core/fp";
 import {
@@ -64,7 +62,6 @@ export type Sources = {
   [key: ModuleFilePath]: Source;
 };
 
-const textEncoder = new TextEncoder();
 const jsonOps = new JSONOps();
 const tsOps = new TSOps((document) => {
   return pipe(
@@ -108,60 +105,6 @@ export abstract class ValOps {
     this.sourcesSha = null;
     this.configSha = null;
     this.modulesErrors = null;
-  }
-
-  private hash(input: string | object): string {
-    if (typeof input === "object") {
-      return this.hashObject(input);
-    }
-    return Internal.getSHA256Hash(textEncoder.encode(input));
-  }
-
-  private hashObject(obj: object): string {
-    const collector: string[] = [];
-    this.collectObjectRecursive(obj, collector);
-    return Internal.getSHA256Hash(textEncoder.encode(collector.join("")));
-  }
-
-  private collectObjectRecursive(
-    item: object | string | number,
-    collector: string[],
-  ): void {
-    if (typeof item === "string") {
-      collector.push(`"`, item, `"`);
-      return;
-    } else if (typeof item === "number") {
-      collector.push(item.toString());
-      return;
-    } else if (typeof item === "object") {
-      if (Array.isArray(item)) {
-        collector.push("[");
-        for (let i = 0; i < item.length; i++) {
-          this.collectObjectRecursive(item[i], collector);
-          if (i !== item.length - 1) collector.push(",");
-        }
-        collector.push("]");
-      } else {
-        collector.push("{");
-        const keys = Object.keys(item).sort();
-        keys.forEach((key, i) => {
-          collector.push(`"${key}":`);
-          this.collectObjectRecursive(
-            (item as Record<string, string | number | object>)[key],
-            collector,
-          );
-          if (i !== keys.length - 1) collector.push(",");
-        });
-        collector.push("}");
-      }
-      return;
-    } else {
-      console.warn(
-        "Unknown type encountered when hashing object",
-        typeof item,
-        item,
-      );
-    }
   }
 
   // #region stat
@@ -227,127 +170,23 @@ export abstract class ValOps {
       this.schemas === null ||
       this.modulesErrors === null
     ) {
-      const currentModulesErrors: ModulesError[] = [];
-      const addModuleError = (
-        message: string,
-        index: number,
-        path?: SourcePath,
-      ) => {
-        currentModulesErrors[index] = {
-          message,
-          path: path as string as ModuleFilePath,
-        };
+      const extracted = await extractValModules(this.valModules);
+      this.sources = extracted.sources;
+      this.schemas = extracted.schemas;
+      this.baseSha = extracted.baseSha as BaseSha;
+      this.schemaSha = extracted.schemaSha as SchemaSha;
+      this.sourcesSha = extracted.sourcesSha as SourcesSha;
+      this.configSha = extracted.configSha as ConfigSha;
+      this.modulesErrors = extracted.moduleErrors;
+      return {
+        baseSha: this.baseSha,
+        schemaSha: this.schemaSha,
+        sourcesSha: this.sourcesSha,
+        configSha: this.configSha,
+        sources: extracted.sources,
+        schemas: extracted.schemas,
+        moduleErrors: extracted.moduleErrors,
       };
-      const currentSources: Sources = {};
-      const currentSchemas: Schemas = {};
-      const configSha = this.hash(JSON.stringify(this.valModules.config));
-      let sourcesSha = "";
-      let baseSha = configSha;
-      let schemaSha = configSha;
-      for (
-        let moduleIdx = 0;
-        moduleIdx < this.valModules.modules.length;
-        moduleIdx++
-      ) {
-        const module = this.valModules.modules[moduleIdx];
-        if (!module.def) {
-          addModuleError("val.modules is missing 'def' property", moduleIdx);
-          continue;
-        }
-        if (typeof module.def !== "function") {
-          addModuleError(
-            "val.modules 'def' property is not a function",
-            moduleIdx,
-          );
-          continue;
-        }
-        await module.def().then((value) => {
-          if (!value) {
-            addModuleError(
-              `val.modules 'def' did not return a value`,
-              moduleIdx,
-            );
-            return;
-          }
-          if (!value.default) {
-            addModuleError(
-              `val.modules 'def' did not return a default export`,
-              moduleIdx,
-            );
-            return;
-          }
-
-          const path = Internal.getValPath(value.default);
-          if (path === undefined) {
-            addModuleError(`path is undefined`, moduleIdx);
-            return;
-          }
-          const schema = Internal.getSchema(value.default);
-          if (schema === undefined) {
-            addModuleError(
-              `schema in path '${path}' is undefined`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          if (!(schema instanceof Schema)) {
-            addModuleError(
-              `schema in path '${path}' is not an instance of Schema`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          if (typeof schema["executeSerialize"] !== "function") {
-            addModuleError(
-              `schema.serialize in path '${path}' is not a function`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          const source = Internal.getSource(value.default);
-          if (source === undefined) {
-            addModuleError(`source in ${path} is undefined`, moduleIdx, path);
-            return;
-          }
-          let serializedSchema: SerializedSchema;
-          try {
-            serializedSchema = schema["executeSerialize"]();
-          } catch (e) {
-            const message = e instanceof Error ? e.message : JSON.stringify(e);
-            addModuleError(
-              `Could not serialize module: '${path}'. Error: ${message}`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          const pathM = path as string as ModuleFilePath;
-          currentSources[pathM] = source;
-          currentSchemas[pathM] = schema;
-          // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
-          sourcesSha = this.hash(sourcesSha + JSON.stringify({ path, source }));
-          baseSha = this.hash(
-            baseSha +
-              JSON.stringify({
-                path,
-                schema: serializedSchema,
-                source,
-                modulesErrors: currentModulesErrors,
-              }),
-          );
-          schemaSha = this.hash(schemaSha + JSON.stringify(serializedSchema));
-        });
-      }
-      this.sources = currentSources;
-      this.schemas = currentSchemas;
-      this.baseSha = baseSha as BaseSha;
-      this.schemaSha = schemaSha as SchemaSha;
-      this.sourcesSha = sourcesSha as SourcesSha;
-      this.configSha = configSha as ConfigSha;
-      this.modulesErrors = currentModulesErrors;
     }
     return {
       baseSha: this.baseSha,
