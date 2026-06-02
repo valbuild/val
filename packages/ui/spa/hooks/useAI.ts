@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
+import type {
+  AIChatHandle,
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  ChatMessageAttachment,
+} from "../components/AIChat";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -311,6 +316,78 @@ const SET_SESSION_NAME_TOOL: AITool = {
     required: ["name"],
   },
 };
+const ASK_USER_QUESTION_TOOL: AITool = {
+  name: "ask_user_question",
+  description:
+    "Ask the user 1-4 structured clarification questions at once and wait for their answers. " +
+    "Use ONLY when the request is ambiguous and a small set of concrete options would resolve it. " +
+    "Prefer this over open-ended follow-up text. Group related clarifications into one call rather than asking sequentially. " +
+    "Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options. " +
+    "Each question may set defaults (indices of options to pre-select). The user can also type a free-text 'Other' answer per question. " +
+    "Returns { answers: Array<{ question: string; selectedOptions: number[]; customAnswer: string | null }> } in the same order as the input questions. " +
+    "selectedOptions holds the indices of options the user kept selected (length 0 or 1 for single-select; 0..N for multi-select). " +
+    "customAnswer is the user's free-text 'Other' input for that question (null if they didn't type one). " +
+    "The user may also cancel: in that case the tool result is an error and you should follow up in plain text instead.",
+  parameters: {
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        description:
+          "1-4 questions to ask the user, all shown together in a single card.",
+        items: {
+          type: "object",
+          properties: {
+            question: {
+              type: "string",
+              description:
+                "The full question shown to the user. One sentence, plain language.",
+            },
+            header: {
+              type: "string",
+              description:
+                "Optional short label (1-4 words) shown above the question, e.g. 'Which page?'",
+            },
+            options: {
+              type: "array",
+              description: "2-4 distinct answer options.",
+              items: {
+                type: "object",
+                properties: {
+                  label: {
+                    type: "string",
+                    description: "Short button label (max ~40 chars)",
+                  },
+                  description: {
+                    type: "string",
+                    description: "Optional one-line elaboration",
+                  },
+                },
+                required: ["label"],
+              },
+            },
+            multiSelect: {
+              type: "boolean",
+              description:
+                "If true, the user can select multiple options for this question. Defaults to false (single-select).",
+            },
+            defaults: {
+              type: "array",
+              description:
+                "Optional indices of options to pre-select. For single-select questions only the first entry is honored. Out-of-range indices are ignored.",
+              items: { type: "number" },
+            },
+          },
+          required: ["question", "options"],
+        },
+      },
+    },
+    required: ["questions"],
+  },
+  // The tool blocks on user interaction — disable the server-side default
+  // 30s timeout so the call doesn't get aborted while the user is deciding.
+  timeoutMs: null,
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -324,6 +401,7 @@ const ALL_TOOLS: AITool[] = [
   GET_PATCHES_TOOL,
   GET_SOURCE_PATH_FROM_ROUTE_TOOL,
   SET_SESSION_NAME_TOOL,
+  ASK_USER_QUESTION_TOOL,
 ];
 
 export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
@@ -355,6 +433,8 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
+  // Track pending ask_user_question tool calls so we can reject them on session change
+  const pendingQuestionToolCallIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -383,13 +463,29 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             chatRef.current.startAssistantMessage(message.id);
             setIsStreaming(true);
           }
-          chatRef.current.addToolCall(
+          // ask_user_question registers itself below with the question payload
+          if (message.name !== "ask_user_question") {
+            chatRef.current.addToolCall(
+              message.id,
+              message.toolCallId,
+              message.name,
+            );
+          }
+        }
+        if (message.name === "ask_user_question") {
+          const args = message.arguments as {
+            questions: AskUserQuestionItem[];
+          };
+          chatRef.current?.addToolCall(
             message.id,
             message.toolCallId,
             message.name,
+            args.questions,
           );
-        }
-        if (message.name === "get_all_schema") {
+          pendingQuestionToolCallIdsRef.current.add(message.toolCallId);
+          // Do NOT send ai_tool_result. Wait for the user to submit or cancel
+          // via answerToolQuestions / cancelToolQuestion.
+        } else if (message.name === "get_all_schema") {
           const schemas = syncEngine.getAllSchemasSnapshot();
           sendWsMessage({
             type: "ai_tool_result",
@@ -1318,6 +1414,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
 - set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this at least once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text'). If there is a title or a topic use it directly.
 - get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
+- ask_user_question: ask the user 1-4 structured clarification questions at once, rendered together in one card. Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options (e.g. "Which sections should I update?"). You may set defaults (option indices to pre-select) to bias toward the most likely answer. Use ONLY when the user's request is ambiguous and a small set of concrete options would resolve it (e.g. "Which page should I update — Home, About, or Contact?"). When several clarifications are needed, group them into a SINGLE call rather than asking sequentially. Do NOT use for open-ended questions or yes/no checks — just ask in plain text instead. Never call this more than once in a row; if the user answered with custom "Other" text, proceed with that — do not re-ask. If the tool result is an error (user cancelled), drop the structured-question approach and ask once in plain text instead.
 
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
@@ -1374,12 +1471,48 @@ Do not describe what you will do unless you do it for clarification — just do 
     [sendWsMessage],
   );
 
+  const answerToolQuestions = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      pendingQuestionToolCallIdsRef.current.delete(toolCallId);
+      sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: { answers },
+      });
+    },
+    [sendWsMessage],
+  );
+
+  const cancelToolQuestion = useCallback(
+    (toolCallId: string) => {
+      pendingQuestionToolCallIdsRef.current.delete(toolCallId);
+      sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: { error: "User declined to answer the question(s)." },
+        isError: true,
+      });
+    },
+    [sendWsMessage],
+  );
+
   const newSession = useCallback(() => {
+    // Reject any pending ask_user_question tool calls so the server-side
+    // conversation doesn't keep a dangling tool call open.
+    for (const toolCallId of pendingQuestionToolCallIdsRef.current) {
+      sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: { error: "User started a new session." },
+        isError: true,
+      });
+    }
+    pendingQuestionToolCallIdsRef.current.clear();
     const id = crypto.randomUUID();
     sessionIdRef.current = id;
     setCurrentSessionId(id);
     chatRef.current?.clearMessages();
-  }, [chatRef]);
+  }, [chatRef, sendWsMessage]);
 
   const getSessions = useCallback(
     async (opts?: {
@@ -1456,5 +1589,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     getSessions,
     setSessionName,
     loadSession,
+    answerToolQuestions,
+    cancelToolQuestion,
   };
 }

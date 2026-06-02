@@ -420,7 +420,11 @@ export function useGetDirectFileUploadSettings() {
 }
 
 export function useValConfig() {
-  const { config } = useValFieldContext();
+  // Tolerate being rendered without a ValFieldProvider (e.g. in Storybook).
+  // Config is already typed as optional throughout — returning undefined here
+  // is consistent with that contract.
+  const ctx = useContext(ValFieldContext);
+  const config = ctx?.config;
   const lastConfig = useRef<
     | (ValConfig & {
         remoteHost: string;

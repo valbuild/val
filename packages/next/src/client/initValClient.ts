@@ -41,6 +41,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
           return;
         },
   );
+  console.log("->", valOverlayContext.enabled, store?.hasAllLoaded(moduleIds));
   // Suspense (Val-enabled branch only). The gate is `enabled` (the VAL_ENABLE
   // cookie), not `draftMode`: `enabled` is stable for the lifetime of the page
   // whereas `draftMode` is polled and can change, and we must not start/stop
@@ -49,6 +50,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   // React.use — which React permits inside conditionals and loops — or throws
   // the promise for classic Suspense, neither of which is a hook.
   if (valOverlayContext.enabled && store && !store.hasAllLoaded(moduleIds)) {
+    console.log("suspending", moduleIds);
     valSuspense(store.waitForLoad(moduleIds));
   }
   return stegaEncode(selector, {

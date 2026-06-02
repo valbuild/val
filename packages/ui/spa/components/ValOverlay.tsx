@@ -846,6 +846,8 @@ function ChatWindow({
     getSessions,
     setSessionName,
     loadSession,
+    answerToolQuestions,
+    cancelToolQuestion,
   } = useAI(chatRef);
   const mode = useValMode();
   const [windowPos, setWindowPos] = useState({
@@ -1016,6 +1018,8 @@ function ChatWindow({
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            onAnswerToolQuestions={answerToolQuestions}
+            onCancelToolQuestion={cancelToolQuestion}
           />
         </div>
         {!isMobile && (

@@ -80,6 +80,8 @@ export function ToolsMenu() {
     getSessions,
     setSessionName,
     loadSession,
+    answerToolQuestions,
+    cancelToolQuestion,
   } = useAI(chatRef);
   return (
     <div
@@ -183,6 +185,8 @@ export function ToolsMenu() {
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            onAnswerToolQuestions={answerToolQuestions}
+            onCancelToolQuestion={cancelToolQuestion}
           />
         </div>
       )}

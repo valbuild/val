@@ -1,19 +1,22 @@
-"use server";
+"use client";
 import { notFound } from "next/navigation";
 import { fetchVal, fetchValRoute } from "../../../val/rsc";
 import blogsVal from "./page.val";
 import Link from "next/link";
 import authorsVal from "../../../content/authors.val";
 import { ValRichText } from "@valbuild/next";
+import { useVal, useValRoute } from "../../../val/client";
 
-export default async function BlogPage({
+export default function BlogPage({
   params,
 }: {
   params: Promise<{ blog: string }>;
 }) {
-  const blog = await fetchValRoute(blogsVal, params);
-  const authors = await fetchVal(authorsVal);
+  console.log("here");
+  const blog = useValRoute(blogsVal, params);
+  const authors = useVal(authorsVal);
   if (!blog) {
+    console.log("not found");
     return notFound();
   }
   const author = authors[blog.author];
