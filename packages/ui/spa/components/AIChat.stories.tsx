@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useRef } from "react";
-import { AIChat, AIChatHandle, ChatMessage } from "./AIChat";
+import {
+  AIChat,
+  AIChatHandle,
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  ChatMessage,
+} from "./AIChat";
 
 const meta: Meta<typeof AIChat> = {
   title: "Components/AIChat",
@@ -344,4 +350,265 @@ function InteractiveDemo() {
 
 export const Interactive: Story = {
   render: () => <InteractiveDemo />,
+};
+
+// ---------------------------------------------------------------------------
+// 7. ask_user_question — interactive question card
+// ---------------------------------------------------------------------------
+
+type AskQuestionDemoProps = {
+  userPrompt: string;
+  questions: AskUserQuestionItem[];
+};
+
+function AskQuestionDemo({ userPrompt, questions }: AskQuestionDemoProps) {
+  const chatRef = useRef<AIChatHandle>(null);
+  const messageIdRef = useRef<string | null>(null);
+  const toolCallIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!chatRef.current) return;
+    const messageId = `ask-msg-${Date.now()}`;
+    const toolCallId = `ask-tc-${Date.now()}`;
+    messageIdRef.current = messageId;
+    toolCallIdRef.current = toolCallId;
+    chatRef.current.startAssistantMessage(messageId);
+    chatRef.current.addToolCall(
+      messageId,
+      toolCallId,
+      "ask_user_question",
+      questions,
+    );
+  }, [questions]);
+
+  const handleAnswer = (
+    _toolCallId: string,
+    answers: AskUserQuestionAnswer[],
+  ) => {
+    console.log("Submitted answers:", answers);
+    const messageId = messageIdRef.current;
+    if (!messageId || !chatRef.current) return;
+    const summary = answers
+      .map((a, qi) => {
+        const labels = a.selectedOptions
+          .map((idx) => questions[qi]?.options[idx]?.label)
+          .filter((l): l is string => Boolean(l));
+        const parts = [...labels];
+        if (a.customAnswer) parts.push(`"${a.customAnswer}"`);
+        return `- ${a.question} → ${parts.join(", ") || "(no answer)"}`;
+      })
+      .join("\n");
+    chatRef.current.appendAssistantChunk(
+      messageId,
+      `\nThanks! Here's what I'll do based on your answers:\n${summary}\n`,
+    );
+    chatRef.current.completeAssistantMessage(messageId);
+  };
+
+  const handleCancel = () => {
+    const messageId = messageIdRef.current;
+    if (!messageId || !chatRef.current) return;
+    chatRef.current.appendAssistantChunk(
+      messageId,
+      `\nNo problem — let me know if you change your mind.\n`,
+    );
+    chatRef.current.completeAssistantMessage(messageId);
+  };
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      initialMessages={[
+        {
+          id: "ask-user-1",
+          role: "user",
+          content: userPrompt,
+          status: "complete",
+        },
+      ]}
+      onAnswerToolQuestions={handleAnswer}
+      onCancelToolQuestion={handleCancel}
+    />
+  );
+}
+
+export const AskQuestionSingleSelect: Story = {
+  render: () => (
+    <AskQuestionDemo
+      userPrompt="Update the title"
+      questions={[
+        {
+          question: "Which page should I update?",
+          header: "Which page?",
+          options: [
+            { label: "Home", description: "/" },
+            { label: "About", description: "/about" },
+            { label: "Contact", description: "/contact" },
+          ],
+        },
+      ]}
+    />
+  ),
+};
+
+export const AskQuestionMultiSelect: Story = {
+  render: () => (
+    <AskQuestionDemo
+      userPrompt="Update which sections of the homepage?"
+      questions={[
+        {
+          question: "Which sections should I update?",
+          header: "Sections",
+          multiSelect: true,
+          options: [
+            { label: "Hero", description: "The top banner" },
+            { label: "Features", description: "Three-column features grid" },
+            { label: "Testimonials", description: "Customer quotes" },
+            { label: "Footer" },
+          ],
+        },
+      ]}
+    />
+  ),
+};
+
+export const AskQuestionMultipleQuestions: Story = {
+  render: () => (
+    <AskQuestionDemo
+      userPrompt="Update the title and the publish date on the latest blog post"
+      questions={[
+        {
+          question: "Which blog post?",
+          header: "Post",
+          options: [
+            { label: "Welcome to our blog" },
+            { label: "Shipping notes #42" },
+            { label: "Q1 retrospective" },
+          ],
+        },
+        {
+          question: "What should the new title be?",
+          header: "New title",
+          options: [
+            { label: "Keep current title" },
+            { label: "Auto-generate from body" },
+          ],
+        },
+        {
+          question: "When should it be published?",
+          header: "Publish date",
+          options: [
+            { label: "Today" },
+            { label: "Tomorrow" },
+            { label: "Next Monday" },
+          ],
+        },
+      ]}
+    />
+  ),
+};
+
+export const AskQuestionWithDefaults: Story = {
+  render: () => (
+    <AskQuestionDemo
+      userPrompt="Should I publish the draft?"
+      questions={[
+        {
+          question: "Publish to which environment?",
+          header: "Environment",
+          options: [
+            { label: "Preview", description: "Visible only to editors" },
+            { label: "Production", description: "Visible to all visitors" },
+          ],
+          defaults: [0],
+        },
+      ]}
+    />
+  ),
+};
+
+export const AskQuestionAnswered: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "answered-user-1",
+        role: "user",
+        content: "Update the title",
+        status: "complete",
+      },
+      {
+        id: "answered-assistant-1",
+        role: "assistant",
+        content: "Got it — updating the About page title.",
+        status: "complete",
+        toolActivities: [
+          {
+            toolCallId: "answered-tc-1",
+            name: "ask_user_question",
+            status: "complete",
+            questions: [
+              {
+                question: "Which page should I update?",
+                header: "Which page?",
+                options: [
+                  { label: "Home" },
+                  { label: "About" },
+                  { label: "Contact" },
+                ],
+              },
+            ],
+            answers: [
+              {
+                question: "Which page should I update?",
+                selectedOptions: [1],
+                customAnswer: null,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+};
+
+export const AskQuestionCancelled: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "cancelled-user-1",
+        role: "user",
+        content: "Update the title",
+        status: "complete",
+      },
+      {
+        id: "cancelled-assistant-1",
+        role: "assistant",
+        content:
+          "No problem — let me know which page you want to update and I'll get to it.",
+        status: "complete",
+        toolActivities: [
+          {
+            toolCallId: "cancelled-tc-1",
+            name: "ask_user_question",
+            status: "error",
+            cancelled: true,
+            questions: [
+              {
+                question: "Which page should I update?",
+                header: "Which page?",
+                options: [
+                  { label: "Home" },
+                  { label: "About" },
+                  { label: "Contact" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
 };
