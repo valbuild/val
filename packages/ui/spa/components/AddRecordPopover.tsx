@@ -33,6 +33,7 @@ export function AddRecordPopover({
   setOpen: setOpenProp,
   defaultOpen,
   routePattern,
+  keyDescription,
 }: {
   path: SourcePath | ModuleFilePath;
   size: "default" | "sm" | "lg" | "icon";
@@ -42,6 +43,7 @@ export function AddRecordPopover({
   setOpen?: (open: boolean) => void;
   defaultOpen?: boolean;
   routePattern?: RoutePattern[] | null;
+  keyDescription?: string;
 }) {
   const shallowSourceAtPath = useShallowSourceAtPath(path, "record");
   const schemaAtPath = useSchemaAtPath(path);
@@ -133,10 +135,13 @@ export function AddRecordPopover({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Add</p>
+          <p>{keyDescription ? `Add ${keyDescription}` : "Add"}</p>
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer}>
+        {keyDescription && (
+          <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
+        )}
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}

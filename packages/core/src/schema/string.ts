@@ -31,6 +31,7 @@ export type SerializedStringSchema = {
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 const brand = Symbol("string");
@@ -50,8 +51,22 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   /**
@@ -70,6 +85,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -89,6 +105,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -101,6 +118,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -115,6 +133,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -210,6 +229,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as unknown as StringSchema<Src | null>;
   }
 
@@ -222,6 +242,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -234,6 +255,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -246,6 +268,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.renderInput,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as unknown as StringSchema<
       Src extends null ? RawString | null : RawString
     >;
@@ -273,6 +296,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
   }
 
@@ -287,6 +311,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       input,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 

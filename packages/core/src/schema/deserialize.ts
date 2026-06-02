@@ -49,13 +49,38 @@ function deserializeSchemaImpl(
         },
         serialized.opt,
         serialized.raw,
+        [],
+        null,
+        false,
+        false,
+        serialized.description,
       );
     case "literal":
-      return new LiteralSchema(serialized.value, serialized.opt);
+      return new LiteralSchema(
+        serialized.value,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "boolean":
-      return new BooleanSchema(serialized.opt);
+      return new BooleanSchema(
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "number":
-      return new NumberSchema(serialized.options, serialized.opt);
+      return new NumberSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "object":
       return new ObjectSchema(
         Object.fromEntries(
@@ -64,11 +89,19 @@ function deserializeSchemaImpl(
           }),
         ),
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "array":
       return new ArraySchema(
         deserializeSchema(serialized.item),
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "union":
       return new UnionSchema(
@@ -79,6 +112,10 @@ function deserializeSchemaImpl(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "richtext": {
       const deserializedOptions = {
@@ -109,7 +146,14 @@ function deserializeSchemaImpl(
                     img: boolean | undefined;
                   }),
       };
-      return new RichTextSchema(deserializedOptions, serialized.opt);
+      return new RichTextSchema(
+        deserializedOptions,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     }
     case "record":
       return new RecordSchema(
@@ -131,12 +175,19 @@ function deserializeSchemaImpl(
                 : undefined,
             }
           : undefined,
+        false,
+        false,
+        serialized.description,
       );
     case "keyOf":
       return new KeyOfSchema(
         serialized.schema,
         serialized.path as SourcePath,
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "route": {
       const routeOptions = serialized.options
@@ -155,22 +206,46 @@ function deserializeSchemaImpl(
               : undefined,
           }
         : undefined;
-      return new RouteSchema(routeOptions, serialized.opt);
+      return new RouteSchema(
+        routeOptions,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     }
     case "file":
       return new FileSchema(
         serialized.options,
         serialized.opt,
         serialized.remote,
+        [],
+        {},
+        false,
+        false,
+        serialized.description,
       );
     case "image":
       return new ImageSchema(
         serialized.options,
         serialized.opt,
         serialized.remote,
+        [],
+        {},
+        false,
+        false,
+        serialized.description,
       );
     case "date":
-      return new DateSchema(serialized.options, serialized.opt);
+      return new DateSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;

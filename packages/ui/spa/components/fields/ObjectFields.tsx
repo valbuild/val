@@ -78,6 +78,7 @@ export function ObjectFields({
             <Field
               key={subPath}
               label={key}
+              description={itemSchema.description}
               path={subPath}
               type={itemSchema.type}
               readonly={itemReadonly}

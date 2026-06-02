@@ -35,6 +35,7 @@ export type SerializedImageSchema = {
   referencedModule?: string;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 export type ImageMetadata = {
@@ -64,8 +65,22 @@ export class ImageSchema<
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): ImageSchema<Src> {
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   remote(): ImageSchema<Src | RemoteSource<ImageMetadata | undefined>> {
@@ -77,6 +92,7 @@ export class ImageSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as ImageSchema<Src | RemoteSource<ImageMetadata | undefined>>;
   }
 
@@ -89,6 +105,7 @@ export class ImageSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -373,6 +390,7 @@ export class ImageSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -385,6 +403,7 @@ export class ImageSchema<
       this.moduleMetadata,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -397,6 +416,7 @@ export class ImageSchema<
       this.moduleMetadata,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -416,6 +436,7 @@ export class ImageSchema<
         modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
   }
 

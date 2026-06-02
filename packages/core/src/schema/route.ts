@@ -28,6 +28,7 @@ export type SerializedRouteSchema = {
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 export class RouteSchema<Src extends string | null> extends Schema<Src> {
@@ -39,8 +40,20 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     ) => false | string)[] = [],
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): RouteSchema<Src> {
+    return new RouteSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   /**
@@ -62,6 +75,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -84,6 +98,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -94,6 +109,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions.concat(validationFunction),
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -168,6 +184,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as unknown as RouteSchema<Src | null>;
   }
 
@@ -178,6 +195,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -188,6 +206,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -213,6 +232,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
   }
 

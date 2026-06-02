@@ -27,6 +27,7 @@ export type SerializedObjectSchema = {
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
@@ -62,8 +63,20 @@ export class ObjectSchema<
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
@@ -75,6 +88,7 @@ export class ObjectSchema<
       [...this.customValidateFunctions, validationFunction],
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -222,6 +236,7 @@ export class ObjectSchema<
       [],
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -232,6 +247,7 @@ export class ObjectSchema<
       this.customValidateFunctions,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -242,6 +258,7 @@ export class ObjectSchema<
       this.customValidateFunctions,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -260,6 +277,7 @@ export class ObjectSchema<
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
   }
 

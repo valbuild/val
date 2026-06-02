@@ -46,6 +46,7 @@ export type SerializedRecordSchema = {
   alt?: SerializedSchema;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 export class RecordSchema<
@@ -62,8 +63,23 @@ export class RecordSchema<
     private readonly mediaOptions?: MediaOptions,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
@@ -78,6 +94,7 @@ export class RecordSchema<
       this.mediaOptions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -503,6 +520,7 @@ export class RecordSchema<
       this.mediaOptions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -516,6 +534,7 @@ export class RecordSchema<
       this.mediaOptions,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -529,6 +548,7 @@ export class RecordSchema<
       this.mediaOptions,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -542,6 +562,7 @@ export class RecordSchema<
       this.mediaOptions,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -555,6 +576,7 @@ export class RecordSchema<
       this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -632,6 +654,7 @@ export class RecordSchema<
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;

@@ -31,6 +31,7 @@ export type SerializedFileSchema = {
   referencedModule?: string;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 export type FileMetadata = {
@@ -53,8 +54,22 @@ export class FileSchema<
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): FileSchema<Src> {
+    return new FileSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   remote(): FileSchema<Src | RemoteSource<FileMetadata | undefined>> {
@@ -66,6 +81,7 @@ export class FileSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     ) as FileSchema<Src | RemoteSource<FileMetadata | undefined>>;
   }
 
@@ -78,6 +94,7 @@ export class FileSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -330,6 +347,7 @@ export class FileSchema<
       this.moduleMetadata,
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -342,6 +360,7 @@ export class FileSchema<
       this.moduleMetadata,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -354,6 +373,7 @@ export class FileSchema<
       this.moduleMetadata,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -373,6 +393,7 @@ export class FileSchema<
         modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     };
   }
 

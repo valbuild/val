@@ -32,6 +32,7 @@ export type SerializedStringUnionSchema = {
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
@@ -41,6 +42,7 @@ export type SerializedObjectUnionSchema = {
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
+  description?: string;
 };
 
 type SourceOf<
@@ -69,6 +71,18 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
+  describe(description: string | null): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
+  }
+
   validate(
     validationFunction: (src: Src) => false | string,
   ): UnionSchema<Key, T, Src> {
@@ -79,6 +93,7 @@ export class UnionSchema<
       this.customValidateFunctions.concat(validationFunction),
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -481,6 +496,7 @@ export class UnionSchema<
       [],
       this.isReadonly,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -492,6 +508,7 @@ export class UnionSchema<
       this.customValidateFunctions,
       true,
       this.isHidden,
+      this.description,
     );
   }
 
@@ -503,6 +520,7 @@ export class UnionSchema<
       this.customValidateFunctions,
       this.isReadonly,
       true,
+      this.description,
     );
   }
 
@@ -518,6 +536,7 @@ export class UnionSchema<
           this.customValidateFunctions?.length > 0,
         readonly: this.isReadonly,
         hidden: this.isHidden,
+        description: this.description,
       } as SerializedObjectUnionSchema;
     }
     return {
@@ -530,6 +549,7 @@ export class UnionSchema<
         this.customValidateFunctions?.length > 0,
       readonly: this.isReadonly,
       hidden: this.isHidden,
+      description: this.description,
     } as SerializedStringUnionSchema;
   }
 
@@ -540,6 +560,7 @@ export class UnionSchema<
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
   }
