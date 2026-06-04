@@ -25,7 +25,12 @@ import {
   JSONValue,
   ReadonlyJSONValue,
 } from "@valbuild/core/patch";
-import { ParentRef, ValClient, Patch } from "@valbuild/shared/internal";
+import {
+  ParentRef,
+  ValClient,
+  Patch,
+  resolveSchemaSourceFixes,
+} from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
@@ -560,9 +565,15 @@ export class ValSyncEngine {
     }
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
+    // Cross-module keyof:check-keys / router:check-route errors are resolved
+    // at read time against the source snapshot — drop the cache so the next
+    // read re-resolves with the updated source without waiting for the
+    // worker round-trip.
+    this.cachedValidationErrors = null;
     this.emit(this.listeners["sources"]?.[moduleFilePath]);
     this.emit(this.listeners["source"]?.[moduleFilePath]);
     this.emit(this.listeners["all-sources"]?.[globalNamespace]);
+    this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
@@ -967,19 +978,26 @@ export class ValSyncEngine {
 
   getAllValidationErrorsSnapshot() {
     if (!this.cachedValidationErrors) {
-      this.cachedValidationErrors = {};
+      const raw: Record<SourcePath, ValidationError[]> = {};
       for (const sourcePathS in this.errors.validationErrors) {
         const sourcePath = sourcePathS as SourcePath;
-        const newErrors = [];
+        const newErrors: ValidationError[] = [];
         for (const error of this.errors.validationErrors[sourcePath] || []) {
           if (error) {
             newErrors.push(error);
           }
         }
         if (newErrors.length > 0) {
-          this.cachedValidationErrors[sourcePath] = newErrors;
+          raw[sourcePath] = newErrors;
         }
       }
+      // Resolve keyof:check-keys / router:check-route against the current
+      // schema/source snapshot so no UI consumer sees the raw "version
+      // mismatch" message emitted by core schemas.
+      this.cachedValidationErrors = resolveSchemaSourceFixes(raw, {
+        schemas: this.getAllSchemasSnapshot(),
+        sources: this.getAllSourcesSnapshot(),
+      });
     }
     return this.cachedValidationErrors;
   }
