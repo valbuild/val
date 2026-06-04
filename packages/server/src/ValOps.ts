@@ -6,6 +6,7 @@ import {
   ImageMetadata,
   ImageSchema,
   Internal,
+  type Json,
   ModuleFilePath,
   PatchId,
   RemoteSource,
@@ -40,9 +41,8 @@ import { ParentPatchId } from "@valbuild/core";
 import {
   ValCommit,
   ValDeployment,
-  filterRoutesByPatterns,
-  validateRoutePatterns,
-  type SerializedRegExpPattern,
+  resolveSchemaSourceFixForError,
+  type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import { ReifiedRender } from "@valbuild/core";
 
@@ -422,101 +422,6 @@ export abstract class ValOps {
     files: Record<SourcePath, FileSource>;
     remoteFiles: Record<SourcePath, RemoteSource>;
   }> {
-    const checkKeyIsValid = async (
-      key: string,
-      sourcePath: string,
-    ): Promise<{ error: false } | { error: true; message: string }> => {
-      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-        sourcePath as SourcePath,
-      );
-      const keyOfModuleSource = sources[moduleFilePath];
-      const keyOfModuleSchema = schemas[moduleFilePath]?.["executeSerialize"]();
-      if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
-        return {
-          error: true,
-          message: `Expected key at ${sourcePath} to be of type 'record'`,
-        };
-      }
-      if (
-        keyOfModuleSource &&
-        typeof keyOfModuleSource === "object" &&
-        key in keyOfModuleSource
-      ) {
-        return { error: false };
-      }
-      if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
-        return {
-          error: true,
-          message: `Expected ${sourcePath} to be a truthy object`,
-        };
-      }
-      return {
-        error: true,
-        message: `Key '${key}' does not exist in ${sourcePath}.`,
-      };
-    };
-
-    const checkRouteIsValid = async (
-      route: string,
-      includePattern?: SerializedRegExpPattern,
-      excludePattern?: SerializedRegExpPattern,
-    ): Promise<{ error: false } | { error: true; message: string }> => {
-      // Find all router modules (record schemas with router property)
-      const routerModules: { path: ModuleFilePath; routes: string[] }[] = [];
-      for (const [moduleFilePath, schema] of Object.entries(schemas)) {
-        const serializedSchema = schema["executeSerialize"]();
-        if (serializedSchema.type === "record" && serializedSchema.router) {
-          const source = sources[moduleFilePath as ModuleFilePath];
-          if (source && typeof source === "object") {
-            routerModules.push({
-              path: moduleFilePath as ModuleFilePath,
-              routes: Object.keys(source),
-            });
-          }
-        }
-      }
-
-      if (routerModules.length === 0) {
-        return {
-          error: true,
-          message: `No router modules found. Route validation requires at least one s.record().router() module.`,
-        };
-      }
-
-      // Check if route exists in any router module
-      const allRoutes = routerModules.flatMap((m) => m.routes);
-      const routeExists = allRoutes.includes(route);
-
-      if (!routeExists) {
-        // Filter routes by include/exclude patterns for suggestions
-        const validRoutes = filterRoutesByPatterns(
-          allRoutes,
-          includePattern,
-          excludePattern,
-        );
-
-        return {
-          error: true,
-          message: `Route '${route}' does not exist in any router module. Available routes: ${validRoutes.slice(0, 10).join(", ")}${validRoutes.length > 10 ? "..." : ""}`,
-        };
-      }
-
-      // Validate against include/exclude patterns
-      const patternValidation = validateRoutePatterns(
-        route,
-        includePattern,
-        excludePattern,
-      );
-      if (!patternValidation.valid) {
-        return {
-          error: true,
-          message: patternValidation.message,
-        };
-      }
-
-      return { error: false };
-    };
-
     const errors: Record<
       ModuleFilePath,
       {
@@ -530,8 +435,17 @@ export abstract class ValOps {
     // Build a map of gallery directory → [ModuleFilePath, ...] across ALL modules
     // (must include all modules, not just those being validated, since conflicts can come from any module)
     const galleryDirectoryToModules = new Map<string, ModuleFilePath[]>();
+    // Build a schema/source snapshot so the shared resolver can cross-reference
+    // keyof:check-keys and router:check-route against every module's data.
+    const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
     for (const [moduleFilePathS, schema] of entries) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
       const serialized = schema["executeSerialize"]();
+      snapshot.schemas[moduleFilePath] = serialized;
+      const sourceForModule = sources[moduleFilePath];
+      if (sourceForModule !== undefined) {
+        snapshot.sources[moduleFilePath] = sourceForModule as Json;
+      }
       if (
         serialized.type === "record" &&
         serialized.mediaType &&
@@ -540,11 +454,9 @@ export abstract class ValOps {
         const dir = serialized.directory;
         const existing = galleryDirectoryToModules.get(dir);
         if (existing) {
-          existing.push(moduleFilePathS as ModuleFilePath);
+          existing.push(moduleFilePath);
         } else {
-          galleryDirectoryToModules.set(dir, [
-            moduleFilePathS as ModuleFilePath,
-          ]);
+          galleryDirectoryToModules.set(dir, [moduleFilePath]);
         }
       }
     }
@@ -609,111 +521,18 @@ export abstract class ValOps {
               validationError.fixes?.includes("file:check-remote")
             ) {
               remoteFiles[sourcePath] = validationError.value as RemoteSource;
-            } else if (validationError.fixes?.includes("keyof:check-keys")) {
-              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
-              if (!validationError.value) {
-                addError({
-                  message: `Could not find a value for keyOf at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                  // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                  typeError: true,
-                });
-              } else {
-                if (typeof validationError.value !== "object") {
-                  addError({
-                    message: `Expected keyOf validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
-                    // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                    typeError: true,
-                  });
-                } else {
-                  const key =
-                    "key" in validationError.value && validationError.value.key;
-                  const validationErrorSourcePath =
-                    "sourcePath" in validationError.value &&
-                    validationError.value.sourcePath;
-                  if (typeof key !== "string") {
-                    addError({
-                      message: `Expected keyOf validation error 'value' to have property 'key' of type 'string'. Found: ${typeof key}. ${TYPE_ERROR_MESSAGE}`,
-                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                      typeError: true,
-                    });
-                  } else if (typeof validationErrorSourcePath !== "string") {
-                    addError({
-                      message: `Expected keyOf validation error 'value' to have property 'sourcePath' of type 'string'. Found: ${typeof validationErrorSourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                      typeError: true,
-                    });
-                  } else {
-                    const res = await checkKeyIsValid(
-                      key,
-                      validationErrorSourcePath,
-                    );
-                    if (res.error) {
-                      addError({
-                        message: res.message,
-                      });
-                    }
-                  }
-                }
+            } else if (
+              validationError.fixes?.includes("keyof:check-keys") ||
+              validationError.fixes?.includes("router:check-route")
+            ) {
+              const resolved = resolveSchemaSourceFixForError(
+                validationError,
+                snapshot,
+              );
+              if (resolved && resolved.status === "remaining") {
+                addError(resolved.error);
               }
-            } else if (validationError.fixes?.includes("router:check-route")) {
-              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
-              if (!validationError.value) {
-                addError({
-                  message: `Could not find a value for route at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                  typeError: true,
-                });
-              } else {
-                if (typeof validationError.value !== "object") {
-                  addError({
-                    message: `Expected route validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
-                    typeError: true,
-                  });
-                } else {
-                  const route =
-                    "route" in validationError.value &&
-                    validationError.value.route;
-                  const includePattern =
-                    "include" in validationError.value &&
-                    validationError.value.include;
-                  const excludePattern =
-                    "exclude" in validationError.value &&
-                    validationError.value.exclude;
-
-                  if (typeof route !== "string") {
-                    addError({
-                      message: `Expected route validation error 'value' to have property 'route' of type 'string'. Found: ${typeof route}. ${TYPE_ERROR_MESSAGE}`,
-                      typeError: true,
-                    });
-                  } else {
-                    const res = await checkRouteIsValid(
-                      route,
-                      includePattern &&
-                        typeof includePattern === "object" &&
-                        "source" in includePattern &&
-                        "flags" in includePattern
-                        ? (includePattern as {
-                            source: string;
-                            flags: string;
-                          })
-                        : undefined,
-                      excludePattern &&
-                        typeof excludePattern === "object" &&
-                        "source" in excludePattern &&
-                        "flags" in excludePattern
-                        ? (excludePattern as {
-                            source: string;
-                            flags: string;
-                          })
-                        : undefined,
-                    );
-                    if (res.error) {
-                      addError({
-                        message: res.message,
-                      });
-                    }
-                  }
-                }
-              }
+              // resolved.status === "resolved" → drop silently
             } else if (
               validationError.fixes?.includes("images:check-unique-folder") ||
               validationError.fixes?.includes("files:check-unique-folder")
