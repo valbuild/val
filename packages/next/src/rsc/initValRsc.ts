@@ -90,6 +90,8 @@ const initFetchValStega =
               validate_sources: true,
               validate_binary_files: false,
               exclude_patches: false,
+              // RSC pre-render uses the legacy "server applies patches" path.
+              apply_patches: undefined,
             },
             cookies: {
               [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,

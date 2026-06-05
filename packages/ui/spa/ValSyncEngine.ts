@@ -23,7 +23,6 @@ import {
   deepEqual,
   JSONOps,
   JSONValue,
-  ReadonlyJSONValue,
 } from "@valbuild/core/patch";
 import {
   ParentRef,
@@ -113,15 +112,29 @@ export class ValSyncEngine {
   >;
   private authorId: string | null;
   private patchSets: PatchSets;
-  /** serverSources is the state on the server, it is the actual state */
+  /**
+   * Un-patched source values, as delivered by `/sources/~` with
+   * `apply_patches=false`, or seeded from the local val modules registry.
+   * The patched view shown by the UI is computed on demand by applying
+   * server-side + pending client patches in `getPatchedSource`. The
+   * compare-view "before" reads this directly.
+   */
   private serverSources: Record<ModuleFilePath, JSONValue | undefined> | null;
-  /** baseSources holds un-patched sources (before any pending patches are applied) for diff views */
-  private baseSources: Record<ModuleFilePath, JSONValue | undefined> | null;
-  /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
-  private optimisticClientSources: Record<
+  /**
+   * Per-module cache of the most recently computed patched source, keyed by
+   * the ordered list of patch ids that produced it. `getPatchedSource` uses
+   * the cached entry's `patchIds` as a prefix check: if the next ordered
+   * patch list extends the cached one, only the new tail is applied;
+   * otherwise the result is rebuilt from `serverSources`.
+   */
+  private patchedSourcesCache: Record<
     ModuleFilePath,
-    JSONValue | undefined
-  >;
+    | {
+        patchIds: PatchId[];
+        source: JSONValue | undefined;
+      }
+    | undefined
+  > | null;
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
@@ -135,13 +148,12 @@ export class ValSyncEngine {
   private localSchemas: Record<ModuleFilePath, SerializedSchema> | null;
   private localSchemaSha: string | null;
   /**
-   * Sources extracted client-side from a ValModules registry. Adopted as the
-   * initial serverSources/baseSources when extraction succeeds, then the
-   * server's /sources/~ is only fetched when localSourcesSha diverges from
-   * the SHA reported by /stat.
+   * Un-patched sources extracted client-side from a ValModules registry.
+   * Used to seed `serverSources` immediately (before /sources/~ resolves)
+   * when no server response has landed yet. Patches are layered on top via
+   * `getPatchedSource`, so this only needs to carry the on-disk content.
    */
   private localSources: Record<ModuleFilePath, Source> | null;
-  private localBaseSources: Record<ModuleFilePath, Source> | null;
   private localSourcesSha: string | null;
   /**
    * Status of the client-side extraction. Drives both the schema/source
@@ -232,16 +244,14 @@ export class ValSyncEngine {
     this.localSchemas = null;
     this.localSchemaSha = null;
     this.localSources = null;
-    this.localBaseSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
     this.schemaOutOfDate = false;
     this.baseSha = null;
     this.sourcesSha = null;
     this.mode = null;
-    this.optimisticClientSources = {};
     this.serverSources = null;
-    this.baseSources = null;
+    this.patchedSourcesCache = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -365,14 +375,12 @@ export class ValSyncEngine {
     this.localSchemas = null;
     this.localSchemaSha = null;
     this.localSources = null;
-    this.localBaseSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
     this.schemaOutOfDate = false;
     this.sourcesSha = null;
-    this.optimisticClientSources = {};
     this.serverSources = null;
-    this.baseSources = null;
+    this.patchedSourcesCache = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -564,6 +572,9 @@ export class ValSyncEngine {
         [moduleFilePath]: undefined,
       };
     }
+    // Drop the patched-source cache entry for this module so the next read
+    // recomputes from the (possibly updated) serverSources + patch chain.
+    this.invalidatePatchedSourcesCache(moduleFilePath);
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
     // Cross-module keyof:check-keys / router:check-route errors are resolved
@@ -762,6 +773,110 @@ export class ValSyncEngine {
     return this.cachedRenderSnapshots[moduleFilePath];
   }
 
+  /**
+   * Ordered list of patch ids that touch `moduleFilePath`, in the order they
+   * must be applied: confirmed server-side first, then saved-but-not-yet-
+   * confirmed, then pending client patches. Filters out ids missing from
+   * `patchDataByPatchId` (data not yet loaded) — those are skipped by
+   * `getPatchedSource` rather than treated as a gap.
+   */
+  private orderedPatchIdsForModule(moduleFilePath: ModuleFilePath): PatchId[] {
+    const out: PatchId[] = [];
+    const known = this.patchIdsByModuleFilePath.get(moduleFilePath);
+    if (!known || known.size === 0) return out;
+    const push = (id: PatchId) => {
+      if (known.has(id) && this.patchDataByPatchId[id]) out.push(id);
+    };
+    if (this.globalServerSidePatchIds) {
+      for (const id of this.globalServerSidePatchIds) push(id);
+    }
+    for (const id of this.savedButNotYetGlobalServerSidePatchIds) push(id);
+    for (const id of this.pendingClientPatchIds) push(id);
+    return out;
+  }
+
+  /**
+   * Computes (and caches) the patched view of `moduleFilePath`. Returns
+   * `undefined` if we have no un-patched source yet.
+   *
+   * The cache stores the ordered patch ids that produced the cached result.
+   * On read, if the next ordered list extends the cached one (the cached
+   * `patchIds` is a strict prefix), only the new tail is applied on top of
+   * the cached source — the common case when a fresh patch is appended.
+   * Otherwise we rebuild from `serverSources`, which covers patch deletion,
+   * server-side reorder, and any other non-append change.
+   */
+  private getPatchedSource(
+    moduleFilePath: ModuleFilePath,
+  ): JSONValue | undefined {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (baseSource === undefined) return undefined;
+    const nextIds = this.orderedPatchIdsForModule(moduleFilePath);
+    if (nextIds.length === 0) return baseSource;
+
+    if (this.patchedSourcesCache === null) {
+      this.patchedSourcesCache = {};
+    }
+    const cached = this.patchedSourcesCache[moduleFilePath];
+    let current: JSONValue;
+    let startIndex: number;
+    if (cached && this.isPrefix(cached.patchIds, nextIds)) {
+      if (cached.source === undefined) return undefined;
+      current = cached.source;
+      startIndex = cached.patchIds.length;
+      if (startIndex === nextIds.length) return current;
+    } else {
+      current = baseSource as JSONValue;
+      startIndex = 0;
+    }
+
+    for (let i = startIndex; i < nextIds.length; i++) {
+      const patchId = nextIds[i];
+      const data = this.patchDataByPatchId[patchId];
+      if (!data) continue; // shouldn't happen — filter in orderedPatchIdsForModule
+      const patchableOps = data.patch.filter((op) => op.op !== "file");
+      if (patchableOps.length === 0) continue;
+      const patchRes = applyPatch(deepClone(current), ops, patchableOps);
+      if (result.isOk(patchRes)) {
+        current = patchRes.value;
+      } else {
+        // skip a failing patch — server-side patch analysis would report
+        // this as an error/skip; don't pollute the cache with the bad state
+        console.debug("ValSyncEngine: skipping unappliable client-side patch", {
+          patchId,
+          moduleFilePath,
+          message: patchRes.error.message,
+        });
+      }
+    }
+
+    this.patchedSourcesCache[moduleFilePath] = {
+      patchIds: nextIds,
+      source: current,
+    };
+    return current;
+  }
+
+  private isPrefix(prev: PatchId[], next: PatchId[]): boolean {
+    if (prev.length > next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      if (prev[i] !== next[i]) return false;
+    }
+    return true;
+  }
+
+  private invalidatePatchedSourcesCache(moduleFilePath?: ModuleFilePath) {
+    if (this.patchedSourcesCache === null) return;
+    if (moduleFilePath === undefined) {
+      this.patchedSourcesCache = null;
+    } else {
+      this.patchedSourcesCache = {
+        ...this.patchedSourcesCache,
+        [moduleFilePath]: undefined,
+      };
+    }
+  }
+
   private cachedSourceSnapshots: Record<
     string,
     | {
@@ -781,11 +896,7 @@ export class ValSyncEngine {
     }
     const cacheKey = creatorId ? `${sourcePath}\0${creatorId}` : sourcePath;
     if (this.cachedSourceSnapshots[cacheKey] === undefined) {
-      const moduleData =
-        this.optimisticClientSources[sourcePath] !== undefined
-          ? this.optimisticClientSources[sourcePath]
-          : this.serverSources?.[sourcePath];
-
+      const moduleData = this.getPatchedSource(sourcePath);
       if (this.schemas === null) {
         this.cachedSourceSnapshots[cacheKey] = {
           status: "no-schemas",
@@ -871,8 +982,9 @@ export class ValSyncEngine {
           status: "schema-not-found",
         };
       } else {
-        const moduleData =
-          this.baseSources?.[sourcePath] ?? this.serverSources?.[sourcePath];
+        // With apply_patches=false on /sources/~, serverSources is already
+        // the un-patched view — exactly what the compare-view "before" wants.
+        const moduleData = this.serverSources?.[sourcePath];
         if (moduleData === undefined) {
           this.cachedBaseSourceSnapshots[sourcePath] = {
             status: "source-not-found",
@@ -894,9 +1006,7 @@ export class ValSyncEngine {
       this.cachedAllSourcesSnapshot = {};
       for (const moduleFilePathS in this.schemas || {}) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        const data =
-          this.optimisticClientSources[moduleFilePath] ||
-          this.serverSources?.[moduleFilePath];
+        const data = this.getPatchedSource(moduleFilePath);
         if (data !== undefined) {
           this.cachedAllSourcesSnapshot[moduleFilePath] = deepClone(data);
         }
@@ -935,9 +1045,7 @@ export class ValSyncEngine {
     }
     if (this.cachedSourcesSnapshot[pathsKey] === undefined) {
       for (const moduleFilePath of paths) {
-        const data =
-          this.optimisticClientSources[moduleFilePath] ||
-          this.serverSources?.[moduleFilePath];
+        const data = this.getPatchedSource(moduleFilePath);
         if (data !== undefined) {
           this.cachedSourcesSnapshot[pathsKey] = [
             ...(this.cachedSourcesSnapshot[pathsKey] || []),
@@ -1218,15 +1326,20 @@ export class ValSyncEngine {
   }
 
   // #region Patching
+  /**
+   * Dry-runs a patch against the current patched view to confirm it applies
+   * cleanly. No state mutation: the caller registers the patch in
+   * `patchDataByPatchId` + `pendingClientPatchIds` + `patchIdsByModuleFilePath`
+   * and lets `getPatchedSource` fold it into the view on the next read.
+   */
   private addPatchOnClientOnly(
     sourcePath: SourcePath | ModuleFilePath,
     patch: Patch,
     now: number,
   ):
     | {
-        status: "optimistic-client-sources-updated";
+        status: "patch-applies";
         moduleFilePath: ModuleFilePath;
-        prevSource: JSONValue;
         patch: Patch;
       }
     | {
@@ -1241,8 +1354,8 @@ export class ValSyncEngine {
       this.serverSources === null ||
       this.serverSources?.[moduleFilePath] === undefined
     ) {
-      // This happens if the client add patches, but the server sources have not yet been initialized
-      // so this should not happen
+      // This happens if the client adds patches but server sources have not
+      // yet been initialized — should not happen in practice.
       this.addGlobalTransientError(
         `Content at '${moduleFilePath}' is not yet initialized`,
         now,
@@ -1253,16 +1366,20 @@ export class ValSyncEngine {
         moduleFilePath,
       };
     }
-    if (this.optimisticClientSources[moduleFilePath] === undefined) {
-      this.optimisticClientSources[moduleFilePath] =
-        this.serverSources[moduleFilePath];
+    const currentPatched = this.getPatchedSource(moduleFilePath);
+    if (currentPatched === undefined) {
+      return {
+        status: "patch-error",
+        message: `Content at '${moduleFilePath}' is not yet initialized`,
+        moduleFilePath,
+      };
     }
     const patchableOps = patch.filter((op) => op.op !== "file");
-    const patchRes = applyPatch(
-      deepClone(this.optimisticClientSources[moduleFilePath] as JSONValue),
-      ops,
-      patchableOps,
-    );
+    if (patchableOps.length === 0) {
+      // File-only patch — nothing to apply against the source value.
+      return { status: "patch-applies", moduleFilePath, patch } as const;
+    }
+    const patchRes = applyPatch(deepClone(currentPatched), ops, patchableOps);
     if (result.isErr(patchRes)) {
       console.error("Could not apply patch:", patchRes.error);
       this.addGlobalTransientError(
@@ -1274,20 +1391,8 @@ export class ValSyncEngine {
         message: patchRes.error.message,
         moduleFilePath,
       };
-    } else {
-      const newSource = patchRes.value;
-      const prevSource = deepClone(
-        this.optimisticClientSources[moduleFilePath] as JSONValue,
-      );
-      this.optimisticClientSources[moduleFilePath] = newSource;
-      this.requestModuleValidation(moduleFilePath);
-      return {
-        status: "optimistic-client-sources-updated",
-        moduleFilePath,
-        prevSource,
-        patch,
-      } as const;
     }
+    return { status: "patch-applies", moduleFilePath, patch } as const;
   }
 
   private hasLocalSchemas(): boolean {
@@ -1311,9 +1416,7 @@ export class ValSyncEngine {
     if (!schemaSha) return;
     const serializedSchema = this.schemas?.[moduleFilePath];
     if (!serializedSchema) return;
-    const source =
-      this.optimisticClientSources[moduleFilePath] ??
-      this.serverSources?.[moduleFilePath];
+    const source = this.getPatchedSource(moduleFilePath);
     if (source === undefined) return;
     this.ensureValidationWorker().validate(
       moduleFilePath,
@@ -1377,9 +1480,7 @@ export class ValSyncEngine {
   ):
     | ValidationErrors
     | { status: "no-source" | "no-schema" | "patch-error"; message: string } {
-    const currentSource =
-      this.optimisticClientSources[moduleFilePath] ??
-      this.serverSources?.[moduleFilePath];
+    const currentSource = this.getPatchedSource(moduleFilePath);
     if (currentSource === undefined) {
       return {
         status: "no-source",
@@ -1453,15 +1554,30 @@ export class ValSyncEngine {
       }
   > {
     const res = this.addPatchOnClientOnly(sourcePath, patch, now);
-    if (res.status !== "optimistic-client-sources-updated") {
+    if (res.status !== "patch-applies") {
       return res;
     }
 
     const { moduleFilePath, patch: addedPatch } = res;
+    // Register the patch so getPatchedSource folds it into the view
+    // immediately. On sync failure, executeAddPatches removes it from
+    // patchIdsByModule + patchDataByPatchId + pendingClientPatchIds.
+    this.patchDataByPatchId[patchId] = {
+      moduleFilePath,
+      patch: addedPatch,
+      isPending: true,
+      createdAt: new Date(now).toISOString(),
+      authorId: this.authorId,
+    };
+    this.pendingClientPatchIds.push(patchId);
     this.addToPatchIdsByModule(moduleFilePath, patchId);
     if (creatorId) {
       this.addToCreatorId(creatorId, patchId);
     }
+    this.invalidateAllPatches();
+    this.invalidatePendingClientSidePatchIds();
+    this.invalidateSource(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath);
     const addOp: AddPatchOp = {
       type: "add-patches",
       data: {
@@ -1497,8 +1613,8 @@ export class ValSyncEngine {
         moduleFilePath,
       } as const;
     }
-    // Reset optimistic state on failure
-    this.optimisticClientSources[moduleFilePath] = res.prevSource;
+    // Cleanup happened in executeAddPatches's failure path; just invalidate.
+    this.invalidateSource(moduleFilePath);
     this.requestModuleValidation(moduleFilePath);
     return {
       status: "patch-sync-error",
@@ -1530,7 +1646,7 @@ export class ValSyncEngine {
         moduleFilePath: ModuleFilePath;
       } {
     const res = this.addPatchOnClientOnly(sourcePath, patch, now);
-    if (res.status !== "optimistic-client-sources-updated") {
+    if (res.status !== "patch-applies") {
       return res;
     }
     const moduleFilePath = res.moduleFilePath;
@@ -2125,7 +2241,6 @@ export class ValSyncEngine {
       this.localSchemas = null;
       this.localSchemaSha = null;
       this.localSources = null;
-      this.localBaseSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = { type: "absent" };
       this.invalidateLocalModulesStatus();
@@ -2142,7 +2257,6 @@ export class ValSyncEngine {
       this.localSchemas = null;
       this.localSchemaSha = null;
       this.localSources = null;
-      this.localBaseSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
         type: "error",
@@ -2159,7 +2273,6 @@ export class ValSyncEngine {
       this.localSchemas = null;
       this.localSchemaSha = null;
       this.localSources = null;
-      this.localBaseSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
         type: "error",
@@ -2178,7 +2291,6 @@ export class ValSyncEngine {
     this.localSchemas = extracted.serializedSchemas;
     this.localSchemaSha = extracted.schemaSha;
     this.localSources = extracted.sources;
-    this.localBaseSources = extracted.sources;
     this.localSourcesSha = extracted.sourcesSha;
     this.localModulesStatus = {
       type: "loaded",
@@ -2217,22 +2329,25 @@ export class ValSyncEngine {
   }
 
   private adoptLocalSources(): void {
-    if (!this.localSources || !this.localBaseSources || !this.localSourcesSha) {
+    if (!this.localSources || !this.localSourcesSha) {
       return;
     }
-    // Sources at runtime are JSON-compatible; the Source type carries
-    // tagged variants (ImageSource, RemoteSource, ...) that are still plain
-    // JSON-serialisable objects, matching how /sources/~ delivers them.
-    this.serverSources = this.localSources as Record<ModuleFilePath, JSONValue>;
-    this.baseSources = this.localBaseSources as Record<
-      ModuleFilePath,
-      JSONValue
-    >;
-    this.sourcesSha = this.localSourcesSha;
-    this.optimisticClientSources = {
-      ...(this.localSources as Record<ModuleFilePath, JSONValue>),
-    };
-    for (const path of Object.keys(this.localSources) as ModuleFilePath[]) {
+    // localSources are un-patched, exactly like /sources/~ now returns.
+    // Only seed serverSources if we don't already have a server response —
+    // overwriting a populated serverSources would race against /sources/~
+    // and erase newer disk content. Patches are not seeded here; they layer
+    // on in getPatchedSource and Just Work the next time the UI reads.
+    const local = this.localSources as Record<ModuleFilePath, JSONValue>;
+    if (this.serverSources === null) {
+      this.serverSources = { ...local };
+      this.sourcesSha = this.localSourcesSha;
+    }
+    // Make sure the next sync() refetches /sources/~ so any disk edits made
+    // outside HMR's reach are picked up (and so an existing serverSources
+    // gets refreshed even though we didn't touch it here).
+    this.forceSyncAllModules = true;
+    this.patchedSourcesCache = null;
+    for (const path of Object.keys(local) as ModuleFilePath[]) {
       this.invalidateSource(path);
     }
   }
@@ -2709,13 +2824,17 @@ export class ValSyncEngine {
             : undefined;
 
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
-        const useLocalValidation = this.hasLocalSchemas();
+        // The studio client always treats /sources/~ as a pure un-patched
+        // read: patch application and validation run on the client (via
+        // getPatchedSource and the validation worker). The server's
+        // apply_patches=false branch skips render generation too.
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
           query: {
-            validate_sources: !useLocalValidation,
+            validate_sources: false,
             validate_binary_files: false,
             exclude_patches: false,
+            apply_patches: false,
           },
         });
         if (sourcesRes.status !== null) {
@@ -2759,42 +2878,26 @@ export class ValSyncEngine {
               if (this.serverSources === null) {
                 this.serverSources = {};
               }
+              // With apply_patches=false on /sources/~, valModule.source is
+              // the un-patched source. The patched view is computed by
+              // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
-              if (this.baseSources === null) {
-                this.baseSources = {};
-              }
-              this.baseSources[moduleFilePath] =
-                valModule.baseSource !== undefined
-                  ? valModule.baseSource
-                  : valModule.source;
+              // render is always null in the new mode; keep the renders map
+              // up-to-date for any downstream code that still subscribes.
               if (this.renders === null) {
                 this.renders = {};
               }
               this.renders[moduleFilePath] = valModule.render || null;
               this.invalidateRenders(moduleFilePath);
-
-              if (
-                // Feel free to revisit / rewrite this if statement:
-                // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
-                // If we remove the optimistic client side sources without verifying that the server side sources are the same, the user will see a flash and it revert back to the previously saved state.
-                // It feels like there might be errors that pops up because of this: what if the patch never is written / is wrong?! The change will then be lost.
-                deepEqual(
-                  this.serverSources[moduleFilePath] as ReadonlyJSONValue,
-                  this.optimisticClientSources[
-                    moduleFilePath
-                  ] as ReadonlyJSONValue,
-                ) ||
-                // We check for pendingOps, because the check above will fail for files since they inject a patchId...
-                this.pendingOps.length === 0
-              ) {
-                this.optimisticClientSources = {
-                  ...this.optimisticClientSources,
+              // Drop any cached patched view for this module; the next read
+              // rebuilds from the fresh un-patched source.
+              if (this.patchedSourcesCache !== null) {
+                this.patchedSourcesCache = {
+                  ...this.patchedSourcesCache,
                   [moduleFilePath]: undefined,
                 };
               }
               console.debug("Invalidating source", moduleFilePath);
-              // this.optimisticClientSources = {};
-              // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
               this.overlayEmitter?.(moduleFilePath, valModule.source);
               this.invalidatePatchErrors(moduleFilePath);
@@ -2805,22 +2908,9 @@ export class ValSyncEngine {
                 this.errors.patchErrors[moduleFilePath] = valModule.patches
                   .errors as Record<PatchId, { message: string }>;
               }
-              // NOTE: we clean up relevant validation errors above
-              if (useLocalValidation) {
-                // Server validation was suppressed (validate_sources=false) —
-                // re-derive errors from the fresh source via the worker.
-                this.requestModuleValidation(moduleFilePath);
-              } else {
-                for (const sourcePathS in valModule.validationErrors) {
-                  const sourcePath = sourcePathS as SourcePath;
-                  if (!this.errors.validationErrors) {
-                    this.errors.validationErrors = {};
-                  }
-                  this.errors.validationErrors[sourcePath] =
-                    valModule.validationErrors[sourcePath];
-                  changedValidationErrors.add(sourcePath);
-                }
-              }
+              // Validation always runs client-side via the worker now —
+              // /sources/~ is called with validate_sources=false.
+              this.requestModuleValidation(moduleFilePath);
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
               }
@@ -3076,11 +3166,14 @@ export class ValSyncEngine {
 
   /**
    * Mock method for testing and Storybook.
-   * Sets serverSources (and baseSources to the same value) and invalidates related caches.
+   * Sets serverSources (the un-patched view) and invalidates related caches.
+   * Note: any patched view is computed on demand from `serverSources` plus
+   * the known patch chain; tests that want a patched view should also seed
+   * patchDataByPatchId / pendingClientPatchIds.
    */
   setSources(sources: Record<ModuleFilePath, JSONValue | undefined>): void {
     this.serverSources = sources;
-    this.baseSources = sources;
+    this.patchedSourcesCache = null;
     this.cachedSourceSnapshots = null;
     this.cachedServerSourceSnapshots = null;
     this.cachedBaseSourceSnapshots = null;

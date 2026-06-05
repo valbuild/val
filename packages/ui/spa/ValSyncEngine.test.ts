@@ -268,7 +268,7 @@ describe("ValSyncEngine", () => {
     unsubscribe();
   });
 
-  test("setSources sets both serverSources and optimisticClientSources", async () => {
+  test("setSources updates serverSources and notifies subscribers", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
       "fs",
