@@ -212,8 +212,8 @@ export function Field({
                 },
               )}
             >
-              <Sparkles size={compact ? 11 : 12} />
-              <Plus size={compact ? 9 : 10} className="-ml-0.5" />
+              <Sparkles size={compact ? 9 : 10} />
+              <Plus size={compact ? 7 : 8} className="-ml-0.5" />
             </button>
           )}
           {!hasOverrides && source !== null && (

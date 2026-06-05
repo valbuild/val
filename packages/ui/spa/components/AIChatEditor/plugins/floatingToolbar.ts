@@ -38,24 +38,52 @@ export function createChatFloatingToolbarPlugin(
       }),
     );
 
-    const start = view.coordsAtPos(from);
-    const end = view.coordsAtPos(to);
     const portal = options?.getPortalContainer?.();
-    if (portal) {
-      const left = (start.left + end.left) / 2;
-      const top = start.top - 40;
-      toolbarEl.style.display = "flex";
-      toolbarEl.style.left = `${Math.max(0, left - 60)}px`;
-      toolbarEl.style.top = `${Math.max(0, top)}px`;
-    } else {
-      const parentRect = view.dom.parentElement?.getBoundingClientRect();
-      if (!parentRect) return;
-      const left = (start.left + end.left) / 2 - parentRect.left;
-      const top = start.top - parentRect.top - 40;
-      toolbarEl.style.display = "flex";
-      toolbarEl.style.left = `${Math.max(0, left - 60)}px`;
-      toolbarEl.style.top = `${Math.max(0, top)}px`;
-    }
+    toolbarEl.style.display = "flex";
+
+    const positionToolbar = () => {
+      if (!toolbarEl) return;
+      const start = view.coordsAtPos(from);
+      const end = view.coordsAtPos(to);
+      const selectionCenterX = (start.left + end.left) / 2;
+      const selectionTop = Math.min(start.top, end.top);
+      const selectionBottom = Math.max(start.bottom, end.bottom);
+
+      // Fallbacks cover the very first render before React has flushed
+      // the buttons (offsetWidth/Height would be 0 then).
+      const toolbarWidth = toolbarEl.offsetWidth || 220;
+      const toolbarHeight = toolbarEl.offsetHeight || 36;
+
+      const margin = 8;
+      const gap = 8;
+
+      let leftViewport = selectionCenterX - toolbarWidth / 2;
+      let topViewport = selectionTop - toolbarHeight - gap;
+
+      // Flip below the selection if there's no room above.
+      if (topViewport < margin) {
+        topViewport = selectionBottom + gap;
+      }
+
+      // Clamp horizontally so the toolbar stays inside the viewport.
+      const maxLeft = window.innerWidth - toolbarWidth - margin;
+      leftViewport = Math.max(margin, Math.min(leftViewport, maxLeft));
+
+      if (portal) {
+        toolbarEl.style.left = `${leftViewport}px`;
+        toolbarEl.style.top = `${topViewport}px`;
+      } else {
+        const parentRect = view.dom.parentElement?.getBoundingClientRect();
+        if (!parentRect) return;
+        toolbarEl.style.left = `${leftViewport - parentRect.left}px`;
+        toolbarEl.style.top = `${topViewport - parentRect.top}px`;
+      }
+    };
+
+    positionToolbar();
+    // Re-position after React commits, so the very first show uses real
+    // toolbar dimensions instead of the fallback estimate.
+    requestAnimationFrame(positionToolbar);
   }
 
   return new Plugin({

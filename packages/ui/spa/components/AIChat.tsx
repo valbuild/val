@@ -15,7 +15,6 @@ import {
   Send,
   RotateCcw,
   Sparkles,
-  Check,
   Loader2,
   LogIn,
   Search,
@@ -190,6 +189,124 @@ function getTextContent(content: AIMessageContent): string {
     .join("\n\n");
 }
 
+// HTML-esque tag set that the rich chat editor produces (see
+// chatDocumentToHtmlText). Restored sessions arrive as strings containing
+// these tags, so we re-render them as formatted React instead of literal text.
+const USER_HTML_TAG_RE =
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|em|del|code|br|img|field)\b/i;
+
+function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
+  return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
+}
+
+function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
+  if (node.nodeType === 3 /* TEXT_NODE */) return node.nodeValue ?? "";
+  if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
+  const el = node as Element;
+  const children = renderHtmlChildren(el.childNodes);
+  switch (el.tagName.toLowerCase()) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {children}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {children}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {children}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {children}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {children}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {children}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {children}
+        </ol>
+      );
+    case "li":
+      return <li key={key}>{children}</li>;
+    case "strong":
+    case "b":
+      return <strong key={key}>{children}</strong>;
+    case "em":
+    case "i":
+      return <em key={key}>{children}</em>;
+    case "del":
+    case "s":
+      return <del key={key}>{children}</del>;
+    case "code":
+      return (
+        <code
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+        >
+          {children}
+        </code>
+      );
+    case "br":
+      return <br key={key} />;
+    case "img": {
+      const alt = el.getAttribute("alt");
+      return (
+        <span key={key} className="italic text-fg-secondary">
+          [{alt ? `image: ${alt}` : "image"}]
+        </span>
+      );
+    }
+    case "field": {
+      const path = el.getAttribute("path") ?? "";
+      return (
+        <span
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+        >
+          @{path}
+        </span>
+      );
+    }
+    default:
+      return <>{children}</>;
+  }
+}
+
+function renderUserMessageText(text: string): React.ReactNode {
+  if (!USER_HTML_TAG_RE.test(text)) {
+    return <p className="whitespace-pre-wrap">{text}</p>;
+  }
+  const doc = new DOMParser().parseFromString(
+    `<body>${text}</body>`,
+    "text/html",
+  );
+  return <>{renderHtmlChildren(doc.body.childNodes)}</>;
+}
+
 function getImageUrls(content: AIMessageContent): string[] {
   if (typeof content === "string") {
     return [];
@@ -234,6 +351,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const internalEditorRef = useRef<ChatEditorRef | null>(null);
@@ -261,6 +379,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       bottomRef.current?.scrollIntoView({ block: "end" });
     });
   }, [messages]);
+
+  // Once the assistant message actually starts streaming, drop the
+  // "thinking" placeholder so the StreamingCursor takes over.
+  useEffect(() => {
+    if (currentMessage) setIsAwaitingAssistant(false);
+  }, [currentMessage]);
 
   // 2-minute timeout for in-progress assistant messages
   useEffect(() => {
@@ -524,6 +648,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
+      } else {
+        setIsAwaitingAssistant(true);
       }
 
       requestAnimationFrame(() => editorRef.current?.focus());
@@ -556,6 +682,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 : m,
             ),
           );
+        } else {
+          setIsAwaitingAssistant(true);
         }
         return;
       }
@@ -572,10 +700,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(
-        getTextContent(prevUserMsg.content),
-        prevUserMsg.attachments,
-      );
+      const sent =
+        onSendMessage?.(
+          getTextContent(prevUserMsg.content),
+          prevUserMsg.attachments,
+        ) ?? true;
+      if (sent) setIsAwaitingAssistant(true);
     },
     [messages, onSendMessage],
   );
@@ -759,6 +889,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble key={msg.id} message={msg} onRetry={handleRetry} />
             ))
           )}
+          {isAwaitingAssistant && !currentMessage && <ThinkingIndicator />}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
@@ -839,8 +970,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               setIsEditorEmpty(empty);
             }}
             className={cn(
-              "min-h-[7rem] max-h-[18rem] overflow-y-auto px-3 py-2",
-              "text-fg-primary text-sm",
+              "max-h-[18rem] overflow-y-auto px-3 py-2",
+              "text-fg-primary text-base",
             )}
           />
           <div className="flex items-center border-t border-border-primary px-2 py-1.5">
@@ -1030,17 +1161,7 @@ function MessageBubble({
                 ))}
               </div>
             )}
-            {textContent && (
-              <p className="whitespace-pre-wrap">{textContent}</p>
-            )}
-            {message.status === "complete" && (
-              <div className="mt-1 flex justify-end">
-                <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
-                  <Check className="h-2.5 w-2.5" />
-                  Sent
-                </span>
-              </div>
-            )}
+            {textContent && renderUserMessageText(textContent)}
           </>
         ) : (
           <div
@@ -1126,6 +1247,24 @@ function StreamingCursor() {
         style={{ animationDelay: "300ms" }}
       />
     </span>
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-lg bg-bg-tertiary px-4 py-3">
+        <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "150ms" }}
+        />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "300ms" }}
+        />
+      </div>
+    </div>
   );
 }
 
