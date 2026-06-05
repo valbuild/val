@@ -27,8 +27,8 @@ type Story = StoryObj<typeof AIChat>;
 
 export const Empty: Story = {
   args: {
-    onSendMessage: (text: string) => {
-      console.log("Send:", text);
+    onSendMessage: (content) => {
+      console.log("Send:", content);
       return true;
     },
   },
@@ -42,8 +42,8 @@ export const CustomSuggestions: Story = {
       "Fix validation errors",
       "Generate a summary",
     ],
-    onSendMessage: (text: string) => {
-      console.log("Send:", text);
+    onSendMessage: (content) => {
+      console.log("Send:", content);
       return true;
     },
   },
@@ -92,8 +92,8 @@ const conversationMessages: ChatMessage[] = [
 export const WithConversation: Story = {
   args: {
     initialMessages: conversationMessages,
-    onSendMessage: (text: string) => {
-      console.log("Send:", text);
+    onSendMessage: (content) => {
+      console.log("Send:", content);
       return true;
     },
   },
@@ -191,8 +191,8 @@ export const Error: Story = {
         error: "Connection lost — the server closed the WebSocket unexpectedly",
       },
     ],
-    onSendMessage: (text: string) => {
-      console.log("Retry send:", text);
+    onSendMessage: (content) => {
+      console.log("Retry send:", content);
       return true;
     },
   },
@@ -216,8 +216,8 @@ export const ErrorAfterPartialResponse: Story = {
         error: "Stream interrupted — request timed out after 30s",
       },
     ],
-    onSendMessage: (text: string) => {
-      console.log("Retry send:", text);
+    onSendMessage: (content) => {
+      console.log("Retry send:", content);
       return true;
     },
   },
@@ -287,8 +287,8 @@ export const LongMarkdown: Story = {
         status: "complete",
       },
     ],
-    onSendMessage: (text: string) => {
-      console.log("Send:", text);
+    onSendMessage: (content) => {
+      console.log("Send:", content);
       return true;
     },
   },

@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useImperativeHandle,
   forwardRef,
+  type RefObject,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -38,9 +39,13 @@ import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
+import { AIChatEditor } from "./AIChatEditor";
+import type { ChatDocument, ChatEditorRef } from "./AIChatEditor";
+import { chatDocumentToPlainText } from "./AIChatEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,11 +120,13 @@ export type AIChatHandle = {
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
-    text: string,
+    content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
   ) => boolean;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
+  /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
+  chatEditorRef?: RefObject<ChatEditorRef | null>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
@@ -216,6 +223,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onSetSessionName,
     isLoadingSession,
     initialMessages,
+    chatEditorRef: chatEditorRefProp,
   },
   ref,
 ) {
@@ -225,10 +233,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
     null,
   );
-  const [inputValue, setInputValue] = useState("");
+  const [isEditorEmpty, setIsEditorEmpty] = useState(true);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalEditorRef = useRef<ChatEditorRef | null>(null);
+  const editorRef = chatEditorRefProp ?? internalEditorRef;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
@@ -236,6 +245,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   const [renameValue, setRenameValue] = useState("");
   const config = useValConfig();
+  const portalContainer = useValPortal();
   const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
   const emptyTitle = config?.ai?.chat?.title;
   const emptyDescription = config?.ai?.chat?.description;
@@ -449,9 +459,23 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   }, []);
 
   const handleSend = useCallback(
-    (text?: string) => {
-      const content = (text ?? inputValue).trim();
-      if (!content || isStreaming) return;
+    (suggestion?: string) => {
+      if (isStreaming) return;
+
+      let outgoing: string | ChatDocument;
+      let displayText: string;
+      if (suggestion !== undefined) {
+        const trimmed = suggestion.trim();
+        if (!trimmed) return;
+        outgoing = trimmed;
+        displayText = trimmed;
+      } else {
+        const editor = editorRef.current;
+        if (!editor || editor.isEmpty()) return;
+        const doc = editor.getDocument();
+        outgoing = doc;
+        displayText = chatDocumentToPlainText(doc);
+      }
 
       const doneAttachments: ChatMessageAttachment[] = attachedFiles
         .filter(
@@ -465,7 +489,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           previewUrl: f.previewUrl,
         }));
 
-      // Revoke object URLs for files we're sending (they'll be in the message)
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
           URL.revokeObjectURL(f.previewUrl);
@@ -476,16 +499,20 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const userMsg: ChatMessage = {
         id: msgId,
         role: "user",
-        content,
+        content: displayText,
         status: "complete",
         attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
-      setInputValue("");
+
+      if (suggestion === undefined) {
+        editorRef.current?.clear();
+        setIsEditorEmpty(true);
+      }
 
       const sent = onSendMessage
         ? onSendMessage(
-            content,
+            outgoing,
             doneAttachments.length > 0 ? doneAttachments : undefined,
           )
         : true;
@@ -499,10 +526,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         );
       }
 
-      // Refocus textarea after send
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [inputValue, isStreaming, attachedFiles, onSendMessage],
+    [isStreaming, attachedFiles, onSendMessage, editorRef],
   );
 
   const handleRetry = useCallback(
@@ -552,16 +578,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       );
     },
     [messages, onSendMessage],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
   );
 
   // ---- Render ----
@@ -723,7 +739,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4 p-4 min-w-0 max-w-full">
           {authError ? (
             <AuthPrompt mode={mode} />
           ) : isLoadingSession && isEmpty ? (
@@ -814,36 +830,28 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <Paperclip className="h-4 w-4" />
             </Button>
           )}
-          <div className="flex-1 grid">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={authError}
-              placeholder={isConnected && !authError ? "Ask something…" : ""}
-              rows={1}
-              className={cn(
-                "resize-none overflow-hidden",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-fg-primary",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            />
-            {/* Hidden mirror for auto-grow */}
-            <div
-              className={cn(
-                "whitespace-pre-wrap invisible",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-sm",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            >
-              {inputValue + " "}
-            </div>
-          </div>
+          <AIChatEditor
+            ref={editorRef}
+            disabled={authError || !isConnected || isStreaming}
+            placeholder={isConnected && !authError ? "Ask something…" : ""}
+            onSubmit={() => handleSend()}
+            onUploadAiImage={onUploadFile}
+            getPortalContainer={() => portalContainer}
+            onChange={(doc) => {
+              const empty =
+                doc.length === 0 ||
+                (doc.length === 1 &&
+                  doc[0].tag === "p" &&
+                  doc[0].children.length === 0);
+              setIsEditorEmpty(empty);
+            }}
+            className={cn(
+              "flex-1 min-h-[5rem] max-h-[16rem] overflow-y-auto",
+              "rounded-md border border-border-primary bg-bg-primary px-3 py-2",
+              "text-fg-primary text-sm",
+              "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+            )}
+          />
           <Button
             variant="ghost"
             size="icon-sm"
@@ -852,7 +860,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               isStreaming ||
               isUploading ||
               authError ||
-              !inputValue.trim()
+              isEditorEmpty
             }
             onClick={() => handleSend()}
             aria-label="Send message"
@@ -969,10 +977,13 @@ function MessageBubble({
   const fileUrls = getImageUrls(message.content);
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn("flex min-w-0", isUser ? "justify-end" : "justify-start")}
+    >
       <div
         className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "[overflow-wrap:anywhere]",
           isUser
             ? "bg-bg-secondary text-fg-primary max-w-[80%]"
             : "bg-bg-tertiary text-fg-primary w-full max-w-full",
@@ -1028,7 +1039,15 @@ function MessageBubble({
             )}
           </>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "[&_pre]:overflow-x-auto [&_pre]:max-w-full",
+              "[&_code]:break-words",
+              "[&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full",
+              "[&_a]:break-all",
+            )}
+          >
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator activities={message.toolActivities} />
             )}

@@ -71,6 +71,7 @@ import { HoverCardArrow } from "@radix-ui/react-hover-card";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -464,6 +465,7 @@ export function ValOverlay(props: ValOverlayProps) {
         <ChatWindow
           isOpen={isChatOpen && props.draftMode}
           onClose={() => setIsChatOpen(false)}
+          onOpen={() => setIsChatOpen(true)}
         />
         {editMode === null && (
           <DraggableValMenu
@@ -880,11 +882,18 @@ function Window({
 function ChatWindow({
   isOpen,
   onClose,
+  onOpen,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onOpen: () => void;
 }) {
   const chatRef = useRef<AIChatHandle | null>(null);
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  useEffect(() => {
+    setOpenAIChatImpl(onOpen);
+    return () => setOpenAIChatImpl(null);
+  }, [onOpen, setOpenAIChatImpl]);
   const { bornSessionId, setBornSessionId } = useContext(OverlaySessionContext);
   // Capture the seeded-from-sessionStorage value once so later state changes
   // don't re-trigger useAI's mount-load effect. This is how a user coming
@@ -1066,6 +1075,7 @@ function ChatWindow({
         <div className="flex-1 overflow-hidden">
           <AIChat
             ref={chatRef}
+            chatEditorRef={chatEditorRef}
             onSendMessage={sendMessage}
             onUploadFile={uploadAiImage}
             onNewSession={newSession}

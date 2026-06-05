@@ -25,11 +25,12 @@ import {
 } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation, useSessionParam, VAL_ERRORS_ROUTE } from "./ValRouter";
@@ -49,6 +50,19 @@ export function ToolsMenu() {
   const mode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  const chatPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isChatEnabled) return;
+    const open = () => {
+      chatPanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    };
+    setOpenAIChatImpl(open);
+    return () => setOpenAIChatImpl(null);
+  }, [isChatEnabled, setOpenAIChatImpl]);
   const [errorModules, fieldsWithErrors, errorPaths] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     const errorPaths: SourcePath[] = [];
@@ -169,9 +183,13 @@ export function ToolsMenu() {
         </div>
       </div>
       {(mode === "http" || mode === "fs") && isChatEnabled && (
-        <div className="flex-1 min-h-0 border-t border-border-primary">
+        <div
+          ref={chatPanelRef}
+          className="flex-1 min-h-0 border-t border-border-primary"
+        >
           <AIChat
             ref={chatRef}
+            chatEditorRef={chatEditorRef}
             onSendMessage={sendMessage}
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
