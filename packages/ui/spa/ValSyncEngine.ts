@@ -1677,6 +1677,11 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        // Optimistically re-validate the edited module so per-field errors
+        // (maxLength, regex, ...) surface within a worker round-trip — no
+        // waiting for the next sync tick. The worker dedups stale requests
+        // when the user keeps typing.
+        this.requestModuleValidation(moduleFilePath);
 
         return {
           status: "patch-merged",
@@ -1713,6 +1718,7 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath);
 
         return {
           status: "patch-added",
@@ -1748,6 +1754,7 @@ export class ValSyncEngine {
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
+      this.requestModuleValidation(moduleFilePath);
 
       return {
         status: "patch-added",
