@@ -35,6 +35,7 @@ import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
 import { ValidationWorkerClient } from "./validation/ValidationWorkerClient";
+import { partitionValidationErrors } from "./validation/partitionValidationErrors";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
@@ -994,10 +995,16 @@ export class ValSyncEngine {
       // Resolve keyof:check-keys / router:check-route against the current
       // schema/source snapshot so no UI consumer sees the raw "version
       // mismatch" message emitted by core schemas.
-      this.cachedValidationErrors = resolveSchemaSourceFixes(raw, {
+      const resolved = resolveSchemaSourceFixes(raw, {
         schemas: this.getAllSchemasSnapshot(),
         sources: this.getAllSourcesSnapshot(),
       });
+      // Drop fixes the server resolves on save (image/file metadata, remote
+      // files, gallery directory checks). We partition (not filter) so a
+      // future "N fixes pending" indicator can opt into the `skipped` half
+      // without re-deriving it. See partitionValidationErrors for the policy.
+      const { surfaced } = partitionValidationErrors(resolved);
+      this.cachedValidationErrors = surfaced;
     }
     return this.cachedValidationErrors;
   }
