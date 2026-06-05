@@ -817,19 +817,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             accept="image/*"
           />
         )}
-        <div className="flex items-end gap-2">
-          {onUploadFile && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={!isConnected || isStreaming || authError}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
-              className="mb-1"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
+        <div
+          className={cn(
+            "flex flex-col rounded-md border border-border-primary bg-bg-primary",
+            "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
           )}
+        >
           <AIChatEditor
             ref={editorRef}
             disabled={authError || !isConnected || isStreaming}
@@ -846,28 +839,39 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               setIsEditorEmpty(empty);
             }}
             className={cn(
-              "flex-1 min-h-[5rem] max-h-[16rem] overflow-y-auto",
-              "rounded-md border border-border-primary bg-bg-primary px-3 py-2",
+              "min-h-[7rem] max-h-[18rem] overflow-y-auto px-3 py-2",
               "text-fg-primary text-sm",
-              "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
             )}
           />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={
-              !isConnected ||
-              isStreaming ||
-              isUploading ||
-              authError ||
-              isEditorEmpty
-            }
-            onClick={() => handleSend()}
-            aria-label="Send message"
-            className="mb-1"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+            {onUploadFile && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!isConnected || isStreaming || authError}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach files"
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={
+                !isConnected ||
+                isStreaming ||
+                isUploading ||
+                authError ||
+                isEditorEmpty
+              }
+              onClick={() => handleSend()}
+              aria-label="Send message"
+              className="ml-auto"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
