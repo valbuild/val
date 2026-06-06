@@ -17,7 +17,6 @@ import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
-import { valSuspense } from "./valSuspense";
 
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
@@ -45,11 +44,9 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   // cookie), not `draftMode`: `enabled` is stable for the lifetime of the page
   // whereas `draftMode` is polled and can change, and we must not start/stop
   // suspending across renders. The production path (Val not enabled) skips the
-  // call entirely. Calling valSuspense conditionally is safe: it either calls
-  // React.use — which React permits inside conditionals and loops — or throws
-  // the promise for classic Suspense, neither of which is a hook.
+  // call entirely. React.use is allowed inside conditionals — it is not a hook.
   if (valOverlayContext.enabled && store && !store.hasAllLoaded(moduleIds)) {
-    valSuspense(store.waitForLoad(moduleIds));
+    React.use(store.waitForLoad(moduleIds));
   }
   return stegaEncode(selector, {
     disabled: !valOverlayContext.draftMode,
@@ -77,10 +74,7 @@ function resolveParams(
     return null;
   }
   if ("then" in params) {
-    // Suspend on the params promise. valSuspense centralizes the React.use
-    // (React 19) vs throw-promise (React 18) split, so both paths just need a
-    // <Suspense> boundary higher up the tree.
-    return valSuspense(params as Promise<Record<string, string | string[]>>);
+    return React.use(params as Promise<Record<string, string | string[]>>);
   }
   return params;
 }

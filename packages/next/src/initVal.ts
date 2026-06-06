@@ -10,13 +10,34 @@ import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "@valbuild/react/stega";
+import { cookies } from "next/headers";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 const externalPageRouter: ValRouter = Internal.externalPageRouter;
 
+/**
+ * Returns true if the Val Enable cookie is set. Must be called in a
+ * Server Component, Server Action, or Route Handler — it reads from
+ * `next/headers` and returns false in any other context.
+ */
+async function isValEnabled(): Promise<boolean> {
+  try {
+    const cookieStore = await cookies();
+    return cookieStore.get(Internal.VAL_ENABLE_COOKIE_NAME)?.value === "true";
+  } catch {
+    return false;
+  }
+}
+
 export const initVal = (
   config?: ValConfig,
 ): InitVal & {
+  /**
+   * Returns true if the Val Enable cookie is set. Must be called in a
+   * Server Component, Server Action, or Route Handler — it reads from
+   * `next/headers` and returns false in any other context.
+   */
+  isValEnabled: typeof isValEnabled;
   val: ValConstructor & {
     /**
      * Returns the original module data, without any applied patches or stega encoding.
@@ -72,6 +93,7 @@ export const initVal = (
   return {
     s,
     c,
+    isValEnabled,
     nextAppRouter,
     externalPageRouter,
     val: {

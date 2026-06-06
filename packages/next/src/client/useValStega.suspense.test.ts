@@ -1,8 +1,39 @@
 /**
- * @jest-environment ./packages/next/jest-environment.mjs
+ * @jest-environment ./jest-environment.mjs
  */
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
+
+// Production requires React 19 (React.use). The test environment stays on React 18
+// to avoid a large dependency upgrade across the monorepo. This polyfill makes
+// React.use available so the integration test still exercises the real Suspense flow.
+// When the monorepo eventually upgrades to React 19, delete this block.
+if (!("use" in React)) {
+  type Entry<T> = { status: "pending" | "resolved" | "rejected"; result?: T };
+  const cache = new WeakMap<Promise<unknown>, Entry<unknown>>();
+  (React as Record<string, unknown>).use = function use<T>(
+    promise: Promise<T>,
+  ): T {
+    let entry = cache.get(promise as Promise<unknown>) as Entry<T> | undefined;
+    if (!entry) {
+      entry = { status: "pending" };
+      cache.set(promise as Promise<unknown>, entry as Entry<unknown>);
+      promise.then(
+        (v) => {
+          (entry as Entry<T>).status = "resolved";
+          (entry as Entry<T>).result = v;
+        },
+        (e) => {
+          (entry as Entry<T>).status = "rejected";
+          (entry as Entry<T>).result = e;
+        },
+      );
+    }
+    if (entry.status === "resolved") return entry.result as T;
+    if (entry.status === "rejected") throw entry.result;
+    throw promise; // pending: React 18 Suspense catches the thrown promise
+  };
+}
 import { initVal, ModuleFilePath } from "@valbuild/core";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";

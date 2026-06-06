@@ -1,6 +1,7 @@
 import { initVal } from "@valbuild/next";
 
-const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
+const { s, c, val, config, nextAppRouter, externalPageRouter, isValEnabled } =
+  initVal({
   project: "valbuild/val-examples-next",
   root: "/examples/next",
   defaultTheme: "dark",
@@ -22,4 +23,4 @@ const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
 });
 
 export type { t } from "@valbuild/next";
-export { s, c, val, config, nextAppRouter, externalPageRouter };
+export { s, c, val, config, nextAppRouter, externalPageRouter, isValEnabled };
