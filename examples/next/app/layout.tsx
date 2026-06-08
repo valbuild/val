@@ -19,7 +19,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ValProvider config={config} enabled={await isValEnabled()}>
+        <ValProvider config={config} suspend={await isValEnabled()}>
           {children}
         </ValProvider>
       </body>
