@@ -1120,7 +1120,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               );
             }}
             className={cn(
-              "max-h-[18rem] overflow-y-auto px-3 py-2",
+              "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
               "text-fg-primary text-base",
             )}
           />
