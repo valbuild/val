@@ -3,6 +3,10 @@ import { buildChatSchema } from "../schema/buildChatSchema";
 import { parseChatDocument } from "../serialize/parseChatDocument";
 import { serializeChatDocument } from "../serialize/serializeChatDocument";
 import { chatDocumentToHtmlText } from "../serialize/chatDocumentToHtmlText";
+import {
+  collectImageKeysFromDoc,
+  collectImageNodesFromDoc,
+} from "../serialize/collectImageKeysFromDoc";
 import type { ChatDocument } from "../types";
 
 const schema = buildChatSchema();
@@ -198,5 +202,111 @@ describe("chatDocumentToHtmlText", () => {
         { tag: "p", children: [{ tag: "field_ref", path }] },
       ]),
     ).toBe('<p><field path="/content/foo.val.ts?p=&quot;bar&quot;"/></p>');
+  });
+});
+
+describe("collectImageKeysFromDoc", () => {
+  it("returns no keys for a doc without images", () => {
+    const doc: ChatDocument = [{ tag: "p", children: ["just text"] }];
+    expect(collectImageKeysFromDoc(doc)).toEqual([]);
+  });
+
+  it("collects keys from a flat paragraph in document order", () => {
+    const doc: ChatDocument = [
+      {
+        tag: "p",
+        children: [
+          "see ",
+          { tag: "img", key: "a", previewUrl: "blob:1" },
+          " and ",
+          { tag: "img", key: "b", previewUrl: "blob:2" },
+        ],
+      },
+    ];
+    expect(collectImageKeysFromDoc(doc)).toEqual(["a", "b"]);
+  });
+
+  it("walks into blockquote, ul and ol", () => {
+    const doc: ChatDocument = [
+      {
+        tag: "blockquote",
+        children: [{ tag: "p", children: [{ tag: "img", key: "in-bq" }] }],
+      },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: [{ tag: "p", children: [{ tag: "img", key: "in-ul" }] }],
+          },
+        ],
+      },
+      {
+        tag: "ol",
+        children: [
+          {
+            tag: "li",
+            children: [{ tag: "p", children: [{ tag: "img", key: "in-ol" }] }],
+          },
+        ],
+      },
+    ];
+    expect(collectImageKeysFromDoc(doc)).toEqual(["in-bq", "in-ul", "in-ol"]);
+  });
+
+  it("returns full image nodes via collectImageNodesFromDoc", () => {
+    const doc: ChatDocument = [
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "img",
+            key: "k1",
+            alt: "cat",
+            previewUrl: "blob:cat",
+            width: 100,
+            height: 50,
+            mimeType: "image/png",
+          },
+        ],
+      },
+    ];
+    expect(collectImageNodesFromDoc(doc)).toEqual([
+      {
+        tag: "img",
+        key: "k1",
+        alt: "cat",
+        previewUrl: "blob:cat",
+        width: 100,
+        height: 50,
+        mimeType: "image/png",
+      },
+    ]);
+  });
+
+  it("preserves both pending: and real keys (filtering is caller's job)", () => {
+    const doc: ChatDocument = [
+      {
+        tag: "p",
+        children: [
+          { tag: "img", key: "pending:abc" },
+          { tag: "img", key: "real-key" },
+        ],
+      },
+    ];
+    expect(collectImageKeysFromDoc(doc)).toEqual(["pending:abc", "real-key"]);
+  });
+});
+
+describe("buildChatSchema image node spec", () => {
+  it("has exactly one parseDOM rule (the data-val-ai-key one)", () => {
+    // Sanity: the old `img[src]` fallback minted stale pending: keys via
+    // Math.random() and was the source of the 404 "Session file(s) not found"
+    // bug. It has been removed. Paste/drop handlers fetch HTML <img src> and
+    // run them through insertImageWithUpload so a real key is always assigned.
+    const imageSpec = schema.nodes.image.spec;
+    const rules = imageSpec.parseDOM ?? [];
+    expect(rules).toHaveLength(1);
+    expect(rules[0].tag).toBe("img[data-val-ai-key]");
   });
 });

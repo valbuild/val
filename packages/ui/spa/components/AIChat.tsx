@@ -43,8 +43,16 @@ import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
-import type { ChatDocument, ChatEditorRef } from "./AIChatEditor";
-import { chatDocumentToPlainText } from "./AIChatEditor";
+import type {
+  ChatBlockNode,
+  ChatDocument,
+  ChatEditorRef,
+  ChatInlineNode,
+} from "./AIChatEditor";
+import {
+  chatDocumentToPlainText,
+  collectImageKeysFromDoc,
+} from "./AIChatEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,6 +84,12 @@ export type ChatMessage = {
   errorCode?: string;
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
+  /**
+   * For user messages composed in the rich editor, the original document so
+   * the bubble can render inline images / field refs without re-parsing HTML
+   * (which would lose `previewUrl`s for image nodes).
+   */
+  userDoc?: ChatDocument;
 };
 
 type AttachedFile = {
@@ -307,6 +321,126 @@ function renderUserMessageText(text: string): React.ReactNode {
   return <>{renderHtmlChildren(doc.body.childNodes)}</>;
 }
 
+// Render a ChatDocument from the rich editor directly to React. Used for
+// freshly-sent user messages so inline images keep their preview blob URLs
+// (re-parsing HTML would strip the previewUrl off image nodes).
+function ChatDocumentRenderer({
+  doc,
+}: {
+  doc: ChatDocument;
+}): React.ReactElement {
+  return <>{doc.map((block, i) => renderChatBlock(block, i))}</>;
+}
+
+function renderChatBlock(block: ChatBlockNode, key: number): React.ReactNode {
+  switch (block.tag) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {block.children.map((c, i) => renderChatBlock(c, i))}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ol>
+      );
+  }
+}
+
+function renderChatInline(node: ChatInlineNode, key: number): React.ReactNode {
+  if (typeof node === "string") return node;
+  if (node.tag === "br") return <br key={key} />;
+  if (node.tag === "span") {
+    let el: React.ReactNode = node.children[0];
+    for (const style of node.styles) {
+      if (style === "bold") el = <strong key={key}>{el}</strong>;
+      else if (style === "italic") el = <em key={key}>{el}</em>;
+      else if (style === "line-through") el = <del key={key}>{el}</del>;
+      else if (style === "code")
+        el = (
+          <code
+            key={key}
+            className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+          >
+            {el}
+          </code>
+        );
+    }
+    return <React.Fragment key={key}>{el}</React.Fragment>;
+  }
+  if (node.tag === "img") {
+    if (node.previewUrl) {
+      return (
+        <img
+          key={key}
+          src={node.previewUrl}
+          alt={node.alt ?? ""}
+          className="inline-block max-h-16 rounded border border-border-primary align-baseline mx-0.5"
+        />
+      );
+    }
+    return (
+      <span key={key} className="italic text-fg-secondary">
+        [{node.alt ? `image: ${node.alt}` : "image"}]
+      </span>
+    );
+  }
+  if (node.tag === "field_ref") {
+    return (
+      <span
+        key={key}
+        className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+      >
+        @{node.path}
+      </span>
+    );
+  }
+  return null;
+}
+
 function getImageUrls(content: AIMessageContent): string[] {
   if (typeof content === "string") {
     return [];
@@ -351,6 +485,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
   const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -588,6 +723,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       let outgoing: string | ChatDocument;
       let displayText: string;
+      let outgoingDoc: ChatDocument | undefined;
       if (suggestion !== undefined) {
         const trimmed = suggestion.trim();
         if (!trimmed) return;
@@ -597,7 +733,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         const editor = editorRef.current;
         if (!editor || editor.isEmpty()) return;
         const doc = editor.getDocument();
+        if (
+          collectImageKeysFromDoc(doc).some((k) => k.startsWith("pending:"))
+        ) {
+          // Image still uploading — Send button should already be disabled,
+          // but bail out defensively so a stale pending key never reaches the
+          // server (it would 404 when the AI tries to use it).
+          return;
+        }
         outgoing = doc;
+        outgoingDoc = doc;
         displayText = chatDocumentToPlainText(doc);
       }
 
@@ -626,6 +771,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         content: displayText,
         status: "complete",
         attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
+        userDoc: outgoingDoc,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
 
@@ -670,9 +816,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const retryText = getTextContent(errorMsg.content);
+        const retryPayload: string | ChatDocument =
+          errorMsg.userDoc ?? getTextContent(errorMsg.content);
         const sent = onSendMessage
-          ? onSendMessage(retryText, errorMsg.attachments)
+          ? onSendMessage(retryPayload, errorMsg.attachments)
           : true;
         if (!sent) {
           setCompletedMessages((prev) =>
@@ -700,11 +847,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
+      const retryPayload: string | ChatDocument =
+        prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
       const sent =
-        onSendMessage?.(
-          getTextContent(prevUserMsg.content),
-          prevUserMsg.attachments,
-        ) ?? true;
+        onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
       if (sent) setIsAwaitingAssistant(true);
     },
     [messages, onSendMessage],
@@ -968,6 +1114,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   doc[0].tag === "p" &&
                   doc[0].children.length === 0);
               setIsEditorEmpty(empty);
+              const keys = collectImageKeysFromDoc(doc);
+              setHasPendingInlineImage(
+                keys.some((k) => k.startsWith("pending:")),
+              );
             }}
             className={cn(
               "max-h-[18rem] overflow-y-auto px-3 py-2",
@@ -993,6 +1143,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 !isConnected ||
                 isStreaming ||
                 isUploading ||
+                hasPendingInlineImage ||
                 authError ||
                 isEditorEmpty
               }
@@ -1161,7 +1312,11 @@ function MessageBubble({
                 ))}
               </div>
             )}
-            {textContent && renderUserMessageText(textContent)}
+            {message.userDoc ? (
+              <ChatDocumentRenderer doc={message.userDoc} />
+            ) : (
+              textContent && renderUserMessageText(textContent)
+            )}
           </>
         ) : (
           <div

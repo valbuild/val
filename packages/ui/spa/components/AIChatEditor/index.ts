@@ -13,4 +13,8 @@ export { chatDocumentToHtmlText } from "./serialize/chatDocumentToHtmlText";
 export { chatDocumentToPlainText } from "./serialize/chatDocumentToPlainText";
 export { parseChatDocument } from "./serialize/parseChatDocument";
 export { serializeChatDocument } from "./serialize/serializeChatDocument";
+export {
+  collectImageKeysFromDoc,
+  collectImageNodesFromDoc,
+} from "./serialize/collectImageKeysFromDoc";
 export { buildChatSchema } from "./schema/buildChatSchema";

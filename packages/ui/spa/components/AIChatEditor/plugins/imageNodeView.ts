@@ -59,18 +59,34 @@ export function createChatImageNodeView() {
       ignoreMutation() {
         return true;
       },
-      destroy() {
-        const url = (node.attrs.previewUrl as string | null) ?? "";
-        if (url.startsWith("blob:")) {
-          try {
-            URL.revokeObjectURL(url);
-          } catch {
-            // ignore
-          }
-        }
-      },
+      // Note: we intentionally do NOT revoke the blob URL on destroy. Once the
+      // user sends the message, the URL is "transferred" to the user bubble in
+      // AIChat — clearing the editor must not invalidate it. Blob URLs are
+      // released when the page is reloaded.
     };
   };
+}
+
+/**
+ * Fetch a URL and wrap the response as a File so it can be uploaded via
+ * `insertImageWithUpload`. Used by the editor's paste/drop handlers when the
+ * payload is HTML containing an `<img src>` instead of a binary file.
+ * Returns null on CORS failures, non-2xx responses, or non-image content.
+ */
+export async function fetchUrlAsFile(
+  url: string,
+  fallbackName = "pasted-image",
+): Promise<File | null> {
+  try {
+    const res = await fetch(url, { credentials: "omit", mode: "cors" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) return null;
+    const ext = blob.type.split("/")[1] || "png";
+    return new File([blob], `${fallbackName}.${ext}`, { type: blob.type });
+  } catch {
+    return null;
+  }
 }
 
 /**

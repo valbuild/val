@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
 import type { ChatDocument } from "../components/AIChatEditor";
-import { chatDocumentToHtmlText } from "../components/AIChatEditor";
+import {
+  chatDocumentToHtmlText,
+  collectImageNodesFromDoc,
+} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -1340,9 +1343,31 @@ export function useAI(
       }
       const baseText =
         typeof content === "string" ? content : chatDocumentToHtmlText(content);
+      // Pull inline image nodes out of the rich document so their keys are
+      // registered as `image_key` content blocks (the protocol the server
+      // expects), not buried in the HTML text. Drop any still-pending keys —
+      // the editor should already block Send while uploads are in flight, but
+      // this is a defence-in-depth check.
+      const inlineImages =
+        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
+      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
+        .filter((n) => n.key && !n.key.startsWith("pending:"))
+        .map((n) => ({
+          key: n.key,
+          name: n.alt || "inline image",
+          mimeType: n.mimeType,
+          previewUrl: n.previewUrl,
+        }));
+      const mergedAttachments: ChatMessageAttachment[] = [];
+      const seenKeys = new Set<string>();
+      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
+        if (seenKeys.has(a.key)) continue;
+        seenKeys.add(a.key);
+        mergedAttachments.push(a);
+      }
       let augmentedText = baseText;
-      if (attachments && attachments.length > 0) {
-        const lines = attachments.map(
+      if (mergedAttachments.length > 0) {
+        const lines = mergedAttachments.map(
           (a) => `- ${a.name}: image_key="${a.key}"`,
         );
         augmentedText =
@@ -1354,10 +1379,10 @@ export function useAI(
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
-        ...(attachments?.map((attachment) => ({
+        ...mergedAttachments.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,
-        })) ?? []),
+        })),
       ];
       const message: AIPromptMessage = {
         type: "ai_prompt",

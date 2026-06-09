@@ -21,6 +21,7 @@ import { createSubmitOnEnterPlugin } from "./plugins/submitOnEnterPlugin";
 import { createChatFloatingToolbarPlugin } from "./plugins/floatingToolbar";
 import {
   createChatImageNodeView,
+  fetchUrlAsFile,
   insertImageWithUpload,
 } from "./plugins/imageNodeView";
 import { createFieldRefNodeView } from "./plugins/fieldRefNodeView";
@@ -43,6 +44,39 @@ function transformPastedHtml(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<meta[^>]*>/gi, "")
     .replace(/<o:p\b[^>]*>[\s\S]*?<\/o:p>/gi, "");
+}
+
+// Pull every <img src="..."> URL out of an HTML fragment, skipping any image
+// that already carries our `data-val-ai-key` attribute (those are round-trips
+// from our own editor and have a valid key already).
+function extractImageSrcsFromHtml(html: string | undefined | null): string[] {
+  if (!html) return [];
+  const doc = new DOMParser().parseFromString(
+    `<body>${html}</body>`,
+    "text/html",
+  );
+  const out: string[] = [];
+  doc.body.querySelectorAll("img").forEach((img) => {
+    if (img.hasAttribute("data-val-ai-key")) return;
+    const src = img.getAttribute("src");
+    if (src) out.push(src);
+  });
+  return out;
+}
+
+async function uploadHtmlImageSrcs(
+  view: EditorView,
+  srcs: string[],
+  upload: (file: File) => Promise<{ key: string }>,
+): Promise<void> {
+  for (const src of srcs) {
+    const file = await fetchUrlAsFile(src);
+    if (!file) {
+      console.warn("AI chat: skipped pasted image (fetch failed)", src);
+      continue;
+    }
+    insertImageWithUpload(view, file, upload);
+  }
 }
 
 export const AIChatEditor = forwardRef<ChatEditorRef | null, AIChatEditorProps>(
@@ -98,34 +132,55 @@ export const AIChatEditor = forwardRef<ChatEditorRef | null, AIChatEditorProps>(
         },
         transformPastedHTML: transformPastedHtml,
         handlePaste(view, event) {
-          const items = event.clipboardData?.items;
-          if (!items) return false;
           const upload = onUploadAiImageRef.current;
           if (!upload) return false;
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === "file" && item.type.startsWith("image/")) {
-              const file = item.getAsFile();
-              if (file) {
-                insertImageWithUpload(view, file, upload);
-                return true;
+          const items = event.clipboardData?.items;
+          if (items) {
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              if (item.kind === "file" && item.type.startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) {
+                  insertImageWithUpload(view, file, upload);
+                  return true;
+                }
               }
             }
+          }
+          // No binary image in the clipboard. If the HTML payload contains an
+          // <img src=...> from a web page, fetch + upload it through the same
+          // pipeline so we never leave a stale pending: key in the doc.
+          const html = event.clipboardData?.getData("text/html");
+          const srcs = extractImageSrcsFromHtml(html);
+          if (srcs.length > 0) {
+            uploadHtmlImageSrcs(view, srcs, upload);
+            return true;
           }
           return false;
         },
         handleDrop(view, event) {
           const upload = onUploadAiImageRef.current;
           if (!upload) return false;
-          const files = (event as DragEvent).dataTransfer?.files;
-          if (!files || files.length === 0) return false;
-          const file = Array.from(files).find((f) =>
-            f.type.startsWith("image/"),
-          );
-          if (!file) return false;
-          event.preventDefault();
-          insertImageWithUpload(view, file, upload);
-          return true;
+          const dt = (event as DragEvent).dataTransfer;
+          const files = dt?.files;
+          if (files && files.length > 0) {
+            const file = Array.from(files).find((f) =>
+              f.type.startsWith("image/"),
+            );
+            if (file) {
+              event.preventDefault();
+              insertImageWithUpload(view, file, upload);
+              return true;
+            }
+          }
+          const html = dt?.getData("text/html");
+          const srcs = extractImageSrcsFromHtml(html);
+          if (srcs.length > 0) {
+            event.preventDefault();
+            uploadHtmlImageSrcs(view, srcs, upload);
+            return true;
+          }
+          return false;
         },
         dispatchTransaction(tr) {
           const next = view.state.apply(tr);

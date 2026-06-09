@@ -114,18 +114,6 @@ function buildNodes(): Record<string, NodeSpec> {
             };
           },
         },
-        {
-          tag: "img[src]",
-          getAttrs(dom) {
-            const el = dom as HTMLElement;
-            // Pasted/dropped images without a key: mark for re-upload.
-            return {
-              key: `pending:${Math.random().toString(36).slice(2)}`,
-              alt: el.getAttribute("alt"),
-              previewUrl: el.getAttribute("src"),
-            };
-          },
-        },
       ],
       toDOM(node) {
         return [
