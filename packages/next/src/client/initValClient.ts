@@ -40,12 +40,13 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
           return;
         },
   );
-  // Suspense (Val-enabled branch only). The gate is `enabled` (the VAL_ENABLE
-  // cookie), not `draftMode`: `enabled` is stable for the lifetime of the page
-  // whereas `draftMode` is polled and can change, and we must not start/stop
-  // suspending across renders. The production path (Val not enabled) skips the
-  // call entirely. React.use is allowed inside conditionals — it is not a hook.
-  if (valOverlayContext.enabled && store && !store.hasAllLoaded(moduleIds)) {
+  // Suspense gate. We key off `suspend` (forwarded from ValProvider's prop,
+  // typically `await isValEnabled()`), not `draftMode`: `suspend` is stable
+  // for the lifetime of the page whereas `draftMode` is polled and can change,
+  // and we must not start/stop suspending across renders. The production path
+  // (Val disabled) skips the call entirely. React.use is allowed inside
+  // conditionals — it is not a hook.
+  if (valOverlayContext.suspend && store && !store.hasAllLoaded(moduleIds)) {
     React.use(store.waitForLoad(moduleIds));
   }
   return stegaEncode(selector, {
@@ -74,6 +75,16 @@ function resolveParams(
     return null;
   }
   if ("then" in params) {
+    // Defensive guard: peerDependencies declare React >=19, but if a consumer
+    // somehow ends up on React 18 with a promise params arg, surface a
+    // diagnosable error instead of a cryptic `TypeError: React.use is not a
+    // function`. Callers treat null as the error sentinel.
+    if (!("use" in React)) {
+      console.error(
+        "Val: useValRoute received a Promise params argument but React.use is unavailable. Upgrade to React 19+ or pre-resolve the promise before passing it.",
+      );
+      return null;
+    }
     return React.use(params as Promise<Record<string, string | string[]>>);
   }
   return params;

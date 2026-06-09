@@ -1,5 +1,5 @@
 ---
-"@valbuild/next": patch
+"@valbuild/next": minor
 ---
 
 Add Suspense support to draft-mode client hooks: `useValStega` now suspends until the required module data has loaded, instead of rendering published/empty content first. Backed by the new `ValExternalStore.hasAllLoaded` / `waitForLoad` methods. Requires React 19+ (`React.use` is used internally).

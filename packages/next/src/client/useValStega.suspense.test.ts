@@ -1,6 +1,7 @@
 /**
- * @jest-environment ./jest-environment.mjs
+ * @jest-environment jsdom
  */
+import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
 
@@ -9,30 +10,32 @@ import { act, render, screen } from "@testing-library/react";
 // React.use available so the integration test still exercises the real Suspense flow.
 // When the monorepo eventually upgrades to React 19, delete this block.
 if (!("use" in React)) {
-  type Entry<T> = { status: "pending" | "resolved" | "rejected"; result?: T };
-  const cache = new WeakMap<Promise<unknown>, Entry<unknown>>();
-  (React as Record<string, unknown>).use = function use<T>(
-    promise: Promise<T>,
-  ): T {
-    let entry = cache.get(promise as Promise<unknown>) as Entry<T> | undefined;
+  type Entry = {
+    status: "pending" | "resolved" | "rejected";
+    result?: unknown;
+  };
+  const cache = new WeakMap<Promise<unknown>, Entry>();
+  Reflect.set(React, "use", function use<T>(promise: Promise<T>): T {
+    let entry = cache.get(promise);
     if (!entry) {
-      entry = { status: "pending" };
-      cache.set(promise as Promise<unknown>, entry as Entry<unknown>);
+      const newEntry: Entry = { status: "pending" };
+      entry = newEntry;
+      cache.set(promise, newEntry);
       promise.then(
         (v) => {
-          (entry as Entry<T>).status = "resolved";
-          (entry as Entry<T>).result = v;
+          newEntry.status = "resolved";
+          newEntry.result = v;
         },
         (e) => {
-          (entry as Entry<T>).status = "rejected";
-          (entry as Entry<T>).result = e;
+          newEntry.status = "rejected";
+          newEntry.result = e;
         },
       );
     }
     if (entry.status === "resolved") return entry.result as T;
     if (entry.status === "rejected") throw entry.result;
     throw promise; // pending: React 18 Suspense catches the thrown promise
-  };
+  });
 }
 import { initVal, ModuleFilePath } from "@valbuild/core";
 import { initValClient } from "./initValClient";
@@ -49,10 +52,10 @@ function Show() {
   return React.createElement("span", { "data-testid": "val" }, val);
 }
 
-function tree(store: ValExternalStore, enabled: boolean) {
+function tree(store: ValExternalStore, suspend: boolean) {
   return React.createElement(ValOverlayProvider, {
     store,
-    enabled,
+    suspend,
     draftMode: true,
     children: React.createElement(React.Suspense, {
       fallback: React.createElement(

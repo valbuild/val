@@ -10,7 +10,6 @@ import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "@valbuild/react/stega";
-import { cookies } from "next/headers";
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 const externalPageRouter: ValRouter = Internal.externalPageRouter;
@@ -22,6 +21,11 @@ const externalPageRouter: ValRouter = Internal.externalPageRouter;
  */
 async function isValEnabled(): Promise<boolean> {
   try {
+    // Dynamic import so the top-level `@valbuild/next` entry doesn't pull
+    // `next/headers` into client bundles or the pages/ directory (both of
+    // which break Next's build). Resolved only when this fn is actually
+    // called, which must be from an RSC / Server Action / Route Handler.
+    const { cookies } = await import("next/headers");
     const cookieStore = await cookies();
     return cookieStore.get(Internal.VAL_ENABLE_COOKIE_NAME)?.value === "true";
   } catch {

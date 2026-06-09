@@ -360,7 +360,7 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider
       draftMode={draftMode}
-      enabled={!!props.suspend}
+      suspend={!!props.suspend}
       store={valStore}
     >
       {props.children}
