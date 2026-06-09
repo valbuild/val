@@ -20,6 +20,9 @@ import {
 import React, {
   Dispatch,
   SetStateAction,
+  createContext,
+  useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -45,7 +48,7 @@ import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
-import { urlOf } from "@valbuild/shared/internal";
+import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
@@ -68,6 +71,7 @@ import { HoverCardArrow } from "@radix-ui/react-hover-card";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -75,6 +79,23 @@ export type ValOverlayProps = {
   setDraftMode: (draftMode: boolean) => void;
   disableOverlay: () => void;
 };
+
+/**
+ * Holds the overlay's "born" AI chat session id so that the studio-link
+ * sites (top menu, WindowField) can append `?session=` to their hrefs.
+ * Null until the user has actually used the chat (sent a message or
+ * uploaded an attachment) — matches the unborn/born model in useAI.
+ */
+const OverlaySessionContext = createContext<{
+  bornSessionId: string | null;
+  setBornSessionId: (id: string | null) => void;
+}>({ bornSessionId: null, setBornSessionId: () => {} });
+
+function appendSessionParam(base: string, sid: string | null): string {
+  if (!sid) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}session=${encodeURIComponent(sid)}`;
+}
 
 type ValMenuProps = ValOverlayProps & {
   setMode: Dispatch<SetStateAction<OverlayModes>>;
@@ -151,6 +172,26 @@ export function ValOverlay(props: ValOverlayProps) {
     }>
   >([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  // The overlay's "born" chat session id is mirrored to sessionStorage so it
+  // survives a host page reload and so other consumers (e.g. studio links
+  // generated from inside the overlay) keep working after reload.
+  const [bornSessionId, setBornSessionIdState] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(VAL_AI_SESSION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const setBornSessionId = useCallback((id: string | null) => {
+    setBornSessionIdState(id);
+    try {
+      if (id == null) sessionStorage.removeItem(VAL_AI_SESSION_STORAGE_KEY);
+      else sessionStorage.setItem(VAL_AI_SESSION_STORAGE_KEY, id);
+    } catch {
+      // sessionStorage may be disabled (private mode, quota) — fall back to
+      // React-state-only behavior.
+    }
+  }, []);
   useEffect(() => {
     if (!props.draftMode) {
       setMode(null);
@@ -341,67 +382,31 @@ export function ValOverlay(props: ValOverlayProps) {
   };
 
   return (
-    <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
-      <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
-      {boundingBox && (
-        <div
-          className={cn(
-            "absolute z-[8998]",
-            "cursor-pointer",
-            "rounded-sm",
-            "transition-all duration-150 ease-in-out",
-            "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
-          )}
-          style={maxRect(
-            {
-              top: boundingBox.top,
-              left: boundingBox.left,
-              width: boundingBox.width,
-              height: boundingBox.height,
-            },
-            {
-              top: window.scrollY,
-              left: window.scrollX,
-              width: window.innerWidth,
-              height: window.innerHeight,
-            },
-            2,
-          )}
-          onClick={(ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            setBoundingBox(null);
-            setEditMode({
-              joinedPaths: boundingBox.joinedPaths,
-              clientX: boundingBox.left,
-              clientY: boundingBox.top,
-              boundingBox: {
+    <OverlaySessionContext.Provider value={{ bornSessionId, setBornSessionId }}>
+      <div
+        {...(theme ? { "data-mode": theme } : {})}
+        id="val-overlay-container"
+      >
+        <Window
+          editMode={editMode}
+          setMode={setMode}
+          setEditMode={setEditMode}
+        />
+        {boundingBox && (
+          <div
+            className={cn(
+              "absolute z-[8998]",
+              "cursor-pointer",
+              "rounded-sm",
+              "transition-all duration-150 ease-in-out",
+              "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
+            )}
+            style={maxRect(
+              {
                 top: boundingBox.top,
                 left: boundingBox.left,
                 width: boundingBox.width,
                 height: boundingBox.height,
-              },
-            });
-          }}
-        ></div>
-      )}
-      {showAllBoundingBoxes &&
-        allBoundingBoxes.map((box, index) => (
-          <div
-            key={`${box.joinedPaths}-${index}`}
-            className={cn(
-              "absolute z-[8997] pointer-events-none",
-              "rounded-sm",
-              "border-2 border-bg-brand-primary",
-              "transition-opacity duration-200 ease-out",
-              allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
-            )}
-            style={maxRect(
-              {
-                top: box.top,
-                left: box.left,
-                width: box.width,
-                height: box.height,
               },
               {
                 top: window.scrollY,
@@ -411,29 +416,75 @@ export function ValOverlay(props: ValOverlayProps) {
               },
               2,
             )}
-          />
-        ))}
-      <ChatWindow
-        isOpen={isChatOpen && props.draftMode}
-        onClose={() => setIsChatOpen(false)}
-      />
-      {editMode === null && (
-        <DraggableValMenu
-          {...props}
-          mode={mode}
-          setMode={setMode}
-          loading={theme === null}
-          dropZone={dropZone}
-          setDropZone={setDropZone}
-          findAllValPathElements={findAllValPathElements}
-          setAllBoundingBoxes={setAllBoundingBoxes}
-          setShowAllBoundingBoxes={setShowAllBoundingBoxes}
-          setAllBoundingBoxesVisible={setAllBoundingBoxesVisible}
-          isChatOpen={isChatOpen}
-          setIsChatOpen={setIsChatOpen}
+            onClick={(ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              setBoundingBox(null);
+              setEditMode({
+                joinedPaths: boundingBox.joinedPaths,
+                clientX: boundingBox.left,
+                clientY: boundingBox.top,
+                boundingBox: {
+                  top: boundingBox.top,
+                  left: boundingBox.left,
+                  width: boundingBox.width,
+                  height: boundingBox.height,
+                },
+              });
+            }}
+          ></div>
+        )}
+        {showAllBoundingBoxes &&
+          allBoundingBoxes.map((box, index) => (
+            <div
+              key={`${box.joinedPaths}-${index}`}
+              className={cn(
+                "absolute z-[8997] pointer-events-none",
+                "rounded-sm",
+                "border-2 border-bg-brand-primary",
+                "transition-opacity duration-200 ease-out",
+                allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
+              )}
+              style={maxRect(
+                {
+                  top: box.top,
+                  left: box.left,
+                  width: box.width,
+                  height: box.height,
+                },
+                {
+                  top: window.scrollY,
+                  left: window.scrollX,
+                  width: window.innerWidth,
+                  height: window.innerHeight,
+                },
+                2,
+              )}
+            />
+          ))}
+        <ChatWindow
+          isOpen={isChatOpen && props.draftMode}
+          onClose={() => setIsChatOpen(false)}
+          onOpen={() => setIsChatOpen(true)}
         />
-      )}
-    </div>
+        {editMode === null && (
+          <DraggableValMenu
+            {...props}
+            mode={mode}
+            setMode={setMode}
+            loading={theme === null}
+            dropZone={dropZone}
+            setDropZone={setDropZone}
+            findAllValPathElements={findAllValPathElements}
+            setAllBoundingBoxes={setAllBoundingBoxes}
+            setShowAllBoundingBoxes={setShowAllBoundingBoxes}
+            setAllBoundingBoxesVisible={setAllBoundingBoxesVisible}
+            isChatOpen={isChatOpen}
+            setIsChatOpen={setIsChatOpen}
+          />
+        )}
+      </div>
+    </OverlaySessionContext.Provider>
   );
 }
 
@@ -446,6 +497,7 @@ function Window({
   setMode: Dispatch<SetStateAction<OverlayModes>>;
   setEditMode: Dispatch<SetStateAction<EditMode | null>>;
 }) {
+  const { bornSessionId } = useContext(OverlaySessionContext);
   // place outside viewport initially
   const [windowPos, setWindowPos] = useState({
     x: window.innerWidth,
@@ -757,11 +809,14 @@ function Window({
                 Internal.splitJoinedSourcePaths(editMode.joinedPaths).length ===
                   1 && (
                   <a
-                    href={
+                    href={appendSessionParam(
                       window.origin +
-                      "/val/~" +
-                      Internal.splitJoinedSourcePaths(editMode.joinedPaths)[0]
-                    }
+                        "/val/~" +
+                        Internal.splitJoinedSourcePaths(
+                          editMode.joinedPaths,
+                        )[0],
+                      bornSessionId,
+                    )}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
                   >
                     <ExternalLink size={16} />
@@ -827,11 +882,24 @@ function Window({
 function ChatWindow({
   isOpen,
   onClose,
+  onOpen,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onOpen: () => void;
 }) {
   const chatRef = useRef<AIChatHandle | null>(null);
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  useEffect(() => {
+    setOpenAIChatImpl(onOpen);
+    return () => setOpenAIChatImpl(null);
+  }, [onOpen, setOpenAIChatImpl]);
+  const { bornSessionId, setBornSessionId } = useContext(OverlaySessionContext);
+  // Capture the seeded-from-sessionStorage value once so later state changes
+  // don't re-trigger useAI's mount-load effect. This is how a user coming
+  // back from the studio (with an active session) sees the chat rehydrate
+  // in the overlay.
+  const initialBornSessionIdRef = useRef(bornSessionId);
   const {
     sendMessage,
     uploadAiImage,
@@ -843,7 +911,12 @@ function ChatWindow({
     getSessions,
     setSessionName,
     loadSession,
-  } = useAI(chatRef);
+    isLoadingSession,
+  } = useAI(chatRef, {
+    initialSessionId: initialBornSessionIdRef.current,
+    onSessionBorn: setBornSessionId,
+    onSessionCleared: () => setBornSessionId(null),
+  });
   const mode = useValMode();
   const [windowPos, setWindowPos] = useState({
     x: Math.max(20, window.innerWidth - 570),
@@ -1002,6 +1075,7 @@ function ChatWindow({
         <div className="flex-1 overflow-hidden">
           <AIChat
             ref={chatRef}
+            chatEditorRef={chatEditorRef}
             onSendMessage={sendMessage}
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
@@ -1013,6 +1087,7 @@ function ChatWindow({
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            isLoadingSession={isLoadingSession}
           />
         </div>
         {!isMobile && (
@@ -1073,7 +1148,11 @@ function WindowField({
   showInlineStudioLink: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
-  const studioUrl = window.origin + "/val/~" + path;
+  const { bornSessionId } = useContext(OverlaySessionContext);
+  const studioUrl = appendSessionParam(
+    window.origin + "/val/~" + path,
+    bornSessionId,
+  );
 
   if (schemaAtPath.status === "error") {
     return (
@@ -1211,6 +1290,7 @@ function ValMenu({
   dropZone: DropZones;
   ghost?: boolean;
 } & ValMenuProps) {
+  const { bornSessionId } = useContext(OverlaySessionContext);
   const dir =
     dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
       ? "vertical"
@@ -1381,7 +1461,10 @@ function ValMenu({
           <HoverCard>
             <HoverCardTrigger className="inline-flex" asChild>
               <MenuButton
-                href={window.origin + "/val/compare"}
+                href={appendSessionParam(
+                  window.origin + "/val/compare",
+                  bornSessionId,
+                )}
                 icon={
                   <div className="relative">
                     {patchIds.length > 0 && (
@@ -1455,14 +1538,15 @@ function ValMenu({
                     <PanelsTopLeft size={16} />
                   )
                 }
-                href={
+                href={appendSessionParam(
                   window.origin +
-                  "/val/~" +
-                  (sourcePathResult.status === "success" &&
-                  sourcePathResult.data
-                    ? sourcePathResult.data
-                    : "")
-                }
+                    "/val/~" +
+                    (sourcePathResult.status === "success" &&
+                    sourcePathResult.data
+                      ? sourcePathResult.data
+                      : ""),
+                  bornSessionId,
+                )}
               />
             </HoverCardTrigger>
             <HoverCardContent
@@ -1576,13 +1660,14 @@ function ValMenu({
                 <PanelsTopLeft size={16} />
               )
             }
-            href={
+            href={appendSessionParam(
               window.origin +
-              "/val/~" +
-              (sourcePathResult.status === "success" && sourcePathResult.data
-                ? sourcePathResult.data
-                : "")
-            }
+                "/val/~" +
+                (sourcePathResult.status === "success" && sourcePathResult.data
+                  ? sourcePathResult.data
+                  : ""),
+              bornSessionId,
+            )}
           />
           <MenuButton
             label="Disable Val"

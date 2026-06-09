@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AIChatHandle, ChatMessageAttachment } from "../components/AIChat";
+import type { ChatDocument } from "../components/AIChatEditor";
+import {
+  chatDocumentToHtmlText,
+  collectImageNodesFromDoc,
+} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -18,7 +23,6 @@ import type {
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
-import { getRecentSession } from "./useAIWebSocket";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -338,7 +342,19 @@ const ALL_TOOLS: AITool[] = [
   SHOW_COMPARE_VIEW_TOOL,
 ];
 
-export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
+export type UseAIOptions = {
+  /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
+  initialSessionId?: string | null;
+  /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
+  onSessionBorn?: (id: string) => void;
+  /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
+  onSessionCleared?: () => void;
+};
+
+export function useAI(
+  chatRef: React.RefObject<AIChatHandle | null>,
+  opts?: UseAIOptions,
+) {
   const {
     subscribeToWsMessages,
     sendWsMessage,
@@ -359,11 +375,17 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string>(() =>
-    crypto.randomUUID(),
-  );
-  const sessionIdRef = useRef<string>(currentSessionId);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  // Keep callbacks in a ref so we don't have to thread them through every useCallback dep array.
+  const onSessionBornRef = useRef(opts?.onSessionBorn);
+  const onSessionClearedRef = useRef(opts?.onSessionCleared);
+  useEffect(() => {
+    onSessionBornRef.current = opts?.onSessionBorn;
+    onSessionClearedRef.current = opts?.onSessionCleared;
+  });
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
@@ -1154,12 +1176,22 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         } else if (message.name === "set_session_name") {
           const args = message.arguments as { name: string };
           const name = String(args.name ?? "").slice(0, 60);
-          aiSetSessionName(sessionIdRef.current, name)
+          const sid = sessionIdRef.current;
+          if (sid == null) {
+            // Defensive: tool calls only run for an active session.
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error: "No active session." },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          aiSetSessionName(sid, name)
             .then(() => {
               setSessions((prev) =>
-                prev.map((s) =>
-                  s.id === sessionIdRef.current ? { ...s, name } : s,
-                ),
+                prev.map((s) => (s.id === sid ? { ...s, name } : s)),
               );
               sendWsMessage({
                 type: "ai_tool_result",
@@ -1249,6 +1281,15 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           "Cannot upload AI image: content host is not configured. Set the `project` option in val.config (or VAL_PROJECT) and ensure a personal access token is available.",
         );
       }
+      // Uploading an image attaches binary data to the session on the server,
+      // so it counts as "using" the session — mint the id now if still unborn.
+      let sid = sessionIdRef.current;
+      const wasUnborn = sid == null;
+      if (sid == null) {
+        sid = crypto.randomUUID();
+        sessionIdRef.current = sid;
+        setCurrentSessionId(sid);
+      }
       const headers: Record<string, string> = {
         "Content-Type": file.type || "application/octet-stream",
         "Content-Length": String(file.size),
@@ -1257,7 +1298,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         headers["x-val-auth-nonce"] = contentAuthNonce;
       }
       const queryParams = new URLSearchParams();
-      queryParams.set("sessionid", encodeURIComponent(sessionIdRef.current));
+      queryParams.set("sessionid", encodeURIComponent(sid));
       queryParams.set("width", encodeURIComponent(readRes.width || 0));
       queryParams.set("height", encodeURIComponent(readRes.height || 0));
       queryParams.set(
@@ -1278,20 +1319,59 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
       }
       const body = (await res.json()) as { key: string };
+      if (wasUnborn) {
+        onSessionBornRef.current?.(sid);
+      }
       return body;
     },
     [getDirectFileUploadSettings],
   );
 
   const sendMessage = useCallback(
-    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
-      let augmentedText = text;
-      if (attachments && attachments.length > 0) {
-        const lines = attachments.map(
+    (
+      content: string | ChatDocument,
+      attachments?: ChatMessageAttachment[],
+    ): boolean => {
+      // Lazily mint the session id on the first send so unborn sessions don't
+      // appear in the URL or on the server until the user actually says something.
+      let sid = sessionIdRef.current;
+      const wasUnborn = sid == null;
+      if (sid == null) {
+        sid = crypto.randomUUID();
+        sessionIdRef.current = sid;
+        setCurrentSessionId(sid);
+      }
+      const baseText =
+        typeof content === "string" ? content : chatDocumentToHtmlText(content);
+      // Pull inline image nodes out of the rich document so their keys are
+      // registered as `image_key` content blocks (the protocol the server
+      // expects), not buried in the HTML text. Drop any still-pending keys —
+      // the editor should already block Send while uploads are in flight, but
+      // this is a defence-in-depth check.
+      const inlineImages =
+        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
+      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
+        .filter((n) => n.key && !n.key.startsWith("pending:"))
+        .map((n) => ({
+          key: n.key,
+          name: n.alt || "inline image",
+          mimeType: n.mimeType,
+          previewUrl: n.previewUrl,
+        }));
+      const mergedAttachments: ChatMessageAttachment[] = [];
+      const seenKeys = new Set<string>();
+      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
+        if (seenKeys.has(a.key)) continue;
+        seenKeys.add(a.key);
+        mergedAttachments.push(a);
+      }
+      let augmentedText = baseText;
+      if (mergedAttachments.length > 0) {
+        const lines = mergedAttachments.map(
           (a) => `- ${a.name}: image_key="${a.key}"`,
         );
         augmentedText =
-          text +
+          baseText +
           "\n\n[Attached images — when calling convert_session_image_to_patch, " +
           "use the exact image_key string from this list (NOT any vision-system file id):\n" +
           lines.join("\n") +
@@ -1299,15 +1379,15 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
-        ...(attachments?.map((attachment) => ({
+        ...mergedAttachments.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,
-        })) ?? []),
+        })),
       ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
-        sessionId: sessionIdRef.current,
+        sessionId: sid,
         id: crypto.randomUUID(),
         agents: [
           {
@@ -1317,6 +1397,16 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+
+## User message format (HTML-esque rich text)
+The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
+- Block tags: <p>, <h1>, <h2>, <h3>, <blockquote>, <ul>, <ol>, <li>.
+- Inline marks: <strong>, <em>, <del>, <code>.
+- Line break: <br/>.
+- Non-standard self-closing tags:
+  - <field path="..."/>: the user explicitly pointed at this Val source path. Treat it as if they typed and named that path; when relevant, call get_source on the corresponding module to read the current value and reference the field by its friendly name in your reply.
+  - <img key="..."/>: an inline image attached by the user. The key is the same as an image_key content block — use it with convert_session_image_to_patch / add_session_image_to_gallery as you would any other session image. Do not try to fetch the URL of an inline image.
+Plain user messages without tags should be treated as plain text.
 
 ## Understanding where user is
 If the get_current_context pathname starts with /val, the user is in the Val Studio. 
@@ -1389,16 +1479,22 @@ Do not describe what you will do unless you do it for clarification — just do 
           },
         ],
       };
-      return sendWsMessage(message);
+      const sent = sendWsMessage(message);
+      // Notify the session was "born" only after a successful send so a failed
+      // first send doesn't leak an empty session id into the URL.
+      if (sent && wasUnborn) {
+        onSessionBornRef.current?.(sid);
+      }
+      return sent;
     },
     [sendWsMessage],
   );
 
   const newSession = useCallback(() => {
-    const id = crypto.randomUUID();
-    sessionIdRef.current = id;
-    setCurrentSessionId(id);
+    sessionIdRef.current = null;
+    setCurrentSessionId(null);
     chatRef.current?.clearMessages();
+    onSessionClearedRef.current?.();
   }, [chatRef]);
 
   const getSessions = useCallback(
@@ -1428,6 +1524,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
       chatRef.current?.clearMessages();
+      setIsLoadingSession(true);
       try {
         const res = await aiGetSessionMessages(sessionId);
         const messages = res.messages
@@ -1439,35 +1536,38 @@ Do not describe what you will do unless you do it for clarification — just do 
             status: "complete" as const,
           }));
         chatRef.current?.loadMessages(messages);
+        onSessionBornRef.current?.(sessionId);
       } catch (err) {
-        console.error("Failed to load session messages:", err);
+        console.warn("Failed to load session messages, clearing:", err);
+        sessionIdRef.current = null;
+        setCurrentSessionId(null);
+        chatRef.current?.clearMessages();
+        onSessionClearedRef.current?.();
+      } finally {
+        setIsLoadingSession(false);
       }
     },
     [chatRef, aiGetSessionMessages],
   );
 
-  // On mount, restore the most recent session if it was used within the last 24 hours
+  // On mount, populate the sessions dropdown and (if an initial session id was
+  // passed in, e.g. from ?session= in the URL) load it. Intentional: this runs
+  // only once — popstate / URL changes after mount must NOT hijack the user's
+  // open chat, so we capture initialSessionId via opts only on the first render.
+  const initialSessionIdRef = useRef(opts?.initialSessionId ?? null);
   useEffect(() => {
     if (!isChatEnabled) return;
-    let cancelled = false;
-    getSessions({ limit: 1 })
-      .then((fetchedSessions) => {
-        if (cancelled) return;
-        const session = getRecentSession(fetchedSessions);
-        if (session) return loadSession(session.id);
-      })
-      .catch((err) => {
-        console.error("Failed to restore last session:", err);
-      });
-    return () => {
-      cancelled = true;
-    };
+    getSessions({ limit: 1 }).catch(() => {});
+    if (initialSessionIdRef.current != null) {
+      loadSession(initialSessionIdRef.current);
+    }
   }, [isChatEnabled]);
 
   return {
     sendMessage,
     uploadAiImage,
     isStreaming,
+    isLoadingSession,
     isConnected: isWsConnected,
     authError: aiAuthError,
     newSession,

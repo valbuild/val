@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useImperativeHandle,
   forwardRef,
+  type RefObject,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -14,7 +15,6 @@ import {
   Send,
   RotateCcw,
   Sparkles,
-  Check,
   Loader2,
   LogIn,
   Search,
@@ -38,9 +38,21 @@ import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
+import { AIChatEditor } from "./AIChatEditor";
+import type {
+  ChatBlockNode,
+  ChatDocument,
+  ChatEditorRef,
+  ChatInlineNode,
+} from "./AIChatEditor";
+import {
+  chatDocumentToPlainText,
+  collectImageKeysFromDoc,
+} from "./AIChatEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +84,12 @@ export type ChatMessage = {
   errorCode?: string;
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
+  /**
+   * For user messages composed in the rich editor, the original document so
+   * the bubble can render inline images / field refs without re-parsing HTML
+   * (which would lose `previewUrl`s for image nodes).
+   */
+  userDoc?: ChatDocument;
 };
 
 type AttachedFile = {
@@ -115,11 +133,13 @@ export type AIChatHandle = {
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
-    text: string,
+    content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
   ) => boolean;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
+  /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
+  chatEditorRef?: RefObject<ChatEditorRef | null>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
@@ -134,14 +154,16 @@ export type AIChatProps = {
   mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
   sessions?: AISession[];
-  /** The currently active session ID */
-  currentSessionId?: string;
+  /** The currently active session ID; null when the session is unborn (no message sent yet). */
+  currentSessionId?: string | null;
   /** Called to load a previous session */
   onLoadSession?: (sessionId: string) => void;
   /** Called to trigger a sessions fetch */
   onFetchSessions?: () => void;
   /** Called to rename a session */
   onSetSessionName?: (sessionId: string, name: string) => void;
+  /** True while a previous session's messages are being fetched from the server. */
+  isLoadingSession?: boolean;
   /**
    * @internal – seed messages for Storybook / testing only.
    * Not part of the public API.
@@ -181,6 +203,244 @@ function getTextContent(content: AIMessageContent): string {
     .join("\n\n");
 }
 
+// HTML-esque tag set that the rich chat editor produces (see
+// chatDocumentToHtmlText). Restored sessions arrive as strings containing
+// these tags, so we re-render them as formatted React instead of literal text.
+const USER_HTML_TAG_RE =
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|em|del|code|br|img|field)\b/i;
+
+function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
+  return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
+}
+
+function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
+  if (node.nodeType === 3 /* TEXT_NODE */) return node.nodeValue ?? "";
+  if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
+  const el = node as Element;
+  const children = renderHtmlChildren(el.childNodes);
+  switch (el.tagName.toLowerCase()) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {children}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {children}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {children}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {children}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {children}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {children}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {children}
+        </ol>
+      );
+    case "li":
+      return <li key={key}>{children}</li>;
+    case "strong":
+    case "b":
+      return <strong key={key}>{children}</strong>;
+    case "em":
+    case "i":
+      return <em key={key}>{children}</em>;
+    case "del":
+    case "s":
+      return <del key={key}>{children}</del>;
+    case "code":
+      return (
+        <code
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+        >
+          {children}
+        </code>
+      );
+    case "br":
+      return <br key={key} />;
+    case "img": {
+      const alt = el.getAttribute("alt");
+      return (
+        <span key={key} className="italic text-fg-secondary">
+          [{alt ? `image: ${alt}` : "image"}]
+        </span>
+      );
+    }
+    case "field": {
+      const path = el.getAttribute("path") ?? "";
+      return (
+        <span
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+        >
+          @{path}
+        </span>
+      );
+    }
+    default:
+      return <>{children}</>;
+  }
+}
+
+function renderUserMessageText(text: string): React.ReactNode {
+  if (!USER_HTML_TAG_RE.test(text)) {
+    return <p className="whitespace-pre-wrap">{text}</p>;
+  }
+  const doc = new DOMParser().parseFromString(
+    `<body>${text}</body>`,
+    "text/html",
+  );
+  return <>{renderHtmlChildren(doc.body.childNodes)}</>;
+}
+
+// Render a ChatDocument from the rich editor directly to React. Used for
+// freshly-sent user messages so inline images keep their preview blob URLs
+// (re-parsing HTML would strip the previewUrl off image nodes).
+function ChatDocumentRenderer({
+  doc,
+}: {
+  doc: ChatDocument;
+}): React.ReactElement {
+  return <>{doc.map((block, i) => renderChatBlock(block, i))}</>;
+}
+
+function renderChatBlock(block: ChatBlockNode, key: number): React.ReactNode {
+  switch (block.tag) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {block.children.map((c, i) => renderChatBlock(c, i))}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ol>
+      );
+  }
+}
+
+function renderChatInline(node: ChatInlineNode, key: number): React.ReactNode {
+  if (typeof node === "string") return node;
+  if (node.tag === "br") return <br key={key} />;
+  if (node.tag === "span") {
+    let el: React.ReactNode = node.children[0];
+    for (const style of node.styles) {
+      if (style === "bold") el = <strong key={key}>{el}</strong>;
+      else if (style === "italic") el = <em key={key}>{el}</em>;
+      else if (style === "line-through") el = <del key={key}>{el}</del>;
+      else if (style === "code")
+        el = (
+          <code
+            key={key}
+            className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+          >
+            {el}
+          </code>
+        );
+    }
+    return <React.Fragment key={key}>{el}</React.Fragment>;
+  }
+  if (node.tag === "img") {
+    if (node.previewUrl) {
+      return (
+        <img
+          key={key}
+          src={node.previewUrl}
+          alt={node.alt ?? ""}
+          className="inline-block max-h-16 rounded border border-border-primary align-baseline mx-0.5"
+        />
+      );
+    }
+    return (
+      <span key={key} className="italic text-fg-secondary">
+        [{node.alt ? `image: ${node.alt}` : "image"}]
+      </span>
+    );
+  }
+  if (node.tag === "field_ref") {
+    return (
+      <span
+        key={key}
+        className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+      >
+        @{node.path}
+      </span>
+    );
+  }
+  return null;
+}
+
 function getImageUrls(content: AIMessageContent): string[] {
   if (typeof content === "string") {
     return [];
@@ -212,7 +472,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onLoadSession,
     onFetchSessions,
     onSetSessionName,
+    isLoadingSession,
     initialMessages,
+    chatEditorRef: chatEditorRefProp,
   },
   ref,
 ) {
@@ -222,10 +484,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
     null,
   );
-  const [inputValue, setInputValue] = useState("");
+  const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
+  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalEditorRef = useRef<ChatEditorRef | null>(null);
+  const editorRef = chatEditorRefProp ?? internalEditorRef;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
@@ -233,6 +498,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   const [renameValue, setRenameValue] = useState("");
   const config = useValConfig();
+  const portalContainer = useValPortal();
   const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
   const emptyTitle = config?.ai?.chat?.title;
   const emptyDescription = config?.ai?.chat?.description;
@@ -248,6 +514,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       bottomRef.current?.scrollIntoView({ block: "end" });
     });
   }, [messages]);
+
+  // Once the assistant message actually starts streaming, drop the
+  // "thinking" placeholder so the StreamingCursor takes over.
+  useEffect(() => {
+    if (currentMessage) setIsAwaitingAssistant(false);
+  }, [currentMessage]);
 
   // 2-minute timeout for in-progress assistant messages
   useEffect(() => {
@@ -446,9 +718,33 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   }, []);
 
   const handleSend = useCallback(
-    (text?: string) => {
-      const content = (text ?? inputValue).trim();
-      if (!content || isStreaming) return;
+    (suggestion?: string) => {
+      if (isStreaming) return;
+
+      let outgoing: string | ChatDocument;
+      let displayText: string;
+      let outgoingDoc: ChatDocument | undefined;
+      if (suggestion !== undefined) {
+        const trimmed = suggestion.trim();
+        if (!trimmed) return;
+        outgoing = trimmed;
+        displayText = trimmed;
+      } else {
+        const editor = editorRef.current;
+        if (!editor || editor.isEmpty()) return;
+        const doc = editor.getDocument();
+        if (
+          collectImageKeysFromDoc(doc).some((k) => k.startsWith("pending:"))
+        ) {
+          // Image still uploading — Send button should already be disabled,
+          // but bail out defensively so a stale pending key never reaches the
+          // server (it would 404 when the AI tries to use it).
+          return;
+        }
+        outgoing = doc;
+        outgoingDoc = doc;
+        displayText = chatDocumentToPlainText(doc);
+      }
 
       const doneAttachments: ChatMessageAttachment[] = attachedFiles
         .filter(
@@ -462,7 +758,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           previewUrl: f.previewUrl,
         }));
 
-      // Revoke object URLs for files we're sending (they'll be in the message)
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
           URL.revokeObjectURL(f.previewUrl);
@@ -473,16 +768,21 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const userMsg: ChatMessage = {
         id: msgId,
         role: "user",
-        content,
+        content: displayText,
         status: "complete",
         attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
+        userDoc: outgoingDoc,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
-      setInputValue("");
+
+      if (suggestion === undefined) {
+        editorRef.current?.clear();
+        setIsEditorEmpty(true);
+      }
 
       const sent = onSendMessage
         ? onSendMessage(
-            content,
+            outgoing,
             doneAttachments.length > 0 ? doneAttachments : undefined,
           )
         : true;
@@ -494,12 +794,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
+      } else {
+        setIsAwaitingAssistant(true);
       }
 
-      // Refocus textarea after send
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [inputValue, isStreaming, attachedFiles, onSendMessage],
+    [isStreaming, attachedFiles, onSendMessage, editorRef],
   );
 
   const handleRetry = useCallback(
@@ -515,9 +816,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const retryText = getTextContent(errorMsg.content);
+        const retryPayload: string | ChatDocument =
+          errorMsg.userDoc ?? getTextContent(errorMsg.content);
         const sent = onSendMessage
-          ? onSendMessage(retryText, errorMsg.attachments)
+          ? onSendMessage(retryPayload, errorMsg.attachments)
           : true;
         if (!sent) {
           setCompletedMessages((prev) =>
@@ -527,6 +829,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 : m,
             ),
           );
+        } else {
+          setIsAwaitingAssistant(true);
         }
         return;
       }
@@ -543,22 +847,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(
-        getTextContent(prevUserMsg.content),
-        prevUserMsg.attachments,
-      );
+      const retryPayload: string | ChatDocument =
+        prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
+      const sent =
+        onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
+      if (sent) setIsAwaitingAssistant(true);
     },
     [messages, onSendMessage],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
   );
 
   // ---- Render ----
@@ -720,9 +1015,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4 p-4 min-w-0 max-w-full">
           {authError ? (
             <AuthPrompt mode={mode} />
+          ) : isLoadingSession && isEmpty ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-fg-secondary">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading conversation…</span>
+            </div>
           ) : isEmpty ? (
             <EmptyState
               suggestions={effectiveSuggestions}
@@ -735,6 +1035,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble key={msg.id} message={msg} onRetry={handleRetry} />
             ))
           )}
+          {isAwaitingAssistant && !currentMessage && <ThinkingIndicator />}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
@@ -793,65 +1094,66 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             accept="image/*"
           />
         )}
-        <div className="flex items-end gap-2">
-          {onUploadFile && (
+        <div
+          className={cn(
+            "flex flex-col rounded-md border border-border-primary bg-bg-primary",
+            "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+          )}
+        >
+          <AIChatEditor
+            ref={editorRef}
+            disabled={authError || !isConnected || isStreaming}
+            placeholder={isConnected && !authError ? "Ask something…" : ""}
+            onSubmit={() => handleSend()}
+            onUploadAiImage={onUploadFile}
+            getPortalContainer={() => portalContainer}
+            onChange={(doc) => {
+              const empty =
+                doc.length === 0 ||
+                (doc.length === 1 &&
+                  doc[0].tag === "p" &&
+                  doc[0].children.length === 0);
+              setIsEditorEmpty(empty);
+              const keys = collectImageKeysFromDoc(doc);
+              setHasPendingInlineImage(
+                keys.some((k) => k.startsWith("pending:")),
+              );
+            }}
+            className={cn(
+              "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
+              "text-fg-primary text-base",
+            )}
+          />
+          <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+            {onUploadFile && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!isConnected || isStreaming || authError}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach files"
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
-              disabled={!isConnected || isStreaming || authError}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
-              className="mb-1"
+              disabled={
+                !isConnected ||
+                isStreaming ||
+                isUploading ||
+                hasPendingInlineImage ||
+                authError ||
+                isEditorEmpty
+              }
+              onClick={() => handleSend()}
+              aria-label="Send message"
+              className="ml-auto"
             >
-              <Paperclip className="h-4 w-4" />
+              <Send className="h-4 w-4" />
             </Button>
-          )}
-          <div className="flex-1 grid">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={authError}
-              placeholder={isConnected && !authError ? "Ask something…" : ""}
-              rows={1}
-              className={cn(
-                "resize-none overflow-hidden",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-fg-primary",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            />
-            {/* Hidden mirror for auto-grow */}
-            <div
-              className={cn(
-                "whitespace-pre-wrap invisible",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-sm",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            >
-              {inputValue + " "}
-            </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={
-              !isConnected ||
-              isStreaming ||
-              isUploading ||
-              authError ||
-              !inputValue.trim()
-            }
-            onClick={() => handleSend()}
-            aria-label="Send message"
-            className="mb-1"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
         </div>
       </div>
     </div>
@@ -961,10 +1263,13 @@ function MessageBubble({
   const fileUrls = getImageUrls(message.content);
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn("flex min-w-0", isUser ? "justify-end" : "justify-start")}
+    >
       <div
         className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "[overflow-wrap:anywhere]",
           isUser
             ? "bg-bg-secondary text-fg-primary max-w-[80%]"
             : "bg-bg-tertiary text-fg-primary w-full max-w-full",
@@ -1007,20 +1312,22 @@ function MessageBubble({
                 ))}
               </div>
             )}
-            {textContent && (
-              <p className="whitespace-pre-wrap">{textContent}</p>
-            )}
-            {message.status === "complete" && (
-              <div className="mt-1 flex justify-end">
-                <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
-                  <Check className="h-2.5 w-2.5" />
-                  Sent
-                </span>
-              </div>
+            {message.userDoc ? (
+              <ChatDocumentRenderer doc={message.userDoc} />
+            ) : (
+              textContent && renderUserMessageText(textContent)
             )}
           </>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "[&_pre]:overflow-x-auto [&_pre]:max-w-full",
+              "[&_code]:break-words",
+              "[&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full",
+              "[&_a]:break-all",
+            )}
+          >
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator activities={message.toolActivities} />
             )}
@@ -1095,6 +1402,24 @@ function StreamingCursor() {
         style={{ animationDelay: "300ms" }}
       />
     </span>
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-lg bg-bg-tertiary px-4 py-3">
+        <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "150ms" }}
+        />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "300ms" }}
+        />
+      </div>
+    </div>
   );
 }
 
