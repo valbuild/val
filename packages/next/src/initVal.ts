@@ -14,9 +14,46 @@ import { attrs } from "@valbuild/react/stega";
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 const externalPageRouter: ValRouter = Internal.externalPageRouter;
 
+/**
+ * Returns true if the Val Enable cookie is set. Must be called in a
+ * Server Component, Server Action, or Route Handler — it reads from
+ * `next/headers` and returns false in any other context.
+ *
+ * ⚠️ Reading cookies opts the route into **dynamic rendering**: calling this
+ * in a layout or page disables static generation and the full route cache for
+ * every route it covers, for all visitors. It is NOT needed for the
+ * `suspend` prop on ValProvider (which detects the cookie client-side) —
+ * reserve it for advanced server-side conditionals.
+ */
+async function isValEnabled(): Promise<boolean> {
+  try {
+    // Dynamic import so the top-level `@valbuild/next` entry doesn't pull
+    // `next/headers` into client bundles or the pages/ directory (both of
+    // which break Next's build). Resolved only when this fn is actually
+    // called, which must be from an RSC / Server Action / Route Handler.
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    return cookieStore.get(Internal.VAL_ENABLE_COOKIE_NAME)?.value === "true";
+  } catch {
+    return false;
+  }
+}
+
 export const initVal = (
   config?: ValConfig,
 ): InitVal & {
+  /**
+   * Returns true if the Val Enable cookie is set. Must be called in a
+   * Server Component, Server Action, or Route Handler — it reads from
+   * `next/headers` and returns false in any other context.
+   *
+   * ⚠️ Reading cookies opts the route into **dynamic rendering**: calling
+   * this in a layout or page disables static generation and the full route
+   * cache for every route it covers, for all visitors. It is NOT needed for
+   * the `suspend` prop on ValProvider (which detects the cookie client-side)
+   * — reserve it for advanced server-side conditionals.
+   */
+  isValEnabled: typeof isValEnabled;
   val: ValConstructor & {
     /**
      * Returns the original module data, without any applied patches or stega encoding.
@@ -72,6 +109,7 @@ export const initVal = (
   return {
     s,
     c,
+    isValEnabled,
     nextAppRouter,
     externalPageRouter,
     val: {

@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/next";
 
 const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
-  project: "valbuild/val-examples-next",
+  // project: "valbuild/val-examples-next",
   root: "/examples/next",
   defaultTheme: "dark",
   ai: {

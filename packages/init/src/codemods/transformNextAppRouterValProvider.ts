@@ -57,6 +57,17 @@ export function transformNextAppRouterValProvider(
                       },
                     },
                   },
+                  // Boolean shorthand: <ValProvider config={config} suspend>.
+                  // The Val Enable cookie is detected client-side by
+                  // ValProvider, so the layout stays synchronous and static.
+                  {
+                    type: "JSXAttribute",
+                    name: {
+                      type: "JSXIdentifier",
+                      name: "suspend",
+                    },
+                    value: null,
+                  },
                 ],
               },
               {

@@ -66,7 +66,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ValProvider config={config}>{children}</ValProvider>
+        <ValProvider config={config} suspend>{children}</ValProvider>
       </body>
     </html>
   );
