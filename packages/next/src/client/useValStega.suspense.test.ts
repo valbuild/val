@@ -52,11 +52,15 @@ function Show() {
   return React.createElement("span", { "data-testid": "val" }, val);
 }
 
-function tree(store: ValExternalStore, suspend: boolean) {
+function tree(
+  store: ValExternalStore,
+  suspend: boolean,
+  draftMode: boolean | null = true,
+) {
   return React.createElement(ValOverlayProvider, {
     store,
     suspend,
-    draftMode: true,
+    draftMode,
     children: React.createElement(React.Suspense, {
       fallback: React.createElement(
         "span",
@@ -94,6 +98,18 @@ describe("useValStega Suspense", () => {
     render(tree(store, false));
     // No data loaded, but Val is disabled, so it renders immediately with the
     // published value instead of suspending.
+    expect(screen.queryByTestId("fallback")).toBeNull();
+    expect(screen.getByTestId("val").textContent).toContain("published");
+  });
+
+  it("does not suspend when draft mode is known to be off", () => {
+    const store = new ValExternalStore();
+    // Val is enabled (suspend) but draft mode is off: the store never receives
+    // source updates in that state, so suspending could only ever resolve via
+    // the waitForLoad timeout — and would then re-suspend on every render.
+    // The draftMode !== false release valve renders the published value
+    // immediately instead.
+    render(tree(store, true, false));
     expect(screen.queryByTestId("fallback")).toBeNull();
     expect(screen.getByTestId("val").textContent).toContain("published");
   });

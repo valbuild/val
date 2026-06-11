@@ -268,9 +268,6 @@ importers:
       picocolors:
         specifier: ^1.0.0
         version: 1.1.1
-      prettier:
-        specifier: ^3.8.0
-        version: 3.8.1
       recast:
         specifier: ^0.23.4
         version: 0.23.11

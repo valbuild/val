@@ -669,7 +669,7 @@ async function plan(
       return { abort: true };
     }
 
-    const res = await transformNextAppRouterValProvider(
+    const res = transformNextAppRouterValProvider(
       {
         path: analysis.appRouterLayoutPath,
         source: analysis.appRouterLayoutFile,

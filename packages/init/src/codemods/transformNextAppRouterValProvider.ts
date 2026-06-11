@@ -1,13 +1,10 @@
 import j from "jscodeshift";
-import * as prettier from "prettier/standalone";
-import * as estreePlugin from "prettier/plugins/estree";
-import * as typescriptPlugin from "prettier/plugins/typescript";
 
-export async function transformNextAppRouterValProvider(
+export function transformNextAppRouterValProvider(
   fileInfo: j.FileInfo,
   api: j.API,
   options: j.Options,
-): Promise<string> {
+) {
   if (!options.configImportPath) {
     throw new Error("configImportPath is required");
   }
@@ -23,24 +20,10 @@ export async function transformNextAppRouterValProvider(
     )
     .insertBefore(
       j.importDeclaration(
-        [
-          j.importSpecifier(j.identifier("config")),
-          j.importSpecifier(j.identifier("isValEnabled")),
-        ],
+        [j.importSpecifier(j.identifier("config"))],
         j.literal(options.configImportPath),
       ),
     );
-  // `await isValEnabled()` requires the default export to be async.
-  root.find(j.ExportDefaultDeclaration).forEach((path) => {
-    const decl = path.value.declaration;
-    if (
-      decl.type === "FunctionDeclaration" ||
-      decl.type === "FunctionExpression" ||
-      decl.type === "ArrowFunctionExpression"
-    ) {
-      decl.async = true;
-    }
-  });
   root
     .findJSXElements("body")
     .childNodes()
@@ -74,18 +57,16 @@ export async function transformNextAppRouterValProvider(
                       },
                     },
                   },
+                  // Boolean shorthand: <ValProvider config={config} suspend>.
+                  // The Val Enable cookie is detected client-side by
+                  // ValProvider, so the layout stays synchronous and static.
                   {
                     type: "JSXAttribute",
                     name: {
                       type: "JSXIdentifier",
                       name: "suspend",
                     },
-                    value: {
-                      type: "JSXExpressionContainer",
-                      expression: j.awaitExpression(
-                        j.callExpression(j.identifier("isValEnabled"), []),
-                      ),
-                    },
+                    value: null,
                   },
                 ],
               },
@@ -102,15 +83,5 @@ export async function transformNextAppRouterValProvider(
         }
       }
     });
-  // jscodeshift's recast re-prints any node we mutate (e.g. toggling `async`)
-  // with its default formatting, which loses the original indentation. Run
-  // prettier so the patch we hand back to the user is consistently formatted
-  // regardless of which nodes were touched.
-  // Use prettier/standalone (rather than the main prettier entry) so this
-  // codemod runs under jest's Node VM, which doesn't support prettier 3's
-  // dynamic plugin imports without --experimental-vm-modules.
-  return prettier.format(root.toSource(), {
-    parser: "typescript",
-    plugins: [estreePlugin, typescriptPlugin],
-  });
+  return root.toSource();
 }

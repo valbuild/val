@@ -34,7 +34,6 @@
     "meow": "^9.0.0",
     "open": "^9.1.0",
     "picocolors": "^1.0.0",
-    "prettier": "^3.8.0",
     "recast": "^0.23.4",
     "semver": "^7.5.4",
     "simple-git": "^3.22.0",

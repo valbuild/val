@@ -180,10 +180,12 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
 export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
   readonly draftMode: boolean | null;
-  // Whether useValStega should suspend until draft data is loaded. Forwarded
-  // from the user-facing `suspend` prop on ValProvider — typically wired to
-  // `await isValEnabled()` in a Server Component layout so it's known
-  // synchronously during SSR and stable for the lifetime of the page.
+  // Whether useValStega should suspend until draft data is loaded. False
+  // during SSR and hydration (the server store is never populated; draft data
+  // arrives via browser CustomEvents only); activated by ValProvider after
+  // hydration — inside a transition, so static content stays visible while
+  // hooks suspend — when its `suspend` prop is set and the Val Enable cookie
+  // is present. Never deactivated once active.
   readonly suspend: boolean;
 }>({
   store: undefined,

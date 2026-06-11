@@ -2,6 +2,8 @@
 "@valbuild/next": minor
 ---
 
-Add Suspense support to draft-mode client hooks: `useValStega` now suspends until the required module data has loaded, instead of rendering published/empty content first. Backed by the new `ValExternalStore.hasAllLoaded` / `waitForLoad` methods. Requires React 19+ (`React.use` is used internally).
+Add Suspense support to draft-mode client hooks: with the new opt-in `suspend` prop on `ValProvider` (`<ValProvider config={config} suspend>`), `useValStega` / `useValRouteStega` suspend until the required module data has loaded, instead of rendering published/empty content first. Backed by the new `ValExternalStore.hasAllLoaded` / `waitForLoad` methods. Requires React 19+ (`React.use` is used internally).
 
-`ValProvider` now accepts an optional `enabled` prop. Pass it from a Server Component that reads the `VAL_ENABLE` cookie (e.g. via `next/headers`) so Val is known to be enabled synchronously during SSR. This lets `useValRoute` suspend on the first render instead of calling `notFound()`, so navigating to a route that only exists in an uncommitted draft no longer 404s.
+The Val Enable cookie is detected client-side after hydration, so layouts stay synchronous and routes stay statically renderable — no server-side cookie read is needed (and none should be added: reading cookies in a layout opts every route into dynamic rendering). The Suspense gate activates inside a transition, so SSR/hydration render the static committed content and the swap to draft data happens without a fallback flash or hydration mismatch. Production visitors without the cookie pay no cost, and hooks never suspend once draft mode is known to be off.
+
+With `suspend`, client-side navigation to a route that only exists in an uncommitted draft suspends until the draft data arrives instead of calling `notFound()`. Hard loads of such routes still 404 (the server only knows committed content).

@@ -40,13 +40,26 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
           return;
         },
   );
-  // Suspense gate. We key off `suspend` (forwarded from ValProvider's prop,
-  // typically `await isValEnabled()`), not `draftMode`: `suspend` is stable
-  // for the lifetime of the page whereas `draftMode` is polled and can change,
-  // and we must not start/stop suspending across renders. The production path
-  // (Val disabled) skips the call entirely. React.use is allowed inside
-  // conditionals — it is not a hook.
-  if (valOverlayContext.suspend && store && !store.hasAllLoaded(moduleIds)) {
+  // Suspense gate. `suspend` is false during SSR and hydration (so the static
+  // committed source is rendered, matching the server HTML exactly) and is
+  // activated by ValProvider after hydration — inside a transition — when the
+  // `suspend` prop is set AND the Val Enable cookie is present (checked
+  // client-side; the server store is never populated). It never deactivates.
+  // The production path (no cookie) skips the call entirely. The
+  // `draftMode !== false` check is a release valve: with draft mode off the
+  // store never receives source updates, so waitForLoad could only ever
+  // resolve via its timeout — and would then re-suspend on every subsequent
+  // render since the resolved promise is evicted from the cache. draftMode is
+  // null until the first /draft/stat poll resolves; null -> true keeps
+  // suspending, -> false only unblocks, and false -> true happens only on an
+  // explicit draft-mode enable which already refreshes the route.
+  // React.use is allowed inside conditionals — it is not a hook.
+  if (
+    valOverlayContext.suspend &&
+    valOverlayContext.draftMode !== false &&
+    store &&
+    !store.hasAllLoaded(moduleIds)
+  ) {
     React.use(store.waitForLoad(moduleIds));
   }
   return stegaEncode(selector, {
