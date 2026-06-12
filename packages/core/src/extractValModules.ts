@@ -22,19 +22,29 @@ export type ExtractedValModules = {
   moduleErrors: ExtractedModuleError[];
 };
 
-const textEncoder = new TextEncoder();
+// Lazily constructed: this module is also evaluated inside the QuickJS
+// sandbox (when user val modules import @valbuild/core), and that sandbox
+// has no `TextEncoder` global. `hash()` is never called from inside the
+// sandbox, so deferring construction avoids a ReferenceError at import time.
+let textEncoder: TextEncoder | undefined;
+function getTextEncoder(): TextEncoder {
+  if (!textEncoder) {
+    textEncoder = new TextEncoder();
+  }
+  return textEncoder;
+}
 
 function hash(input: string | object): string {
   if (typeof input === "object") {
     return hashObject(input);
   }
-  return getSHA256Hash(textEncoder.encode(input));
+  return getSHA256Hash(getTextEncoder().encode(input));
 }
 
 function hashObject(obj: object): string {
   const collector: string[] = [];
   collectObjectRecursive(obj, collector);
-  return getSHA256Hash(textEncoder.encode(collector.join("")));
+  return getSHA256Hash(getTextEncoder().encode(collector.join("")));
 }
 
 function collectObjectRecursive(

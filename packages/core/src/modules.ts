@@ -50,12 +50,10 @@ export function modules(
   const browserWindow = (globalThis as unknown as { window?: BrowserWindow })
     .window;
   if (browserWindow) {
-    console.debug("Registering Val modules in the browser", result);
     browserWindow.__VAL_MODULES__ = result;
     browserWindow.dispatchEvent(
       new browserWindow.CustomEvent("val-modules-updated"),
     );
   }
-  console.log("Val modules initialized", result);
   return result;
 }

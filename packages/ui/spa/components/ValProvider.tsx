@@ -327,7 +327,6 @@ export function ValProvider({
   // reference changes, which causes the engine to re-extract schemas/sources
   // and re-invalidate subscribers without a server round-trip.
   useEffect(() => {
-    console.log("Setting val modules on syncEngine", valModules);
     syncEngine.setValModules(valModules ?? null);
   }, [valModules, syncEngine]);
   const runtimeConfig =

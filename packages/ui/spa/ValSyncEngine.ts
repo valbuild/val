@@ -424,6 +424,11 @@ export class ValSyncEngine {
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
 
+    // Terminate the validation worker thread so a re-init doesn't leak it.
+    // getValidationWorker() lazily recreates it on next use.
+    this.validationWorker?.dispose();
+    this.validationWorker = null;
+
     this.invalidateInitializedAt();
   }
 
@@ -2243,7 +2248,6 @@ export class ValSyncEngine {
   }
 
   async setValModules(valModules: ValModules | null): Promise<void> {
-    console.debug("setValModules: called", { hasModules: !!valModules });
     if (!valModules) {
       this.localSchemas = null;
       this.localSchemaSha = null;
@@ -2288,13 +2292,6 @@ export class ValSyncEngine {
       this.invalidateLocalModulesStatus();
       return;
     }
-    console.debug("setValModules: extracted", {
-      moduleCount: Object.keys(extracted.serializedSchemas).length,
-      paths: Object.keys(extracted.serializedSchemas),
-      schemaSha: extracted.schemaSha,
-      sourcesSha: extracted.sourcesSha,
-      serverSideSchemaSha: this.serverSideSchemaSha,
-    });
     this.localSchemas = extracted.serializedSchemas;
     this.localSchemaSha = extracted.schemaSha;
     this.localSources = extracted.sources;
@@ -2321,10 +2318,6 @@ export class ValSyncEngine {
     }
     this.invalidateLocalModulesStatus();
     this.recomputeSchemaOutOfDate();
-    console.debug("setValModules: done", {
-      clientSideSchemaSha: this.clientSideSchemaSha,
-      sourcesSha: this.sourcesSha,
-    });
   }
 
   private adoptLocalSchemas(): void {

@@ -17,17 +17,9 @@ export function useValModules(): ValModules | null {
   );
   useEffect(() => {
     const handler = () => {
-      console.debug(
-        "Val modules updated, refreshing registry",
-        window.__VAL_MODULES__,
-      );
       setModules(window.__VAL_MODULES__ ?? null);
     };
     if (window.__VAL_MODULES__) {
-      console.debug(
-        "Val modules registry found on init",
-        window.__VAL_MODULES__,
-      );
       setModules(window.__VAL_MODULES__);
     }
     window.addEventListener(VAL_MODULES_UPDATED_EVENT, handler);
