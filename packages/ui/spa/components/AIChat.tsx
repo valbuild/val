@@ -33,6 +33,10 @@ import {
   Paperclip,
   GitCompareArrows,
   X,
+  Copy,
+  FilePlus,
+  Hash,
+  List,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
@@ -1480,6 +1484,22 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
     show_compare_view: {
       label: "Opening compare view",
       icon: <GitCompareArrows className="h-3 w-3" />,
+    },
+    duplicate_source: {
+      label: "Duplicating content",
+      icon: <Copy className="h-3 w-3" />,
+    },
+    empty_at_path: {
+      label: "Creating empty entry",
+      icon: <FilePlus className="h-3 w-3" />,
+    },
+    count_entries: {
+      label: "Counting entries",
+      icon: <Hash className="h-3 w-3" />,
+    },
+    get_record_keys: {
+      label: "Listing keys",
+      icon: <List className="h-3 w-3" />,
     },
   };
 
