@@ -1095,6 +1095,11 @@ function WindowField({
       <div className="flex flex-col gap-2 w-full">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
+            {schemaAtPath.data.description && (
+              <div className="pb-2 text-sm text-fg-tertiary">
+                {schemaAtPath.data.description}
+              </div>
+            )}
             <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
           </div>
           <a
@@ -1112,6 +1117,11 @@ function WindowField({
 
   return (
     <div className="flex flex-col gap-4 w-full">
+      {schemaAtPath.data.description && (
+        <div className="text-sm text-fg-tertiary">
+          {schemaAtPath.data.description}
+        </div>
+      )}
       <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );

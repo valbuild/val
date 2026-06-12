@@ -19,6 +19,7 @@ export type SerializedArraySchema = {
   item: SerializedSchema;
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 
 export class ArraySchema<
@@ -31,17 +32,29 @@ export class ArraySchema<
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): ArraySchema<T, Src> {
-    return new ArraySchema(this.item, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -120,7 +133,7 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(this.item, true);
+    return new ArraySchema(this.item, true, [], this.description);
   }
 
   protected executeSerialize(): SerializedArraySchema {
@@ -131,6 +144,7 @@ export class ArraySchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     };
   }
 

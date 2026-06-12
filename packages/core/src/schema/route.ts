@@ -26,6 +26,7 @@ export type SerializedRouteSchema = {
   };
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 
 export class RouteSchema<Src extends string | null> extends Schema<Src> {
@@ -35,8 +36,18 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): RouteSchema<Src> {
+    return new RouteSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
   }
 
   /**
@@ -56,6 +67,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, include: pattern },
       this.opt,
       this.customValidateFunctions,
+      this.description,
     );
   }
 
@@ -76,6 +88,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, exclude: pattern },
       this.opt,
       this.customValidateFunctions,
+      this.description,
     );
   }
 
@@ -84,6 +97,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
+      this.description,
     );
   }
 
@@ -156,6 +170,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       true,
       this.customValidateFunctions,
+      this.description,
     ) as unknown as RouteSchema<Src | null>;
   }
 
@@ -179,6 +194,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     };
   }
 

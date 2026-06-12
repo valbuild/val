@@ -13,23 +13,34 @@ export type SerializedBooleanSchema = {
   type: "boolean";
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 
 export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   constructor(
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): BooleanSchema<Src> {
+    return new BooleanSchema(
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): BooleanSchema<Src> {
-    return new BooleanSchema(this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new BooleanSchema(
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -89,7 +100,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   }
 
   nullable(): BooleanSchema<Src | null> {
-    return new BooleanSchema<Src | null>(true);
+    return new BooleanSchema<Src | null>(true, [], this.description);
   }
   protected executeSerialize(): SerializedSchema {
     return {
@@ -98,6 +109,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     };
   }
 

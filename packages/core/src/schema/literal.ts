@@ -16,6 +16,7 @@ export type SerializedLiteralSchema = {
   value: string;
   opt: boolean;
   customValidate?: boolean;
+  description?: string;
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
@@ -23,17 +24,29 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     private readonly value: string,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): LiteralSchema<Src> {
+    return new LiteralSchema(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): LiteralSchema<Src> {
-    return new LiteralSchema(this.value, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new LiteralSchema(
+      this.value,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -116,7 +129,12 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   }
 
   nullable(): LiteralSchema<Src | null> {
-    return new LiteralSchema<Src | null>(this.value, true);
+    return new LiteralSchema<Src | null>(
+      this.value,
+      true,
+      [],
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -127,6 +145,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      description: this.description,
     };
   }
 

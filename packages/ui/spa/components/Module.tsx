@@ -145,6 +145,10 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
+  const keyDescription =
+    isKey && parentSchema?.type === "record"
+      ? parentSchema.key?.description
+      : undefined;
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -196,8 +200,14 @@ export function Module({
               </div>
             )}
           </div>
+          {keyDescription && (
+            <div className="text-sm text-fg-tertiary">{keyDescription}</div>
+          )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
+          )}
+          {schema.description && (
+            <div className="text-sm text-fg-tertiary">{schema.description}</div>
           )}
         </div>
       </div>
