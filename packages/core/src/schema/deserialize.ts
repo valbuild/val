@@ -21,6 +21,19 @@ import { UnionSchema } from "./union";
 export function deserializeSchema(
   serialized: SerializedSchema,
 ): Schema<SelectorSource> {
+  let schema = deserializeSchemaImpl(serialized);
+  if (serialized.readonly) {
+    schema = schema.readonly();
+  }
+  if (serialized.hidden) {
+    schema = schema.hidden();
+  }
+  return schema;
+}
+
+function deserializeSchemaImpl(
+  serialized: SerializedSchema,
+): Schema<SelectorSource> {
   switch (serialized.type) {
     case "string":
       return new StringSchema(
@@ -38,6 +51,8 @@ export function deserializeSchema(
         serialized.raw,
         [],
         null,
+        false,
+        false,
         serialized.description,
       );
     case "literal":
@@ -45,15 +60,25 @@ export function deserializeSchema(
         serialized.value,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "boolean":
-      return new BooleanSchema(serialized.opt, [], serialized.description);
+      return new BooleanSchema(
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "number":
       return new NumberSchema(
         serialized.options,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "object":
@@ -65,6 +90,8 @@ export function deserializeSchema(
         ),
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "array":
@@ -72,6 +99,8 @@ export function deserializeSchema(
         deserializeSchema(serialized.item),
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "union":
@@ -84,6 +113,8 @@ export function deserializeSchema(
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "richtext": {
@@ -119,6 +150,8 @@ export function deserializeSchema(
         deserializedOptions,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     }
@@ -142,6 +175,8 @@ export function deserializeSchema(
                 : undefined,
             }
           : undefined,
+        false,
+        false,
         serialized.description,
       );
     case "keyOf":
@@ -150,6 +185,8 @@ export function deserializeSchema(
         serialized.path as SourcePath,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     case "route": {
@@ -173,6 +210,8 @@ export function deserializeSchema(
         routeOptions,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     }
@@ -183,6 +222,8 @@ export function deserializeSchema(
         serialized.remote,
         [],
         {},
+        false,
+        false,
         serialized.description,
       );
     case "image":
@@ -192,6 +233,8 @@ export function deserializeSchema(
         serialized.remote,
         [],
         {},
+        false,
+        false,
         serialized.description,
       );
     case "date":
@@ -199,6 +242,8 @@ export function deserializeSchema(
         serialized.options,
         serialized.opt,
         [],
+        false,
+        false,
         serialized.description,
       );
     default: {

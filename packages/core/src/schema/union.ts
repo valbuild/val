@@ -30,6 +30,8 @@ export type SerializedStringUnionSchema = {
   items: SerializedLiteralSchema[];
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 export type SerializedObjectUnionSchema = {
@@ -38,6 +40,8 @@ export type SerializedObjectUnionSchema = {
   items: SerializedObjectSchema[];
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -73,6 +77,8 @@ export class UnionSchema<
       this.items,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -85,6 +91,8 @@ export class UnionSchema<
       this.items,
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -481,7 +489,39 @@ export class UnionSchema<
   }
 
   nullable(): UnionSchema<Key, T, Src | null> {
-    return new UnionSchema(this.key, this.items, true, [], this.description);
+    return new UnionSchema(
+      this.key,
+      this.items,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): UnionSchema<Key, T, Src> {
+    return new UnionSchema(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): UnionSchema<Key, T, Src> {
+    return new UnionSchema(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -494,6 +534,8 @@ export class UnionSchema<
         customValidate:
           this.customValidateFunctions &&
           this.customValidateFunctions?.length > 0,
+        readonly: this.isReadonly,
+        hidden: this.isHidden,
         description: this.description,
       } as SerializedObjectUnionSchema;
     }
@@ -505,6 +547,8 @@ export class UnionSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     } as SerializedStringUnionSchema;
   }
@@ -514,6 +558,8 @@ export class UnionSchema<
     private readonly items: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
