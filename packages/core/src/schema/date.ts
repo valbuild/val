@@ -7,7 +7,10 @@ import {
 import { ReifiedRender } from "../render";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 type DateOptions = {
   /**
@@ -71,68 +74,52 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const errors: ValidationError[] = this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return errors.length > 0 ? { [path]: errors } : false;
     }
     if (typeof src !== "string") {
-      return {
-        [path]: [
-          { message: `Expected 'string', got '${typeof src}'`, value: src },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `Expected 'string', got '${typeof src}'`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     if (this.options?.from && this.options?.to) {
       if (this.options.from > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `From date ${this.options.from} is after to date ${this.options.to}`,
-              value: src,
-              typeError: true,
-            },
-          ],
-        } as ValidationErrors;
-      }
-      if (src < this.options.from || src > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `Date is not between ${this.options.from} and ${this.options.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `From date ${this.options.from} is after to date ${this.options.to}`,
+          value: src,
+          typeError: true,
+        });
+      } else if (src < this.options.from || src > this.options.to) {
+        errors.push({
+          message: `Date is not between ${this.options.from} and ${this.options.to}`,
+          value: src,
+        });
       }
     } else if (this.options?.from) {
       if (src < this.options.from) {
-        return {
-          [path]: [
-            {
-              message: `Date is before the minimum date ${this.options.from}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Date is before the minimum date ${this.options.from}`,
+          value: src,
+        });
       }
     } else if (this.options?.to) {
       if (src > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `Date is after the maximum date ${this.options.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Date is after the maximum date ${this.options.to}`,
+          value: src,
+        });
       }
     }
-    // const errors = [];
-
-    // if (errors.length > 0) {
-    //   return {
-    //     [path]: errors,
-    //   } as ValidationErrors;
-    // }
+    if (errors.length > 0) {
+      return { [path]: errors } as ValidationErrors;
+    }
     return false;
   }
 
