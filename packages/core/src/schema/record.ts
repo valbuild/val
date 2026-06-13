@@ -135,7 +135,19 @@ export class RecordSchema<
     }
     const routerValidations = this.getRouterValidations(path, src);
     if (routerValidations) {
-      return routerValidations;
+      for (const errPath in routerValidations) {
+        const p = errPath as SourcePath;
+        const errs = routerValidations[p];
+        if (error) {
+          if (error[p]) {
+            error[p] = [...error[p], ...errs];
+          } else {
+            error[p] = errs;
+          }
+        } else {
+          error = { [p]: errs };
+        }
+      }
     }
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(

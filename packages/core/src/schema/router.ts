@@ -5,16 +5,29 @@ import { RecordSchema } from "./record";
 import { string } from "./string";
 
 export function router<
+  K extends Schema<string>,
   T extends Schema<SelectorSource>,
-  Src extends Record<string, SelectorOfSchema<T>>,
->(router: ValRouter, item: T): RecordSchema<T, Schema<string>, Src> {
-  const keySchema = string();
-  const recordSchema = new RecordSchema<T, Schema<string>, Src>(
-    item,
-    false,
-    [],
-    router,
-    keySchema,
-  );
-  return recordSchema;
+>(
+  router: ValRouter,
+  key: K,
+  item: T,
+): RecordSchema<T, K, Record<SelectorOfSchema<K>, SelectorOfSchema<T>>>;
+
+export function router<T extends Schema<SelectorSource>>(
+  router: ValRouter,
+  item: T,
+): RecordSchema<T, Schema<string>, Record<string, SelectorOfSchema<T>>>;
+
+export function router<
+  K extends Schema<string>,
+  T extends Schema<SelectorSource>,
+>(
+  router: ValRouter,
+  keyOrItem: K | T,
+  maybeItem?: T,
+): RecordSchema<T, K, Record<SelectorOfSchema<K>, SelectorOfSchema<T>>> {
+  if (maybeItem) {
+    return new RecordSchema(maybeItem, false, [], router, keyOrItem as K);
+  }
+  return new RecordSchema(keyOrItem as T, false, [], router, string());
 }
