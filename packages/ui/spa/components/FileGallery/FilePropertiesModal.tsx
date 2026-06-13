@@ -219,20 +219,22 @@ export function FilePropertiesModal({
             <ExternalLink className="h-4 w-4" />
             Open in New Tab
           </button>
-          {file.sourcePath && (
-            <button
-              type="button"
-              onClick={() => {
-                navigate("/val/compare", {
-                  scrollToPath: file.sourcePath,
-                });
-              }}
-              className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
-            >
-              <GitCompare className="h-4 w-4" />
-              View in Compare
-            </button>
-          )}
+          {file.sourcePath &&
+            file.patchesByAuthorIds &&
+            Object.keys(file.patchesByAuthorIds).length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigate("/val/compare", {
+                    scrollToPath: file.sourcePath,
+                  });
+                }}
+                className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
+              >
+                <GitCompare className="h-4 w-4" />
+                View in Compare
+              </button>
+            )}
           {onFileDelete && fileIndex !== null && (
             <div className="ml-auto flex items-center gap-2">
               {refs.length > 0 && (

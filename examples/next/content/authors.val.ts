@@ -3,9 +3,15 @@ import mediaVal from "./media.val";
 
 export const schema = s
   .record(
+    s.string().describe("Unique identifier for the author"),
     s.object({
       name: s.string().minLength(2),
-      birthdate: s.date().from("1900-01-01").to("2024-01-01").nullable(),
+      birthdate: s
+        .date()
+        .from("1900-01-01")
+        .to("2024-01-01")
+        .nullable()
+        .describe("Author's birthdate"),
       joinedAt: s.datetime().nullable(),
       image: s.image(mediaVal).nullable(),
     }),

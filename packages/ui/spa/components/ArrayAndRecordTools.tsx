@@ -120,6 +120,15 @@ export function ArrayAndRecordTools({
     ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
     : refs;
 
+  const parentKeyDescription =
+    parentSchemaAtPath?.type === "record"
+      ? parentSchemaAtPath.key?.description
+      : undefined;
+  const currentKeyDescription =
+    "data" in schemaAtPath && schemaAtPath.data.type === "record"
+      ? schemaAtPath.data.key?.description
+      : undefined;
+
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
@@ -134,6 +143,7 @@ export function ArrayAndRecordTools({
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
               existingKeys={allRefs}
+              keyDescription={parentKeyDescription}
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
@@ -164,6 +174,7 @@ export function ArrayAndRecordTools({
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={routePattern}
+              keyDescription={currentKeyDescription}
             >
               <Plus size={getIconSize(variant)} />
             </AddRecordPopover>

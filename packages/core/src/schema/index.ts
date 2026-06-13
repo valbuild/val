@@ -129,6 +129,20 @@ export abstract class Schema<Src extends SelectorSource> {
     src: unknown,
   ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
+  /**
+   * Mark this field as read-only in the Val editor.
+   *
+   * This is a UI-only flag: the field is rendered disabled in the editor, but
+   * the value is not otherwise validated or enforced differently.
+   */
+  abstract readonly(): Schema<Src>;
+  /**
+   * Hide this field from the Val editor.
+   *
+   * This is a UI-only flag: the field is not rendered in the editor, but the
+   * value is still stored, validated and serialized as normal.
+   */
+  abstract hidden(): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
   protected abstract executeRender(
     sourcePath: SourcePath | ModuleFilePath,

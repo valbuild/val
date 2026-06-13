@@ -70,9 +70,13 @@ function getBrowserTimezone(): string {
 
 function getAllTimezones(): string[] {
   try {
-    const intl = Intl as unknown as {
-      supportedValuesOf?: (key: string) => string[];
-    };
+    // `Intl.supportedValuesOf` exists at runtime in modern engines but is not
+    // yet in the TS lib we target. Widen the type to feature-detect and call it
+    // without a type assertion (the extra member is optional, so `Intl` is
+    // assignable as-is).
+    const intl: typeof Intl & {
+      supportedValuesOf?: (key: "timeZone") => string[];
+    } = Intl;
     if (typeof intl.supportedValuesOf === "function") {
       return intl.supportedValuesOf("timeZone");
     }
@@ -116,10 +120,21 @@ function zonedWallClockToUtc(
   second: number,
   timeZone: string,
 ): Date {
-  // First guess: pretend the wall-clock is UTC, then correct for the zone offset at that instant.
-  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  const offset = getTimezoneOffsetMinutes(guess, timeZone);
-  return new Date(guess.getTime() - offset * 60000);
+  // We want the UTC instant whose wall-clock in `timeZone` equals the given
+  // fields. Pretend the wall-clock is UTC, then correct for the zone offset.
+  // The offset can change between the guess and the corrected instant (DST
+  // transitions), so iterate to a fixed point (usually 2 passes is enough).
+  const wallClockAsUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+  let utcMs = wallClockAsUtcMs;
+  for (let i = 0; i < 3; i++) {
+    const offset = getTimezoneOffsetMinutes(new Date(utcMs), timeZone);
+    const next = wallClockAsUtcMs - offset * 60000;
+    if (next === utcMs) {
+      break;
+    }
+    utcMs = next;
+  }
+  return new Date(utcMs);
 }
 
 function formatInTimezone(date: Date, timeZone: string): string {

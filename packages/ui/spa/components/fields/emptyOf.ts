@@ -17,13 +17,16 @@ function clampDateTimeString(
   if (!options) return value;
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) return value;
+  // Stored datetime values are always UTC ISO strings, so normalize the
+  // clamped bound (which may carry a timezone offset) via toISOString().
   if (options.to) {
     const toMs = Date.parse(options.to);
-    if (!Number.isNaN(toMs) && ms > toMs) return options.to;
+    if (!Number.isNaN(toMs) && ms > toMs) return new Date(toMs).toISOString();
   }
   if (options.from) {
     const fromMs = Date.parse(options.from);
-    if (!Number.isNaN(fromMs) && ms < fromMs) return options.from;
+    if (!Number.isNaN(fromMs) && ms < fromMs)
+      return new Date(fromMs).toISOString();
   }
   return value;
 }

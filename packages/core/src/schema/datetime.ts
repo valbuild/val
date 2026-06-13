@@ -7,7 +7,10 @@ import {
 import { ReifiedRender } from "../render";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 type DateTimeOptions = {
   /**
@@ -35,6 +38,9 @@ export type SerializedDateTimeSchema = {
   options?: DateTimeOptions;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
+  description?: string;
 };
 
 export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
@@ -42,40 +48,60 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
     private readonly options?: DateTimeOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): DateTimeSchema<Src> {
+    return new DateTimeSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): DateTimeSchema<Src> {
-    return new DateTimeSchema(this.options, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new DateTimeSchema(
+      this.options,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const errors: ValidationError[] = this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return errors.length > 0 ? { [path]: errors } : false;
     }
     if (typeof src !== "string") {
-      return {
-        [path]: [
-          { message: `Expected 'string', got '${typeof src}'`, value: src },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `Expected 'string', got '${typeof src}'`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     const srcMs = Date.parse(src);
     if (Number.isNaN(srcMs)) {
-      return {
-        [path]: [
-          {
-            message: `Value '${src}' is not a valid ISO 8601 datetime`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `Value '${src}' is not a valid ISO 8601 datetime`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     const fromMs =
       this.options?.from !== undefined
@@ -84,71 +110,51 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
     const toMs =
       this.options?.to !== undefined ? Date.parse(this.options.to) : undefined;
     if (fromMs !== undefined && Number.isNaN(fromMs)) {
-      return {
-        [path]: [
-          {
-            message: `From datetime '${this.options?.from}' is not a valid ISO 8601 datetime`,
-            value: src,
-            typeError: true,
-          },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `From datetime '${this.options?.from}' is not a valid ISO 8601 datetime`,
+        value: src,
+        typeError: true,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     if (toMs !== undefined && Number.isNaN(toMs)) {
-      return {
-        [path]: [
-          {
-            message: `To datetime '${this.options?.to}' is not a valid ISO 8601 datetime`,
-            value: src,
-            typeError: true,
-          },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `To datetime '${this.options?.to}' is not a valid ISO 8601 datetime`,
+        value: src,
+        typeError: true,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     if (fromMs !== undefined && toMs !== undefined) {
       if (fromMs > toMs) {
-        return {
-          [path]: [
-            {
-              message: `From datetime ${this.options?.from} is after to datetime ${this.options?.to}`,
-              value: src,
-              typeError: true,
-            },
-          ],
-        } as ValidationErrors;
-      }
-      if (srcMs < fromMs || srcMs > toMs) {
-        return {
-          [path]: [
-            {
-              message: `Datetime is not between ${this.options?.from} and ${this.options?.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `From datetime ${this.options?.from} is after to datetime ${this.options?.to}`,
+          value: src,
+          typeError: true,
+        });
+      } else if (srcMs < fromMs || srcMs > toMs) {
+        errors.push({
+          message: `Datetime is not between ${this.options?.from} and ${this.options?.to}`,
+          value: src,
+        });
       }
     } else if (fromMs !== undefined) {
       if (srcMs < fromMs) {
-        return {
-          [path]: [
-            {
-              message: `Datetime is before the minimum datetime ${this.options?.from}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Datetime is before the minimum datetime ${this.options?.from}`,
+          value: src,
+        });
       }
     } else if (toMs !== undefined) {
       if (srcMs > toMs) {
-        return {
-          [path]: [
-            {
-              message: `Datetime is after the maximum datetime ${this.options?.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Datetime is after the maximum datetime ${this.options?.to}`,
+          value: src,
+        });
       }
+    }
+    if (errors.length > 0) {
+      return { [path]: errors } as ValidationErrors;
     }
     return false;
   }
@@ -197,15 +203,58 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
   }
 
   from(from: string): DateTimeSchema<Src> {
-    return new DateTimeSchema<Src>({ ...this.options, from }, this.opt);
+    return new DateTimeSchema<Src>(
+      { ...this.options, from },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
 
   to(to: string): DateTimeSchema<Src> {
-    return new DateTimeSchema<Src>({ ...this.options, to }, this.opt);
+    return new DateTimeSchema<Src>(
+      { ...this.options, to },
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
 
   nullable(): DateTimeSchema<Src | null> {
-    return new DateTimeSchema<Src | null>(this.options, true);
+    return new DateTimeSchema<Src | null>(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -216,6 +265,9 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
+      description: this.description,
     };
   }
 
