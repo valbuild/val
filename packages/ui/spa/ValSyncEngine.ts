@@ -2767,6 +2767,7 @@ const nonInterDependentTypes = [
   "boolean",
   "number",
   "date",
+  "dateTime",
   "richtext",
   "file",
   "image",

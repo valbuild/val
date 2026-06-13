@@ -43,6 +43,7 @@ export function getReferencedFiles(
       schema.type === "boolean" ||
       schema.type === "literal" ||
       schema.type === "date" ||
+      schema.type === "dateTime" ||
       schema.type === "keyOf" ||
       schema.type === "image" ||
       schema.type === "file" ||

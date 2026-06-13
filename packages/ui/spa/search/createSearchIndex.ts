@@ -170,12 +170,14 @@ function rec(
           source,
       );
     }
-  } else if (schema.type === "date") {
+  } else if (schema.type === "date" || schema.type === "dateTime") {
     if (typeof source === "string") {
       sourceIndex.add(path, source + " " + path);
     } else {
       throw new Error(
-        "Expected string for schema date, got " +
+        "Expected string for schema " +
+          schema.type +
+          ", got " +
           typeof source +
           " for " +
           path +

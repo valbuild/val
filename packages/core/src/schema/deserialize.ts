@@ -6,6 +6,7 @@ import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
 import { DateSchema } from "./date";
+import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageMetadata, ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
@@ -239,6 +240,15 @@ function deserializeSchemaImpl(
       );
     case "date":
       return new DateSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    case "dateTime":
+      return new DateTimeSchema(
         serialized.options,
         serialized.opt,
         [],

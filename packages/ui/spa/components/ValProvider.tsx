@@ -1337,6 +1337,7 @@ export type ShallowSource = EnsureAllTypes<{
   number: number;
   string: string;
   date: string;
+  dateTime: string;
   file: {
     [FILE_REF_PROP]: string;
     metadata?: { readonly [key: string]: Json };
@@ -1761,7 +1762,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "date" || type === "string" || type === "literal") {
+  } else if (
+    type === "date" ||
+    type === "dateTime" ||
+    type === "string" ||
+    type === "literal"
+  ) {
     if (typeof source !== "string" && source !== null) {
       return {
         status: "error",

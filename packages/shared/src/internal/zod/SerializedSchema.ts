@@ -15,6 +15,7 @@ import {
   type SerializedRouteSchema as SerializedRouteSchemaT,
   type SerializedFileSchema as SerializedFileSchemaT,
   type SerializedDateSchema as SerializedDateSchemaT,
+  type SerializedDateTimeSchema as SerializedDateTimeSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
@@ -234,12 +235,31 @@ export const SerializedFileSchema: z.ZodType<SerializedFileSchemaT> = z.object({
   hidden: z.boolean().optional(),
 });
 
+export const DateOptions = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
 export const SerializedDateSchema: z.ZodType<SerializedDateSchemaT> = z.object({
   type: z.literal("date"),
+  options: DateOptions.optional(),
   opt: z.boolean(),
+  customValidate: z.boolean().optional(),
   readonly: z.boolean().optional(),
   hidden: z.boolean().optional(),
+  description: z.string().optional(),
 });
+
+export const SerializedDateTimeSchema: z.ZodType<SerializedDateTimeSchemaT> =
+  z.object({
+    type: z.literal("dateTime"),
+    options: DateOptions.optional(),
+    opt: z.boolean(),
+    customValidate: z.boolean().optional(),
+    readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    description: z.string().optional(),
+  });
 
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
@@ -281,5 +301,6 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedRouteSchema,
   SerializedFileSchema,
   SerializedDateSchema,
+  SerializedDateTimeSchema,
   SerializedImageSchema,
 ]);

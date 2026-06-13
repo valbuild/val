@@ -12,26 +12,30 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 
-type DateOptions = {
+type DateTimeOptions = {
   /**
-   * Validate that the date is this date or after (inclusive).
+   * Validate that the datetime is this datetime or after (inclusive).
+   *
+   * Accepts any ISO 8601 datetime string parseable by `Date.parse`.
    *
    * @example
-   * 2021-01-01
+   * 2021-01-01T00:00:00Z
    */
   from?: string;
   /**
-   * Validate that the date is this date or before (inclusive).
+   * Validate that the datetime is this datetime or before (inclusive).
+   *
+   * Accepts any ISO 8601 datetime string parseable by `Date.parse`.
    *
    * @example
-   * 2021-01-01
+   * 2021-12-31T23:59:59Z
    */
   to?: string;
 };
 
-export type SerializedDateSchema = {
-  type: "date";
-  options?: DateOptions;
+export type SerializedDateTimeSchema = {
+  type: "dateTime";
+  options?: DateTimeOptions;
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
@@ -39,9 +43,9 @@ export type SerializedDateSchema = {
   description?: string;
 };
 
-export class DateSchema<Src extends string | null> extends Schema<Src> {
+export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
   constructor(
-    private readonly options?: DateOptions,
+    private readonly options?: DateTimeOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly isReadonly: boolean = false,
@@ -51,8 +55,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  describe(description: string | null): DateSchema<Src> {
-    return new DateSchema(
+  describe(description: string | null): DateTimeSchema<Src> {
+    return new DateTimeSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
@@ -62,8 +66,10 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  validate(validationFunction: (src: Src) => false | string): DateSchema<Src> {
-    return new DateSchema(
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): DateTimeSchema<Src> {
+    return new DateTimeSchema(
       this.options,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
@@ -89,30 +95,60 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       });
       return { [path]: errors } as ValidationErrors;
     }
-    if (this.options?.from && this.options?.to) {
-      if (this.options.from > this.options.to) {
+    const srcMs = Date.parse(src);
+    if (Number.isNaN(srcMs)) {
+      errors.push({
+        message: `Value '${src}' is not a valid ISO 8601 datetime`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
+    }
+    const fromMs =
+      this.options?.from !== undefined
+        ? Date.parse(this.options.from)
+        : undefined;
+    const toMs =
+      this.options?.to !== undefined ? Date.parse(this.options.to) : undefined;
+    if (fromMs !== undefined && Number.isNaN(fromMs)) {
+      errors.push({
+        message: `From datetime '${this.options?.from}' is not a valid ISO 8601 datetime`,
+        value: src,
+        typeError: true,
+      });
+      return { [path]: errors } as ValidationErrors;
+    }
+    if (toMs !== undefined && Number.isNaN(toMs)) {
+      errors.push({
+        message: `To datetime '${this.options?.to}' is not a valid ISO 8601 datetime`,
+        value: src,
+        typeError: true,
+      });
+      return { [path]: errors } as ValidationErrors;
+    }
+    if (fromMs !== undefined && toMs !== undefined) {
+      if (fromMs > toMs) {
         errors.push({
-          message: `From date ${this.options.from} is after to date ${this.options.to}`,
+          message: `From datetime ${this.options?.from} is after to datetime ${this.options?.to}`,
           value: src,
           typeError: true,
         });
-      } else if (src < this.options.from || src > this.options.to) {
+      } else if (srcMs < fromMs || srcMs > toMs) {
         errors.push({
-          message: `Date is not between ${this.options.from} and ${this.options.to}`,
+          message: `Datetime is not between ${this.options?.from} and ${this.options?.to}`,
           value: src,
         });
       }
-    } else if (this.options?.from) {
-      if (src < this.options.from) {
+    } else if (fromMs !== undefined) {
+      if (srcMs < fromMs) {
         errors.push({
-          message: `Date is before the minimum date ${this.options.from}`,
+          message: `Datetime is before the minimum datetime ${this.options?.from}`,
           value: src,
         });
       }
-    } else if (this.options?.to) {
-      if (src > this.options.to) {
+    } else if (toMs !== undefined) {
+      if (srcMs > toMs) {
         errors.push({
-          message: `Date is after the maximum date ${this.options.to}`,
+          message: `Datetime is after the maximum datetime ${this.options?.to}`,
           value: src,
         });
       }
@@ -166,8 +202,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     } as SchemaAssertResult<Src>;
   }
 
-  from(from: string): DateSchema<Src> {
-    return new DateSchema<Src>(
+  from(from: string): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
       { ...this.options, from },
       this.opt,
       this.customValidateFunctions,
@@ -177,8 +213,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  to(to: string): DateSchema<Src> {
-    return new DateSchema<Src>(
+  to(to: string): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
       { ...this.options, to },
       this.opt,
       this.customValidateFunctions,
@@ -188,8 +224,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  nullable(): DateSchema<Src | null> {
-    return new DateSchema<Src | null>(
+  nullable(): DateTimeSchema<Src | null> {
+    return new DateTimeSchema<Src | null>(
       this.options,
       true,
       [],
@@ -199,8 +235,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): DateSchema<Src> {
-    return new DateSchema<Src>(
+  readonly(): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
@@ -210,8 +246,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): DateSchema<Src> {
-    return new DateSchema<Src>(
+  hidden(): DateTimeSchema<Src> {
+    return new DateTimeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
@@ -223,7 +259,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
 
   protected executeSerialize(): SerializedSchema {
     return {
-      type: "date",
+      type: "dateTime",
       opt: this.opt,
       options: this.options,
       customValidate:
@@ -240,8 +276,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 }
 
-export const date = (
+export const datetime = (
   options?: Record<string, never>,
-): DateSchema<RawString> => {
-  return new DateSchema(options);
+): DateTimeSchema<RawString> => {
+  return new DateTimeSchema(options);
 };
