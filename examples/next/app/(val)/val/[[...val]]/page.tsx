@@ -1,3 +1,4 @@
+"use client";
 import { ValApp } from "@valbuild/next";
 import { config } from "../../../../val.config";
 
