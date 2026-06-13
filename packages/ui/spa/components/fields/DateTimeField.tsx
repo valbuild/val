@@ -187,6 +187,8 @@ export type DateTimeFieldPureProps = {
   portalContainer?: HTMLElement | null;
   /** Used for the wrapper element id (matches the schema field path in the bundled variant). */
   id?: string;
+  /** Disable all interaction. */
+  readonly?: boolean;
 };
 
 export function DateTimeFieldPure({
@@ -199,6 +201,7 @@ export function DateTimeFieldPure({
   persistTimezone = false,
   portalContainer = null,
   id,
+  readonly,
 }: DateTimeFieldPureProps) {
   const [isPopoverOpen, setPopoverOpen] = useState(false);
   const browserTz = useMemo(() => getBrowserTimezone(), []);
@@ -212,8 +215,19 @@ export function DateTimeFieldPure({
     return [browserTz, ...all.filter((z) => z !== browserTz)];
   }, [availableTimezones, browserTz]);
 
-  const wall = value
-    ? wallClockInZone(value, timezone)
+  const minDate = from ? new Date(from) : null;
+  const maxDate = to ? new Date(to) : null;
+  const clampedValue =
+    value == null
+      ? null
+      : minDate && value < minDate
+        ? minDate
+        : maxDate && value > maxDate
+          ? maxDate
+          : value;
+
+  const wall = clampedValue
+    ? wallClockInZone(clampedValue, timezone)
     : { date: "", time: "" };
 
   const commit = (
@@ -246,27 +260,28 @@ export function DateTimeFieldPure({
   return (
     <div id={id}>
       <Popover
-        open={isPopoverOpen}
+        open={readonly ? false : isPopoverOpen}
         onOpenChange={(next) => {
-          setPopoverOpen(next);
+          if (!readonly) setPopoverOpen(next);
         }}
       >
         <PopoverTrigger
           asChild
           onClick={() => {
-            setPopoverOpen(true);
+            if (!readonly) setPopoverOpen(true);
           }}
         >
           <Button
             variant={"outline"}
+            disabled={readonly}
             className={classNames(
               "w-[280px] justify-start text-left font-normal bg-bg-primary hover:bg-bg-secondary",
             )}
           >
             <CalendarIcon className="w-4 h-4 mr-2" />
-            {value ? (
+            {clampedValue ? (
               <span className="truncate">
-                {formatInTimezone(value, timezone)}
+                {formatInTimezone(clampedValue, timezone)}
               </span>
             ) : (
               <span>Pick a date & time</span>
@@ -277,11 +292,11 @@ export function DateTimeFieldPure({
           <Calendar
             mode="single"
             captionLayout="dropdown"
-            defaultMonth={value ?? undefined}
+            defaultMonth={clampedValue ?? undefined}
             weekStartsOn={1}
-            fromDate={from ? new Date(from) : undefined}
-            toDate={to ? new Date(to) : undefined}
-            selected={value || undefined}
+            fromDate={minDate ?? undefined}
+            toDate={maxDate ?? undefined}
+            selected={clampedValue || undefined}
             onSelect={(date) => {
               if (date) {
                 const isoDay = `${date.getFullYear()}-${String(
@@ -296,6 +311,7 @@ export function DateTimeFieldPure({
             <Input
               type="time"
               step={1}
+              disabled={readonly}
               value={wall.time || "12:00:00"}
               onChange={(e) => {
                 const day =
@@ -314,6 +330,7 @@ export function DateTimeFieldPure({
             />
             <Select
               value={timezone}
+              disabled={readonly}
               onValueChange={(next) => {
                 handleTimezoneChange(next);
               }}
@@ -339,6 +356,7 @@ export function DateTimeFieldPure({
 
 export function DateTimeField({
   path,
+  readonly,
 }: {
   path: SourcePath;
   readonly?: boolean;
@@ -412,7 +430,7 @@ export function DateTimeField({
 
   const schema = schemaAtPath.data;
 
-  return (
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <DateTimeFieldPure
@@ -429,9 +447,18 @@ export function DateTimeField({
         defaultTimezone={initialTimezone}
         persistTimezone
         portalContainer={portalContainer}
+        readonly={readonly}
       />
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function DateTimePreview({ path }: { path: SourcePath }) {
