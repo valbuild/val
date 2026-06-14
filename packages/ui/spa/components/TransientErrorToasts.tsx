@@ -15,17 +15,21 @@ export function TransientErrorToasts() {
   const shownIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    const currentIds = new Set<string>();
     for (const error of globalTransientErrors) {
+      currentIds.add(error.id);
       if (shownIds.current.has(error.id)) {
         continue;
       }
-      shownIds.current.add(error.id);
       toast.error(error.message, {
         id: error.id,
         description: error.details,
         duration: TOAST_DURATION,
       });
     }
+    // Prune ids that are no longer in the (bounded) queue so this set stays
+    // bounded to the queue size and does not leak over a long session.
+    shownIds.current = currentIds;
   }, [globalTransientErrors]);
 
   return null;

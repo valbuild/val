@@ -452,7 +452,7 @@ export function TransientErrorsList({
         container={container}
         className="flex flex-col bg-bg-primary text-fg-primary"
       >
-        <SheetHeader className="flex-row justify-between items-center pr-8">
+        <SheetHeader className="flex-row justify-between items-center space-y-0 pr-8">
           <SheetTitle>Transient errors</SheetTitle>
           <Button variant="outline" size="sm" onClick={onClear}>
             Clear all
