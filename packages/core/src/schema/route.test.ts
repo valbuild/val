@@ -92,6 +92,8 @@ describe("RouteSchema", () => {
       },
       opt: false,
       customValidate: false,
+      readonly: false,
+      hidden: false,
     });
   });
 
@@ -110,6 +112,8 @@ describe("RouteSchema", () => {
       },
       opt: false,
       customValidate: false,
+      readonly: false,
+      hidden: false,
     });
   });
 
@@ -171,6 +175,8 @@ describe("RouteSchema", () => {
       },
       opt: false,
       customValidate: false,
+      readonly: false,
+      hidden: false,
     });
   });
 
@@ -194,6 +200,8 @@ describe("RouteSchema", () => {
       },
       opt: false,
       customValidate: false,
+      readonly: false,
+      hidden: false,
     });
   });
 });

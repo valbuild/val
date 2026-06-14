@@ -22,6 +22,7 @@ import { getNavPathFromAll } from "./getNavPath";
 
 export function Field({
   label,
+  description,
   children,
   path,
   transparent,
@@ -35,6 +36,7 @@ export function Field({
   errorDisplay = "default",
 }: {
   label?: string | React.ReactNode;
+  description?: string;
   children: React.ReactNode;
   path: SourcePath;
   transparent?: boolean;
@@ -165,18 +167,23 @@ export function Field({
               }
             />
           )}
-          {typeof label === "string" &&
-            (labelClickable ? (
-              <button
-                onClick={handleLabelNavigate}
-                className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
-              >
-                {fromCamelToTitleCase(label)}
-              </button>
-            ) : (
-              <Label>{label}</Label>
-            ))}
-          {label && typeof label !== "string" && label}
+          <div className="flex flex-col gap-1">
+            {typeof label === "string" &&
+              (labelClickable ? (
+                <button
+                  onClick={handleLabelNavigate}
+                  className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
+                >
+                  {fromCamelToTitleCase(label)}
+                </button>
+              ) : (
+                <Label>{label}</Label>
+              ))}
+            {label && typeof label !== "string" && label}
+            {description && (
+              <div className="text-sm text-fg-tertiary">{description}</div>
+            )}
+          </div>
         </div>
         <div
           className={classNames("flex items-center", {

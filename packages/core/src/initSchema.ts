@@ -13,6 +13,7 @@ import { record } from "./schema/record";
 import { file } from "./schema/file";
 import { files } from "./schema/files";
 import { date } from "./schema/date";
+import { datetime } from "./schema/datetime";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
@@ -166,6 +167,17 @@ export type InitSchema = {
    */
   readonly date: typeof date;
   /**
+   * Define a date and time.
+   *
+   * Stored as an ISO 8601 datetime string (UTC).
+   *
+   * @example
+   * const schema = s.datetime();
+   * export default c.define("/example.val.ts", schema, "2025-01-01T12:00:00.000Z");
+   *
+   */
+  readonly datetime: typeof datetime;
+  /**
    * Define a string that references a route path in your application.
    *
    * To create router pages you can use the s.router() function.
@@ -262,6 +274,7 @@ export function initSchema() {
     file,
     files,
     date,
+    datetime,
     route,
     router,
     images,

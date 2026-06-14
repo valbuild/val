@@ -44,6 +44,9 @@ export type SerializedRecordSchema = {
   directory?: string;
   remote?: boolean;
   alt?: SerializedSchema;
+  readonly?: boolean;
+  hidden?: boolean;
+  description?: string;
 };
 
 export class RecordSchema<
@@ -58,8 +61,25 @@ export class RecordSchema<
     private readonly currentRouter: ValRouter | null = null,
     private readonly keySchema: Schema<string> | null = null,
     private readonly mediaOptions?: MediaOptions,
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
@@ -72,6 +92,9 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
     );
   }
 
@@ -495,7 +518,38 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
     ) as RecordSchema<T, K, Src | null>;
+  }
+
+  readonly(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   router(router: ValRouter): RecordSchema<T, K, Src> {
@@ -506,6 +560,9 @@ export class RecordSchema<
       router,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
     );
   }
 
@@ -517,6 +574,9 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
     );
   }
 
@@ -592,6 +652,9 @@ export class RecordSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
+      description: this.description,
     };
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;

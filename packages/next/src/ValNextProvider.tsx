@@ -2,7 +2,6 @@
 
 import {
   DEFAULT_CONTENT_HOST,
-  Internal,
   ModuleFilePath,
   ValConfig,
 } from "@valbuild/core";
@@ -20,6 +19,7 @@ import { createValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
+import { hasValEnableCookie } from "./valEnableCookie";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -28,6 +28,27 @@ export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
   disableRefresh?: boolean;
+  /**
+   * Opt in to Suspense gating for `useValStega` / `useValRouteStega`:
+   * `<ValProvider config={config} suspend>`. Requires React 19 (`React.use`).
+   *
+   * When set, hooks suspend until draft data has loaded — but only when the
+   * Val Enable cookie is present, which is detected client-side after
+   * hydration. SSR and hydration always render the static committed source
+   * (draft data is browser-only), the gate then activates inside a transition
+   * so the static content stays visible while draft data loads. Production
+   * visitors without the cookie pay no cost, and layouts stay synchronous and
+   * routes static — do NOT wire this to a server-side cookie read like
+   * `cookies()` from `next/headers`: that opts every route into dynamic
+   * rendering.
+   *
+   * Must be constant for the lifetime of the page.
+   *
+   * When omitted (or `false`), `useValStega` never suspends — components
+   * render with the static committed source and update on the client once
+   * draft data has loaded.
+   */
+  suspend?: boolean;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -42,6 +63,16 @@ export const ValNextProvider = (props: {
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
+  // Whether useValStega should actually suspend. False during SSR and the
+  // hydration render — the server store is never populated (draft data
+  // arrives via browser CustomEvents only), so suspending there would just
+  // stall into the waitForLoad timeout, and hydration must render the static
+  // source so it matches the server HTML exactly. Activated post-hydration
+  // (in an effect, only when the Val Enable cookie is present) inside a
+  // transition: React keeps the static content visible while hooks suspend
+  // and then swaps to draft data as a normal update — no Suspense fallback
+  // flash and no hydration mismatch.
+  const [suspendActive, setSuspendActive] = React.useState(false);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
@@ -68,10 +99,22 @@ export const ValNextProvider = (props: {
       setMountOverlay(false);
       return;
     }
-    setMountOverlay(
-      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
-    );
+    setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
+
+  React.useEffect(() => {
+    // Activate the Suspense gate after hydration. Inside a transition so
+    // already-visible (static) content stays on screen while useValStega
+    // suspends — no fallback flash — and the swap to draft data commits as a
+    // normal update instead of a hydration mismatch. Never deactivated:
+    // components must not stop suspending across renders (the draft-mode-off
+    // release valve lives in useValStega instead).
+    if (props.suspend && shouldEnableVal()) {
+      startTransition(() => {
+        setSuspendActive(true);
+      });
+    }
+  }, [props.suspend]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -182,7 +225,11 @@ export const ValNextProvider = (props: {
             return;
           }
           if (res.status === 401) {
-            // ignore when not authorized
+            // Not authorized (e.g. stale Val Enable cookie after the session
+            // expired): treat draft mode as off so useValStega's Suspense gate
+            // is released instead of leaving draftMode stuck at null and
+            // re-suspending into the waitForLoad timeout.
+            setDraftMode(false);
             return;
           }
           if (res.status !== 200) {
@@ -346,7 +393,11 @@ export const ValNextProvider = (props: {
   }, [valPrefixedClass]);
 
   return (
-    <ValOverlayProvider draftMode={draftMode} store={valStore}>
+    <ValOverlayProvider
+      draftMode={draftMode}
+      suspend={suspendActive}
+      store={valStore}
+    >
       {props.children}
       {dropZone !== null &&
         !spaLoaded &&
@@ -521,6 +572,18 @@ function getPositionClassName(dropZone: string | null) {
 
 function isValStudioPath(pathname: string): boolean {
   return pathname.startsWith("/val");
+}
+
+// Same guards as the mountOverlay effect: suspending where the overlay can't
+// mount would only ever stall into the waitForLoad timeout. Browser-only.
+function shouldEnableVal(): boolean {
+  if (location.search === "?message_onready=true") {
+    return false;
+  }
+  if (isValStudioPath(location.pathname)) {
+    return false;
+  }
+  return hasValEnableCookie(document.cookie);
 }
 
 // function ValIcon() {

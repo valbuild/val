@@ -91,6 +91,16 @@ export function DateField({
   }
 
   const schema = schemaAtPath.data;
+  const minDate = schema.options?.from ? new Date(schema.options.from) : null;
+  const maxDate = schema.options?.to ? new Date(schema.options.to) : null;
+  const clampedValue =
+    currentValue == null
+      ? null
+      : minDate && currentValue < minDate
+        ? minDate
+        : maxDate && currentValue > maxDate
+          ? maxDate
+          : currentValue;
   const content = (
     <div id={path}>
       <ValidationErrors path={path} />
@@ -114,8 +124,8 @@ export function DateField({
             )}
           >
             <CalendarIcon className="w-4 h-4 mr-2" />
-            {currentValue ? (
-              format(currentValue, "PPP")
+            {clampedValue ? (
+              format(clampedValue, "PPP")
             ) : (
               <span>Pick a date</span>
             )}
@@ -125,15 +135,11 @@ export function DateField({
           <Calendar
             mode="single"
             captionLayout="dropdown"
-            defaultMonth={currentValue ?? undefined}
+            defaultMonth={clampedValue ?? undefined}
             weekStartsOn={1}
-            fromDate={
-              schema.options?.from ? new Date(schema.options.from) : undefined
-            }
-            toDate={
-              schema.options?.to ? new Date(schema.options.to) : undefined
-            }
-            selected={currentValue || undefined}
+            fromDate={minDate ?? undefined}
+            toDate={maxDate ?? undefined}
+            selected={clampedValue || undefined}
             onSelect={(date) => {
               if (date) {
                 setCurrentValue(date);
