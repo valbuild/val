@@ -11,6 +11,7 @@ import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
+import { DateTimeField } from "./fields/DateTimeField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
@@ -36,7 +37,11 @@ export function AnyField({
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
 }) {
-  const leafProps = { readonly, compact };
+  if (schema.hidden) {
+    return null;
+  }
+  const effectiveReadonly = readonly || schema.readonly;
+  const leafProps = { readonly: effectiveReadonly, compact };
   let leaf: React.ReactNode;
   if (schema.type === "string") {
     leaf = (
@@ -65,7 +70,7 @@ export function AnyField({
       <ObjectFields
         key={path}
         path={path}
-        readonly={readonly}
+        readonly={effectiveReadonly}
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
@@ -76,7 +81,7 @@ export function AnyField({
       <ArrayFields
         key={path}
         path={path}
-        readonly={readonly}
+        readonly={effectiveReadonly}
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
@@ -87,7 +92,7 @@ export function AnyField({
       <RecordFields
         key={path}
         path={path}
-        readonly={readonly}
+        readonly={effectiveReadonly}
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
@@ -98,7 +103,7 @@ export function AnyField({
       <UnionField
         key={path}
         path={path}
-        readonly={readonly}
+        readonly={effectiveReadonly}
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
@@ -119,6 +124,8 @@ export function AnyField({
     );
   } else if (schema.type === "date") {
     leaf = <DateField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "dateTime") {
+    leaf = <DateTimeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {

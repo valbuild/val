@@ -1,3 +1,7 @@
+/* sonner toast styles — imported here so they load inside the Shadow DOM
+   (sonner injects into document.head by default, which the shadow root cannot see). */
+@import "sonner/dist/styles.css";
+
 /*
   Need to explicitly set config path, otherwise it may fail to resolve when
   built from outside packages/ui.

@@ -12,6 +12,7 @@ export const schema = s
         .to("2024-01-01")
         .nullable()
         .describe("Author's birthdate"),
+      joinedAt: s.datetime().nullable(),
       image: s.image(mediaVal).nullable(),
     }),
   )
@@ -28,31 +29,37 @@ export default c.define("/content/authors.val.ts", schema, {
   teddy: {
     name: "Theodor René Carlsen",
     birthdate: null,
+    joinedAt: null,
     image: null,
   },
   freekh: {
     name: "Fredrik Ekholdt",
     birthdate: "1981-12-30",
+    joinedAt: "2023-04-12T09:30:00.000Z",
     image: null,
   },
   erlamd: {
     name: "Erlend Åmdal",
     birthdate: null,
+    joinedAt: null,
     image: null,
   },
   thoram: {
     name: "Thomas Ramirez",
     birthdate: null,
+    joinedAt: null,
     image: null,
   },
   isabjo: {
     name: "Isak Bjørnstad",
     birthdate: null,
+    joinedAt: null,
     image: null,
   },
   kimmid: {
     name: "Kim Midtlid",
     birthdate: null,
+    joinedAt: null,
     image: null,
   },
 });
