@@ -12,6 +12,8 @@ import {
   Sidebar,
 } from "./designSystem/sidebar";
 import { useIsMobile } from "./hooks/use-mobile";
+import { Toaster } from "./designSystem/sonner";
+import { TransientErrorToasts } from "./TransientErrorToasts";
 
 export function Layout() {
   const isMobile = useIsMobile();
@@ -101,6 +103,8 @@ export function Layout() {
           </Sidebar>
         </SidebarProvider>
       </main>
+      <Toaster />
+      <TransientErrorToasts />
     </LayoutContext.Provider>
   );
 }

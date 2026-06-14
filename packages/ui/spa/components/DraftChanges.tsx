@@ -26,6 +26,7 @@ import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {
+  Bell,
   Check,
   ChevronDown,
   Download,
@@ -53,6 +54,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "./designSystem/sheet";
 import * as RadixAccordion from "@radix-ui/react-accordion";
 import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
 import {
@@ -353,10 +361,58 @@ export function ValidationErrorsDisplay() {
   );
 }
 
+export type TransientError = {
+  message: string;
+  timestamp: number;
+  details?: string;
+  id: string;
+};
+
+/**
+ * Container that wires the transient-error queue (the history) to the
+ * presentational list. New errors also pop up as toasts (see
+ * {@link TransientErrorToasts}); this list is the debugging-oriented history
+ * and stays available until errors are explicitly dismissed/cleared.
+ */
 export function TransientErrorsDisplay() {
   const { globalTransientErrors, removeGlobalTransientErrors } =
     useGlobalTransientErrors();
+  const container = useValPortal();
+
+  if (!globalTransientErrors || globalTransientErrors.length === 0) {
+    return null;
+  }
+  return (
+    <TransientErrorsList
+      errors={globalTransientErrors}
+      container={container}
+      onDismiss={(id) => removeGlobalTransientErrors([id])}
+      onClear={() =>
+        removeGlobalTransientErrors(globalTransientErrors.map((e) => e.id))
+      }
+    />
+  );
+}
+
+/**
+ * Presentational transient-errors list: a simple icon button (with a red dot
+ * when there are unseen errors) that opens a slide-over sheet with the full
+ * history. Kept free of providers so it can be exercised in isolation (e.g.
+ * Storybook).
+ */
+export function TransientErrorsList({
+  errors,
+  onDismiss,
+  onClear,
+  container,
+}: {
+  errors: TransientError[];
+  onDismiss: (id: string) => void;
+  onClear: () => void;
+  container?: HTMLElement | null;
+}) {
   const [now, setNow] = useState(new Date());
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(new Date());
@@ -366,51 +422,83 @@ export function TransientErrorsDisplay() {
     };
   }, []);
 
-  if (!globalTransientErrors || globalTransientErrors.length === 0) {
+  if (errors.length === 0) {
     return null;
   }
+  const hasUnseen = errors.some((error) => !seenIds.has(error.id));
+  const count = errors.length;
   return (
-    <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
-      <ScrollArea orientation="horizontal">
-        <Accordion type="single" className="px-4 font-serif" collapsible>
-          <AccordionItem
-            value="error"
-            className="border-b-0 data-[state=open]:mb-4"
-          >
-            <AccordionTrigger>
-              {globalTransientErrors.length} transient error
-              {globalTransientErrors.length > 1 ? "s" : ""}
-            </AccordionTrigger>
-            <AccordionContent className="w-full">
-              <div className="flex flex-col gap-2">
-                {globalTransientErrors.map((error) => (
-                  <div
-                    key={error.id}
-                    className="flex gap-2 justify-between items-start"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <div className="font-bold">{error.message}</div>
-                      {error.details && <div>{error.details}</div>}
-                      <div className="text-[10px] font-thin">
-                        {relativeLocalDate(
-                          now,
-                          new Date(error.timestamp).toISOString(),
-                        )}
+    <Sheet
+      onOpenChange={(open) => {
+        if (open) {
+          setSeenIds(new Set(errors.map((error) => error.id)));
+        }
+      }}
+    >
+      <SheetTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${count} transient error${count > 1 ? "s" : ""}`}
+          className="relative mr-auto inline-flex items-center justify-center rounded-md p-2 text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Bell size={16} aria-hidden />
+          {hasUnseen && (
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-bg-error-primary ring-2 ring-bg-primary" />
+          )}
+        </button>
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        container={container}
+        className="flex flex-col bg-bg-primary text-fg-primary"
+      >
+        <SheetHeader className="flex-row justify-between items-center space-y-0 pr-8">
+          <SheetTitle>Transient errors</SheetTitle>
+          <Button variant="outline" size="sm" onClick={onClear}>
+            Clear all
+          </Button>
+        </SheetHeader>
+        <ScrollArea className="flex-1 -mx-2">
+          <div className="flex flex-col gap-2 px-2 py-2">
+            {errors.map((error) => (
+              <div
+                key={error.id}
+                className="flex gap-2 justify-between items-start p-3 rounded-md border border-border-primary bg-bg-secondary"
+              >
+                <div className="flex gap-2 min-w-0">
+                  <TriangleAlert
+                    size={16}
+                    aria-hidden
+                    className="mt-0.5 shrink-0 text-fg-error-secondary"
+                  />
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <div className="font-bold break-words">{error.message}</div>
+                    {error.details && (
+                      <div className="break-words text-fg-secondary">
+                        {error.details}
                       </div>
+                    )}
+                    <div className="text-[10px] font-thin text-fg-secondary">
+                      {relativeLocalDate(
+                        now,
+                        new Date(error.timestamp).toISOString(),
+                      )}
                     </div>
-                    <button
-                      onClick={() => removeGlobalTransientErrors([error.id])}
-                    >
-                      <X size={14} />
-                    </button>
                   </div>
-                ))}
+                </div>
+                <button
+                  aria-label="Dismiss error"
+                  className="text-fg-secondary hover:text-fg-primary"
+                  onClick={() => onDismiss(error.id)}
+                >
+                  <X size={14} />
+                </button>
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </ScrollArea>
-    </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   );
 }
 
