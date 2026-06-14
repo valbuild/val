@@ -145,6 +145,10 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
+  const keyDescription =
+    isKey && parentSchema?.type === "record"
+      ? parentSchema.key?.description
+      : undefined;
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -158,7 +162,7 @@ export function Module({
         )}
         <div
           className={cn({
-            "border rounded-lg border-bg-error-secondary p-4":
+            "border rounded-lg border-bg-warning-secondary p-4":
               keyErrors.length > 0,
           })}
         >
@@ -189,14 +193,21 @@ export function Module({
                   <FieldPatchAuthors
                     patchesByAuthorIds={patchesByAuthorIds}
                     profilesByAuthorIds={profilesByAuthorIds}
+                    sourcePath={path}
                   />
                 )}
                 <ArrayAndRecordTools path={path} variant={"module"} />
               </div>
             )}
           </div>
+          {keyDescription && (
+            <div className="text-sm text-fg-tertiary">{keyDescription}</div>
+          )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
+          )}
+          {schema.description && (
+            <div className="text-sm text-fg-tertiary">{schema.description}</div>
           )}
         </div>
       </div>
@@ -206,7 +217,7 @@ export function Module({
         )}
         <div
           className={cn({
-            "border rounded-lg border-bg-error-secondary p-4 mt-4":
+            "border rounded-lg border-bg-warning-secondary p-4 mt-4":
               nonKeyErrors.length > 0,
           })}
         >

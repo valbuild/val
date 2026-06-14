@@ -12,7 +12,19 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function ObjectFields({ path }: { path: SourcePath }) {
+export function ObjectFields({
+  path,
+  readonly,
+  compact,
+  inline,
+  errorDisplay = "default",
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
+}) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -55,17 +67,33 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      <div className="flex flex-col gap-6">
+      <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
         {Object.entries(schema.items).map(([key, itemSchema]) => {
+          if (itemSchema.hidden) {
+            return null;
+          }
           const subPath = sourcePathOfItem(path, key);
+          const itemReadonly = readonly || itemSchema.readonly;
           return (
             <Field
               key={subPath}
               label={key}
+              description={itemSchema.description}
               path={subPath}
               type={itemSchema.type}
+              readonly={itemReadonly}
+              compact={compact}
+              errorDisplay={errorDisplay}
             >
-              <AnyField key={subPath} path={subPath} schema={itemSchema} />
+              <AnyField
+                key={subPath}
+                path={subPath}
+                schema={itemSchema}
+                readonly={itemReadonly}
+                compact={compact}
+                inline={inline}
+                errorDisplay={errorDisplay}
+              />
             </Field>
           );
         })}
@@ -123,7 +151,10 @@ export function ObjectLikePreview({
         size === "compact" ? "max-h-[60px] overflow-hidden" : ""
       }`}
     >
-      {Object.keys(schema.items).map((key) => {
+      {Object.entries(schema.items).map(([key, itemSchema]) => {
+        if (itemSchema.hidden) {
+          return null;
+        }
         const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>

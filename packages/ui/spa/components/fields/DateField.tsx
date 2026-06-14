@@ -24,7 +24,14 @@ import {
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 
-export function DateField({ path }: { path: SourcePath }) {
+export function DateField({
+  path,
+  readonly,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+}) {
   const type = "date";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -84,30 +91,41 @@ export function DateField({ path }: { path: SourcePath }) {
   }
 
   const schema = schemaAtPath.data;
-  return (
+  const minDate = schema.options?.from ? new Date(schema.options.from) : null;
+  const maxDate = schema.options?.to ? new Date(schema.options.to) : null;
+  const clampedValue =
+    currentValue == null
+      ? null
+      : minDate && currentValue < minDate
+        ? minDate
+        : maxDate && currentValue > maxDate
+          ? maxDate
+          : currentValue;
+  const content = (
     <div id={path}>
       <ValidationErrors path={path} />
       <Popover
-        open={isPopoverOpen}
+        open={readonly ? false : isPopoverOpen}
         onOpenChange={(next) => {
-          setPopoverOpen(next);
+          if (!readonly) setPopoverOpen(next);
         }}
       >
         <PopoverTrigger
           asChild
           onClick={() => {
-            setPopoverOpen(true);
+            if (!readonly) setPopoverOpen(true);
           }}
         >
           <Button
             variant={"outline"}
+            disabled={readonly}
             className={classNames(
               "w-[280px] justify-start text-left font-normal bg-bg-primary hover:bg-bg-secondary",
             )}
           >
             <CalendarIcon className="w-4 h-4 mr-2" />
-            {currentValue ? (
-              format(currentValue, "PPP")
+            {clampedValue ? (
+              format(clampedValue, "PPP")
             ) : (
               <span>Pick a date</span>
             )}
@@ -117,15 +135,11 @@ export function DateField({ path }: { path: SourcePath }) {
           <Calendar
             mode="single"
             captionLayout="dropdown"
-            defaultMonth={currentValue ?? undefined}
+            defaultMonth={clampedValue ?? undefined}
             weekStartsOn={1}
-            fromDate={
-              schema.options?.from ? new Date(schema.options.from) : undefined
-            }
-            toDate={
-              schema.options?.to ? new Date(schema.options.to) : undefined
-            }
-            selected={currentValue || undefined}
+            fromDate={minDate ?? undefined}
+            toDate={maxDate ?? undefined}
+            selected={clampedValue || undefined}
             onSelect={(date) => {
               if (date) {
                 setCurrentValue(date);
@@ -147,6 +161,14 @@ export function DateField({ path }: { path: SourcePath }) {
       </Popover>
     </div>
   );
+  if (readonly) {
+    return (
+      <div className="pointer-events-none opacity-70" aria-disabled="true">
+        {content}
+      </div>
+    );
+  }
+  return content;
 }
 
 export function DatePreview({ path }: { path: SourcePath }) {

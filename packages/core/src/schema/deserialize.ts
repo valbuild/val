@@ -6,6 +6,7 @@ import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
 import { DateSchema } from "./date";
+import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageMetadata, ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
@@ -19,6 +20,19 @@ import { StringSchema } from "./string";
 import { UnionSchema } from "./union";
 
 export function deserializeSchema(
+  serialized: SerializedSchema,
+): Schema<SelectorSource> {
+  let schema = deserializeSchemaImpl(serialized);
+  if (serialized.readonly) {
+    schema = schema.readonly();
+  }
+  if (serialized.hidden) {
+    schema = schema.hidden();
+  }
+  return schema;
+}
+
+function deserializeSchemaImpl(
   serialized: SerializedSchema,
 ): Schema<SelectorSource> {
   switch (serialized.type) {
@@ -36,13 +50,38 @@ export function deserializeSchema(
         },
         serialized.opt,
         serialized.raw,
+        [],
+        null,
+        false,
+        false,
+        serialized.description,
       );
     case "literal":
-      return new LiteralSchema(serialized.value, serialized.opt);
+      return new LiteralSchema(
+        serialized.value,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "boolean":
-      return new BooleanSchema(serialized.opt);
+      return new BooleanSchema(
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "number":
-      return new NumberSchema(serialized.options, serialized.opt);
+      return new NumberSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "object":
       return new ObjectSchema(
         Object.fromEntries(
@@ -51,11 +90,19 @@ export function deserializeSchema(
           }),
         ),
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "array":
       return new ArraySchema(
         deserializeSchema(serialized.item),
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "union":
       return new UnionSchema(
@@ -66,6 +113,10 @@ export function deserializeSchema(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "richtext": {
       const deserializedOptions = {
@@ -96,7 +147,14 @@ export function deserializeSchema(
                     img: boolean | undefined;
                   }),
       };
-      return new RichTextSchema(deserializedOptions, serialized.opt);
+      return new RichTextSchema(
+        deserializedOptions,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     }
     case "record":
       return new RecordSchema(
@@ -118,12 +176,19 @@ export function deserializeSchema(
                 : undefined,
             }
           : undefined,
+        false,
+        false,
+        serialized.description,
       );
     case "keyOf":
       return new KeyOfSchema(
         serialized.schema,
         serialized.path as SourcePath,
         serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
       );
     case "route": {
       const routeOptions = serialized.options
@@ -142,22 +207,55 @@ export function deserializeSchema(
               : undefined,
           }
         : undefined;
-      return new RouteSchema(routeOptions, serialized.opt);
+      return new RouteSchema(
+        routeOptions,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     }
     case "file":
       return new FileSchema(
         serialized.options,
         serialized.opt,
         serialized.remote,
+        [],
+        {},
+        false,
+        false,
+        serialized.description,
       );
     case "image":
       return new ImageSchema(
         serialized.options,
         serialized.opt,
         serialized.remote,
+        [],
+        {},
+        false,
+        false,
+        serialized.description,
       );
     case "date":
-      return new DateSchema(serialized.options, serialized.opt);
+      return new DateSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    case "dateTime":
+      return new DateTimeSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;

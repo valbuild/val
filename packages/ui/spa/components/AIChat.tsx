@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   Tag,
   Paperclip,
+  GitCompareArrows,
   X,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
@@ -1150,6 +1151,10 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
     set_session_name: {
       label: "Naming session",
       icon: <Tag className="h-3 w-3" />,
+    },
+    show_compare_view: {
+      label: "Opening compare view",
+      icon: <GitCompareArrows className="h-3 w-3" />,
     },
   };
 

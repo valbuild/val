@@ -56,6 +56,7 @@ export function getKeysOf(
       schema.type === "boolean" ||
       schema.type === "literal" ||
       schema.type === "date" ||
+      schema.type === "dateTime" ||
       schema.type === "image" ||
       schema.type === "file" ||
       schema.type === "richtext" ||

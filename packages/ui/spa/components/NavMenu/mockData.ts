@@ -65,6 +65,7 @@ export const mockSitemap: SitemapItem = {
             firstMessage: "Required field `title` is missing",
           },
           children: [],
+          hasError: true,
         },
         {
           name: "blog-3",
@@ -220,6 +221,7 @@ export const mockExplorer: ExplorerItem = {
  */
 export const mockExternal: ExternalModule = {
   moduleFilePath: "/app/external.val.ts" as ModuleFilePath,
+  hasError: true,
 };
 
 /**

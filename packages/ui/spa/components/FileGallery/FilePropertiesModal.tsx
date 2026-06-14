@@ -1,6 +1,6 @@
 import * as React from "react";
-import { Check, ExternalLink, Link, Trash2 } from "lucide-react";
-import { Internal, ModuleFilePath } from "@valbuild/core";
+import { ExternalLink, GitCompare, Link, Trash2 } from "lucide-react";
+import { ModuleFilePath } from "@valbuild/core";
 import {
   Dialog,
   DialogContent,
@@ -22,21 +22,12 @@ import {
   TooltipTrigger,
 } from "../designSystem/tooltip";
 import { useNavigation } from "../ValRouter";
-import { ValPath } from "../ValPath";
-import { prettifyFilename } from "../../utils/prettifyFilename";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../designSystem/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../designSystem/command";
+import { ConnectedReferencesList } from "../ReferencesList";
 
 interface FilePropertiesModalProps {
   file: GalleryFile | null;
@@ -137,6 +128,7 @@ export function FilePropertiesModal({
                       <FieldPatchAuthors
                         patchesByAuthorIds={file.patchesByAuthorIds}
                         profilesByAuthorIds={file.profilesByAuthorIds}
+                        sourcePath={file.sourcePath}
                       />
                     )}
                 </div>
@@ -227,6 +219,22 @@ export function FilePropertiesModal({
             <ExternalLink className="h-4 w-4" />
             Open in New Tab
           </button>
+          {file.sourcePath &&
+            file.patchesByAuthorIds &&
+            Object.keys(file.patchesByAuthorIds).length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigate("/val/compare", {
+                    scrollToPath: file.sourcePath,
+                  });
+                }}
+                className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
+              >
+                <GitCompare className="h-4 w-4" />
+                View in Compare
+              </button>
+            )}
           {onFileDelete && fileIndex !== null && (
             <div className="ml-auto flex items-center gap-2">
               {refs.length > 0 && (
@@ -244,43 +252,14 @@ export function FilePropertiesModal({
                     className="w-[clamp(300px,40vw,400px)] p-0 z-[8999]"
                     container={container}
                   >
-                    <Command>
-                      <CommandInput placeholder="Filter" />
-                      <CommandList>
-                        <CommandEmpty>No references found.</CommandEmpty>
-                        <CommandGroup>
-                          {refs.map((ref) => {
-                            const [refModuleFilePath, modulePath] =
-                              Internal.splitModuleFilePathAndModulePath(ref);
-                            const patchPath =
-                              Internal.createPatchPath(modulePath);
-                            const label = `${prettifyFilename(Internal.splitModuleFilePath(refModuleFilePath).pop() || "")}${modulePath ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}` : ""}`;
-                            const isCurrent = currentSourcePath === ref;
-                            return (
-                              <CommandItem
-                                key={ref}
-                                value={label}
-                                onSelect={() => {
-                                  navigate(ref);
-                                  setRefsOpen(false);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    isCurrent ? "opacity-100" : "opacity-0",
-                                  )}
-                                />
-                                <ValPath
-                                  moduleFilePath={refModuleFilePath}
-                                  patchPath={patchPath}
-                                />
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
+                    <ConnectedReferencesList
+                      refs={refs}
+                      currentPath={currentSourcePath}
+                      onSelect={(navPath, { scrollToPath }) => {
+                        navigate(navPath, { scrollToPath });
+                        setRefsOpen(false);
+                      }}
+                    />
                   </PopoverContent>
                 </Popover>
               )}

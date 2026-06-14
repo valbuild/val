@@ -1,3 +1,4 @@
+import type { SourcePath } from "@valbuild/core";
 import type { PendingPatch, Profile } from "../ValProvider";
 
 export interface FileMetadata {
@@ -5,6 +6,7 @@ export interface FileMetadata {
   height: number;
   mimeType: string;
   alt?: string;
+  hotspot?: { x: number; y: number };
 }
 
 export interface GalleryFile {
@@ -20,6 +22,7 @@ export interface GalleryFile {
   };
   patchesByAuthorIds?: Record<string, PendingPatch[]>;
   profilesByAuthorIds?: Record<string, Profile>;
+  sourcePath?: SourcePath;
 }
 
 export type ViewMode = "masonry" | "grid" | "list";

@@ -10,6 +10,7 @@ import { ImagePreview } from "./fields/ImageField";
 import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
 import { DatePreview } from "./fields/DateField";
+import { DateTimePreview } from "./fields/DateTimeField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
@@ -59,6 +60,8 @@ export function Preview({
     return <RoutePreview path={path} />;
   } else if (type === "date") {
     return <DatePreview path={path} />;
+  } else if (type === "dateTime") {
+    return <DateTimePreview path={path} />;
   } else if (type === "literal") {
     return <LiteralPreview path={path} />;
   } else if (type === "record") {

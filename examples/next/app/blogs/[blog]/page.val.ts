@@ -3,7 +3,7 @@ import authorsVal from "../../../content/authors.val";
 import { linkSchema } from "../../../components/link.val";
 
 const blogSchema = s.object({
-  title: s.string(),
+  title: s.string().maxLength(3),
   content: s.richtext({
     inline: {
       a: s.route(),

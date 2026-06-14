@@ -40,7 +40,8 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { useSchemas } from "./ValFieldProvider";
+import { useSchemas, useSyncEngine } from "./ValFieldProvider";
+export { useSyncEngine } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -821,7 +822,7 @@ export function useAddModuleFilePatch() {
 }
 
 export function useDeletePatches() {
-  const { syncEngine } = useContext(ValContext);
+  const syncEngine = useSyncEngine();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
       // Delete in batches of 100 patch ids (since it is added to request url as query param)
@@ -859,10 +860,6 @@ export function useAIContext() {
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   };
-}
-
-export function useSyncEngine() {
-  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {
@@ -1340,6 +1337,7 @@ export type ShallowSource = EnsureAllTypes<{
   number: number;
   string: string;
   date: string;
+  dateTime: string;
   file: {
     [FILE_REF_PROP]: string;
     metadata?: { readonly [key: string]: Json };
@@ -1764,7 +1762,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "date" || type === "string" || type === "literal") {
+  } else if (
+    type === "date" ||
+    type === "dateTime" ||
+    type === "string" ||
+    type === "literal"
+  ) {
     if (typeof source !== "string" && source !== null) {
       return {
         status: "error",

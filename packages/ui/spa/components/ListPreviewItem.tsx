@@ -77,7 +77,7 @@ function ImageOrPlaceholder({
         }`}
         style={{
           objectPosition: src.metadata?.hotspot
-            ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`
+            ? `${src.metadata.hotspot.x * 100}% ${src.metadata.hotspot.y * 100}%`
             : "",
           transition: "opacity 0.2s ease-in-out",
         }}

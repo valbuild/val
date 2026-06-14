@@ -8,7 +8,7 @@ const ScrollArea = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
     innerRef?: React.Ref<HTMLDivElement>;
     viewportId?: string;
-    orientation?: "vertical" | "horizontal";
+    orientation?: "vertical" | "horizontal" | "both";
   }
 >(
   (
@@ -22,12 +22,20 @@ const ScrollArea = React.forwardRef<
     >
       <ScrollAreaPrimitive.Viewport
         className="h-full w-full rounded-[inherit]"
+        style={{ overscrollBehavior: "contain" }}
         ref={innerRef}
         id={viewportId}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar orientation={orientation} />
+      {orientation === "both" ? (
+        <>
+          <ScrollBar orientation="vertical" />
+          <ScrollBar orientation="horizontal" />
+        </>
+      ) : (
+        <ScrollBar orientation={orientation} />
+      )}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   ),

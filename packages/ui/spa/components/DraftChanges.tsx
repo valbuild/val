@@ -855,7 +855,7 @@ const PatchOrPatchSetCard = forwardRef<
                 </TooltipTrigger>
                 <TooltipContent side="left">
                   <p>
-                    {amount} change{amount > 1 ? "s" : ""} in this patch set
+                    {amount} change{amount > 1 ? "s" : ""} in this group
                   </p>
                 </TooltipContent>
               </Tooltip>

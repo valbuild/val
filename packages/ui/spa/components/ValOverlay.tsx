@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  GitCompareArrows,
   Globe,
   GripHorizontal,
   LogIn,
@@ -14,7 +15,6 @@ import {
   PanelTop,
   PanelsTopLeft,
   SquareDashedMousePointer,
-  Upload,
   X,
 } from "lucide-react";
 import React, {
@@ -38,7 +38,6 @@ import {
   useAuthenticationState,
   useCurrentPatchIds,
   useValMode,
-  usePublishSummary,
   useShallowModulesAtPaths,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -48,16 +47,14 @@ import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";
-import { PopoverClose, PopoverTrigger } from "@radix-ui/react-popover";
+import { PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
-import { DraftChanges } from "./DraftChanges";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { PublishButton } from "./PublishButton";
-import { ScrollArea } from "./designSystem/scroll-area";
 import {
   Select,
   SelectContent,
@@ -1098,6 +1095,11 @@ function WindowField({
       <div className="flex flex-col gap-2 w-full">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
+            {schemaAtPath.data.description && (
+              <div className="pb-2 text-sm text-fg-tertiary">
+                {schemaAtPath.data.description}
+              </div>
+            )}
             <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
           </div>
           <a
@@ -1115,6 +1117,11 @@ function WindowField({
 
   return (
     <div className="flex flex-col gap-4 w-full">
+      {schemaAtPath.data.description && (
+        <div className="text-sm text-fg-tertiary">
+          {schemaAtPath.data.description}
+        </div>
+      )}
       <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );
@@ -1232,29 +1239,12 @@ function ValMenu({
     }, 200);
   };
   const { theme, setTheme } = useTheme();
-  const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
-  // TODO: refactor all resize handlers into a hook
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 400) {
-        setPublishPopoverSideOffset(-56);
-      } else {
-        setPublishPopoverSideOffset(32);
-      }
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-  const { publishDisabled } = usePublishSummary();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
@@ -1388,17 +1378,11 @@ function ValMenu({
             </HoverCardContent>
           </HoverCard>
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
-          <Popover>
-            <PopoverTrigger
-              disabled={publishDisabled}
-              className={cn(
-                buttonClassName,
-                buttonInactiveClassName,
-                "inline-flex p-0",
-              )}
-            >
-              <HoverCard>
-                <HoverCardTrigger className="inline-flex p-2">
+          <HoverCard>
+            <HoverCardTrigger className="inline-flex" asChild>
+              <MenuButton
+                href={window.origin + "/val/compare"}
+                icon={
                   <div className="relative">
                     {patchIds.length > 0 && (
                       <div className="absolute -top-3 -right-3">
@@ -1426,60 +1410,33 @@ function ValMenu({
                         </div>
                       </div>
                     )}
-                    <Upload size={16} />
+                    <GitCompareArrows size={16} />
                   </div>
-                </HoverCardTrigger>
-                <HoverCardContent
-                  side={publishPopoverSide}
-                  className="z-50"
-                  container={portalContainer}
-                >
-                  {validationErrorCount > 0 && (
-                    <div className="text-fg-error-primary">
-                      Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
-                      {validationErrorCount} validation error
-                      {validationErrorCount > 1 && "s"}
-                    </div>
-                  )}
-                  {patchIds.length > 0 && validationErrorCount == 0 && (
-                    <div>
-                      {patchIds.length} patch
-                      {patchIds.length > 1 && "es"} ready to publish
-                    </div>
-                  )}
-                  <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-                </HoverCardContent>
-              </HoverCard>
-            </PopoverTrigger>
-            <PopoverContent
-              container={portalContainer}
-              align="center"
+                }
+              />
+            </HoverCardTrigger>
+            <HoverCardContent
               side={publishPopoverSide}
-              sideOffset={publishPopoverSideOffset}
-              className="z-[9000] relative max-w-[352px] w-screen rounded-none sm:rounded flex flex-col items-end"
+              className="z-50"
+              container={portalContainer}
             >
-              <div className="absolute top-4 right-4 sm:hidden">
-                <PopoverClose>
-                  <X size={16} />
-                </PopoverClose>
-              </div>
-              {!publishDisabled && (
-                <div className="flex items-center justify-between gap-4 px-4 py-4 pt-8 sm:hidden">
-                  <PublishButton />
+              {validationErrorCount > 0 && (
+                <div className="text-fg-error-primary">
+                  {validationErrorCount} validation error
+                  {validationErrorCount > 1 && "s"}
                 </div>
               )}
-              <ScrollArea>
-                <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px]">
-                  <DraftChanges />
-                </div>
-              </ScrollArea>
-              {!publishDisabled && (
-                <div className="hidden py-4 sm:block">
-                  <PublishButton />
+              {patchIds.length > 0 && validationErrorCount === 0 && (
+                <div>
+                  {patchIds.length} pending change
+                  {patchIds.length > 1 && "s"}
                 </div>
               )}
-            </PopoverContent>
-          </Popover>
+              Review changes in Studio
+              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
+            </HoverCardContent>
+          </HoverCard>
+          <PublishButton />
           <HoverCard>
             <HoverCardTrigger
               className={cn(
@@ -1517,7 +1474,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          {isChatEnabled && (
+          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
             <HoverCard>
               <HoverCardTrigger className="inline-flex">
                 <MenuButton
