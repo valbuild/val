@@ -24,15 +24,16 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import { Button } from "./designSystem/button";
-import { urlOf } from "@valbuild/shared/internal";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
+import { useNavigation, useSessionParam, VAL_ERRORS_ROUTE } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
 import {
@@ -49,6 +50,19 @@ export function ToolsMenu() {
   const mode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  const chatPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isChatEnabled) return;
+    const open = () => {
+      chatPanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    };
+    setOpenAIChatImpl(open);
+    return () => setOpenAIChatImpl(null);
+  }, [isChatEnabled, setOpenAIChatImpl]);
   const [errorModules, fieldsWithErrors, errorPaths] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     const errorPaths: SourcePath[] = [];
@@ -67,6 +81,10 @@ export function ToolsMenu() {
   const committedPatchIds = useCommittedPatches();
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const chatRef = useRef<AIChatHandle | null>(null);
+  const { sessionParam, setSessionParam } = useSessionParam();
+  // Capture the URL session id once on first render — later URL changes (e.g.
+  // navigations that re-write the URL) must not retrigger session loading.
+  const initialSessionIdRef = useRef(sessionParam);
   const {
     sendMessage,
     uploadAiImage,
@@ -78,7 +96,26 @@ export function ToolsMenu() {
     getSessions,
     setSessionName,
     loadSession,
-  } = useAI(chatRef);
+    isLoadingSession,
+  } = useAI(chatRef, {
+    initialSessionId: initialSessionIdRef.current,
+    onSessionBorn: (id) => {
+      setSessionParam(id, { replace: true });
+      try {
+        sessionStorage.setItem(VAL_AI_SESSION_STORAGE_KEY, id);
+      } catch {
+        // sessionStorage may be disabled — URL remains the source of truth.
+      }
+    },
+    onSessionCleared: () => {
+      setSessionParam(null, { replace: true });
+      try {
+        sessionStorage.removeItem(VAL_AI_SESSION_STORAGE_KEY);
+      } catch {
+        // see above
+      }
+    },
+  });
   return (
     <div
       className="flex flex-col h-[100svh] bg-bg-primary"
@@ -145,9 +182,13 @@ export function ToolsMenu() {
         </div>
       </div>
       {(mode === "http" || mode === "fs") && isChatEnabled && (
-        <div className="flex-1 min-h-0 border-t border-border-primary">
+        <div
+          ref={chatPanelRef}
+          className="flex-1 min-h-0 border-t border-border-primary"
+        >
           <AIChat
             ref={chatRef}
+            chatEditorRef={chatEditorRef}
             onSendMessage={sendMessage}
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
@@ -159,6 +200,7 @@ export function ToolsMenu() {
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            isLoadingSession={isLoadingSession}
           />
         </div>
       )}
