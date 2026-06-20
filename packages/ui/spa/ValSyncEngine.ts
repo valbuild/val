@@ -295,7 +295,6 @@ export class ValSyncEngine {
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
-    this.cachedSchemaOutOfDateSnapshot = null;
     this.validationWorker = null;
   }
 
@@ -1400,10 +1399,6 @@ export class ValSyncEngine {
     return { status: "patch-applies", moduleFilePath, patch } as const;
   }
 
-  private hasLocalSchemas(): boolean {
-    return this.localSchemas !== null && this.localSchemaSha !== null;
-  }
-
   private ensureValidationWorker(): ValidationWorkerClient {
     if (!this.validationWorker) {
       this.validationWorker = new ValidationWorkerClient(
@@ -1416,8 +1411,11 @@ export class ValSyncEngine {
   }
 
   private requestModuleValidation(moduleFilePath: ModuleFilePath): void {
-    if (!this.hasLocalSchemas()) return;
-    const schemaSha = this.localSchemaSha;
+    // Validate against whatever schema is currently loaded, regardless of
+    // whether it came from local `ValModules` or the server's `/schema`.
+    // `/sources/~` is always called with `validate_sources=false`, so this
+    // client-side worker validation is the only validation that runs.
+    const schemaSha = this.clientSideSchemaSha;
     if (!schemaSha) return;
     const serializedSchema = this.schemas?.[moduleFilePath];
     if (!serializedSchema) return;
@@ -1432,7 +1430,6 @@ export class ValSyncEngine {
   }
 
   private requestAllModuleValidation(): void {
-    if (!this.hasLocalSchemas()) return;
     const schemas = this.schemas;
     if (!schemas) return;
     for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
