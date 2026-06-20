@@ -5,8 +5,8 @@ export const VAL_MODULES_UPDATED_EVENT = "val-modules-updated";
 
 /**
  * Reads the user's ValModules registry from `window.__VAL_MODULES__`, which
- * is set by the host Next.js app (ValApp / ValNextProvider) before the SPA
- * bundle mounts.
+ * is set by the host Next.js app's `<ValModulesClient>` / `useRegisterValModules`
+ * (rendered inside `ValProvider` and `ValApp`) before the SPA bundle mounts.
  *
  * Listens for the `val-modules-updated` event so HMR-driven reference swaps
  * in the host app propagate into the SPA's React tree.
