@@ -23,9 +23,3 @@ const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
 
 export type { t } from "@valbuild/next";
 export { s, c, val, config, nextAppRouter, externalPageRouter };
-
-// In the browser, pull `val.modules` into the client bundle so the Val editor
-// SPA can pick the registry up via `window.__VAL_MODULES__` (set by `modules()`).
-// Dynamic import avoids the import cycle that a static import would create
-// (val.modules already imports `config` from this file).
-import("./val.modules");

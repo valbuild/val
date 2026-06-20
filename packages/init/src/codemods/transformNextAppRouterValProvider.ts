@@ -8,6 +8,9 @@ export function transformNextAppRouterValProvider(
   if (!options.configImportPath) {
     throw new Error("configImportPath is required");
   }
+  if (!options.valModulesClientImportPath) {
+    throw new Error("valModulesClientImportPath is required");
+  }
   const root = api.jscodeshift(fileInfo.source);
   root
     .find(j.ImportDeclaration)
@@ -22,6 +25,12 @@ export function transformNextAppRouterValProvider(
       j.importDeclaration(
         [j.importSpecifier(j.identifier("config"))],
         j.literal(options.configImportPath),
+      ),
+    )
+    .insertBefore(
+      j.importDeclaration(
+        [j.importSpecifier(j.identifier("ValModulesClient"))],
+        j.literal(options.valModulesClientImportPath),
       ),
     );
   root
@@ -77,7 +86,16 @@ export function transformNextAppRouterValProvider(
                 },
                 type: "JSXClosingElement",
               },
-              [j.jsxExpressionContainer(j.identifier("children"))],
+              [
+                j.jsxElement(
+                  j.jsxOpeningElement(
+                    j.jsxIdentifier("ValModulesClient"),
+                    [],
+                    true,
+                  ),
+                ),
+                j.jsxExpressionContainer(j.identifier("children")),
+              ],
             ),
           );
         }
