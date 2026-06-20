@@ -840,18 +840,42 @@ export class ValSyncEngine {
       startIndex = 0;
     }
 
+    // Track the contiguous, fully-applied prefix so we never cache a source
+    // under a patch-id list that includes a skipped (unappliable) patch. Once a
+    // patch fails, later patches still apply on top for the returned value, but
+    // the cache only remembers the clean prefix — so the failing patch (and the
+    // tail) is retried on the next read instead of being treated as applied.
+    let appliedPrefixLen = startIndex;
+    let appliedPrefixSource = current;
+    let prefixIntact = true;
     for (let i = startIndex; i < nextIds.length; i++) {
       const patchId = nextIds[i];
       const data = this.patchDataByPatchId[patchId];
-      if (!data) continue; // shouldn't happen — filter in orderedPatchIdsForModule
+      if (!data) {
+        // shouldn't happen — filter in orderedPatchIdsForModule
+        prefixIntact = false;
+        continue;
+      }
       const patchableOps = data.patch.filter((op) => op.op !== "file");
-      if (patchableOps.length === 0) continue;
+      if (patchableOps.length === 0) {
+        // file-only / no-op patch — nothing changes, prefix stays intact
+        if (prefixIntact) {
+          appliedPrefixLen = i + 1;
+          appliedPrefixSource = current;
+        }
+        continue;
+      }
       const patchRes = applyPatch(deepClone(current), ops, patchableOps);
       if (result.isOk(patchRes)) {
         current = patchRes.value;
+        if (prefixIntact) {
+          appliedPrefixLen = i + 1;
+          appliedPrefixSource = current;
+        }
       } else {
         // skip a failing patch — server-side patch analysis would report
         // this as an error/skip; don't pollute the cache with the bad state
+        prefixIntact = false;
         console.debug("ValSyncEngine: skipping unappliable client-side patch", {
           patchId,
           moduleFilePath,
@@ -861,8 +885,8 @@ export class ValSyncEngine {
     }
 
     this.patchedSourcesCache[moduleFilePath] = {
-      patchIds: nextIds,
-      source: current,
+      patchIds: nextIds.slice(0, appliedPrefixLen),
+      source: appliedPrefixSource,
     };
     return current;
   }
