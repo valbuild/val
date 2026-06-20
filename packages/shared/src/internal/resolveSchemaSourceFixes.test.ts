@@ -109,6 +109,38 @@ describe("resolveSchemaSourceFixes", () => {
     ).toBeUndefined();
   });
 
+  test("keyof:check-keys — array source with numeric key is not treated as valid", () => {
+    // Schema says record but the source is (accidentally) an array. A numeric
+    // string key like "0" satisfies `"0" in ["x", "y"]`, so without the
+    // Array.isArray guard the error would be wrongly resolved as valid.
+    const data = c.define("/content/data.val.ts", s.record(s.string()), {
+      a: "x",
+    });
+    const { schemas } = getTestData([data]);
+    const sources: Record<ModuleFilePath, Source> = {
+      ["/content/data.val.ts" as ModuleFilePath]: ["x", "y"],
+    };
+
+    const errors: Record<SourcePath, ValidationError[]> = {
+      ["/content/ref.val.ts" as SourcePath]: [
+        {
+          message: "keyof check",
+          fixes: ["keyof:check-keys"],
+          value: {
+            key: "0",
+            sourcePath: "/content/data.val.ts" as SourcePath,
+          },
+        },
+      ],
+    };
+    const result = resolveSchemaSourceFixes(errors, { schemas, sources });
+    // The error must surface (not be dropped) and lose its auto-fix.
+    expect(result["/content/ref.val.ts" as SourcePath]).toHaveLength(1);
+    expect(
+      result["/content/ref.val.ts" as SourcePath]?.[0]?.fixes,
+    ).toBeUndefined();
+  });
+
   test("keyof:check-keys — missing value yields typeError", () => {
     const errors: Record<SourcePath, ValidationError[]> = {
       ["/content/ref.val.ts" as SourcePath]: [

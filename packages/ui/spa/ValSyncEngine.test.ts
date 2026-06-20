@@ -13,6 +13,7 @@ import {
   ValConfig,
   ValidationError,
   ValModule,
+  ValModules,
 } from "@valbuild/core";
 import {
   applyPatch,
@@ -362,6 +363,92 @@ describe("ValSyncEngine", () => {
 
     unsubscribe();
   });
+
+  test("setValModules adopts local schemas/sources and surfaces validation errors", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/server.val.ts", s.string(), "server")],
+      config,
+    );
+    // Bare engine (no init) so adoptLocalSources seeds serverSources from the
+    // local modules and the worker fallback can validate them synchronously.
+    const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+
+    const invalid = c.define("/invalid.val.ts", s.string().minLength(5), "no");
+    await engine.setValModules(makeValModules(config, [invalid]));
+
+    expect(engine.getLocalModulesStatusSnapshot().type).toBe("loaded");
+    expect(
+      engine.getSchemaSnapshot(toModuleFilePath("/invalid.val.ts")).status,
+    ).toBe("success");
+    // minLength(5) on "no" must produce at least one validation error (jsdom
+    // has no Worker, so validation runs on the main thread synchronously).
+    const errors = engine.getAllValidationErrorsSnapshot();
+    expect(Object.keys(errors).length).toBeGreaterThan(0);
+  });
+
+  test("schemaOutOfDate disables publish and is cleared when falling back to server", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "http",
+      [c.define("/server.val.ts", s.string(), "server")],
+      config,
+    );
+    const engine = await tester.createInitializedSyncEngine();
+    expect(engine.getSchemaOutOfDateSnapshot()).toBe(false);
+    expect(engine.getPublishDisabledSnapshot()).toBe(false);
+
+    // Local schema SHA differs from the server's → schema is out of date.
+    const local = c.define("/local.val.ts", s.string(), "local");
+    await engine.setValModules(makeValModules(config, [local]));
+    expect(engine.getSchemaOutOfDateSnapshot()).toBe(true);
+    expect(engine.getPublishDisabledSnapshot()).toBe(true);
+
+    // Falling back to server modules must clear the gate AND re-enable publish.
+    await engine.setValModules(null);
+    expect(engine.getSchemaOutOfDateSnapshot()).toBe(false);
+    expect(engine.getPublishDisabledSnapshot()).toBe(false);
+  });
+
+  test("out-of-order setValModules calls do not regress to a stale registry", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/server.val.ts", s.string(), "server")],
+      config,
+    );
+    const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+
+    const moduleA = c.define("/a.val.ts", s.string(), "a");
+    const moduleB = c.define("/b.val.ts", s.string(), "b");
+
+    // A's extraction is held until we release it; B resolves immediately.
+    let releaseA: () => void = () => {};
+    const aGate = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const modulesA = makeValModules(
+      config,
+      [moduleA],
+      [() => aGate.then(() => ({ default: moduleA }))],
+    );
+    const modulesB = makeValModules(config, [moduleB]);
+
+    const pA = engine.setValModules(modulesA); // seq 1, awaiting aGate
+    await engine.setValModules(modulesB); // seq 2, completes and adopts B
+    releaseA();
+    await pA; // A resolves last but must bail (superseded by B)
+
+    // B must remain the adopted registry — A's late result is ignored.
+    expect(engine.getLocalModulesStatusSnapshot().type).toBe("loaded");
+    expect(engine.getSchemaSnapshot(toModuleFilePath("/b.val.ts")).status).toBe(
+      "success",
+    );
+    expect(engine.getSchemaSnapshot(toModuleFilePath("/a.val.ts")).status).toBe(
+      "module-schema-not-found",
+    );
+  });
 });
 
 function toModuleFilePath(moduleFilePath: `/${string}.val.ts`): ModuleFilePath {
@@ -372,6 +459,19 @@ function toSourcePath(
   moduleFilePath: `/${string}.val.ts${`` | `?p=${string}`}`,
 ): SourcePath {
   return moduleFilePath as SourcePath;
+}
+
+function makeValModules(
+  config: ValConfig,
+  modules: ValModule<SelectorSource>[],
+  defs?: (() => Promise<{ default: ValModule<SelectorSource> }>)[],
+): ValModules {
+  return {
+    config,
+    modules: (
+      defs ?? modules.map((m) => () => Promise.resolve({ default: m }))
+    ).map((def) => ({ def })),
+  };
 }
 
 type InferReq<T extends Record<string, unknown>> = {

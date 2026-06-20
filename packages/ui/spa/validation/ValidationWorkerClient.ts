@@ -29,6 +29,7 @@ export class ValidationWorkerClient {
     ? []
     : null;
   private requestIdCounter = 0;
+  private disposed = false;
   private latestRequestId = new Map<ModuleFilePath, string>();
   // Fallback cache used when the worker is unavailable (jsdom / SSR).
   private fallbackSchemaCache = new Map<
@@ -50,6 +51,13 @@ export class ValidationWorkerClient {
       const { createValidationWorker } =
         await import("./createValidationWorker");
       const worker = createValidationWorker();
+      // dispose() may have been called while the dynamic import was in flight —
+      // don't install a worker the client no longer owns (it would leak the
+      // thread and keep handlers alive).
+      if (this.disposed) {
+        worker.terminate();
+        return;
+      }
       worker.onmessage = (event: MessageEvent<ValidationWorkerResponse>) => {
         const response = event.data;
         if (this.latestRequestId.get(response.moduleFilePath) !== response.id) {
@@ -143,6 +151,7 @@ export class ValidationWorkerClient {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;

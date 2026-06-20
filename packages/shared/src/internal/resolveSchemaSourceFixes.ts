@@ -158,6 +158,7 @@ function checkKeyIsValid(
   if (
     keyOfModuleSource &&
     typeof keyOfModuleSource === "object" &&
+    !Array.isArray(keyOfModuleSource) &&
     key in keyOfModuleSource
   ) {
     return { error: false };

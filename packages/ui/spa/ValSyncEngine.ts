@@ -160,6 +160,12 @@ export class ValSyncEngine {
    * adoption decisions and the dev-only LocalModulesErrorBanner.
    */
   private localModulesStatus: LocalModulesStatus;
+  /**
+   * Monotonic token for `setValModules`. Each invocation captures the current
+   * value; after its `await`, a stale (superseded) call bails out so a slower
+   * earlier extraction can't overwrite a newer registry's schemas/sources.
+   */
+  private setValModulesSeq = 0;
   private schemaOutOfDate: boolean;
   private mode: "fs" | "http" | null;
 
@@ -1092,10 +1098,11 @@ export class ValSyncEngine {
   getAllValidationErrorsSnapshot() {
     if (!this.cachedValidationErrors) {
       const raw: Record<SourcePath, ValidationError[]> = {};
-      for (const sourcePathS in this.errors.validationErrors) {
+      const validationErrors = this.errors.validationErrors || {};
+      for (const sourcePathS in validationErrors) {
         const sourcePath = sourcePathS as SourcePath;
         const newErrors: ValidationError[] = [];
-        for (const error of this.errors.validationErrors[sourcePath] || []) {
+        for (const error of validationErrors[sourcePath] || []) {
           if (error) {
             newErrors.push(error);
           }
@@ -1387,7 +1394,7 @@ export class ValSyncEngine {
     if (result.isErr(patchRes)) {
       console.error("Could not apply patch:", patchRes.error);
       this.addGlobalTransientError(
-        `Could apply patch: ${patchRes.error.message}`,
+        `Could not apply patch: ${patchRes.error.message}`,
         now,
       );
       return {
@@ -2255,12 +2262,16 @@ export class ValSyncEngine {
       this.recomputeSchemaOutOfDate();
       return;
     }
+    const seq = ++this.setValModulesSeq;
     this.localModulesStatus = { type: "loading" };
     this.invalidateLocalModulesStatus();
     let extracted: ExtractedValModules;
     try {
       extracted = await extractValModules(valModules);
     } catch (e) {
+      // A newer setValModules call superseded us while we were extracting —
+      // drop this stale result so we don't clobber the latest registry state.
+      if (seq !== this.setValModulesSeq) return;
       console.debug("setValModules: extractValModules threw", e);
       this.localSchemas = null;
       this.localSchemaSha = null;
@@ -2271,8 +2282,11 @@ export class ValSyncEngine {
         moduleErrors: [{ message: e instanceof Error ? e.message : String(e) }],
       };
       this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
       return;
     }
+    // Superseded by a newer call while awaiting — ignore this result.
+    if (seq !== this.setValModulesSeq) return;
     if (extracted.moduleErrors.length > 0) {
       console.debug(
         "setValModules: moduleErrors present, falling back to server",
@@ -2287,6 +2301,7 @@ export class ValSyncEngine {
         moduleErrors: extracted.moduleErrors,
       };
       this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
       return;
     }
     this.localSchemas = extracted.serializedSchemas;
@@ -2360,6 +2375,12 @@ export class ValSyncEngine {
       this.invalidateSchemaOutOfDate();
       if (next) {
         this.publishDisabled = true;
+        this.invalidatePublishDisabled();
+      } else if (!this.isPublishing) {
+        // Schema is back in sync (e.g. HMR matched the server, or we fell back
+        // to server modules) — re-enable publishing. Don't touch it mid-publish:
+        // publish() owns publishDisabled while it runs and clears it in finally.
+        this.publishDisabled = false;
         this.invalidatePublishDisabled();
       }
     }
