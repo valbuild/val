@@ -12,5 +12,6 @@ export * from "./getSitemapTree";
 export * from "./parseRoutePattern";
 export * from "./getNextAppRouterSourceFolder";
 export * from "./routeValidation";
+export * from "./resolveSchemaSourceFixes";
 export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";

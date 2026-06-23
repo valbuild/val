@@ -811,6 +811,7 @@ export const Api = {
           validate_sources: onlyOneBooleanQueryParam.optional(),
           validate_binary_files: onlyOneBooleanQueryParam.optional(),
           exclude_patches: onlyOneBooleanQueryParam.optional(),
+          apply_patches: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -852,7 +853,7 @@ export const Api = {
               z.object({
                 render: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
-                baseSource: z.any().optional(), // pre-patch source for compare view; set only when the module has pending patches
+                baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
                 patches: z
                   .object({
                     applied: z.array(PatchId),

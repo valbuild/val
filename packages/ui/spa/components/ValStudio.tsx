@@ -1,5 +1,6 @@
 import { FC } from "react";
 import { ValClient } from "@valbuild/shared/internal";
+import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
 import { Themes } from "./ValThemeProvider";
 import { Layout } from "./Layout";
@@ -11,6 +12,7 @@ import { FallbackComponent } from "../fallbackRender";
 interface ValFullscreenProps {
   client: ValClient;
   config: SharedValConfig | null;
+  valModules?: ValModules | null;
   cssLoaded: boolean;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
@@ -19,6 +21,7 @@ interface ValFullscreenProps {
 export const ValStudio: FC<ValFullscreenProps> = ({
   client,
   config,
+  valModules,
   cssLoaded,
   theme,
   setTheme,
@@ -28,6 +31,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       client={client}
       dispatchValEvents={false}
       config={config}
+      valModules={valModules ?? null}
       theme={theme}
       setTheme={setTheme}
     >

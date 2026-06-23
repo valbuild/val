@@ -15,6 +15,7 @@ import {
   VAL_CLIENT,
   VAL_CONFIG,
   VAL_MODULES,
+  VAL_MODULES_CLIENT,
   VAL_RSC,
   VAL_SERVER,
 } from "./templates";
@@ -284,9 +285,11 @@ type FileOp = {
   path: string;
   source: string;
 };
+const stripModuleExt = (p: string) => p.replace(/\.[jt]sx?$/, "");
 type Plan = Partial<{
   root: string;
   createValServer: FileOp;
+  createValModulesClient: FileOp;
   createValRouter: FileOp;
   createValAppPage: FileOp;
   createConfigFile: FileOp;
@@ -581,6 +584,19 @@ async function plan(
     source: VAL_SERVER(valUtilsImportPath, valModulesServerImport),
   };
 
+  // Client Component wrapper that registers `val.modules` for the Val editor.
+  // Lives alongside the other val util files. Always a .tsx/.jsx file since it
+  // returns JSX. The import path to val.modules is the same as the server's
+  // since both live in valUtilsDir.
+  const valModulesClientPath = path.join(
+    valUtilsDir,
+    analysis.isTypeScript ? "ValModulesClient.tsx" : "ValModulesClient.jsx",
+  );
+  plan.createValModulesClient = {
+    path: valModulesClientPath,
+    source: VAL_MODULES_CLIENT(valModulesServerImport),
+  };
+
   if (!analysis.appRouterPath) {
     logger.warn('Creating a new "app" router');
   }
@@ -596,9 +612,12 @@ async function plan(
     .relative(path.dirname(valAppPagePath), valConfigPath)
     .replace(".js", "")
     .replace(".ts", "");
+  const valPageModulesClientImportPath = stripModuleExt(
+    path.relative(path.dirname(valAppPagePath), valModulesClientPath),
+  );
   plan.createValAppPage = {
     path: valAppPagePath,
-    source: VAL_APP_PAGE(valPageImportPath),
+    source: VAL_APP_PAGE(valPageImportPath, valPageModulesClientImportPath),
   };
 
   const valRouterPath = path.join(
@@ -685,6 +704,12 @@ async function plan(
           .relative(path.dirname(analysis.appRouterLayoutPath), valConfigPath)
           .replace(".js", "")
           .replace(".ts", ""),
+        valModulesClientImportPath: stripModuleExt(
+          path.relative(
+            path.dirname(analysis.appRouterLayoutPath),
+            valModulesClientPath,
+          ),
+        ),
       },
     );
 

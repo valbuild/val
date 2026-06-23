@@ -3,11 +3,17 @@
 import { ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import Script from "next/script";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 
-export const ValApp = ({ config }: { config: ValConfig }) => {
+export const ValApp = ({
+  config,
+  children,
+}: {
+  config: ValConfig;
+  children?: ReactNode;
+}) => {
   const route = "/api/val"; // TODO: make configurable
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
@@ -135,6 +141,7 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
         crossOrigin="anonymous"
       />
       <div id={VAL_APP_ID} ref={container}></div>
+      {children}
     </>
   );
 };
