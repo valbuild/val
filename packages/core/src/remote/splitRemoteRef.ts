@@ -10,7 +10,7 @@ export function splitRemoteRef(ref: string):
       version: string;
       validationHash: string;
       fileHash: string;
-      filePath: `public/val/${string}`;
+      filePath: `public/${string}`;
     }
   | {
       status: "error";
@@ -29,7 +29,7 @@ export function splitRemoteRef(ref: string):
       error: "Invalid remote ref: " + ref,
     };
   }
-  if (match[7].indexOf("public/val/") !== 0) {
+  if (match[7].indexOf("public/") !== 0) {
     return {
       status: "error",
       error: "Invalid remote ref: " + ref,
@@ -44,6 +44,6 @@ export function splitRemoteRef(ref: string):
     version: match[4],
     validationHash: match[5],
     fileHash: match[6],
-    filePath: match[7] as `public/val/${string}`,
+    filePath: match[7] as `public/${string}`,
   };
 }

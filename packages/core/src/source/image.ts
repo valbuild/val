@@ -19,7 +19,7 @@ export type ImageSource<
 
 export const initImage = (config?: ValConfig) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const fileDirectory = config?.files?.directory ?? "/public";
+  const fileDirectory = config?.files?.directory ?? "/public/val";
 
   type FileDirectory = typeof fileDirectory;
 

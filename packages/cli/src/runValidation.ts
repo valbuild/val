@@ -337,7 +337,7 @@ export async function handleRemoteFileUpload(
     .split(path.sep)
     .join("/") as `public/${string}`;
 
-  if (!relativeFilePath.startsWith("public")) {
+  if (!relativeFilePath.startsWith("public/")) {
     return {
       success: false,
       errorMessage: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,

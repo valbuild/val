@@ -13,7 +13,15 @@ export const SharedValConfig: z.ZodSchema<
   root: z.string().optional(),
   files: z
     .object({
-      directory: z.literal("/public/val"),
+      directory: z
+        .string()
+        .refine(
+          (val): val is `/public` | `/public/${string}` =>
+            val === "/public" || val.startsWith("/public/"),
+          {
+            message: "files.directory must start with '/public'",
+          },
+        ),
     })
     .optional(),
   gitCommit: z.string().optional(),

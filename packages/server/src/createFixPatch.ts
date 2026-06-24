@@ -317,11 +317,11 @@ export async function createFixPatch(
         });
         continue;
       }
-      if (!filePath.startsWith("public/val/")) {
+      if (!filePath.startsWith("public/")) {
         remainingErrors.push({
           ...validationError,
           message:
-            "Unexpected error while downloading remote (invalid file path - must start with public/val/)",
+            "Unexpected error while downloading remote (invalid file path - must start with public/)",
           fixes: undefined,
         });
         continue;
