@@ -1,39 +1,24 @@
 /// <reference lib="webworker" />
-import {
-  deserializeSchema,
-  ModuleFilePath,
-  Schema,
-  SelectorSource,
-  SourcePath,
-} from "@valbuild/core";
 import type {
   ValidationWorkerRequest,
   ValidationWorkerResponse,
 } from "./worker-types";
+import { SchemaValidator } from "./validateModule";
 
 const ctx: DedicatedWorkerGlobalScope =
   self as unknown as DedicatedWorkerGlobalScope;
 
-const schemaCache = new Map<
-  ModuleFilePath,
-  { schemaSha: string; schema: Schema<SelectorSource> }
->();
+const validator = new SchemaValidator();
 
 ctx.onmessage = (event: MessageEvent<ValidationWorkerRequest>) => {
   const request = event.data;
   if (request.type !== "validate") return;
   try {
-    let cached = schemaCache.get(request.moduleFilePath);
-    if (!cached || cached.schemaSha !== request.schemaSha) {
-      cached = {
-        schemaSha: request.schemaSha,
-        schema: deserializeSchema(request.serializedSchema),
-      };
-      schemaCache.set(request.moduleFilePath, cached);
-    }
-    const errors = cached.schema["executeValidate"](
-      request.moduleFilePath as string as SourcePath,
-      request.source as SelectorSource,
+    const errors = validator.validate(
+      request.moduleFilePath,
+      request.source,
+      request.serializedSchema,
+      request.schemaSha,
     );
     const response: ValidationWorkerResponse = {
       type: "result",
