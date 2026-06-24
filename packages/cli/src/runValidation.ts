@@ -793,7 +793,9 @@ export async function* runValidation({
                   fileErrors += 1;
                   yield {
                     type: "validation-fixable-error",
-                    sourcePath,
+                    // Gallery checks expand into per-entry errors that point at
+                    // the individual entry; fall back to the record sourcePath.
+                    sourcePath: e.sourcePath ?? sourcePath,
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
                     ...(e.keyError ? { keyError: true } : {}),
