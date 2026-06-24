@@ -335,12 +335,12 @@ export async function handleRemoteFileUpload(
   const relativeFilePath = path
     .relative(ctx.projectRoot, filePath)
     .split(path.sep)
-    .join("/") as `public/val/${string}`;
+    .join("/") as `public/${string}`;
 
-  if (!relativeFilePath.startsWith("public/val/")) {
+  if (!relativeFilePath.startsWith("public")) {
     return {
       success: false,
-      errorMessage: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+      errorMessage: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,
     };
   }
 

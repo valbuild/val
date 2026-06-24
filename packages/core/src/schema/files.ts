@@ -60,7 +60,7 @@ export const files = (
   Schema<string>,
   Record<string, FilesEntryMetadata>
 > => {
-  const directory = options.directory ?? "/public/val";
+  const directory = options.directory ?? "/public";
   const itemSchema = new ObjectSchema<FilesItemProps, FilesItemSrc>(
     { mimeType: new StringSchema({}, false) },
     false,
