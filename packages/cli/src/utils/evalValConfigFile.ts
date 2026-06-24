@@ -15,9 +15,11 @@ const ValConfigSchema = z.object({
         .string()
         .refine(
           (val): val is `/public` | `/public/${string}` =>
-            val === "/public" || val.startsWith("/public/"),
+            val === "/public" ||
+            (val.startsWith("/public/") && !val.endsWith("/")),
           {
-            message: "files.directory must start with '/public'",
+            message:
+              "files.directory must start with '/public' and not end with '/'",
           },
         ),
     })
