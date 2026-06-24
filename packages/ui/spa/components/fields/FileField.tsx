@@ -438,7 +438,7 @@ export function FileField({
                   metadata,
                   type,
                   remoteData,
-                  moduleDirectory ?? config.files?.directory,
+                  moduleDirectory,
                   !!referencedModule,
                 )
                   .then(({ patch, filePath }) => {
