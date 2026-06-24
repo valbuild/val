@@ -430,6 +430,9 @@ export async function createFixPatch(
                 ...validationError,
                 message: `Image metadata for '${entryKey}' is incorrect (width: ${stored.width ?? "<empty>"} vs ${actualMetadata.width}, height: ${stored.height ?? "<empty>"} vs ${actualMetadata.height}, mimeType: ${stored.mimeType ?? "<empty>"} vs ${actualMetadata.mimeType}). Use --fix to update.`,
                 sourcePath: Internal.createValPathOfItem(sourcePath, entryKey),
+                // Gallery entries are keyed by their file path; surface the
+                // error on the key rather than the derived metadata value.
+                keyError: true,
               });
             }
           }
@@ -453,6 +456,9 @@ export async function createFixPatch(
                 ...validationError,
                 message: `File metadata for '${entryKey}' has incorrect mimeType: '${stored.mimeType ?? "<empty>"}' vs '${actualMetadata.mimeType}'. Use --fix to update.`,
                 sourcePath: Internal.createValPathOfItem(sourcePath, entryKey),
+                // Gallery entries are keyed by their file path; surface the
+                // error on the key rather than the derived metadata value.
+                keyError: true,
               });
             }
           }
