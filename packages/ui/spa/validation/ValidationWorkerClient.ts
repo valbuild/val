@@ -1,16 +1,14 @@
 import {
-  deserializeSchema,
   ModuleFilePath,
-  SelectorSource,
   SerializedSchema,
   Source,
-  SourcePath,
   ValidationErrors,
 } from "@valbuild/core";
 import type {
   ValidationWorkerRequest,
   ValidationWorkerResponse,
 } from "./worker-types";
+import { SchemaValidator } from "./validateModule";
 
 const supportsWorker =
   typeof window !== "undefined" && typeof Worker !== "undefined";
@@ -20,40 +18,40 @@ export type ValidationResultCallback = (
   errors: ValidationErrors,
 ) => void;
 
+// The factory is injected by the composition root (ValProvider) so the
+// `new URL(..., import.meta.url)` worker reference — and thus import.meta — stays
+// out of this file and ValSyncEngine, which are compiled by Jest. See
+// createValidationWorker.ts.
+export type ValidationWorkerFactory = () => Worker;
+
 export class ValidationWorkerClient {
   private worker: Worker | null = null;
-  // Worker setup is async (dynamic import) so we can keep the import.meta.url
-  // reference out of files parsed by Jest. Requests posted before the worker
-  // resolves are buffered here.
-  private pending: ValidationWorkerRequest[] | null = supportsWorker
-    ? []
-    : null;
+  // Requests posted before the worker is installed are buffered here. Null when
+  // no worker will be installed (no factory, or unsupported env) — validation
+  // then runs on the main thread via the fallback validator.
+  private pending: ValidationWorkerRequest[] | null = null;
   private requestIdCounter = 0;
   private disposed = false;
   private latestRequestId = new Map<ModuleFilePath, string>();
-  // Fallback cache used when the worker is unavailable (jsdom / SSR).
-  private fallbackSchemaCache = new Map<
-    ModuleFilePath,
-    {
-      schemaSha: string;
-      schema: ReturnType<typeof deserializeSchema>;
-    }
-  >();
+  // Fallback validator used when the worker is unavailable (jsdom / SSR / node).
+  private fallbackValidator = new SchemaValidator();
 
-  constructor(private onResult: ValidationResultCallback) {
-    if (supportsWorker) {
-      void this.setupWorker();
+  constructor(
+    private onResult: ValidationResultCallback,
+    private createWorker?: ValidationWorkerFactory,
+  ) {
+    if (supportsWorker && this.createWorker) {
+      this.pending = [];
+      this.setupWorker(this.createWorker);
     }
   }
 
-  private async setupWorker(): Promise<void> {
+  private setupWorker(createWorker: ValidationWorkerFactory): void {
     try {
-      const { createValidationWorker } =
-        await import("./createValidationWorker");
-      const worker = createValidationWorker();
-      // dispose() may have been called while the dynamic import was in flight —
-      // don't install a worker the client no longer owns (it would leak the
-      // thread and keep handlers alive).
+      const worker = createWorker();
+      // dispose() may have been called before setup completed — don't install a
+      // worker the client no longer owns (it would leak the thread and keep
+      // handlers alive).
       if (this.disposed) {
         worker.terminate();
         return;
@@ -130,14 +128,11 @@ export class ValidationWorkerClient {
     }
     // Main-thread fallback (tests, SSR, or worker construction failed).
     try {
-      let cached = this.fallbackSchemaCache.get(moduleFilePath);
-      if (!cached || cached.schemaSha !== schemaSha) {
-        cached = { schemaSha, schema: deserializeSchema(serializedSchema) };
-        this.fallbackSchemaCache.set(moduleFilePath, cached);
-      }
-      const errors = cached.schema["executeValidate"](
-        moduleFilePath as string as SourcePath,
-        source as SelectorSource,
+      const errors = this.fallbackValidator.validate(
+        moduleFilePath,
+        source,
+        serializedSchema,
+        schemaSha,
       );
       this.onResult(moduleFilePath, errors);
     } catch (error) {
@@ -158,6 +153,6 @@ export class ValidationWorkerClient {
     }
     this.pending = null;
     this.latestRequestId.clear();
-    this.fallbackSchemaCache.clear();
+    this.fallbackValidator = new SchemaValidator();
   }
 }
