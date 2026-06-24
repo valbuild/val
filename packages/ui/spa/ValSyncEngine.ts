@@ -35,7 +35,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
 import {
   ValidationWorkerClient,
-  ValidationWorkerFactory,
+  type ValidationWorkerFactory,
 } from "./validation/ValidationWorkerClient";
 import { partitionValidationErrors } from "./validation/partitionValidationErrors";
 
