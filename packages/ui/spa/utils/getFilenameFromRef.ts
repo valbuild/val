@@ -32,6 +32,6 @@ export function getRefParts(ref: string): {
   const cleanPath = cleanRefPath(ref);
   const filename = cleanPath.split("/").pop() || cleanPath;
   const folder =
-    cleanPath.replace("/public", "").replace(/\/[^/]+$/, "") || "/";
+    cleanPath.replace(/^\/public/, "").replace(/\/[^/]+$/, "") || "/";
   return { cleanPath, filename, folder };
 }
