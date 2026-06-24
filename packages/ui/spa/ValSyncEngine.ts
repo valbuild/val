@@ -2989,17 +2989,10 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds &&
         this.globalServerSidePatchIds.length > 0
       ) {
-        let hasValidationError = false;
-        for (const sourcePathS in this.errors.validationErrors || {}) {
-          const sourcePath = sourcePathS as SourcePath;
-          if (
-            this.errors?.validationErrors?.[sourcePath] &&
-            this.errors?.validationErrors?.[sourcePath]!.length > 0
-          ) {
-            hasValidationError = true;
-            break;
-          }
-        }
+        const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
+        const hasValidationError = Object.values(
+          surfacedValidationErrors || {},
+        ).some((errors) => errors && errors.length > 0);
         if (!hasValidationError) {
           await this.publish(
             this.globalServerSidePatchIds.concat(
@@ -3012,7 +3005,7 @@ export class ValSyncEngine {
         } else {
           console.debug(
             "Skip auto-publish since there's validation errors",
-            this.errors.validationErrors,
+            surfacedValidationErrors,
           );
         }
       }
@@ -3055,14 +3048,15 @@ export class ValSyncEngine {
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
 
+      const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
       const hasValidationError =
-        Object.values(this.errors.validationErrors || {}).flatMap(
+        Object.values(surfacedValidationErrors || {}).flatMap(
           (errors) => errors || [],
         ).length > 0;
       if (hasValidationError) {
         console.debug(
           "Skipping publish since there's validation errors",
-          this.errors.validationErrors,
+          surfacedValidationErrors,
         );
         this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",
