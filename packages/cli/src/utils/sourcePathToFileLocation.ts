@@ -33,8 +33,9 @@ export function sourcePathToFileLocation(
   sourcePath: string,
   projectRoot: string,
   cache: SourceFileCache,
+  target: "key" | "value" = "value",
 ): string {
-  const resolved = resolveRange(sourcePath, projectRoot, cache);
+  const resolved = resolveRange(sourcePath, projectRoot, cache, target);
   if (!resolved) {
     return sourcePath;
   }
@@ -53,8 +54,9 @@ export function sourcePathToCodeFrame(
   sourcePath: string,
   projectRoot: string,
   cache: SourceFileCache,
+  target: "key" | "value" = "value",
 ): string | undefined {
-  const resolved = resolveRange(sourcePath, projectRoot, cache);
+  const resolved = resolveRange(sourcePath, projectRoot, cache, target);
   if (!resolved) {
     return undefined;
   }
@@ -91,6 +93,7 @@ function resolveRange(
   sourcePath: string,
   projectRoot: string,
   cache: SourceFileCache,
+  target: "key" | "value",
 ): { relativeFile: string; lines: string[]; range: Range } | undefined {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
@@ -100,7 +103,7 @@ function resolveRange(
     return undefined;
   }
 
-  const range = getModulePathRange(modulePath, cached.map);
+  const range = getModulePathRange(modulePath, cached.map, target);
   if (!range) {
     return undefined;
   }

@@ -18,6 +18,13 @@ export type ModulePathMap = {
 export function getModulePathRange(
   modulePath: string,
   modulePathMap: ModulePathMap,
+  // Which part of an object/record member to point at. For an object property
+  // the resolved node's own range is the *key* (property name); the *value*
+  // range is stored under `children.val`. Array elements, leaf literals and
+  // `c.image`/`c.file` `_ref`/`metadata` nodes have no `val` child, so "value"
+  // falls back to the node's own range for those. Defaults to "key" to preserve
+  // existing callers.
+  target: "key" | "value" = "key",
 ) {
   // Handle empty or invalid module paths gracefully
   if (!modulePath || typeof modulePath !== "string") {
@@ -47,11 +54,18 @@ export function getModulePathRange(
     }
     range = range?.children?.[pathSegment];
   }
+
+  if (!range) {
+    return undefined;
+  }
+
+  const valueRange = target === "value" ? range.children?.val : undefined;
+  const resolved = valueRange ?? range;
   return (
-    range?.start &&
-    range?.end && {
-      start: range.start,
-      end: range.end,
+    resolved.start &&
+    resolved.end && {
+      start: resolved.start,
+      end: resolved.end,
     }
   );
 }

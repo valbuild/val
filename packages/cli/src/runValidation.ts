@@ -62,6 +62,8 @@ export type ValidationError = {
   message: string;
   value?: unknown;
   fixes?: ValidationFix[];
+  // True when the error is about an object/record key rather than its value.
+  keyError?: boolean;
 };
 
 export type FixHandlerContext = {
@@ -109,14 +111,25 @@ export type ValidationEvent =
       errorCount: number;
       durationMs: number;
     }
-  | { type: "validation-error"; sourcePath: string; message: string }
+  | {
+      type: "validation-error";
+      sourcePath: string;
+      message: string;
+      keyError?: boolean;
+    }
   | {
       type: "validation-fixable-error";
       sourcePath: string;
       message: string;
       fixable: boolean;
+      keyError?: boolean;
     }
-  | { type: "unknown-fix"; sourcePath: string; fixes: string[] }
+  | {
+      type: "unknown-fix";
+      sourcePath: string;
+      fixes: string[];
+      keyError?: boolean;
+    }
   | { type: "unregistered-module"; file: string }
   | { type: "fix-applied"; file: string; sourcePath: string }
   | { type: "fatal-error"; file: string; message: string }
@@ -679,6 +692,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: v.message,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 continue;
               }
@@ -692,6 +706,7 @@ export async function* runValidation({
                   type: "unknown-fix",
                   sourcePath,
                   fixes: v.fixes,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -737,6 +752,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: result.errorMessage ?? "Unknown error",
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -769,6 +785,7 @@ export async function* runValidation({
                     sourcePath,
                     message: v.message,
                     fixable: true,
+                    ...(v.keyError ? { keyError: true } : {}),
                   };
                 }
 
@@ -779,6 +796,7 @@ export async function* runValidation({
                     sourcePath,
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
+                    ...(e.keyError ? { keyError: true } : {}),
                   };
                 }
               }

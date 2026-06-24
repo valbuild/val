@@ -61,13 +61,31 @@ export async function validate({
   // when resolving sourcePaths to file locations and code frames.
   const sourceFileCache: SourceFileCache = new Map();
 
-  // Prints `file:line:col` followed by a Rust-style code frame (when the
-  // location can be resolved) for an error at the given sourcePath.
-  const logSourceLocation = (sourcePath: string) => {
+  // Resolves a sourcePath to `file:line:col (key|value)`, pointing the carets at
+  // the key when the error is about a key and the value otherwise. Falls back to
+  // the raw sourcePath (no label) when the location cannot be resolved.
+  const formatLocation = (sourcePath: string, keyError?: boolean) => {
+    const target = keyError ? "key" : "value";
+    const location = sourcePathToFileLocation(
+      sourcePath,
+      projectRoot,
+      sourceFileCache,
+      target,
+    );
+    if (location === sourcePath) {
+      return location;
+    }
+    return `${location} (${target})`;
+  };
+
+  // Prints a Rust-style code frame (when the location can be resolved) for an
+  // error at the given sourcePath, underlining the key or the value.
+  const logSourceLocation = (sourcePath: string, keyError?: boolean) => {
     const frame = sourcePathToCodeFrame(
       sourcePath,
       projectRoot,
       sourceFileCache,
+      keyError ? "key" : "value",
     );
     if (frame !== undefined) {
       console.log("\n" + frame);
@@ -115,19 +133,19 @@ export async function validate({
         console.log(
           picocolors.red("✘"),
           "Got error in",
-          `${sourcePathToFileLocation(event.sourcePath, projectRoot, sourceFileCache)}:`,
+          `${formatLocation(event.sourcePath, event.keyError)}:`,
           event.message,
         );
-        logSourceLocation(event.sourcePath);
+        logSourceLocation(event.sourcePath, event.keyError);
         break;
       case "validation-fixable-error":
         console.log(
           event.fixable ? picocolors.yellow("⚠") : picocolors.red("✘"),
           `Got ${event.fixable ? "fixable " : ""}error in`,
-          `${sourcePathToFileLocation(event.sourcePath, projectRoot, sourceFileCache)}:`,
+          `${formatLocation(event.sourcePath, event.keyError)}:`,
           event.message,
         );
-        logSourceLocation(event.sourcePath);
+        logSourceLocation(event.sourcePath, event.keyError);
         break;
       case "unknown-fix":
         console.log(
@@ -135,13 +153,9 @@ export async function validate({
           "Unknown fix",
           event.fixes,
           "for",
-          sourcePathToFileLocation(
-            event.sourcePath,
-            projectRoot,
-            sourceFileCache,
-          ),
+          formatLocation(event.sourcePath, event.keyError),
         );
-        logSourceLocation(event.sourcePath);
+        logSourceLocation(event.sourcePath, event.keyError);
         break;
       case "unregistered-module":
         console.log(

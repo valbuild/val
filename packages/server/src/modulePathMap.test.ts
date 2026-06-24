@@ -85,6 +85,17 @@ export default c.define(
       getModulePathRange('"nested"."text"', modulePathMap),
       { end: { character: 8, line: 50 }, start: { character: 4, line: 50 } },
     );
+
+    // target "value" points at the value ('hei') instead of the key (text)
+    assert.deepStrictEqual(
+      getModulePathRange('"text"', modulePathMap, "value"),
+      { end: { character: 13, line: 48 }, start: { character: 8, line: 48 } },
+    );
+    // explicit "key" matches the default
+    assert.deepStrictEqual(
+      getModulePathRange('"text"', modulePathMap, "key"),
+      getModulePathRange('"text"', modulePathMap),
+    );
   });
 
   test("test 2", () => {
