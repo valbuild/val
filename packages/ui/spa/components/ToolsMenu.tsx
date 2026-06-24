@@ -24,7 +24,7 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import { Button } from "./designSystem/button";
-import { urlOf } from "@valbuild/shared/internal";
+import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
 import { AIChat } from "./AIChat";
@@ -32,7 +32,7 @@ import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
+import { useNavigation, useSessionParam, VAL_ERRORS_ROUTE } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
 import {
@@ -67,6 +67,10 @@ export function ToolsMenu() {
   const committedPatchIds = useCommittedPatches();
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const chatRef = useRef<AIChatHandle | null>(null);
+  const { sessionParam, setSessionParam } = useSessionParam();
+  // Capture the URL session id once on first render — later URL changes (e.g.
+  // navigations that re-write the URL) must not retrigger session loading.
+  const initialSessionIdRef = useRef(sessionParam);
   const {
     sendMessage,
     uploadAiImage,
@@ -78,7 +82,26 @@ export function ToolsMenu() {
     getSessions,
     setSessionName,
     loadSession,
-  } = useAI(chatRef);
+    isLoadingSession,
+  } = useAI(chatRef, {
+    initialSessionId: initialSessionIdRef.current,
+    onSessionBorn: (id) => {
+      setSessionParam(id, { replace: true });
+      try {
+        sessionStorage.setItem(VAL_AI_SESSION_STORAGE_KEY, id);
+      } catch {
+        // sessionStorage may be disabled — URL remains the source of truth.
+      }
+    },
+    onSessionCleared: () => {
+      setSessionParam(null, { replace: true });
+      try {
+        sessionStorage.removeItem(VAL_AI_SESSION_STORAGE_KEY);
+      } catch {
+        // see above
+      }
+    },
+  });
   return (
     <div
       className="flex flex-col h-[100svh] bg-bg-primary"
@@ -159,6 +182,7 @@ export function ToolsMenu() {
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            isLoadingSession={isLoadingSession}
           />
         </div>
       )}

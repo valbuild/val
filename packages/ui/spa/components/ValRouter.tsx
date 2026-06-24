@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 
 const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
@@ -29,6 +30,10 @@ type ValRouterContextValue = {
   isCompareView: boolean;
   isErrorsView: boolean;
   errorFields: SourcePath[];
+  /** Current value of the `?session=` query param, or null if absent. */
+  sessionParam: string | null;
+  /** Update the `?session=` query param. No-op when running in overlay mode. */
+  setSessionParam: (id: string | null, opts?: { replace?: boolean }) => void;
 };
 const ValRouterContext = React.createContext<ValRouterContextValue>(
   new Proxy(
@@ -88,9 +93,11 @@ export function ValRouter({
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
+  const [sessionParam, setSessionParamState] = useState<string | null>(null);
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
+      setSessionParamState(new URLSearchParams(location.search).get("session"));
       if (
         location.pathname === VAL_COMPARE_ROUTE ||
         location.pathname === VAL_COMPARE_ROUTE + "/"
@@ -208,6 +215,25 @@ export function ValRouter({
         : isErrors
           ? VAL_ERRORS_ROUTE + errorFieldsQuery
           : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+      // Preserve `?session=` across in-studio navigations. Without this every
+      // sidebar/compare/errors click would strip the AI chat session id from
+      // the URL. URL only — useAI does not re-read this after mount, so chat
+      // state is intentionally not affected by navigations.
+      //
+      // In overlay mode the host page URL has no `?session=`, so fall back to
+      // sessionStorage so AI navigate_to (and overlay→studio nav generally)
+      // brings the active chat along to the studio.
+      let sid: string | null = sessionParam;
+      if (overlay && sid == null) {
+        try {
+          sid = sessionStorage.getItem(VAL_AI_SESSION_STORAGE_KEY);
+        } catch {
+          sid = null;
+        }
+      }
+      const finalTo = sid
+        ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}session=${encodeURIComponent(sid)}`
+        : navigateTo;
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
@@ -240,17 +266,34 @@ export function ValRouter({
           historyState.current.push(prevScrollPos);
         }
         if (params?.replace) {
-          window.history.replaceState(null, "", navigateTo);
+          window.history.replaceState(null, "", finalTo);
         } else {
-          window.history.pushState(null, "", navigateTo);
+          window.history.pushState(null, "", finalTo);
         }
       } else {
         window.location.href =
-          navigateTo +
+          finalTo +
           (params?.scrollToPath
             ? `#${encodeURIComponent(params.scrollToPath)}`
             : "");
       }
+    },
+    [overlay, sessionParam],
+  );
+  const setSessionParam = useCallback(
+    (id: string | null, opts?: { replace?: boolean }) => {
+      // Overlay runs on the host page — never mutate that URL.
+      if (overlay) return;
+      const url = new URL(window.location.href);
+      if (id == null) url.searchParams.delete("session");
+      else url.searchParams.set("session", id);
+      const target = url.pathname + url.search + url.hash;
+      if (opts?.replace) {
+        window.history.replaceState(null, "", target);
+      } else {
+        window.history.pushState(null, "", target);
+      }
+      setSessionParamState(id);
     },
     [overlay],
   );
@@ -264,6 +307,8 @@ export function ValRouter({
         isCompareView,
         isErrorsView,
         errorFields,
+        sessionParam,
+        setSessionParam,
       }}
     >
       {children}
@@ -297,4 +342,9 @@ export function useParams(): {
   return {
     sourcePath: ctx.currentSourcePath,
   };
+}
+
+export function useSessionParam() {
+  const { sessionParam, setSessionParam } = useContext(ValRouterContext);
+  return { sessionParam, setSessionParam };
 }
