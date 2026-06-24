@@ -117,6 +117,7 @@ export type ValidationEvent =
       fixable: boolean;
     }
   | { type: "unknown-fix"; sourcePath: string; fixes: string[] }
+  | { type: "unregistered-module"; file: string }
   | { type: "fix-applied"; file: string; sourcePath: string }
   | { type: "fatal-error"; file: string; message: string }
   | { type: "remote-uploading"; ref: string }
@@ -604,14 +605,18 @@ export async function* runValidation({
 
   const service = await createService(projectRoot, {}, fs);
 
+  // Modules registered in the project's val.modules. Files found on disk that
+  // are not registered here are not validated (a warning is emitted instead).
+  const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
+
   let errors = 0;
 
   // Build a single schema/source snapshot up front so the shared resolver
   // can resolve keyof:check-keys / router:check-route references that span
-  // multiple val files.
+  // multiple val files. Use the full registry so cross-module references
+  // resolve even against modules not in the validated subset.
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
-  for (const file of valFiles) {
-    const moduleFilePath = `/${file}` as ModuleFilePath;
+  for (const moduleFilePath of registered) {
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       source: true,
       schema: true,
@@ -627,6 +632,10 @@ export async function* runValidation({
 
   async function* validateFile(file: string): AsyncGenerator<ValidationEvent> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
+    if (!registered.has(moduleFilePath)) {
+      yield { type: "unregistered-module", file };
+      return;
+    }
     const start = Date.now();
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       source: true,

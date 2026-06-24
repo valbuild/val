@@ -114,6 +114,12 @@ export async function validate({
           event.sourcePath,
         );
         break;
+      case "unregistered-module":
+        console.log(
+          picocolors.yellow("⚠"),
+          `/${event.file} is not registered in val.modules - skipping`,
+        );
+        break;
       case "fix-applied":
         console.log(
           picocolors.yellow("⚠"),
