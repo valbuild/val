@@ -6,6 +6,11 @@ import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
 import { evalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
+import {
+  sourcePathToCodeFrame,
+  sourcePathToFileLocation,
+  type SourceFileCache,
+} from "./utils/sourcePathToFileLocation";
 
 export async function validate({
   root,
@@ -52,6 +57,23 @@ export async function validate({
   const fixedFiles = new Set<string>();
   let totalErrors = 0;
 
+  // Caches each val file's parsed source so files are read/parsed at most once
+  // when resolving sourcePaths to file locations and code frames.
+  const sourceFileCache: SourceFileCache = new Map();
+
+  // Prints `file:line:col` followed by a Rust-style code frame (when the
+  // location can be resolved) for an error at the given sourcePath.
+  const logSourceLocation = (sourcePath: string) => {
+    const frame = sourcePathToCodeFrame(
+      sourcePath,
+      projectRoot,
+      sourceFileCache,
+    );
+    if (frame !== undefined) {
+      console.log("\n" + frame);
+    }
+  };
+
   for await (const event of runValidation({
     root: projectRoot,
     fix: !!fix,
@@ -93,17 +115,19 @@ export async function validate({
         console.log(
           picocolors.red("✘"),
           "Got error in",
-          `${event.sourcePath}:`,
+          `${sourcePathToFileLocation(event.sourcePath, projectRoot, sourceFileCache)}:`,
           event.message,
         );
+        logSourceLocation(event.sourcePath);
         break;
       case "validation-fixable-error":
         console.log(
           event.fixable ? picocolors.yellow("⚠") : picocolors.red("✘"),
           `Got ${event.fixable ? "fixable " : ""}error in`,
-          `${event.sourcePath}:`,
+          `${sourcePathToFileLocation(event.sourcePath, projectRoot, sourceFileCache)}:`,
           event.message,
         );
+        logSourceLocation(event.sourcePath);
         break;
       case "unknown-fix":
         console.log(
@@ -111,8 +135,13 @@ export async function validate({
           "Unknown fix",
           event.fixes,
           "for",
-          event.sourcePath,
+          sourcePathToFileLocation(
+            event.sourcePath,
+            projectRoot,
+            sourceFileCache,
+          ),
         );
+        logSourceLocation(event.sourcePath);
         break;
       case "unregistered-module":
         console.log(
