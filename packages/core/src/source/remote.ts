@@ -31,7 +31,7 @@ export const initRemote = (config?: ValConfig) => {
 };
 
 export type RemoteRef =
-  `${string}/file/p/${string}/v/${string}/h/${string}/f/${string}/p/public/val/${string}`;
+  `${string}/file/p/${string}/v/${string}/h/${string}/f/${string}/p/public/${string}`;
 
 export function createRemoteRef(
   remoteHost: string,
@@ -47,7 +47,7 @@ export function createRemoteRef(
     coreVersion: string;
     validationHash: string;
     fileHash: string;
-    filePath: `public/val/${string}`;
+    filePath: `public/${string}`;
     bucket: string;
   },
 ): RemoteRef {

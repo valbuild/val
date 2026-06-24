@@ -13,9 +13,15 @@ const ValConfigSchema = z.object({
     .object({
       directory: z
         .string()
-        .refine((val): val is `/public/val` => val.startsWith("/public/val"), {
-          message: "files.directory must start with '/public/val'",
-        }),
+        .refine(
+          (val): val is `/public` | `/public/${string}` =>
+            val === "/public" ||
+            (val.startsWith("/public/") && !val.endsWith("/")),
+          {
+            message:
+              "files.directory must start with '/public' and not end with '/'",
+          },
+        ),
     })
     .optional(),
   gitCommit: z.string().optional(),

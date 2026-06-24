@@ -2,7 +2,8 @@ import { ValConfig } from "@valbuild/core";
 import { z } from "zod";
 
 export const SharedValConfig: z.ZodSchema<
-  ValConfig & {
+  // The files directory is not shared - the per-schema s.files/s.images directory is the source of truth.
+  Omit<ValConfig, "files"> & {
     // We are adding URLs and other server only config options here
     contentHostUrl?: string;
   }
@@ -11,11 +12,6 @@ export const SharedValConfig: z.ZodSchema<
   appHostUrl: z.string().optional(),
   project: z.string().optional(),
   root: z.string().optional(),
-  files: z
-    .object({
-      directory: z.literal("/public/val"),
-    })
-    .optional(),
   gitCommit: z.string().optional(),
   gitBranch: z.string().optional(),
   defaultTheme: z.enum(["dark", "light"]).optional(),

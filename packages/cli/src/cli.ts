@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
-        List files that are in public/val but not in use by any Val module.
+        List files that are in the configured files directory (files.directory, default public/val) but not in use by any Val module.
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())

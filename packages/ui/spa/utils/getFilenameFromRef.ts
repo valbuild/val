@@ -10,7 +10,7 @@ function cleanRefPath(ref: string): string {
 
 /**
  * Extract a human-readable filename from a file ref (local path or remote URL).
- * Handles both remote refs (via splitRemoteRef) and plain `/public/val/...` paths.
+ * Handles both remote refs (via splitRemoteRef) and plain `/public/...` paths.
  */
 export function getFilenameFromRef(ref: string): string {
   const cleanPath = cleanRefPath(ref);
@@ -19,10 +19,10 @@ export function getFilenameFromRef(ref: string): string {
 
 /**
  * Parse a file ref into its constituent parts: a clean path, filename, and
- * folder (the path relative to `/public/val`).
+ * folder (the path relative to `/public`).
  *
- * The `folder` strips the standard `/public/val` prefix so it shows a
- * concise location like `/images` instead of `/public/val/images`.
+ * The `folder` strips the standard `/public` prefix so it shows a
+ * concise location like `/images` instead of `/public/images`.
  */
 export function getRefParts(ref: string): {
   cleanPath: string;
@@ -32,6 +32,6 @@ export function getRefParts(ref: string): {
   const cleanPath = cleanRefPath(ref);
   const filename = cleanPath.split("/").pop() || cleanPath;
   const folder =
-    cleanPath.replace("/public/val", "").replace(/\/[^/]+$/, "") || "/";
+    cleanPath.replace(/^\/public/, "").replace(/\/[^/]+$/, "") || "/";
   return { cleanPath, filename, folder };
 }
