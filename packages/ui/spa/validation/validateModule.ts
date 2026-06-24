@@ -1,5 +1,5 @@
-import {
-  deserializeSchema,
+import { deserializeSchema } from "@valbuild/core";
+import type {
   ModuleFilePath,
   Schema,
   SelectorSource,
