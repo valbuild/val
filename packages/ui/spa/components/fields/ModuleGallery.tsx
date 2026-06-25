@@ -619,6 +619,7 @@ export function ModuleGallery({
   return (
     <div
       id={path}
+      className="flex flex-col min-h-[calc(100svh-12rem)]"
       onDragEnter={(e) => {
         e.preventDefault();
         dragCounterRef.current++;

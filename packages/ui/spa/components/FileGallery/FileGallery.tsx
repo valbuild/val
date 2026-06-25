@@ -171,7 +171,7 @@ export function FileGallery({
   );
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div className={cn("flex flex-1 flex-col gap-4 min-h-0", className)}>
       {/* Toolbar */}
       <div className="flex items-center gap-2">
         {showSearch && (
@@ -246,7 +246,7 @@ export function FileGallery({
       </div>
 
       {/* Gallery content */}
-      <div className="relative">
+      <div className="relative flex flex-1 flex-col min-h-0">
         {isDraggingOver && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-border-primary bg-bg-primary/80 pointer-events-none">
             <div className="flex flex-col items-center gap-2 text-fg-secondary">

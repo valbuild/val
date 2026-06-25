@@ -145,13 +145,16 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
+  const galleryView = isMediaGallery || Boolean(showModuleGalleryChild);
   const keyDescription =
     isKey && parentSchema?.type === "record"
       ? parentSchema.key?.description
       : undefined;
 
   return (
-    <div className="flex flex-col gap-6 pt-4 pb-40">
+    <div
+      className={cn("flex flex-col gap-6 pt-4", galleryView ? "pb-4" : "pb-40")}
+    >
       <div className="flex flex-col gap-2 text-left overflow-hidden">
         {parts.length > 1 && (
           <ModuleBreadcrumb
