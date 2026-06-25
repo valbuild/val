@@ -247,10 +247,6 @@ export async function validate({
           d.severity === "fixable"
             ? picocolors.yellow("⚠")
             : picocolors.red("✘");
-        const suffix =
-          d.severity === "fixable"
-            ? picocolors.dim("  ·  fixable, run --fix")
-            : "";
         const parts = sourcePathToLocationParts(
           d.sourcePath,
           projectRoot,
@@ -259,12 +255,13 @@ export async function validate({
         );
         console.log(bar);
         if (parts) {
+          // `file:line:col` (no key/value label) so VS Code's terminal links it.
           console.log(
-            `${bar}  ${dsym}  ${parts.line}:${parts.character} (${target})${suffix}`,
+            `${bar}  ${dsym}  ${parts.relativeFile}:${parts.line}:${parts.character}`,
           );
           console.log(`${bar}     ${d.message}`);
         } else {
-          console.log(`${bar}  ${dsym}  ${d.message}${suffix}`);
+          console.log(`${bar}  ${dsym}  ${d.message}`);
         }
         const frame = sourcePathToCodeFrame(
           d.sourcePath,
@@ -277,6 +274,11 @@ export async function validate({
           for (const frameLine of frame.split("\n")) {
             console.log(`${bar}     ${frameLine}`);
           }
+        }
+        if (d.severity === "fixable") {
+          console.log(
+            `${bar}     ${picocolors.dim("→ run with --fix to apply")}`,
+          );
         }
       }
       console.log(bar);
