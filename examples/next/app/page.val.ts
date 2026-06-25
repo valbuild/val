@@ -65,7 +65,7 @@ export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
     link: "/blogs/blog1",
     hero: {
       title: "Content as code",
-      image: c.image("/public/val/logo_7adc7.png", {
+      image: c.image("/public/val/images/logo.png", {
         width: 944,
         height: 944,
         mimeType: "image/png",
