@@ -18,7 +18,6 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewWithRender } from "../../components/PreviewWithRender";
-import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
@@ -93,7 +92,6 @@ export function RecordFields({
     }
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
@@ -132,7 +130,6 @@ export function RecordFields({
       : undefined;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       {renderAtPath?.status === "error" && (
         <PreviewError error={renderAtPath.message} path={path} />
       )}

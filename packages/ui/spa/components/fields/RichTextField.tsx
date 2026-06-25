@@ -13,7 +13,6 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import type { Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
@@ -366,7 +365,6 @@ export function RichTextField({
   }
   return (
     <div id={path} className="m-1">
-      <ValidationErrors path={path} />
       <RichTextEditor
         ref={editorRef}
         features={features}

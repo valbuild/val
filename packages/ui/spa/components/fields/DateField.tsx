@@ -22,7 +22,6 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 
 export function DateField({
   path,
@@ -103,7 +102,6 @@ export function DateField({
           : currentValue;
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <Popover
         open={readonly ? false : isPopoverOpen}
         onOpenChange={(next) => {

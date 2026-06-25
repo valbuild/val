@@ -15,7 +15,6 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
 import { CodeEditor } from "../CodeEditor";
 
@@ -102,7 +101,6 @@ export function StringField({
   if (renderAsTextarea) {
     content = (
       <div id={path}>
-        <ValidationErrors path={path} />
         <AutoGrowingTextarea
           className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
           autoFocus={autoFocus}
@@ -126,7 +124,6 @@ export function StringField({
   } else if (renderAsCodeLanguage) {
     content = (
       <div id={path}>
-        <ValidationErrors path={path} />
         <CodeEditor
           language={renderAsCodeLanguage}
           value={currentValue || ""}
@@ -150,7 +147,6 @@ export function StringField({
   } else {
     content = (
       <div id={path}>
-        <ValidationErrors path={path} />
         <Input
           className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
           autoFocus={autoFocus}

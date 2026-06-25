@@ -39,7 +39,6 @@ import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
 
@@ -304,7 +303,6 @@ export function RouteField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <RouteSelector
           routes={routesWithPreview}

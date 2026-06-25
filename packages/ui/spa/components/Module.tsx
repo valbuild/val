@@ -212,8 +212,8 @@ export function Module({
         </div>
       </div>
       <div>
-        {isKey && nonKeyErrors.length > 0 && (
-          <FieldValidationError validationErrors={validationErrors} />
+        {nonKeyErrors.length > 0 && (
+          <FieldValidationError validationErrors={nonKeyErrors} />
         )}
         <div
           className={cn({

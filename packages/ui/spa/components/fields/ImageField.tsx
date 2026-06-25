@@ -25,7 +25,6 @@ import {
 } from "../ValRemoteProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
@@ -232,7 +231,6 @@ export function ImageField({
   const hotspotPath = Internal.createValPathOfItem(metadataPath, "hotspot");
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       {missingModules.length > 0 && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {missingModules.length === 1

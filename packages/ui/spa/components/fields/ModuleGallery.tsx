@@ -27,7 +27,6 @@ import {
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { getRefParts } from "../../utils/getFilenameFromRef";
-import { ValidationErrors } from "../ValidationError";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
@@ -632,7 +631,6 @@ export function ModuleGallery({
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <ValidationErrors path={path} />
       {uploadError && (
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
           {uploadError}
