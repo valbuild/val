@@ -8,9 +8,24 @@ import { evalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 import {
   sourcePathToCodeFrame,
-  sourcePathToFileLocation,
+  sourcePathToLocationParts,
   type SourceFileCache,
 } from "./utils/sourcePathToFileLocation";
+
+type Diagnostic = {
+  // "fixable" => ⚠ (run --fix), "error" => ✘
+  severity: "fixable" | "error";
+  sourcePath: string;
+  message: string;
+  keyError?: boolean;
+};
+
+type ModuleReport = {
+  // Relative file path (no leading slash).
+  file: string;
+  durationMs: number;
+  diagnostics: Diagnostic[];
+};
 
 export async function validate({
   root,
@@ -67,35 +82,29 @@ export async function validate({
     // per pass when resolving sourcePaths to file locations and code frames.
     const sourceFileCache: SourceFileCache = new Map();
 
-    // Resolves a sourcePath to `file:line:col (key|value)`, pointing the carets
-    // at the key when the error is about a key and the value otherwise. Falls
-    // back to the raw sourcePath (no label) when it cannot be resolved.
-    const formatLocation = (sourcePath: string, keyError?: boolean) => {
-      const target = keyError ? "key" : "value";
-      const location = sourcePathToFileLocation(
-        sourcePath,
-        projectRoot,
-        sourceFileCache,
-        target,
-      );
-      if (location === sourcePath) {
-        return location;
-      }
-      return `${location} (${target})`;
-    };
+    // Diagnostics are buffered per module (keyed by relative file path) so we can
+    // render them grouped and prioritised after the run, rather than streaming
+    // them out interleaved. Transient progress (remote/fix-applied) still streams
+    // live below.
+    const reports = new Map<string, ModuleReport>();
+    const valid: { file: string; durationMs: number }[] = [];
+    const skipped: string[] = [];
 
-    // Prints a Rust-style code frame (when the location can be resolved) for an
-    // error at the given sourcePath, underlining the key or the value.
-    const logSourceLocation = (sourcePath: string, keyError?: boolean) => {
-      const frame = sourcePathToCodeFrame(
-        sourcePath,
-        projectRoot,
-        sourceFileCache,
-        keyError ? "key" : "value",
-      );
-      if (frame !== undefined) {
-        console.log("\n" + frame);
+    // Relative file path (no leading slash), matching the code frame's
+    // relativeFile so headers, diagnostics and frames all agree.
+    const relFile = (file: string) => file.replace(/^\//, "");
+    // The module a sourcePath/file belongs to is the part before the `?p=...`.
+    const moduleOf = (sourcePathOrFile: string) =>
+      relFile(sourcePathOrFile.split("?")[0]);
+
+    const reportFor = (file: string): ModuleReport => {
+      const key = relFile(file);
+      let report = reports.get(key);
+      if (!report) {
+        report = { file: key, durationMs: 0, diagnostics: [] };
+        reports.set(key, report);
       }
+      return report;
     };
 
     for await (const event of runValidation({
@@ -122,53 +131,49 @@ export async function validate({
     })) {
       switch (event.type) {
         case "file-valid":
-          console.log(
-            picocolors.green("✔"),
-            event.file,
-            "is valid (" + event.durationMs + "ms)",
-          );
+          valid.push({
+            file: relFile(event.file),
+            durationMs: event.durationMs,
+          });
           break;
         case "file-error-count":
-          console.log(
-            picocolors.red("✘"),
-            `${event.file} contains ${event.errorCount} error${event.errorCount > 1 ? "s" : ""}`,
-            " (" + event.durationMs + "ms)",
-          );
+          reportFor(event.file).durationMs = event.durationMs;
           totalErrors += event.errorCount;
           break;
         case "validation-error":
-          console.log(
-            picocolors.red("✘"),
-            "Got error in",
-            `${formatLocation(event.sourcePath, event.keyError)}:`,
-            event.message,
-          );
-          logSourceLocation(event.sourcePath, event.keyError);
+          reportFor(moduleOf(event.sourcePath)).diagnostics.push({
+            severity: "error",
+            sourcePath: event.sourcePath,
+            message: event.message,
+            ...(event.keyError ? { keyError: true } : {}),
+          });
           break;
         case "validation-fixable-error":
-          console.log(
-            event.fixable ? picocolors.yellow("⚠") : picocolors.red("✘"),
-            `Got ${event.fixable ? "fixable " : ""}error in`,
-            `${formatLocation(event.sourcePath, event.keyError)}:`,
-            event.message,
-          );
-          logSourceLocation(event.sourcePath, event.keyError);
+          reportFor(moduleOf(event.sourcePath)).diagnostics.push({
+            severity: event.fixable ? "fixable" : "error",
+            sourcePath: event.sourcePath,
+            message: event.message,
+            ...(event.keyError ? { keyError: true } : {}),
+          });
           break;
         case "unknown-fix":
-          console.log(
-            picocolors.red("✘"),
-            "Unknown fix",
-            event.fixes,
-            "for",
-            formatLocation(event.sourcePath, event.keyError),
-          );
-          logSourceLocation(event.sourcePath, event.keyError);
+          reportFor(moduleOf(event.sourcePath)).diagnostics.push({
+            severity: "error",
+            sourcePath: event.sourcePath,
+            message: `Unknown fix: ${event.fixes.join(", ")}`,
+            ...(event.keyError ? { keyError: true } : {}),
+          });
           break;
         case "unregistered-module":
-          console.log(
-            picocolors.yellow("⚠"),
-            `/${event.file} is not registered in val.modules - skipping`,
-          );
+          skipped.push(event.file);
+          break;
+        case "fatal-error":
+          // No sourcePath for fatal errors; group by file, render message only.
+          reportFor(event.file).diagnostics.push({
+            severity: "error",
+            sourcePath: event.file,
+            message: event.message,
+          });
           break;
         case "fix-applied":
           console.log(
@@ -177,14 +182,6 @@ export async function validate({
             event.sourcePath,
           );
           fixedFiles.add(event.file);
-          break;
-        case "fatal-error":
-          console.log(
-            picocolors.red("✘"),
-            event.file,
-            "is invalid:",
-            event.message,
-          );
           break;
         case "remote-uploading":
           console.log(
@@ -216,6 +213,76 @@ export async function validate({
       }
     }
 
+    // Renders a module's diagnostics under a single left "│" gutter bar, with the
+    // file name on top and blank gutter lines for air. Output flows least- to
+    // most-actionable top-to-bottom, so fixable diagnostics are shown last (at the
+    // bottom, nearest the prompt).
+    const renderModule = (report: ModuleReport) => {
+      const bar = picocolors.dim("│");
+      const diagnostics = [...report.diagnostics].sort((a, b) =>
+        a.severity === b.severity ? 0 : a.severity === "fixable" ? 1 : -1,
+      );
+      const fixableCount = diagnostics.filter(
+        (d) => d.severity === "fixable",
+      ).length;
+      const total = diagnostics.length;
+      const hasError = fixableCount < total;
+      const symbol = hasError ? picocolors.red("✘") : picocolors.yellow("⚠");
+      let label: string;
+      if (fixableCount === total) {
+        label = `${fixableCount} fixable`;
+      } else if (fixableCount > 0) {
+        label = `${total} error${total > 1 ? "s" : ""} (${fixableCount} fixable)`;
+      } else {
+        label = `${total} error${total > 1 ? "s" : ""}`;
+      }
+      console.log(
+        `${picocolors.bold(report.file)}  ${symbol} ${label}  ${picocolors.dim(
+          `(${report.durationMs}ms)`,
+        )}`,
+      );
+      for (const d of diagnostics) {
+        const target = d.keyError ? "key" : "value";
+        const dsym =
+          d.severity === "fixable"
+            ? picocolors.yellow("⚠")
+            : picocolors.red("✘");
+        const suffix =
+          d.severity === "fixable"
+            ? picocolors.dim("  ·  fixable, run --fix")
+            : "";
+        const parts = sourcePathToLocationParts(
+          d.sourcePath,
+          projectRoot,
+          sourceFileCache,
+          target,
+        );
+        console.log(bar);
+        if (parts) {
+          console.log(
+            `${bar}  ${dsym}  ${parts.line}:${parts.character} (${target})${suffix}`,
+          );
+          console.log(`${bar}     ${d.message}`);
+        } else {
+          console.log(`${bar}  ${dsym}  ${d.message}${suffix}`);
+        }
+        const frame = sourcePathToCodeFrame(
+          d.sourcePath,
+          projectRoot,
+          sourceFileCache,
+          target,
+        );
+        if (frame !== undefined) {
+          console.log(bar);
+          for (const frameLine of frame.split("\n")) {
+            console.log(`${bar}     ${frameLine}`);
+          }
+        }
+      }
+      console.log(bar);
+      console.log("");
+    };
+
     // Run prettier on files that had fixes applied
     if (prettier) {
       for (const file of fixedFiles) {
@@ -228,15 +295,66 @@ export async function validate({
       }
     }
 
-    if (totalErrors > 0) {
+    // Render the grouped report least- to most-actionable, top-to-bottom, so the
+    // most important things end up at the bottom nearest the prompt: valid files
+    // and skipped modules first, then error-only modules, then fixable modules.
+    const allReports = [...reports.values()];
+    const fixableModules = allReports.filter((r) =>
+      r.diagnostics.some((d) => d.severity === "fixable"),
+    );
+    const errorModules = allReports.filter(
+      (r) => !r.diagnostics.some((d) => d.severity === "fixable"),
+    );
+
+    for (const v of valid) {
       console.log(
-        picocolors.red("✘"),
-        "Got",
-        totalErrors,
-        "error" + (totalErrors > 1 ? "s" : ""),
+        picocolors.green("✔"),
+        picocolors.dim(`${v.file}  valid (${v.durationMs}ms)`),
       );
+    }
+    for (const file of skipped) {
+      console.log(
+        picocolors.yellow("⚠"),
+        picocolors.dim(`/${file} is not registered in val.modules - skipping`),
+      );
+    }
+
+    if (allReports.length > 0) {
+      console.log("");
+    }
+    for (const report of [...errorModules, ...fixableModules]) {
+      renderModule(report);
+    }
+
+    const fixableTotal = allReports.reduce(
+      (n, r) =>
+        n + r.diagnostics.filter((d) => d.severity === "fixable").length,
+      0,
+    );
+    if (totalErrors > 0) {
+      let summary = `${totalErrors} error${totalErrors > 1 ? "s" : ""}`;
+      if (fixableTotal > 0) {
+        summary += ` (${fixableTotal} fixable)`;
+      }
+      summary += ` across ${allReports.length} file${
+        allReports.length > 1 ? "s" : ""
+      }`;
+      if (valid.length > 0) {
+        summary += ` · ${valid.length} valid`;
+      }
+      if (skipped.length > 0) {
+        summary += ` · ${skipped.length} skipped`;
+      }
+      console.log(picocolors.red("✘"), summary);
     } else {
-      console.log(picocolors.green("✔"), "No validation errors found");
+      let summary = "No validation errors found";
+      if (valid.length > 0) {
+        summary += ` · ${valid.length} valid`;
+      }
+      if (skipped.length > 0) {
+        summary += ` · ${skipped.length} skipped`;
+      }
+      console.log(picocolors.green("✔"), summary);
     }
     return totalErrors;
   }

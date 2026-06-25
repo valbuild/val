@@ -45,6 +45,31 @@ export function sourcePathToFileLocation(
 }
 
 /**
+ * Resolves a validation `sourcePath` to its individual location parts: the
+ * relative file path and the 1-indexed line/column of the offending literal.
+ * Returns `undefined` when the location cannot be resolved (the caller should
+ * then fall back to the raw `sourcePath`).
+ */
+export function sourcePathToLocationParts(
+  sourcePath: string,
+  projectRoot: string,
+  cache: SourceFileCache,
+  target: "key" | "value" = "value",
+): { relativeFile: string; line: number; character: number } | undefined {
+  const resolved = resolveRange(sourcePath, projectRoot, cache, target);
+  if (!resolved) {
+    return undefined;
+  }
+  // TS line/character are 0-indexed; editors/terminals expect 1-indexed.
+  const { relativeFile, range } = resolved;
+  return {
+    relativeFile,
+    line: range.start.line + 1,
+    character: range.start.character + 1,
+  };
+}
+
+/**
  * Renders a Rust-style code frame for the offending `sourcePath`: the line
  * above, the offending line, and the line below, with red carets underlining
  * the offending span. Returns `undefined` when the location cannot be resolved
