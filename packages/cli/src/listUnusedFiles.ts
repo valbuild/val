@@ -8,12 +8,22 @@ import {
 import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
 import path from "path";
+import { evalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
-  const managedDir = "public/val";
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
+  const valConfigFile =
+    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
+    (await evalValConfigFile(projectRoot, "val.config.js"));
+  // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
+  const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
+    /^\//,
+    "",
+  );
+
   const service = await createService(projectRoot, {});
+  const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
     ignore: ["node_modules/**"],
@@ -23,6 +33,10 @@ export async function listUnusedFiles({ root }: { root?: string }) {
   const filesUsedByVal: string[] = [];
   async function pushFilesUsedByVal(file: string) {
     const moduleId = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
+    if (!registered.has(moduleId)) {
+      // Not registered in val.modules - skip (e.g. reusable schema fragments).
+      return;
+    }
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
       source: true,

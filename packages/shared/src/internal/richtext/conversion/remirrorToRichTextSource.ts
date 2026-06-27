@@ -413,7 +413,7 @@ function convertImageNode(
             remoteFileHash,
             textEncoder,
           ),
-          filePath: filePath.slice(1) as `public/val/${string}`,
+          filePath: filePath.slice(1) as `public/${string}`,
         })
       : (filePath as `/public/${string}`);
     if (existingFilesEntry) {

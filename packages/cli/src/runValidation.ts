@@ -62,6 +62,8 @@ export type ValidationError = {
   message: string;
   value?: unknown;
   fixes?: ValidationFix[];
+  // True when the error is about an object/record key rather than its value.
+  keyError?: boolean;
 };
 
 export type FixHandlerContext = {
@@ -109,14 +111,26 @@ export type ValidationEvent =
       errorCount: number;
       durationMs: number;
     }
-  | { type: "validation-error"; sourcePath: string; message: string }
+  | {
+      type: "validation-error";
+      sourcePath: string;
+      message: string;
+      keyError?: boolean;
+    }
   | {
       type: "validation-fixable-error";
       sourcePath: string;
       message: string;
       fixable: boolean;
+      keyError?: boolean;
     }
-  | { type: "unknown-fix"; sourcePath: string; fixes: string[] }
+  | {
+      type: "unknown-fix";
+      sourcePath: string;
+      fixes: string[];
+      keyError?: boolean;
+    }
+  | { type: "unregistered-module"; file: string }
   | { type: "fix-applied"; file: string; sourcePath: string }
   | { type: "fatal-error"; file: string; message: string }
   | { type: "remote-uploading"; ref: string }
@@ -167,45 +181,17 @@ export async function handleFileMetadata(
   return { success: true, shouldApplyPatch: true };
 }
 
-export async function handleRemoteFileUpload(
+// Shared upload core used by both the single-field (handleRemoteFileUpload)
+// and gallery (handleRemoteGalleryFileUpload) handlers. The two differ only in
+// how they derive the local file ref, metadata and serialized image/file
+// schema; everything from auth through upload is identical.
+async function uploadRemoteFileCore(
   ctx: FixHandlerContext,
+  fileRef: string,
+  metadata: Record<string, unknown> | undefined,
+  schema: SerializedImageSchema | SerializedFileSchema,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
-    };
-  }
-
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    ctx.sourcePath,
-  );
-
-  if (!ctx.valModule.source || !ctx.valModule.schema) {
-    return {
-      success: false,
-      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
-    };
-  }
-
-  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
-    modulePath,
-    ctx.valModule.source,
-    ctx.valModule.schema,
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.[
-    FILE_REF_PROP
-  ];
-  if (!fileRefProp) {
-    return {
-      success: false,
-      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
-    };
-  }
-
-  const filePath = path.join(ctx.projectRoot, fileRefProp);
+  const filePath = path.join(ctx.projectRoot, fileRef);
   if (!ctx.fs.fileExists(filePath)) {
     return {
       success: false,
@@ -242,26 +228,6 @@ export async function handleRemoteFileUpload(
     return {
       success: true,
       events: [{ type: "remote-already-uploaded", filePath }],
-    };
-  }
-
-  if (!resolvedRemoteFileAtSourcePath.schema) {
-    return {
-      success: false,
-      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
-    };
-  }
-
-  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
-  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
-    ? actualRemoteFileSource.metadata
-    : undefined;
-  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
-
-  if (!resolveRemoteFileSchema) {
-    return {
-      success: false,
-      errorMessage: `Could not resolve schema for remote file: ${ctx.sourcePath}`,
     };
   }
 
@@ -303,16 +269,6 @@ export async function handleRemoteFileUpload(
     };
   }
 
-  if (
-    resolveRemoteFileSchema.type !== "image" &&
-    resolveRemoteFileSchema.type !== "file"
-  ) {
-    return {
-      success: false,
-      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
-    };
-  }
-
   remoteFilesCounter += 1;
   const bucket =
     remoteFileBuckets[remoteFilesCounter % remoteFileBuckets.length];
@@ -335,22 +291,18 @@ export async function handleRemoteFileUpload(
   const relativeFilePath = path
     .relative(ctx.projectRoot, filePath)
     .split(path.sep)
-    .join("/") as `public/val/${string}`;
+    .join("/") as `public/${string}`;
 
-  if (!relativeFilePath.startsWith("public/val/")) {
+  if (!relativeFilePath.startsWith("public/")) {
     return {
       success: false,
-      errorMessage: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+      errorMessage: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,
     };
   }
 
   const fileHash = Internal.remote.getFileHash(fileBuffer);
   const coreVersion = Internal.VERSION.core || "unknown";
   const fileExt = getFileExt(filePath);
-  const schema = resolveRemoteFileSchema as
-    | SerializedImageSchema
-    | SerializedFileSchema;
-  const metadata = fileSourceMetadata;
   const ref = Internal.remote.createRemoteRef(ctx.remote.remoteHost, {
     publicProjectId,
     coreVersion,
@@ -385,7 +337,7 @@ export async function handleRemoteFileUpload(
 
   ctx.remoteFiles[ctx.sourcePath] = {
     ref,
-    metadata: fileSourceMetadata,
+    metadata,
   };
 
   return {
@@ -399,6 +351,156 @@ export async function handleRemoteFileUpload(
       { type: "remote-uploaded", ref },
     ],
   };
+}
+
+export async function handleRemoteFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.[
+    FILE_REF_PROP
+  ];
+  if (!fileRefProp) {
+    return {
+      success: false,
+      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+    };
+  }
+
+  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
+  if (!resolveRemoteFileSchema) {
+    return {
+      success: false,
+      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
+    };
+  }
+
+  if (
+    resolveRemoteFileSchema.type !== "image" &&
+    resolveRemoteFileSchema.type !== "file"
+  ) {
+    return {
+      success: false,
+      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
+    };
+  }
+
+  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
+  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
+    ? actualRemoteFileSource.metadata
+    : undefined;
+
+  return uploadRemoteFileCore(
+    ctx,
+    fileRefProp,
+    fileSourceMetadata,
+    resolveRemoteFileSchema,
+  );
+}
+
+// Gallery (s.images({ remote: true }) / s.files({ remote: true })) upload.
+// Unlike a single image/file field, a gallery entry is keyed by its local file
+// path and the value is bare metadata (no FileSource), so we derive the file
+// ref from the key and synthesize the image/file schema from the record's
+// media options.
+export async function handleRemoteGalleryFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+    };
+  }
+
+  const fix = ctx.validationError.fixes?.[0];
+  const mediaType = fix === "files:upload-remote" ? "file" : "image";
+
+  // The gallery entry is keyed by its local file path; validateMediaKey carries
+  // that key as the error value.
+  const fileRef = ctx.validationError.value;
+  if (typeof fileRef !== "string") {
+    return {
+      success: false,
+      errorMessage: `Expected a local file path for gallery entry at ${ctx.sourcePath}`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolved = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+  const entrySource = resolved.source;
+  const metadata =
+    entrySource &&
+    typeof entrySource === "object" &&
+    !Array.isArray(entrySource)
+      ? (entrySource as Record<string, unknown>)
+      : undefined;
+
+  // The gallery item schema is an ObjectSchema, not an image/file schema, so
+  // synthesize the serialized image/file schema (matching how single fields
+  // serialize) for the remote ref's validation hash.
+  const moduleSchema = ctx.valModule.schema;
+  const accept =
+    moduleSchema.type === "record" ? moduleSchema.accept : undefined;
+  const directory =
+    moduleSchema.type === "record" ? moduleSchema.directory : undefined;
+  const schema: SerializedImageSchema | SerializedFileSchema =
+    mediaType === "image"
+      ? {
+          type: "image",
+          opt: false,
+          options: {
+            ...(accept ? { accept } : {}),
+            ...(directory ? { directory } : {}),
+          },
+        }
+      : {
+          type: "file",
+          opt: false,
+          options: {
+            ...(accept ? { accept } : {}),
+          },
+        };
+
+  return uploadRemoteFileCore(ctx, fileRef, metadata, schema);
 }
 
 export async function handleRemoteFileDownload(
@@ -465,6 +567,17 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
+// Maps a gallery key to its on-disk local path. Remote galleries key uploaded
+// entries by a remote URL while keeping the file on disk; everything else is
+// already a local path and is returned unchanged.
+function remoteKeyToLocalPath(key: string): string {
+  const remoteRefRes = Internal.remote.splitRemoteRef(key);
+  if (remoteRefRes.status === "success") {
+    return `/${remoteRefRes.filePath}`;
+  }
+  return key;
+}
+
 export async function handleCheckAllFiles(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
@@ -486,7 +599,12 @@ export async function handleCheckAllFiles(
       errorMessage: `Could not get source for ${ctx.sourcePath}`,
     };
   }
-  const trackedFiles = new Set(Object.keys(source as Record<string, unknown>));
+  // Gallery entries are keyed by their file path. Remote galleries key uploaded
+  // entries by a remote URL, but the file is kept on disk at its local path, so
+  // normalize remote-URL keys back to that local path for the on-disk checks.
+  const trackedFiles = new Set(
+    Object.keys(source as Record<string, unknown>).map(remoteKeyToLocalPath),
+  );
 
   // Check that all tracked files exist on disk
   const missingTrackedFiles = [...trackedFiles].filter((f) => {
@@ -544,6 +662,8 @@ export const currentFixHandlers: Record<
   "file:add-metadata": handleFileMetadata,
   "image:upload-remote": handleRemoteFileUpload,
   "file:upload-remote": handleRemoteFileUpload,
+  "images:upload-remote": handleRemoteGalleryFileUpload,
+  "files:upload-remote": handleRemoteGalleryFileUpload,
   "image:download-remote": handleRemoteFileDownload,
   "file:download-remote": handleRemoteFileDownload,
   "image:check-remote": handleRemoteFileCheck,
@@ -604,14 +724,18 @@ export async function* runValidation({
 
   const service = await createService(projectRoot, {}, fs);
 
+  // Modules registered in the project's val.modules. Files found on disk that
+  // are not registered here are not validated (a warning is emitted instead).
+  const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
+
   let errors = 0;
 
   // Build a single schema/source snapshot up front so the shared resolver
   // can resolve keyof:check-keys / router:check-route references that span
-  // multiple val files.
+  // multiple val files. Use the full registry so cross-module references
+  // resolve even against modules not in the validated subset.
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
-  for (const file of valFiles) {
-    const moduleFilePath = `/${file}` as ModuleFilePath;
+  for (const moduleFilePath of registered) {
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       source: true,
       schema: true,
@@ -627,6 +751,10 @@ export async function* runValidation({
 
   async function* validateFile(file: string): AsyncGenerator<ValidationEvent> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
+    if (!registered.has(moduleFilePath)) {
+      yield { type: "unregistered-module", file };
+      return;
+    }
     const start = Date.now();
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       source: true,
@@ -670,6 +798,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: v.message,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 continue;
               }
@@ -683,6 +812,7 @@ export async function* runValidation({
                   type: "unknown-fix",
                   sourcePath,
                   fixes: v.fixes,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -728,6 +858,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: result.errorMessage ?? "Unknown error",
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -760,6 +891,7 @@ export async function* runValidation({
                     sourcePath,
                     message: v.message,
                     fixable: true,
+                    ...(v.keyError ? { keyError: true } : {}),
                   };
                 }
 
@@ -767,9 +899,12 @@ export async function* runValidation({
                   fileErrors += 1;
                   yield {
                     type: "validation-fixable-error",
-                    sourcePath,
+                    // Gallery checks expand into per-entry errors that point at
+                    // the individual entry; fall back to the record sourcePath.
+                    sourcePath: e.sourcePath ?? sourcePath,
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
+                    ...(e.keyError ? { keyError: true } : {}),
                   };
                 }
               }

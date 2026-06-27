@@ -69,7 +69,7 @@ function buildIndex(
         ) {
           const filename = source[FILE_REF_PROP] as string;
           // Extract just the filename from the path
-          const filenameOnly = filename.replace("/public/val/", "");
+          const filenameOnly = filename.replace("/public", "");
           const metadata = source?.metadata;
           const alt =
             metadata && typeof metadata === "object" && "alt" in metadata

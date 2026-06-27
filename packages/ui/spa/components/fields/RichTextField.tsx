@@ -152,7 +152,7 @@ export function RichTextField({
     config,
   ]);
 
-  const imageDirectory = imageModuleDirectory ?? config?.files?.directory;
+  const imageDirectory = imageModuleDirectory;
 
   const onImageUpload = useMemo(() => {
     if (!hasImageEnabled) return undefined;

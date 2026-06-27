@@ -28,6 +28,7 @@ async function main(): Promise<void> {
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
         --fix  [fix]             Attempt to fix validation errors
+        --watch, -w              Re-validate on changes to val.config, val.modules and *.val files
 
       
       Command: login
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
-        List files that are in public/val but not in use by any Val module.
+        List files that are in the configured files directory (files.directory, default public/val) but not in use by any Val module.
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
@@ -61,6 +62,10 @@ async function main(): Promise<void> {
         },
         fix: {
           type: "boolean",
+        },
+        watch: {
+          type: "boolean",
+          alias: "w",
         },
         noEslint: {
           type: "boolean",
@@ -112,9 +117,15 @@ async function main(): Promise<void> {
       if (flags.managedDir) {
         return error(`Command "validate" does not support --managedDir flag`);
       }
+      if (flags.watch && flags.fix) {
+        return error(
+          `Command "validate" does not support --watch together with --fix`,
+        );
+      }
       return validate({
         root: flags.root,
         fix: flags.fix,
+        watch: flags.watch,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);

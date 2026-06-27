@@ -85,7 +85,7 @@ export async function createFilePatch(
           textEncoder,
         ),
         fileHash: remoteFileHash,
-        filePath: `${(directory ?? "/public/val").slice(1) as `public/val/${string}`}/${newFilePath}`,
+        filePath: `${(directory ?? "/public/val").slice(1) as `public/${string}`}/${newFilePath}`,
       })
     : filePath;
   return {
@@ -438,7 +438,7 @@ export function FileField({
                   metadata,
                   type,
                   remoteData,
-                  moduleDirectory ?? config.files?.directory,
+                  moduleDirectory,
                   !!referencedModule,
                 )
                   .then(({ patch, filePath }) => {

@@ -383,4 +383,105 @@ describe("runValidation", () => {
       service.dispose();
     }
   });
+
+  test("reports upload-remote error for local entry in a remote gallery", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-remote.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const errors = events.filter((e) => e.type === "validation-error");
+    expect(
+      errors.some(
+        (e) =>
+          "message" in e &&
+          (e.message as string).includes("needs to be uploaded"),
+      ),
+    ).toBe(true);
+  });
+
+  test("uploads local entry in a remote gallery and rewrites the key when fix is true", async () => {
+    const uploadRemote: IValRemote = {
+      remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      getSettings: async () => ({
+        success: true,
+        data: {
+          publicProjectId: "pubproj",
+          remoteFileBuckets: [{ bucket: "01" }],
+        },
+      }),
+      uploadFile: async () => ({ success: true }),
+    };
+    // Upload requires a personal access token on disk.
+    fs.mkdirSync(path.join(tmpDir, ".val"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, ".val", "pat.json"),
+      JSON.stringify({ pat: "test-pat" }),
+    );
+
+    const events: ValidationEvent[] = [];
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: true,
+      valFiles: ["content/basic-gallery-remote.val.ts"],
+      project: "test/project",
+      remote: uploadRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.some((e) => e.type === "remote-uploaded")).toBe(true);
+    expect(events.some((e) => e.type === "fix-applied")).toBe(true);
+
+    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    try {
+      const result = await service.get(
+        "/content/basic-gallery-remote.val.ts" as ModuleFilePath,
+        "" as ModulePath,
+        { source: true, schema: true, validate: false },
+      );
+      const source = result.source as Record<string, unknown>;
+      // The local-path key is replaced by a remote URL key (file kept on disk).
+      expect(source).not.toHaveProperty("/public/val/images-remote/image.png");
+      const keys = Object.keys(source);
+      expect(keys).toHaveLength(1);
+      expect(keys[0]).toContain("pubproj");
+      expect(keys[0]).toContain("public/val/images-remote/image.png");
+    } finally {
+      service.dispose();
+    }
+  });
+
+  test("does not flag a kept-on-disk file behind a remote gallery key", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-remote-existing.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    // The file kept on disk under the remote URL key must not be reported as
+    // untracked, and the remote URL key must not be reported as missing.
+    expect(events.at(-1)).toEqual({ type: "summary-success" });
+    expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
+  });
 });

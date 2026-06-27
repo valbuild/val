@@ -223,7 +223,7 @@ export function ImageField({
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
     remoteData,
-    directory: moduleDirectory ?? config.files?.directory,
+    directory: moduleDirectory,
     referencedModule,
     existingAlt,
   });
