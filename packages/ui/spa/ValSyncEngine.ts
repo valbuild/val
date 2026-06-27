@@ -3110,7 +3110,33 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
+        // In fs mode /save applies exactly these patches to the .val files and
+        // then deletes them. Since serverSources still holds the *un-patched*
+        // base (we read /sources/~ with apply_patches=false), dropping the patch
+        // chain below would momentarily revert affected fields to their
+        // pre-patch value until the next stat-triggered /sources/~ refresh.
+        // Bake the current optimistic (patched) value into serverSources first
+        // so the base swaps out from under the optimistic view atomically and
+        // the displayed value never changes. The later /sources/~ overwrites
+        // serverSources with the authoritative value (self-healing if it
+        // differs). Only safe in fs mode: in http mode the committed patches
+        // persist server-side and are re-applied by syncPatches, so the base
+        // must stay un-patched (baking would double-apply).
+        const affectedModules: ModuleFilePath[] = [];
         if (this.mode === "fs") {
+          for (const moduleFilePath of this.patchIdsByModuleFilePath.keys()) {
+            const patched = this.getPatchedSource(moduleFilePath);
+            if (patched !== undefined && this.serverSources) {
+              this.serverSources[moduleFilePath] = patched;
+              if (this.patchedSourcesCache !== null) {
+                this.patchedSourcesCache = {
+                  ...this.patchedSourcesCache,
+                  [moduleFilePath]: undefined,
+                };
+              }
+              affectedModules.push(moduleFilePath);
+            }
+          }
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];
           console.debug("Deleting all patch ids");
@@ -3129,6 +3155,12 @@ export class ValSyncEngine {
         this.invalidatePendingClientSidePatchIds();
         this.invalidateSyncedServerSidePatchIds();
         this.invalidateSavedServerSidePatchIds();
+        // Notify subscribers so they re-read the freshly baked-in base. The
+        // value is unchanged from the optimistic view, so there's no flicker;
+        // only the snapshot's `optimistic` flag flips to false (now published).
+        for (const moduleFilePath of affectedModules) {
+          this.invalidateSource(moduleFilePath);
+        }
         return {
           status: "done",
         } as const;

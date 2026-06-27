@@ -68,6 +68,65 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("value 1 from store 1");
   });
 
+  test("fs publish keeps the patched value (no flicker back to base)", async () => {
+    // Regression test for the save-flicker: after publish() drops the now-saved
+    // patches in fs mode, serverSources still holds the un-patched base. Without
+    // baking the optimistic value into serverSources first, the field would
+    // momentarily revert to the pre-patch value until the next /sources/~ sync.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("Foo");
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    // Optimistic value is shown immediately.
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("FooBar");
+
+    // serverSources is still the un-patched base at this point (the studio reads
+    // /sources/~ with apply_patches=false), so publishing must bake the patched
+    // value in as it drops the patch chain.
+    const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+
+    // A field re-rendering after publish (fresh creatorId → fresh getPatchedSource
+    // recompute, i.e. what HMR / the next sync's source invalidation triggers)
+    // must NOT see the pre-patch value flicker through. This is the assertion
+    // that fails without the fix (it would recompute base "Foo" + no patches).
+    expect(
+      syncEngine.getSourceSnapshot(
+        toModuleFilePath("/test.val.ts"),
+        "field-rerender-after-publish",
+      ).data,
+    ).toStrictEqual("FooBar");
+
+    // And it stays "FooBar" after the follow-up stat-triggered sync.
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("FooBar");
+  });
+
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
@@ -804,6 +863,32 @@ class SyncEngineTester {
     };
   }
 
+  postSave(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _req: any,
+  ): any {
+    // Model fs-mode /save: apply every pending patch to the backing sources
+    // and then delete the patches, so a subsequent /patches read returns empty.
+    for (const patchData of this.fakePatches) {
+      if (!patchData.patch) {
+        continue;
+      }
+      const patchRes = applyPatch(
+        deepClone(this.fakeSources[patchData.path]),
+        this.ops,
+        patchData.patch,
+      );
+      if (patchRes.kind === "ok") {
+        this.fakeSources[patchData.path] = patchRes.value;
+      }
+    }
+    this.fakePatches = [];
+    return {
+      status: 200,
+      json: {},
+    };
+  }
+
   removeFakeResponse<R extends keyof FakeApi, M extends keyof FakeApi[R]>(
     route: R,
     method: M,
@@ -855,6 +940,9 @@ class SyncEngineTester {
       }
       if (route === "/schema" && method === "GET") {
         return this.getSchema(req);
+      }
+      if (route === "/save" && method === "POST") {
+        return this.postSave(req);
       }
       return {
         status: 404,

@@ -200,7 +200,7 @@ export default c.define(
       },
     },
     "/blogs/blog-13": {
-      title: "Blog 1",
+      title: "Hallo hvordan",
       content: [
         {
           tag: "p",
