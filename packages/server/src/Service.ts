@@ -1,9 +1,5 @@
-import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
-import { readValFile } from "./readValFile";
 import { Patch } from "@valbuild/core/patch";
-import { ValModuleLoader } from "./ValModuleLoader";
-import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
@@ -16,8 +12,13 @@ import {
   Internal,
   SourcePath,
   Schema,
+  SelectorSource,
+  SerializedSchema,
+  Source,
+  extractValModules,
 } from "@valbuild/core";
 import path from "path";
+import { loadValModules } from "./loadValModules";
 
 export type ServiceOptions = {
   /**
@@ -50,7 +51,6 @@ export async function createService(
       }
     },
   },
-  loader?: ValModuleLoader,
 ): Promise<Service> {
   const compilerOptions = getCompilerOptions(projectRoot, host);
   const sourceFileHandler = new ValSourceFileHandler(
@@ -58,24 +58,12 @@ export async function createService(
     compilerOptions,
     host,
   );
-  const module = await newQuickJSWASMModule();
-  const runtime = await newValQuickJSRuntime(
-    module,
-    loader ||
-      new ValModuleLoader(
-        projectRoot,
-        compilerOptions,
-        sourceFileHandler,
-        host,
-        opts.disableCache === undefined
-          ? process.env.NODE_ENV === "development"
-            ? false
-            : true
-          : opts.disableCache,
-      ),
-  );
-  return new Service(projectRoot, sourceFileHandler, runtime);
+  const valModules = loadValModules(projectRoot);
+  const extracted = await extractValModules(valModules);
+  return new Service(projectRoot, sourceFileHandler, extracted);
 }
+
+type ExtractedModules = Awaited<ReturnType<typeof extractValModules>>;
 
 export class Service {
   readonly projectRoot: string;
@@ -83,56 +71,85 @@ export class Service {
   constructor(
     projectRoot: string,
     readonly sourceFileHandler: ValSourceFileHandler,
-    private readonly runtime: QuickJSRuntime,
+    private readonly extracted: ExtractedModules,
   ) {
     this.projectRoot = projectRoot;
+  }
+
+  /**
+   * The module file paths that are registered in the project's val.modules.
+   */
+  getModuleFilePaths(): ModuleFilePath[] {
+    return Object.keys(this.extracted.sources) as ModuleFilePath[];
   }
 
   async get(
     moduleFilePath: ModuleFilePath,
     modulePath: ModulePath,
-    options?: { validate: boolean; source: boolean; schema: boolean },
+    options?: { validate: boolean },
   ): Promise<SerializedModuleContent> {
-    const valModule = await readValFile(
-      moduleFilePath,
-      this.projectRoot,
-      this.runtime,
-      options ?? { validate: true, source: true, schema: true },
+    const opts = options ?? { validate: true };
+    const source = this.extracted.sources[moduleFilePath] as Source | undefined;
+    const schema = this.extracted.schemas[moduleFilePath] as
+      | Schema<SelectorSource>
+      | undefined;
+    const serializedSchema = this.extracted.serializedSchemas[
+      moduleFilePath
+    ] as SerializedSchema | undefined;
+
+    const moduleError = this.extracted.moduleErrors.find(
+      (e) => e.path === moduleFilePath,
     );
 
-    if (valModule.source && valModule.schema) {
-      const resolved = Internal.resolvePath(
-        modulePath,
-        valModule.source,
-        valModule.schema,
-      );
-      const sourcePath = (
-        resolved.path
-          ? [moduleFilePath, resolved.path].join(".")
-          : moduleFilePath
-      ) as SourcePath;
+    if (
+      source === undefined ||
+      schema === undefined ||
+      serializedSchema === undefined
+    ) {
+      return {
+        path: moduleFilePath as string as SourcePath,
+        errors: {
+          invalidModulePath: moduleFilePath,
+          fatal: [
+            {
+              message:
+                moduleError?.message ??
+                `Module '${moduleFilePath}' was not found in val.modules`,
+            },
+          ],
+        },
+      };
+    }
+
+    const validation = opts.validate
+      ? schema["executeValidate"](
+          moduleFilePath as string as SourcePath,
+          source as SelectorSource,
+        )
+      : false;
+
+    const resolved = Internal.resolvePath(modulePath, source, serializedSchema);
+    const sourcePath = (
+      resolved.path ? [moduleFilePath, resolved.path].join(".") : moduleFilePath
+    ) as SourcePath;
+
+    if (!validation && !moduleError) {
       return {
         path: sourcePath,
-        schema:
-          resolved.schema instanceof Schema
-            ? resolved.schema["executeSerialize"]()
-            : resolved.schema,
         source: resolved.source,
-        errors:
-          valModule.errors && valModule.errors.validation
-            ? {
-                validation: valModule.errors.validation || undefined,
-                fatal: valModule.errors.fatal || undefined,
-              }
-            : valModule.errors
-              ? {
-                  fatal: valModule.errors.fatal || undefined,
-                }
-              : false,
+        schema: resolved.schema,
+        errors: false,
       };
-    } else {
-      return valModule;
     }
+    return {
+      path: sourcePath,
+      source: resolved.source,
+      schema: resolved.schema,
+      errors: {
+        validation: validation || undefined,
+        fatal: moduleError ? [{ message: moduleError.message }] : undefined,
+      },
+    };
   }
 
   async patch(moduleFilePath: ModuleFilePath, patch: Patch): Promise<void> {
@@ -141,11 +158,10 @@ export class Service {
       this.projectRoot,
       patch,
       this.sourceFileHandler,
-      this.runtime,
     );
   }
 
   dispose() {
-    this.runtime.dispose();
+    // No-op: the vm-based loader holds no disposable resources.
   }
 }

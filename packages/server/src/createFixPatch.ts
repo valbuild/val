@@ -22,6 +22,14 @@ import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
 import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
 
+// A remaining error may optionally carry a more specific `sourcePath` than the
+// one the fix was created from. This is used by gallery checks, where a single
+// record-level fix expands into per-entry errors that should point at the
+// individual entry (e.g. `?p="/public/val/logo.png"`) rather than the record.
+export type FixPatchRemainingError = ValidationError & {
+  sourcePath?: SourcePath;
+};
+
 // TODO: find a better name? transformFixesToPatch?
 export async function createFixPatch(
   config: { projectRoot: string; remoteHost: string },
@@ -36,8 +44,10 @@ export async function createFixPatch(
   },
   moduleSource?: Source,
   moduleSchema?: SerializedSchema,
-): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
-  const remainingErrors: ValidationError[] = [];
+): Promise<
+  { patch: Patch; remainingErrors: FixPatchRemainingError[] } | undefined
+> {
+  const remainingErrors: FixPatchRemainingError[] = [];
   const patch: Patch = [];
   for (const fix of validationError.fixes || []) {
     if (fix === "image:check-metadata" || fix === "image:add-metadata") {
@@ -419,6 +429,10 @@ export async function createFixPatch(
               remainingErrors.push({
                 ...validationError,
                 message: `Image metadata for '${entryKey}' is incorrect (width: ${stored.width ?? "<empty>"} vs ${actualMetadata.width}, height: ${stored.height ?? "<empty>"} vs ${actualMetadata.height}, mimeType: ${stored.mimeType ?? "<empty>"} vs ${actualMetadata.mimeType}). Use --fix to update.`,
+                sourcePath: Internal.createValPathOfItem(sourcePath, entryKey),
+                // Gallery entries are keyed by their file path; surface the
+                // error on the key rather than the derived metadata value.
+                keyError: true,
               });
             }
           }
@@ -441,6 +455,10 @@ export async function createFixPatch(
               remainingErrors.push({
                 ...validationError,
                 message: `File metadata for '${entryKey}' has incorrect mimeType: '${stored.mimeType ?? "<empty>"}' vs '${actualMetadata.mimeType}'. Use --fix to update.`,
+                sourcePath: Internal.createValPathOfItem(sourcePath, entryKey),
+                // Gallery entries are keyed by their file path; surface the
+                // error on the key rather than the derived metadata value.
+                keyError: true,
               });
             }
           }
