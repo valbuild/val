@@ -457,7 +457,7 @@ export async function handleUniqueFolderCheck(
     const otherModule = await ctx.service.get(
       otherModuleFilePath,
       "" as ModulePath,
-      { source: false, schema: true, validate: false },
+      { validate: false },
     );
     const schema = otherModule.schema as
       | { type?: string; directory?: string; mediaType?: string }
@@ -631,8 +631,6 @@ export async function* runValidation({
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
   for (const moduleFilePath of registered) {
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: false,
     });
     if (valModule.schema) {
@@ -651,8 +649,6 @@ export async function* runValidation({
     }
     const start = Date.now();
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: true,
     });
     const remoteFiles: Record<

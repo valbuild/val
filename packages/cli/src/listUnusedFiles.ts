@@ -39,8 +39,6 @@ export async function listUnusedFiles({ root }: { root?: string }) {
     }
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
-      source: true,
-      schema: true,
     });
     // TODO: not sure using validation is the best way to do this, but it works currently.
     if (valModule.errors) {

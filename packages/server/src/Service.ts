@@ -86,9 +86,9 @@ export class Service {
   async get(
     moduleFilePath: ModuleFilePath,
     modulePath: ModulePath,
-    options?: { validate: boolean; source: boolean; schema: boolean },
+    options?: { validate: boolean },
   ): Promise<SerializedModuleContent> {
-    const opts = options ?? { validate: true, source: true, schema: true };
+    const opts = options ?? { validate: true };
     const source = this.extracted.sources[moduleFilePath] as Source | undefined;
     const schema = this.extracted.schemas[moduleFilePath] as
       | Schema<SelectorSource>
