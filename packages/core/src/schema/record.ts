@@ -323,6 +323,22 @@ export class RecordSchema<
           ],
         };
       }
+      // Local path in a remote gallery: needs to be uploaded to remote.
+      const uploadRemoteFix =
+        type === "images"
+          ? ("images:upload-remote" as const)
+          : ("files:upload-remote" as const);
+      return {
+        [path]: [
+          {
+            message: `Expected a remote ${
+              type === "images" ? "image" : "file"
+            }, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: ${key}`,
+            value: key,
+            fixes: [uploadRemoteFix],
+          },
+        ],
+      };
     } else {
       // When remote is disabled, only accept local paths
       if (isRemoteUrl) {

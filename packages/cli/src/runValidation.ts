@@ -181,45 +181,17 @@ export async function handleFileMetadata(
   return { success: true, shouldApplyPatch: true };
 }
 
-export async function handleRemoteFileUpload(
+// Shared upload core used by both the single-field (handleRemoteFileUpload)
+// and gallery (handleRemoteGalleryFileUpload) handlers. The two differ only in
+// how they derive the local file ref, metadata and serialized image/file
+// schema; everything from auth through upload is identical.
+async function uploadRemoteFileCore(
   ctx: FixHandlerContext,
+  fileRef: string,
+  metadata: Record<string, unknown> | undefined,
+  schema: SerializedImageSchema | SerializedFileSchema,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
-    };
-  }
-
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    ctx.sourcePath,
-  );
-
-  if (!ctx.valModule.source || !ctx.valModule.schema) {
-    return {
-      success: false,
-      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
-    };
-  }
-
-  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
-    modulePath,
-    ctx.valModule.source,
-    ctx.valModule.schema,
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.[
-    FILE_REF_PROP
-  ];
-  if (!fileRefProp) {
-    return {
-      success: false,
-      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
-    };
-  }
-
-  const filePath = path.join(ctx.projectRoot, fileRefProp);
+  const filePath = path.join(ctx.projectRoot, fileRef);
   if (!ctx.fs.fileExists(filePath)) {
     return {
       success: false,
@@ -256,26 +228,6 @@ export async function handleRemoteFileUpload(
     return {
       success: true,
       events: [{ type: "remote-already-uploaded", filePath }],
-    };
-  }
-
-  if (!resolvedRemoteFileAtSourcePath.schema) {
-    return {
-      success: false,
-      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
-    };
-  }
-
-  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
-  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
-    ? actualRemoteFileSource.metadata
-    : undefined;
-  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
-
-  if (!resolveRemoteFileSchema) {
-    return {
-      success: false,
-      errorMessage: `Could not resolve schema for remote file: ${ctx.sourcePath}`,
     };
   }
 
@@ -317,16 +269,6 @@ export async function handleRemoteFileUpload(
     };
   }
 
-  if (
-    resolveRemoteFileSchema.type !== "image" &&
-    resolveRemoteFileSchema.type !== "file"
-  ) {
-    return {
-      success: false,
-      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
-    };
-  }
-
   remoteFilesCounter += 1;
   const bucket =
     remoteFileBuckets[remoteFilesCounter % remoteFileBuckets.length];
@@ -361,10 +303,6 @@ export async function handleRemoteFileUpload(
   const fileHash = Internal.remote.getFileHash(fileBuffer);
   const coreVersion = Internal.VERSION.core || "unknown";
   const fileExt = getFileExt(filePath);
-  const schema = resolveRemoteFileSchema as
-    | SerializedImageSchema
-    | SerializedFileSchema;
-  const metadata = fileSourceMetadata;
   const ref = Internal.remote.createRemoteRef(ctx.remote.remoteHost, {
     publicProjectId,
     coreVersion,
@@ -399,7 +337,7 @@ export async function handleRemoteFileUpload(
 
   ctx.remoteFiles[ctx.sourcePath] = {
     ref,
-    metadata: fileSourceMetadata,
+    metadata,
   };
 
   return {
@@ -413,6 +351,156 @@ export async function handleRemoteFileUpload(
       { type: "remote-uploaded", ref },
     ],
   };
+}
+
+export async function handleRemoteFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.[
+    FILE_REF_PROP
+  ];
+  if (!fileRefProp) {
+    return {
+      success: false,
+      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+    };
+  }
+
+  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
+  if (!resolveRemoteFileSchema) {
+    return {
+      success: false,
+      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
+    };
+  }
+
+  if (
+    resolveRemoteFileSchema.type !== "image" &&
+    resolveRemoteFileSchema.type !== "file"
+  ) {
+    return {
+      success: false,
+      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
+    };
+  }
+
+  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
+  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
+    ? actualRemoteFileSource.metadata
+    : undefined;
+
+  return uploadRemoteFileCore(
+    ctx,
+    fileRefProp,
+    fileSourceMetadata,
+    resolveRemoteFileSchema,
+  );
+}
+
+// Gallery (s.images({ remote: true }) / s.files({ remote: true })) upload.
+// Unlike a single image/file field, a gallery entry is keyed by its local file
+// path and the value is bare metadata (no FileSource), so we derive the file
+// ref from the key and synthesize the image/file schema from the record's
+// media options.
+export async function handleRemoteGalleryFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+    };
+  }
+
+  const fix = ctx.validationError.fixes?.[0];
+  const mediaType = fix === "files:upload-remote" ? "file" : "image";
+
+  // The gallery entry is keyed by its local file path; validateMediaKey carries
+  // that key as the error value.
+  const fileRef = ctx.validationError.value;
+  if (typeof fileRef !== "string") {
+    return {
+      success: false,
+      errorMessage: `Expected a local file path for gallery entry at ${ctx.sourcePath}`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolved = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+  const entrySource = resolved.source;
+  const metadata =
+    entrySource &&
+    typeof entrySource === "object" &&
+    !Array.isArray(entrySource)
+      ? (entrySource as Record<string, unknown>)
+      : undefined;
+
+  // The gallery item schema is an ObjectSchema, not an image/file schema, so
+  // synthesize the serialized image/file schema (matching how single fields
+  // serialize) for the remote ref's validation hash.
+  const moduleSchema = ctx.valModule.schema;
+  const accept =
+    moduleSchema.type === "record" ? moduleSchema.accept : undefined;
+  const directory =
+    moduleSchema.type === "record" ? moduleSchema.directory : undefined;
+  const schema: SerializedImageSchema | SerializedFileSchema =
+    mediaType === "image"
+      ? {
+          type: "image",
+          opt: false,
+          options: {
+            ...(accept ? { accept } : {}),
+            ...(directory ? { directory } : {}),
+          },
+        }
+      : {
+          type: "file",
+          opt: false,
+          options: {
+            ...(accept ? { accept } : {}),
+          },
+        };
+
+  return uploadRemoteFileCore(ctx, fileRef, metadata, schema);
 }
 
 export async function handleRemoteFileDownload(
@@ -479,6 +567,17 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
+// Maps a gallery key to its on-disk local path. Remote galleries key uploaded
+// entries by a remote URL while keeping the file on disk; everything else is
+// already a local path and is returned unchanged.
+function remoteKeyToLocalPath(key: string): string {
+  const remoteRefRes = Internal.remote.splitRemoteRef(key);
+  if (remoteRefRes.status === "success") {
+    return `/${remoteRefRes.filePath}`;
+  }
+  return key;
+}
+
 export async function handleCheckAllFiles(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
@@ -500,7 +599,12 @@ export async function handleCheckAllFiles(
       errorMessage: `Could not get source for ${ctx.sourcePath}`,
     };
   }
-  const trackedFiles = new Set(Object.keys(source as Record<string, unknown>));
+  // Gallery entries are keyed by their file path. Remote galleries key uploaded
+  // entries by a remote URL, but the file is kept on disk at its local path, so
+  // normalize remote-URL keys back to that local path for the on-disk checks.
+  const trackedFiles = new Set(
+    Object.keys(source as Record<string, unknown>).map(remoteKeyToLocalPath),
+  );
 
   // Check that all tracked files exist on disk
   const missingTrackedFiles = [...trackedFiles].filter((f) => {
@@ -558,6 +662,8 @@ export const currentFixHandlers: Record<
   "file:add-metadata": handleFileMetadata,
   "image:upload-remote": handleRemoteFileUpload,
   "file:upload-remote": handleRemoteFileUpload,
+  "images:upload-remote": handleRemoteGalleryFileUpload,
+  "files:upload-remote": handleRemoteGalleryFileUpload,
   "image:download-remote": handleRemoteFileDownload,
   "file:download-remote": handleRemoteFileDownload,
   "image:check-remote": handleRemoteFileCheck,

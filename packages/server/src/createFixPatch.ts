@@ -30,6 +30,33 @@ export type FixPatchRemainingError = ValidationError & {
   sourcePath?: SourcePath;
 };
 
+// Gallery entries are keyed by their file path. Remote galleries key uploaded
+// entries by a remote URL while keeping the file on disk at its local path, so
+// normalize a remote-URL key back to that local path for on-disk reads.
+function galleryKeyToLocalPath(key: string): string {
+  const res = Internal.remote.splitRemoteRef(key);
+  return res.status === "success" ? `/${res.filePath}` : key;
+}
+
+// Patch path of the record that holds a media entry. Media keys are file paths
+// that can contain dots, which sourceToPatchPath cannot round-trip, so strip
+// the (JSON-encoded) key segment off the entry source path and convert the
+// remaining parent path — whose ancestors are plain object keys / array
+// indices — instead.
+function parentPatchPathOfMediaEntry(sourcePath: SourcePath, entryKey: string) {
+  const jsonKey = JSON.stringify(entryKey);
+  let parent: string = sourcePath;
+  if (parent.endsWith(jsonKey)) {
+    parent = parent.slice(0, parent.length - jsonKey.length);
+  }
+  if (parent.endsWith(".")) {
+    parent = parent.slice(0, -1);
+  } else if (parent.endsWith(Internal.ModuleFilePathSep)) {
+    parent = parent.slice(0, parent.length - Internal.ModuleFilePathSep.length);
+  }
+  return sourceToPatchPath(parent as SourcePath);
+}
+
 // TODO: find a better name? transformFixesToPatch?
 export async function createFixPatch(
   config: { projectRoot: string; remoteHost: string },
@@ -296,6 +323,58 @@ export async function createFixPatch(
         });
       }
     } else if (
+      fix === "images:upload-remote" ||
+      fix === "files:upload-remote"
+    ) {
+      // Gallery entry: the record is keyed by the file path, so uploading to
+      // remote means renaming the key from the local path to the remote URL
+      // (remove the old key, add the new one with the same metadata).
+      const remoteFile = remoteFiles[sourcePath];
+      if (!remoteFile) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot fix local to remote gallery entry: remote file was not uploaded",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const metadata = remoteFile.metadata as JSONValue | undefined;
+      if (!metadata) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Failed to get metadata for remote gallery file",
+          fixes: undefined,
+        });
+        continue;
+      }
+      // The entry is keyed by its (local) file path, which can contain dots
+      // (e.g. image.png). sourceToPatchPath can't round-trip such keys, so
+      // build the patch path from the parent record path plus the key (which
+      // validateMediaKey carries as the error value), like the UI does.
+      const entryKey = validationError.value;
+      if (typeof entryKey !== "string") {
+        remainingErrors.push({
+          ...validationError,
+          message: "Cannot rewrite remote gallery entry: missing entry key",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const parentPath = parentPatchPathOfMediaEntry(sourcePath, entryKey);
+      const removePath = parentPath.concat(entryKey);
+      const addPath = parentPath.concat(remoteFile.ref);
+      if (!isNotRoot(removePath) || !isNotRoot(addPath)) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Cannot rewrite remote gallery entry at root path",
+          fixes: undefined,
+        });
+        continue;
+      }
+      patch.push({ op: "remove", path: removePath });
+      patch.push({ op: "add", path: addPath, value: metadata });
+    } else if (
       fix === "image:download-remote" ||
       fix === "file:download-remote"
     ) {
@@ -386,7 +465,10 @@ export async function createFixPatch(
       }
       const gallerySource = moduleSource as Record<string, unknown>;
       for (const [entryKey, storedEntry] of Object.entries(gallerySource)) {
-        const filename = path.join(config.projectRoot, entryKey);
+        const filename = path.join(
+          config.projectRoot,
+          galleryKeyToLocalPath(entryKey),
+        );
         let buffer: Buffer;
         try {
           buffer = fs.readFileSync(filename);

@@ -5,12 +5,15 @@ import { files, FilesEntryMetadata, SerializedFilesSchema } from "./files";
 function filterCheckErrors(
   result:
     | false
-    | Record<string, { message: string; fixes?: string[] }[]>
+    | Record<string, { message: string; fixes?: string[]; value?: unknown }[]>
     | undefined,
 ) {
   if (!result) return result;
   const checkFixes = ["files:check-unique-folder", "files:check-all-files"];
-  const filtered: Record<string, { message: string; fixes?: string[] }[]> = {};
+  const filtered: Record<
+    string,
+    { message: string; fixes?: string[]; value?: unknown }[]
+  > = {};
   for (const [key, errors] of Object.entries(result)) {
     const nonCheck = errors.filter(
       (e) => !e.fixes?.some((f) => checkFixes.includes(f)),
@@ -289,7 +292,7 @@ describe("FilesSchema", () => {
       expect(filterCheckErrors(result)).toBeFalsy();
     });
 
-    test("should accept local paths when remote is enabled", () => {
+    test("should flag local paths as upload-remote when remote is enabled", () => {
       const schema = files({
         accept: "application/pdf",
         directory: "/public/val/documents",
@@ -300,19 +303,18 @@ describe("FilesSchema", () => {
         },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      // Should not have path errors
+      // A local path in a remote gallery is a fixable error (upload to remote).
       const filteredResult3 = filterCheckErrors(result);
-      if (filteredResult3) {
-        const errors = Object.values(filteredResult3 as object).flat();
-        const hasPathError = errors.some(
-          (e: { message: string }) =>
-            e.message.includes("directory") || e.message.includes("Remote"),
-        );
-        expect(hasPathError).toBe(false);
-      }
+      expect(filteredResult3).toBeTruthy();
+      const errors = Object.values(filteredResult3 as object).flat();
+      const uploadError = errors.find((e: { fixes?: string[] }) =>
+        e.fixes?.includes("files:upload-remote"),
+      );
+      expect(uploadError).toBeTruthy();
+      expect(uploadError?.value).toBe("/public/val/documents/local.pdf");
     });
 
-    test("should accept mixed remote and local when remote is enabled", () => {
+    test("should flag only local paths when mixing remote and local", () => {
       const schema = files({
         accept: "application/pdf",
         directory: "/public/val/documents",
@@ -327,7 +329,15 @@ describe("FilesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(filterCheckErrors(result)).toBeFalsy();
+      const filtered = filterCheckErrors(result);
+      expect(filtered).toBeTruthy();
+      const errors = Object.values(filtered as object).flat();
+      // Exactly the local entry is flagged for upload; the remote URL is valid.
+      const uploadErrors = errors.filter((e: { fixes?: string[] }) =>
+        e.fixes?.includes("files:upload-remote"),
+      );
+      expect(uploadErrors).toHaveLength(1);
+      expect(uploadErrors[0]?.value).toBe("/public/val/documents/local.pdf");
     });
 
     test("should reject invalid remote URLs", () => {
