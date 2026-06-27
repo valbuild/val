@@ -12,5 +12,9 @@ export const toolNames = [
   "get_source_path_from_route",
   "set_session_name",
   "show_compare_view",
+  "duplicate_source",
+  "empty_at_path",
+  "count_entries",
+  "get_record_keys",
 ] as const;
 export type ToolName = (typeof toolNames)[number];
