@@ -56,7 +56,15 @@ function findValModulesPath(projectRoot: string): string | null {
   return null;
 }
 
-const RESOLVE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"];
+const RESOLVE_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".cjs",
+  ".mjs",
+  ".json",
+];
 
 // Specifiers that user val files must not actually use. We stub them so that
 // importing is fine, but using a value throws a clear error. Real @valbuild
@@ -109,6 +117,18 @@ function loadModule(
   const cached = cache[absPath];
   if (cached) {
     return cached;
+  }
+  // JSON modules (e.g. the `*.val.json` files backing `.jsonValues()` entries)
+  // are loaded by parsing, mirroring Node's `require("./x.json")` which returns
+  // the parsed object as `module.exports`. The importing `.val.ts` wraps this
+  // with `__importStar` so `import("./x.val.json")` yields `{ default, ... }`.
+  // These are only loaded when an entry thunk is invoked, never during
+  // `extractValModules`, so this stays lazy.
+  if (absPath.endsWith(".json")) {
+    const parsed = JSON.parse(fs.readFileSync(absPath, "utf-8"));
+    const jsonModule = { exports: parsed as Record<string, unknown> };
+    cache[absPath] = jsonModule;
+    return jsonModule;
   }
   const code = fs.readFileSync(absPath, "utf-8");
   const transpiled = ts.transpileModule(code, {

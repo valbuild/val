@@ -17,6 +17,7 @@ export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
 export type { RemoteSource, RemoteRef } from "./source/remote";
 export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
@@ -98,6 +99,7 @@ import {
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
 import { isFile } from "./source/file";
+import { isJson, getJsonImport } from "./source/json";
 import { createRemoteRef } from "./source/remote";
 import {
   getValidationBasis,
@@ -197,6 +199,8 @@ const Internal = {
   },
   isVal,
   isFile,
+  isJson,
+  getJsonImport,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
