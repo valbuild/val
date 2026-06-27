@@ -18,6 +18,14 @@ import { getCompilerOptions } from "./getCompilerOptions";
  * `extractValModules` uses.
  *
  * Mirrors the pattern already used by the CLI's `evalValConfigFile`.
+ *
+ * SECURITY: The `vm` context is NOT a security sandbox. It deliberately exposes
+ * `process` and a `require` that falls back to the real Node resolver (so user
+ * modules share the same `@valbuild/core` instance). This loader must therefore
+ * only ever be used to evaluate the project's own first-party, trusted files
+ * (`val.modules` and the local `*.val.ts`/`val.config.ts` it imports) — i.e. the
+ * same trust level as running the project's build. It must never be used to
+ * evaluate untrusted or third-party modules.
  */
 export function loadValModules(projectRoot: string): ValModules {
   const valModulesPath = findValModulesPath(projectRoot);

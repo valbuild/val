@@ -136,7 +136,7 @@ function traverseCallExpression(
         children: {},
         start: sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
-        ), // TODO: We do + 1 to line up the diagnostics error exactly below a normal
+        ),
         end: sourceFile.getLineAndCharacterOfPosition(node.getEnd()),
       };
       if (node.arguments[0]) {
