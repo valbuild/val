@@ -10,8 +10,17 @@
 
 ## Current state / resume here
 
-- **Phase**: 1 ✅ complete. Phase 2 in progress — loader ✅, `createValJsonReference` ✅;
-  **next: the ValOps commit/serialize flow (task below)**.
+- **Phase**: 1 ✅. Phase 2 server mostly done (validation + sha + loader + emit primitive); Phase 4
+  started — RSC `fetchValKey` implemented (production path). **Next: example app to validate the
+  runtime read path end-to-end, then the commit flow + single-entry endpoint.**
+- **Single-entry runtime read API (typecheck-validated, runtime-validation via example pending)**:
+  - RSC `fetchValKey` — `initFetchValKeyStega` in `next/src/rsc/initValRsc.ts` (returned as
+    `fetchValKeyStega`). Resolves ONE entry by key from the local module's thunk + stega-encodes.
+  - Client `useValKey` — `useValKeyStega` in `next/src/client/initValClient.ts` (returned as
+    `useValKeyStega`). Uses a module-level promise cache + `React.use` (Suspense) to load one entry.
+  - Both: production path resolves the local thunk; Enabled/Studio **draft** path is a TODO (needs
+    the single-entry endpoint + a sub-selector for stega edit tags). Still TODO: make `fetchValRoute`/
+    `useValRoute` use the key path for jsonValues routers (load one).
 - **Next step (the deep part)**: wire the json commit flow in `ValOps.ts`/`ValOpsFS`/`ValOpsHttp`:
   (a) shallow-serialize json records to `{ key: { _type:"json", _sha } }` markers for `/sources/~`
   (the runtime thunk must be dropped — `getJsonImport` reads it at runtime only); (b) on commit,
