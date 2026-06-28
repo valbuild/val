@@ -20,10 +20,21 @@
   `replaceNodeValue`; (c) per-entry content load (invoke `getJsonImport(marker)?.()` or read the
   file by AST-derived path) + sha-keyed incremental validation calling
   `RecordSchema.validateJsonEntryContent`. Then the single-entry fetch endpoint in `ValServer.ts`.
-- **Last verified green**: whole-monorepo `pnpm run -r typecheck` (only pre-existing unrelated
-  `packages/cli` chokidar failure); `pnpm test packages/core` (454) + the 2 new server json suites.
+- **Last verified green**: core json suite (14 tests) + server `validateJsonValues`/loader/
+  `jsonReference` suites; core + server typecheck. (Earlier: whole-monorepo `-r typecheck` clean
+  except the pre-existing unrelated `packages/cli` chokidar failure.)
 - **Key API note**: `JsonSource` is a phantom-typed pure-JSON marker; the lazy thunk is
   runtime-only — read it with `Internal.getJsonImport(source)`, never `source._import` in typed code.
+- **Done since**: server-side per-entry json validation (`validateJsonValues.ts`, wired into
+  `ValOps.validateSources`); core `Internal.resolveJsonValues(source)` (eager resolver for the
+  `fetchVal`/`useVal` path). **Discovered gap**: even eager `fetchVal` must resolve markers before
+  stega-encoding (a jsonValues module's local source is markers, not content) — use
+  `resolveJsonValues` there.
+- **Runtime integration notes (for fetchValKey/fetchVal in next/react)**: disabled/production path
+  reads the local module (`Internal.getSource`) whose markers still carry thunks → resolve locally
+  (`getJsonImport` for one key, `resolveJsonValues` for all). Enabled/Studio path gets shallow
+  markers from `/sources/~` WITHOUT thunks → needs the single-entry fetch endpoint (Phase 2) to load
+  draft content; until then it can fall back to the local thunk (committed content only).
 
 ---
 
@@ -97,10 +108,16 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 - [ ] `patch/ts/ops.ts` (remaining): wire add/replace/remove of json entries through
       `insertAt`/`removeAt`/`replaceNodeValue` (+ write/replace-sha/delete `*.val.json`) — done with
       the ValOps commit flow below.
-- [ ] `ValOps.ts` / `ValOpsFS.ts` / `ValOpsHttp.ts`: shallow source serialization for json records
-      (`{ key: { _type:"json", _sha } }`); per-entry content load (invoke thunk / read by
-      AST-derived path); sha-keyed incremental validation w/ cache; commit writes `*.val.json` +
-      updates `.val.ts` shas/thunks; recompute SHAs.
+- [x] **Per-entry validation**: `validateJsonValues.ts` (`validateJsonValuesEntries`) loads each
+      entry's content via `getJsonImport` and validates against the item schema; wired into
+      `ValOps.validateSources` (runs before the `res === false` early-continue). Tested in
+      `validateJsonValues.test.ts` (valid/invalid/load-error/non-jsonValues-skip). ✅
+- [ ] `ValOps.ts` / `ValOpsFS.ts` / `ValOpsHttp.ts` (remaining): confirm shallow source
+      serialization on `/sources/~` (JSON.stringify already drops the thunk → `{_type,_sha}`);
+      commit writes `*.val.json` + updates `.val.ts` shas/thunks (use `createValJsonReference` +
+      `insertAt`/`removeAt`/`replaceNodeValue`); sha-keyed incremental validation (optimization);
+      recompute SHAs.
+- [x] Core eager resolver `Internal.resolveJsonValues(source)` (for `fetchVal`/`useVal`). ✅
 - [ ] `ValServer.ts`: endpoint to fetch one entry's content (draft-aware via `patch_id`);
       `/sources/~` returns shallow markers for json records.
 - [ ] **Verify**: `pnpm test packages/server/...` green (ops add/replace/remove, loader fixture,

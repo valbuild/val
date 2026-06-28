@@ -99,7 +99,7 @@ import {
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
 import { isFile } from "./source/file";
-import { isJson, getJsonImport } from "./source/json";
+import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
 import { createRemoteRef } from "./source/remote";
 import {
   getValidationBasis,
@@ -201,6 +201,7 @@ const Internal = {
   isFile,
   isJson,
   getJsonImport,
+  resolveJsonValues,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,

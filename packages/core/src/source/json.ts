@@ -1,4 +1,4 @@
-import { PhantomType, VAL_EXTENSION } from ".";
+import { PhantomType, Source, VAL_EXTENSION } from ".";
 import { Json } from "../Json";
 
 /**
@@ -68,6 +68,43 @@ export function getJsonImport(source: JsonSource): JsonImportThunk | undefined {
   return typeof candidate === "function"
     ? (candidate as JsonImportThunk)
     : undefined;
+}
+
+/**
+ * Recursively resolves every {@link JsonSource} marker in a source tree by
+ * invoking its lazy import thunk, returning a fully-inlined source. This backs
+ * the eager `fetchVal`/`useVal` path (load everything).
+ *
+ * Markers without a runtime thunk (transport markers received over the wire)
+ * are left as-is — there is nothing to load from them locally. Other branded
+ * leaf sources (file/image/remote/richtext) are returned untouched.
+ */
+export async function resolveJsonValues(source: Source): Promise<Source> {
+  if (isJson(source)) {
+    const thunk = getJsonImport(source);
+    if (!thunk) {
+      return source;
+    }
+    const loaded = (await thunk()).default;
+    return resolveJsonValues(loaded as Source);
+  }
+  if (Array.isArray(source)) {
+    return Promise.all(source.map((item) => resolveJsonValues(item)));
+  }
+  if (source !== null && typeof source === "object") {
+    if (VAL_EXTENSION in source) {
+      // a branded leaf source (file/image/remote) — no nested json markers
+      return source;
+    }
+    const entries = await Promise.all(
+      Object.entries(source).map(
+        async ([key, value]) =>
+          [key, await resolveJsonValues(value as Source)] as const,
+      ),
+    );
+    return Object.fromEntries(entries) as Source;
+  }
+  return source;
 }
 
 /**

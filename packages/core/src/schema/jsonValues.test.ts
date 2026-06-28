@@ -1,5 +1,12 @@
 import { SourcePath } from "../val";
-import { json, isJson, getJsonImport, JsonOf } from "../source/json";
+import {
+  json,
+  isJson,
+  getJsonImport,
+  resolveJsonValues,
+  JsonOf,
+} from "../source/json";
+import { Source } from "../source";
 import { VAL_EXTENSION } from "../source";
 import { deserializeSchema } from "./deserialize";
 import { Schema } from ".";
@@ -111,6 +118,42 @@ describe("c.json + .jsonValues()", () => {
       );
       expect(badErrors).not.toBe(false);
     });
+  });
+});
+
+describe("resolveJsonValues", () => {
+  test("resolves a record of markers into inlined content", async () => {
+    const source: Source = {
+      "/a": json(() => Promise.resolve({ default: { title: "A" } }), "sa"),
+      "/b": json(() => Promise.resolve({ default: { title: "B" } }), "sb"),
+    };
+    const resolved = await resolveJsonValues(source);
+    expect(resolved).toEqual({ "/a": { title: "A" }, "/b": { title: "B" } });
+  });
+
+  test("resolves nested markers recursively", async () => {
+    const source: Source = {
+      "/outer": json(
+        () =>
+          Promise.resolve({
+            default: {
+              inner: json(
+                () => Promise.resolve({ default: { deep: "value" } }),
+                "si",
+              ),
+            },
+          }),
+        "so",
+      ),
+    };
+    const resolved = await resolveJsonValues(source);
+    expect(resolved).toEqual({ "/outer": { inner: { deep: "value" } } });
+  });
+
+  test("leaves transport markers (no thunk) as-is", async () => {
+    const marker = { _type: "json", _sha: "x" } as unknown as Source;
+    const resolved = await resolveJsonValues({ "/a": marker });
+    expect(resolved).toEqual({ "/a": { _type: "json", _sha: "x" } });
   });
 });
 
