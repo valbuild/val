@@ -27,9 +27,12 @@
   runtime-only — read it with `Internal.getJsonImport(source)`, never `source._import` in typed code.
 - **Done since**: server-side per-entry json validation (`validateJsonValues.ts`, wired into
   `ValOps.validateSources`); core `Internal.resolveJsonValues(source)` (eager resolver for the
-  `fetchVal`/`useVal` path). **Discovered gap**: even eager `fetchVal` must resolve markers before
-  stega-encoding (a jsonValues module's local source is markers, not content) — use
-  `resolveJsonValues` there.
+  `fetchVal`/`useVal` path); **sha helper `jsonValuesSha.ts`** (`computeJsonEntrySha` =
+  `<schemaHash>-<contentHash>`, `isJsonEntryShaCurrent`, `getSchemaHashFromJsonSha`) implementing the
+  revalidation-signal design — the commit flow should write this sha; the sha-keyed validation
+  skip-cache should use `isJsonEntryShaCurrent`. **Discovered gap**: even eager `fetchVal` must
+  resolve markers before stega-encoding (a jsonValues module's local source is markers, not content)
+  — use `resolveJsonValues` there.
 - **Runtime integration notes (for fetchValKey/fetchVal in next/react)**: disabled/production path
   reads the local module (`Internal.getSource`) whose markers still carry thunks → resolve locally
   (`getJsonImport` for one key, `resolveJsonValues` for all). Enabled/Studio path gets shallow
@@ -50,7 +53,14 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 1. `fetchVal`/`useVal` stay eager; new `fetchValKey`/`useValKey` + `fetchValRoute`/`useValRoute`
    load a single entry.
 2. Hybrid authoring: Val generates/maintains json files + thunks; hand-edits re-validated.
-3. The sha = content hash → validation-cache key (auto-generated).
+3. The sha = validation-cache key (auto-generated), formatted as **`"<schemaHash>-<contentHash>"`**
+   with the **schema hash as a PREFIX** (NOT hashed together). The prefix is the key property: you
+   can compare the current item-schema hash against each entry's sha prefix to know the entry needs
+   revalidation **without reading the entry's content** — the `.val.ts` already lists every entry's
+   sha. Revalidate when EITHER the prefix differs from the current schema hash (schema changed →
+   whole record) OR the content hash differs (that entry changed). Implemented in
+   `jsonValuesSha.ts` (`computeJsonEntrySha`, `getSchemaHashFromJsonSha`, `isJsonEntryShaCurrent`).
+   See "sha design" below.
 4. Type precision: keep object/array structure, widen only what JSON can't carry
    (literals → base, drop `RawString`/brand, widen `_type` literals). Runtime validation enforces
    strictness. Val object-unions are always discriminated, so distribute+recurse suffices.
@@ -150,10 +160,38 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 
 ---
 
+## sha design (revalidation signal)
+
+The trailing sha in `c.json(thunk, sha)` is the validation-cache key, formatted
+**`"<schemaHash>-<contentHash>"`** (schema hash as PREFIX), and must answer "must we revalidate this
+entry?" cheaply — ideally **without reading the entry's content**:
+
+- **Schema hash = prefix.** Derived from the serialized item schema (stable serialization) and
+  written as the part before the `-`. Keep them as separate joined components, NOT hashed together,
+  so the prefix stays readable. Truncated small (currently 8 hex chars) — it only needs to detect
+  schema _changes_, not be collision-proof.
+- **Cheap staleness scan (the point):** after a schema change, compute the current item-schema hash
+  once, then walk the record's entry shas (already present in the `.val.ts`) and flag every entry
+  whose sha PREFIX differs — no `*.val.json` is loaded. Those entries need revalidation.
+- **Content hash** (suffix) flips when the backing `*.val.json` content changes ⇒ revalidate just
+  that entry; the commit flow rewrites the sha. (Computing the content hash _does_ require the
+  content, but you only reach it for entries whose schema prefix already matches.)
+- **Validation skip-cache:** `validateJsonValuesEntries` (today validates every entry) becomes:
+  if the entry's stored sha prefix ≠ current schema hash ⇒ must revalidate (load + validate, rewrite
+  sha); else look up `sha → lastValidationResult` and skip on a cached PASS, otherwise load +
+  validate + cache. Use `isJsonEntryShaCurrent` / `getSchemaHashFromJsonSha` from `jsonValuesSha.ts`.
+- **Hybrid hand-edit safety:** a hand-edited json whose content no longer matches the suffix forces
+  revalidation; Val rewrites the sha on next commit.
+
 ## Open questions / watch-list
 
 - `JsonOf<T>` correctness vs `resolveJsonModule` inference (esp. images inside json: `_type`
   widens to `string`, so json must NOT keep the literal `"file"` brand — `JsonOf` widens it).
+- ~~Does `getSources()`/`deepClone` preserve the `_import` thunk?~~ **Resolved**: `deepClone`
+  ([patch/util.ts](packages/core/src/patch/util.ts)) passes functions through unchanged and
+  `_import` is enumerable, so base-source thunks survive. Patched/draft json entries become thunkless
+  markers (over-the-wire value) → `validateJsonValuesEntries` skips them by design (validated via the
+  draft/endpoint path later). So committed validation is correct.
 - `vm` loader dynamic `import()` + `.json` resolution.
 - resolvePath/selector must never throw on a not-yet-loaded entry.
 - Canonical content hashing so hybrid hand-edits and Val-writes agree on the sha.
