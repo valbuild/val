@@ -533,16 +533,33 @@ function useSchemaAtPathInternal(
     () => syncEngine.getSourceSnapshot(moduleFilePath),
     () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
-  const resolvedSchemaAtPathRes = useMemo(() => {
-    if (schemaRes.status !== "success") {
-      return schemaRes;
-    }
-    const sourceData =
+  const sourceData = useMemo(
+    () =>
       sourceOverride && sourceOverride.moduleFilePath === moduleFilePath
         ? sourceOverride.moduleSource
         : sourcesRes.status === "success"
           ? sourcesRes.data
-          : undefined;
+          : undefined,
+    [sourceOverride, moduleFilePath, sourcesRes],
+  );
+  // Lazily load `.jsonValues()` entry content when the path descends into an
+  // un-loaded marker, and treat the schema as loading until it resolves.
+  const unloadedJsonKey = useMemo(
+    () => findUnloadedJsonEntryKey(modulePath, sourceData),
+    [modulePath, sourceData],
+  );
+  useEffect(() => {
+    if (unloadedJsonKey !== null) {
+      syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
+    }
+  }, [syncEngine, moduleFilePath, unloadedJsonKey]);
+  const resolvedSchemaAtPathRes = useMemo(() => {
+    if (schemaRes.status !== "success") {
+      return schemaRes;
+    }
+    if (unloadedJsonKey !== null) {
+      return { status: "loading" as const };
+    }
     if (sourceData === undefined) {
       if (sourcesRes.status !== "success") {
         return sourcesRes;
@@ -601,7 +618,14 @@ function useSchemaAtPathInternal(
         }`,
       };
     }
-  }, [schemaRes, sourcesRes, moduleFilePath, modulePath, sourceOverride]);
+  }, [
+    schemaRes,
+    sourcesRes,
+    moduleFilePath,
+    modulePath,
+    sourceData,
+    unloadedJsonKey,
+  ]);
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
     return { status: "loading" };
@@ -713,6 +737,40 @@ export function useAllRenders() {
     () => syncEngine.getAllRendersSnapshot(),
   );
   return renders;
+}
+
+/**
+ * Walks `modulePath` against `sourceData` and returns the record key at which
+ * the path descends into a `.jsonValues()` entry whose content has NOT been
+ * loaded yet (the value is still a lazy json marker), or `null` otherwise.
+ *
+ * The sync engine substitutes loaded entry content in place of the marker, so a
+ * marker still present here means the entry isn't loaded — the caller should
+ * trigger `requestJsonEntry` and render a loading state until it resolves.
+ */
+function findUnloadedJsonEntryKey(
+  modulePath: ModulePath,
+  sourceData: Json | undefined,
+): string | null {
+  if (sourceData === undefined) {
+    return null;
+  }
+  let current: Json = sourceData;
+  for (const part of Internal.splitModulePath(modulePath)) {
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      isJsonArray(current)
+    ) {
+      return null;
+    }
+    const next: Json = current[part];
+    if (Internal.isJson(next)) {
+      return part;
+    }
+    current = next;
+  }
+  return null;
 }
 
 function walkSourcePath(
@@ -1161,6 +1219,20 @@ export function useSourceAtPath(
     syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
     syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
   );
+  // A `.jsonValues()` entry's content is loaded lazily: if this path descends
+  // into an un-loaded marker, request it and render loading until it resolves.
+  const unloadedJsonKey = useMemo(
+    () =>
+      sourceSnapshot && sourceSnapshot.status === "success"
+        ? findUnloadedJsonEntryKey(modulePath, sourceSnapshot.data)
+        : null,
+    [modulePath, sourceSnapshot],
+  );
+  useEffect(() => {
+    if (syncEngine && unloadedJsonKey !== null) {
+      syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
+    }
+  }, [syncEngine, moduleFilePath, unloadedJsonKey]);
   return useMemo(() => {
     if (!syncEngine) {
       return NOT_FOUND;
@@ -1170,6 +1242,9 @@ export function useSourceAtPath(
     }
     if (sourceOverride && sourceOverride.moduleFilePath === moduleFilePath) {
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
+    }
+    if (unloadedJsonKey !== null) {
+      return { status: "loading" };
     }
     if (sourceSnapshot && sourceSnapshot.status === "success") {
       return walkSourcePath(modulePath, sourceSnapshot.data);
@@ -1185,6 +1260,7 @@ export function useSourceAtPath(
     modulePath,
     moduleFilePath,
     sourceOverride,
+    unloadedJsonKey,
   ]);
 }
 

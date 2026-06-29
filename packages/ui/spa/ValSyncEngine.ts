@@ -135,6 +135,17 @@ export class ValSyncEngine {
       }
     | undefined
   > | null;
+  /**
+   * Loaded content for `.jsonValues()` record entries, keyed by module then
+   * entry key. The on-disk source only carries lazy `{ _type:"json", _sha }`
+   * markers; the Studio fetches an entry's content on demand via
+   * `requestJsonEntry` (GET /json) and `getPatchedSource` substitutes it in so
+   * field resolution/rendering works.
+   */
+  private jsonEntryContents: Record<ModuleFilePath, Record<string, JSONValue>> =
+    {};
+  /** In-flight json entry loads, keyed `${moduleFilePath}\0${key}`. */
+  private loadingJsonEntries: Set<string> = new Set();
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
@@ -386,6 +397,8 @@ export class ValSyncEngine {
     this.sourcesSha = null;
     this.serverSources = null;
     this.patchedSourcesCache = null;
+    this.jsonEntryContents = {};
+    this.loadingJsonEntries = new Set();
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -816,11 +829,91 @@ export class ValSyncEngine {
    * Otherwise we rebuild from `serverSources`, which covers patch deletion,
    * server-side reorder, and any other non-append change.
    */
+  /**
+   * Lazily loads the content of a single `.jsonValues()` entry (GET /json) and
+   * folds it into the source view (re-rendering subscribers). No-op if the entry
+   * is already loaded or a load is in flight. Called by the field hooks when the
+   * Studio opens a path that descends into an unloaded json marker.
+   */
+  requestJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
+    if (this.jsonEntryContents[moduleFilePath]?.[key] !== undefined) {
+      return;
+    }
+    const loadingKey = `${moduleFilePath}\0${key}`;
+    if (this.loadingJsonEntries.has(loadingKey)) {
+      return;
+    }
+    this.loadingJsonEntries.add(loadingKey);
+    this.client("/json", "GET", {
+      query: { path: moduleFilePath, key },
+    })
+      .then((res) => {
+        if (res.status === 200) {
+          if (this.jsonEntryContents[moduleFilePath] === undefined) {
+            this.jsonEntryContents[moduleFilePath] = {};
+          }
+          this.jsonEntryContents[moduleFilePath][key] =
+            res.json.content ?? null;
+          this.invalidateSource(moduleFilePath);
+        } else {
+          console.error("Val: SyncEngine: failed to load json entry", {
+            moduleFilePath,
+            key,
+            res,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("Val: SyncEngine: error loading json entry", {
+          moduleFilePath,
+          key,
+          err,
+        });
+      })
+      .finally(() => {
+        this.loadingJsonEntries.delete(loadingKey);
+      });
+  }
+
+  /**
+   * Returns `baseSource` with any loaded `.jsonValues()` entry content
+   * substituted in place of its lazy marker, so downstream resolution/patching
+   * sees real content. Markers without loaded content are left untouched.
+   */
+  private applyJsonEntryContents(
+    moduleFilePath: ModuleFilePath,
+    baseSource: JSONValue,
+  ): JSONValue {
+    const contents = this.jsonEntryContents[moduleFilePath];
+    if (
+      contents === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource)
+    ) {
+      return baseSource;
+    }
+    let result: Record<string, JSONValue> | null = null;
+    for (const key in contents) {
+      if (Internal.isJson(baseSource[key])) {
+        if (result === null) {
+          result = { ...baseSource };
+        }
+        result[key] = contents[key];
+      }
+    }
+    return result ?? baseSource;
+  }
+
   private getPatchedSource(
     moduleFilePath: ModuleFilePath,
   ): JSONValue | undefined {
-    const baseSource = this.serverSources?.[moduleFilePath];
-    if (baseSource === undefined) return undefined;
+    const rawBaseSource = this.serverSources?.[moduleFilePath];
+    if (rawBaseSource === undefined) return undefined;
+    const baseSource = this.applyJsonEntryContents(
+      moduleFilePath,
+      rawBaseSource,
+    );
     const nextIds = this.orderedPatchIdsForModule(moduleFilePath);
     if (nextIds.length === 0) return baseSource;
 
