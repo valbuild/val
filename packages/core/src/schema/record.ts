@@ -259,21 +259,25 @@ export class RecordSchema<
           this.markKeyErrorsAtPath(entryErr, subPath);
           error = error ? { ...error, ...entryErr } : entryErr;
         }
+      } else if (this.isJsonValues && isJson(elem)) {
+        // jsonValues record, entry not loaded: the value is a lazy JsonSource
+        // marker. Deep validation is deferred and run per-entry once the backing
+        // `*.val.json` is loaded (server: validateJsonEntryContent; UI: the
+        // loaded content is substituted and validated by the branch below).
       } else if (this.isJsonValues) {
-        // jsonValues record: the value is a lazily-loaded JsonSource marker.
-        // Only assert the marker shape here; the deep content validation is
-        // deferred and run per-entry by the server (validateJsonEntryContent)
-        // once the backing `*.val.json` is loaded.
-        if (!isJson(elem)) {
-          error = this.appendValidationError(
-            error,
-            subPath,
-            `Expected a c.json(...) entry, got '${
-              elem === null ? "null" : typeof elem
-            }'`,
-            elem,
-            true,
-          );
+        // jsonValues record, entry content is inlined (loaded in the UI, or
+        // hand-authored content) — validate it against the item schema.
+        const subError = this.item["executeValidate"](
+          subPath,
+          elem as SelectorSource,
+        );
+        if (subError && error) {
+          error = {
+            ...subError,
+            ...error,
+          };
+        } else if (subError) {
+          error = subError;
         }
       } else {
         const subError = this.item["executeValidate"](

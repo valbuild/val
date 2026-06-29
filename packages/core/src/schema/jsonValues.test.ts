@@ -95,13 +95,20 @@ describe("c.json + .jsonValues()", () => {
       expect(loaded).toBe(false);
     });
 
-    test("rejects a non-json entry value", () => {
-      const errors = looseSchema["executeValidate"](
-        "/test.val.ts" as SourcePath,
-        // deliberately an inline value, which is invalid for a jsonValues record
-        { a: { title: "inline-not-allowed" } },
-      );
-      expect(errors).not.toBe(false);
+    test("validates inline (loaded) content against the item schema", () => {
+      // valid inline content passes (this is what the UI sees once an entry's
+      // *.val.json is loaded and substituted for its marker)
+      expect(
+        looseSchema["executeValidate"]("/test.val.ts" as SourcePath, {
+          a: { title: "ok" },
+        }),
+      ).toBe(false);
+      // invalid inline content (wrong leaf type) is caught
+      expect(
+        looseSchema["executeValidate"]("/test.val.ts" as SourcePath, {
+          a: { title: 123 },
+        }),
+      ).not.toBe(false);
     });
 
     test("validateJsonEntryContent validates loaded content against item", () => {

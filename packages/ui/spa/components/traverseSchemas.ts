@@ -1,4 +1,5 @@
 import {
+  Internal,
   ModuleFilePath,
   ModuleFilePathSep,
   SerializedArraySchema,
@@ -34,6 +35,12 @@ export function traverseSchemas(
     schema: SerializedSchema | undefined,
     source: Source,
   ) => {
+    if (Internal.isJson(source)) {
+      // An un-loaded `.jsonValues()` entry is an opaque lazy marker
+      // ({ _type:"json", _sha }). Skip it: once its content is loaded the
+      // substituted value is the real content and is traversed normally.
+      return;
+    }
     if (schema === undefined) {
       console.error(`Schema not found for ${sourcePath}`);
       return;

@@ -22,6 +22,11 @@ function rec(
   ) {
     addTokenizedSourcePath(sourcePathIndex, path);
   }
+  if (Internal.isJson(source)) {
+    // Un-loaded `.jsonValues()` entry marker — its content isn't available to
+    // index yet (the entry path was indexed above). Indexed once loaded.
+    return;
+  }
   if (!schema?.type) {
     throw new Error("Schema not found for " + path);
   } else if (source === null) {
