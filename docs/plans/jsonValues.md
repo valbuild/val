@@ -18,9 +18,11 @@
 > (`/support/getting-started` rendered via `fetchValKey`) is wired. So: reading works; Studio editing
 > of jsonValues entries is the next milestone (endpoint → UI).
 
-- **Phase**: 1 ✅. Phase 2 server mostly done (validation + sha + loader + emit primitive); Phase 4
-  started — RSC `fetchValKey` implemented (production path). **Next: example app to validate the
-  runtime read path end-to-end, then the commit flow + single-entry endpoint.**
+- **Phase**: 1 ✅. Phase 2 server: validation + sha + loader + emit primitive + **/json endpoint** ✅
+  (commit flow still pending). Phase 4: `fetchValKey`/`useValKey` ✅ (production path). Example
+  (support pages) added + typechecks. **NEXT MILESTONE: Phase 3 UI lazy-load** (consume `/json` so
+  the Studio can open/edit jsonValues entries — see Phase 3 below for exact integration points). The
+  other remaining big piece is the **commit flow** (write `*.val.json` + thunks/shas on commit).
 - **Single-entry runtime read API (typecheck-validated, runtime-validation via example pending)**:
   - RSC `fetchValKey` — `initFetchValKeyStega` in `next/src/rsc/initValRsc.ts` (returned as
     `fetchValKeyStega`). Resolves ONE entry by key from the local module's thunk + stega-encodes.
@@ -150,23 +152,43 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 - [ ] **Verify**: `pnpm test packages/server/...` green (ops add/replace/remove, loader fixture,
       incremental validation).
 
-## Phase 3 — UI (`packages/ui/spa`)
+## Phase 3 — UI (`packages/ui/spa`) — NEXT MILESTONE (do with Studio running)
 
-- [ ] `ValSyncEngine.ts`: model json records as `{ key → { sha, patch_id? } }`; lazy fetch + cache
-      one entry on open; per-entry patches; sha-aware invalidation.
-- [ ] `components/ValFieldProvider.tsx`: reuse `useShallowSourceAtPath` for the key list; add a
-      hook to lazily fetch one entry's content (`useJsonEntrySource` / extend `useSourceAtPath`).
-- [ ] `components/fields/RecordFields.tsx` + router nav: render keys without loading content; load
-      on open; build per-entry add/replace/remove patches.
-- [ ] **Verify**: manual Studio pass (list shows keys w/o loading; open fetches one json;
-      edit→commit writes file + updates sha; add/remove a route inserts/removes thunk + file).
+The Studio currently throws the (intentional) `resolvePath` guard when opening a jsonValues entry,
+because entry content is never loaded into the client source tree. Concrete integration points
+(all in the 3376-line `ValSyncEngine.ts` unless noted):
+
+- [ ] **Content cache + fetch**: add `private jsonEntryContents: Record<ModuleFilePath, Record<key,
+    JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJsonEntry(mfp, key)`
+      that, if not loaded/loading, calls `this.client("/json", "GET", { query: { path: mfp, key } })`,
+      stores `content`, then `invalidatePatchedSourcesCache(mfp)` + clears `cachedSourceSnapshots`
+      for the module + `emit(this.listeners["source"]?.[mfp])` / `["sources"]` so subscribers
+      re-render. (Mirror the existing `requestModuleValidation` side-effect pattern.)
+- [ ] **Substitution before patches**: in `getPatchedSource(mfp)`, build the effective base by
+      replacing each loaded json marker at `baseSource[key]` with `jsonEntryContents[mfp][key]`
+      BEFORE applying patches (so field-level patches at `?p="key"."field"` apply on top). Markers
+      without loaded content stay as-is (list view only reads keys). Invalidate the patched cache on
+      load (above) since the effective base changed.
+- [ ] **Trigger on open**: the field component that renders a navigated-to entry path must call
+      `requestJsonEntry(mfp, key)` (effect on mount, keyed by path). Find the entry detail renderer
+      (AnyField/Field at a path); when the path's parent schema is a `jsonValues` record and the
+      marker isn't loaded, request it and render a loading state until `getSourceSnapshot` returns
+      content. `useShallowSourceAtPath(path, "record")` already returns keys only (list is fine).
+- [ ] **Per-entry patches**: editing an entry field produces a normal patch at the entry path; on
+      commit the server commit-flow writes the `*.val.json` + updates the thunk/sha (Phase 2 commit
+      flow). Add/remove entry = add/remove the record key (commit flow emits/removes thunk + file).
+- [ ] **Verify** (Studio running): list shows keys w/o loading; opening an entry fetches one `/json`;
+      fields render + edit; commit writes file + updates sha; add/remove a route inserts/removes
+      thunk + file.
 
 ## Phase 4 — Runtime APIs (`packages/next`, `packages/react`)
 
-- [ ] `rsc/initValRsc.ts`: `fetchValKey` / `fetchValRoute` (route matching reuses `ValRouter`).
-- [ ] `client/initValClient.ts`: `useValKey` / `useValRoute`.
-- [ ] Apply existing stega/transform per resolved entry.
-- [ ] **Verify**: `fetchVal` still returns all; `fetchValRoute` imports only the requested entry.
+- [x] `rsc/initValRsc.ts`: `fetchValKey` (`initFetchValKeyStega`, returned as `fetchValKeyStega`).
+- [x] `client/initValClient.ts`: `useValKey` (`useValKeyStega`, promise cache + `React.use`).
+- [x] Example wires `fetchValKey` (support pages) — typechecks clean.
+- [ ] `fetchValRoute` / `useValRoute`: use the key path for jsonValues routers (load one entry by
+      matching the route), instead of the eager fetchVal. (Reuse `ValRouter` to map route→key.)
+- [ ] Enabled/Studio draft path: resolve draft content via `/json` (+ sub-selector stega tags).
 
 ## Phase 5 — Example + CI gate
 
