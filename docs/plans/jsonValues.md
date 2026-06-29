@@ -10,13 +10,12 @@
 
 ## Current state / resume here
 
-> **Expected-behavior note (verified in the example, 2026-06-29):** opening a jsonValues entry in
-> the **Studio** (`/val/~/.../page.val.ts?p="/support/getting-started"`) throws
-> `Cannot resolve path into a jsonValues entry until its content is loaded` — this is the intentional
-> `resolvePath` guard (module.ts) firing because the Studio lazy-load of entry content isn't built
-> yet (UI task + single-entry endpoint, both pending). The **production read** path
-> (`/support/getting-started` rendered via `fetchValKey`) is wired. So: reading works; Studio editing
-> of jsonValues entries is the next milestone (endpoint → UI).
+> **Studio lazy-load DONE (2026-06-30):** opening a jsonValues entry now fetches its content via
+> `GET /json` and renders the fields (was: the `resolvePath` guard error). Read path works in both
+> production (`fetchValKey`) and the Studio. **Editing** shows optimistic updates, but **persistence
+> to `*.val.json` needs the commit flow (still pending)** — so publishing an edit won't write the
+> json file yet. Requires `pnpm --filter @valbuild/ui build` for the Studio bundle to pick up UI
+> changes (it's a built bundle, not a live dev-stub).
 
 - **Phase**: 1 ✅. Phase 2 server: validation + sha + loader + emit primitive + **/json endpoint** ✅
   (commit flow still pending). Phase 4: `fetchValKey`/`useValKey` ✅ (production path). Example
@@ -159,7 +158,7 @@ because entry content is never loaded into the client source tree. Concrete inte
 (all in the 3376-line `ValSyncEngine.ts` unless noted):
 
 - [ ] **Content cache + fetch**: add `private jsonEntryContents: Record<ModuleFilePath, Record<key,
-    JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJsonEntry(mfp, key)`
+  JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJsonEntry(mfp, key)`
       that, if not loaded/loading, calls `this.client("/json", "GET", { query: { path: mfp, key } })`,
       stores `content`, then `invalidatePatchedSourcesCache(mfp)` + clears `cachedSourceSnapshots`
       for the module + `emit(this.listeners["source"]?.[mfp])` / `["sources"]` so subscribers
