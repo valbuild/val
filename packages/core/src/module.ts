@@ -20,6 +20,7 @@ import {
   SerializedImageSchema,
 } from "./schema/image";
 import { FILE_REF_PROP, FileSource } from "./source/file";
+import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
@@ -342,6 +343,15 @@ export function resolvePath<
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
           : resolvedSchema.item;
+      // A `.jsonValues()` entry value is a lazily-loaded JsonSource marker. We
+      // can resolve the entry itself (schema is now `item`), but we cannot
+      // descend deeper until the backing `*.val.json` content has been loaded
+      // and substituted into the source tree (done by the UI/server layer).
+      if (isJson(resolvedSource) && parts.length > 0) {
+        throw Error(
+          `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
+        );
+      }
     } else if (isObjectSchema(resolvedSchema)) {
       if (typeof resolvedSource !== "object") {
         throw Error(
@@ -593,6 +603,14 @@ export function safeResolvePath<
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
           : resolvedSchema.item;
+      // jsonValues entry: cannot descend deeper until the backing `*.val.json`
+      // content is loaded into the source tree.
+      if (isJson(resolvedSource) && parts.length > 0) {
+        return {
+          status: "error",
+          message: `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
+        };
+      }
     } else if (isObjectSchema(resolvedSchema)) {
       if (resolvedSource === undefined) {
         return {

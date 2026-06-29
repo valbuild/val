@@ -34,6 +34,7 @@ import {
 } from "@valbuild/core/patch";
 import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
+import { validateJsonValuesEntries } from "./validateJsonValues";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -484,6 +485,25 @@ export abstract class ValOps {
         path as string as SourcePath,
         source,
       );
+      // For `.jsonValues()` records, executeValidate only checks the entry
+      // markers; load + validate each entry's backing `*.val.json` content here.
+      const jsonValuesErrors = await validateJsonValuesEntries(
+        schema,
+        source,
+        path,
+      );
+      for (const [sourcePathS, entryErrors] of Object.entries(
+        jsonValuesErrors,
+      )) {
+        const sourcePath = sourcePathS as SourcePath;
+        if (!errors[path]) {
+          errors[path] = { validations: {} };
+        }
+        if (!errors[path].validations[sourcePath]) {
+          errors[path].validations[sourcePath] = [];
+        }
+        errors[path].validations[sourcePath].push(...entryErrors);
+      }
       if (res === false) {
         continue;
       }

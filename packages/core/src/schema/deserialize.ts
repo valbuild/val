@@ -179,6 +179,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.jsonValues ?? false,
       );
     case "keyOf":
       return new KeyOfSchema(

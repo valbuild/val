@@ -1361,6 +1361,73 @@ export const ValServer = (
       },
     },
 
+    // #region json
+    // Loads the content of a single `.jsonValues()` entry by key, so the Studio
+    // can lazily load just the entry being opened. Returns the committed content
+    // (from the base source's import thunk); the client overlays its own patches.
+    "/json": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const key = req.query.key;
+        const sources = await serverOps.getBaseSources();
+        const moduleSource = sources[moduleFilePath];
+        if (moduleSource === undefined || moduleSource === null) {
+          return {
+            status: 404,
+            json: { message: `Module not found: ${moduleFilePath}` },
+          };
+        }
+        if (typeof moduleSource !== "object" || Array.isArray(moduleSource)) {
+          return {
+            status: 404,
+            json: { message: `Module is not a record: ${moduleFilePath}` },
+          };
+        }
+        const marker = (moduleSource as Record<string, unknown>)[key];
+        if (marker === undefined) {
+          return {
+            status: 404,
+            json: { message: `Entry not found: ${key} in ${moduleFilePath}` },
+          };
+        }
+        if (!Internal.isJson(marker)) {
+          // Not a jsonValues entry — return the inlined value as-is (defensive).
+          return {
+            status: 200,
+            json: { path: moduleFilePath, key, content: marker },
+          };
+        }
+        const thunk = Internal.getJsonImport(marker);
+        let content: unknown = null;
+        if (thunk) {
+          try {
+            content = (await thunk()).default;
+          } catch (e) {
+            return {
+              status: 500,
+              json: {
+                message: `Failed to load JSON entry '${key}': ${
+                  e instanceof Error ? e.message : JSON.stringify(e)
+                }`,
+              },
+            };
+          }
+        }
+        const sha = (marker as { _sha?: string })._sha;
+        return {
+          status: 200,
+          json: { path: moduleFilePath, key, content, sha },
+        };
+      },
+    },
+
     // #region sources
     "/sources/~": {
       PUT: async (req) => {

@@ -14,6 +14,7 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
+import { JsonOf, JsonSource, isJson } from "../source/json";
 import { RemoteSource } from "../source/remote";
 import { ModuleFilePath, SourcePath } from "../val";
 import { ImageMetadata } from "./image";
@@ -44,15 +45,31 @@ export type SerializedRecordSchema = {
   directory?: string;
   remote?: boolean;
   alt?: SerializedSchema;
+  // When true, entry values are stored in separate lazily-loaded `*.val.json`
+  // files (see `.jsonValues()`).
+  jsonValues?: boolean;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
 };
 
+/**
+ * The source type of a `.jsonValues()` record: every entry value is a lazily
+ * loaded {@link JsonSource} whose resolved content is the (loosened, see
+ * {@link JsonOf}) item type.
+ */
+export type JsonValuesRecordSrc<
+  T extends Schema<SelectorSource>,
+  K extends Schema<string>,
+> = Record<SelectorOfSchema<K>, JsonSource<JsonOf<SelectorOfSchema<T>>>>;
+
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
-  Src extends Record<SelectorOfSchema<K>, SelectorOfSchema<T>> | null,
+  Src extends
+    | Record<SelectorOfSchema<K>, SelectorOfSchema<T>>
+    | JsonValuesRecordSrc<T, K>
+    | null,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
@@ -64,6 +81,8 @@ export class RecordSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
+    private readonly isJsonValues: boolean = false,
   ) {
     super();
   }
@@ -79,6 +98,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.isJsonValues,
     );
   }
 
@@ -95,6 +115,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
     );
   }
 
@@ -237,6 +258,22 @@ export class RecordSchema<
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
           error = error ? { ...error, ...entryErr } : entryErr;
+        }
+      } else if (this.isJsonValues) {
+        // jsonValues record: the value is a lazily-loaded JsonSource marker.
+        // Only assert the marker shape here; the deep content validation is
+        // deferred and run per-entry by the server (validateJsonEntryContent)
+        // once the backing `*.val.json` is loaded.
+        if (!isJson(elem)) {
+          error = this.appendValidationError(
+            error,
+            subPath,
+            `Expected a c.json(...) entry, got '${
+              elem === null ? "null" : typeof elem
+            }'`,
+            elem,
+            true,
+          );
         }
       } else {
         const subError = this.item["executeValidate"](
@@ -532,6 +569,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -546,6 +584,7 @@ export class RecordSchema<
       true,
       this.isHidden,
       this.description,
+      this.isJsonValues,
     );
   }
 
@@ -560,6 +599,7 @@ export class RecordSchema<
       this.isReadonly,
       true,
       this.description,
+      this.isJsonValues,
     );
   }
 
@@ -574,6 +614,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
     );
   }
 
@@ -588,7 +629,39 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
     );
+  }
+
+  /**
+   * Store each entry's value in its own lazily-loaded `*.val.json` file instead
+   * of inlining it in the `.val.ts` module. Entry values become
+   * {@link JsonSource} thunks (`c.json(() => import("./entry.val.json"), sha)`),
+   * which lets the runtime, the Studio and validation work one entry at a time
+   * so a record/router can scale to many thousands of entries.
+   *
+   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   */
+  jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
+    if (this.mediaOptions) {
+      throw new Error(
+        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+      );
+    }
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      // custom validate functions are typed against the previous Src; drop them
+      // since the source shape changes to JsonSource entries.
+      [],
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      true,
+    ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
   }
 
   private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
@@ -663,6 +736,7 @@ export class RecordSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      jsonValues: this.isJsonValues ? true : undefined,
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
@@ -688,12 +762,30 @@ export class RecordSchema<
     };
   } | null = null;
 
+  /**
+   * Validate the loaded content of a single `.jsonValues()` entry against the
+   * item schema. The server calls this once it has loaded the backing
+   * `*.val.json` for an entry (the deep validation that `executeValidate`
+   * defers).
+   */
+  validateJsonEntryContent(
+    path: SourcePath,
+    content: SelectorSource,
+  ): ValidationErrors {
+    return this.item["executeValidate"](path, content);
+  }
+
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
   ): ReifiedRender {
     const res: ReifiedRender = {};
     if (src === null) {
+      return res;
+    }
+    if (this.isJsonValues) {
+      // jsonValues entries are not inlined, so there is no per-entry source to
+      // render at the record level. Rendering happens per entry once loaded.
       return res;
     }
     for (const key in src) {

@@ -126,6 +126,41 @@ function createValRemoteReference(value: RemoteSource) {
   );
 }
 
+/**
+ * Builds the expression `c.json(() => import("<importPath>"), "<sha>")` used to
+ * reference a lazily-loaded `*.val.json` entry of a `.jsonValues()` record.
+ */
+export function createValJsonReference(
+  importPath: string,
+  sha: string,
+): ts.Expression {
+  // () => import("<importPath>")
+  // NOTE: an `import` identifier prints as the dynamic-import keyword call,
+  // which avoids casting the ImportKeyword token (not typed as an Expression).
+  const importCall = ts.factory.createCallExpression(
+    ts.factory.createIdentifier("import"),
+    undefined,
+    [ts.factory.createStringLiteral(importPath)],
+  );
+  const thunk = ts.factory.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    importCall,
+  );
+  // c.json(<thunk>, "<sha>")
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("c"),
+      ts.factory.createIdentifier("json"),
+    ),
+    undefined,
+    [thunk, ts.factory.createStringLiteral(sha)],
+  );
+}
+
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote

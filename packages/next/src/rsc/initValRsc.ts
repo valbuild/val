@@ -14,6 +14,7 @@ import {
   Internal,
   ValModule,
   SourceObject,
+  JsonSource,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
@@ -219,6 +220,63 @@ const initFetchValRouteStega =
     return route;
   };
 
+// The (loosened) content type a single `.jsonValues()` entry resolves to.
+type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
+  T extends ValModule<infer S>
+    ? S extends Record<string, infer V>
+      ? V extends JsonSource<infer C>
+        ? C
+        : never
+      : never
+    : never;
+
+/**
+ * Resolves a SINGLE entry of a `.jsonValues()` record/router by key, loading
+ * only that entry's backing `*.val.json` (one dynamic import) instead of the
+ * whole record. This is the runtime-scaling counterpart to the eager `fetchVal`.
+ *
+ * Production (Val disabled): resolves the entry's lazy import thunk from the
+ * local module and returns its content.
+ *
+ * TODO(enabled/Studio): when Val is enabled, draft edits to the entry live in
+ * patches on the server. Until the single-entry fetch endpoint is wired, this
+ * resolves the locally-bundled (committed) content. Visual-editing tags for the
+ * resolved entry are also a follow-up (needs a sub-selector at the entry path).
+ */
+const initFetchValKeyStega =
+  // NOTE: only needs `isEnabled` for the production read path. The
+  // enabled/Studio draft path (TODO) will also need the server deps the sibling
+  // init* factories take.
+  (isEnabled: () => Promise<boolean>) =>
+    async <T extends ValModule<GenericSelector<SourceObject>>>(
+      selector: T,
+      key: string,
+    ): Promise<JsonEntryContentOf<T> | undefined> => {
+      let enabled = false;
+      try {
+        enabled = await isEnabled();
+      } catch {
+        // not in a server context where draftMode is readable — treat as disabled
+      }
+      const source = selector && Internal.getSource(selector);
+      if (!source || typeof source !== "object") {
+        return undefined;
+      }
+      const marker = (source as Record<string, unknown>)[key];
+      if (!Internal.isJson(marker)) {
+        return undefined;
+      }
+      const thunk = Internal.getJsonImport(marker);
+      if (!thunk) {
+        // transport marker without a runtime thunk — see TODO above
+        return undefined;
+      }
+      const content = (await thunk()).default;
+      return stegaEncode(content, {
+        disabled: !enabled,
+      });
+    };
+
 const initFetchValRouteUrl =
   (
     config: ValConfig,
@@ -276,6 +334,7 @@ export function initValRsc(
   rscNextConfig: ValNextRscConfig,
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
+  fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
 } {
@@ -326,6 +385,9 @@ export function initValRsc(
         return await rscNextConfig.cookies();
       },
     ),
+    fetchValKeyStega: initFetchValKeyStega(async () => {
+      return (await rscNextConfig.draftMode()).isEnabled;
+    }),
     fetchValRouteStega: initFetchValRouteStega(
       config,
       valApiEndpoints,
