@@ -1010,6 +1010,38 @@ export const Api = {
       ]),
     },
   },
+  // Loads the content of a single `.jsonValues()` record/router entry by key,
+  // so the Studio can lazily load just the entry being opened (instead of the
+  // whole record). Returns the committed entry content; client overlays patches.
+  "/json": {
+    GET: {
+      req: {
+        query: {
+          path: onlyOneStringQueryParam,
+          key: onlyOneStringQueryParam,
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            key: z.string(),
+            // The entry's JSON content (or null if the entry has no value).
+            content: z.any(),
+            sha: z.string().optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+      ]),
+    },
+  },
   "/ai/initialize": {
     POST: {
       req: {

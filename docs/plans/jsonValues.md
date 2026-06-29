@@ -10,6 +10,14 @@
 
 ## Current state / resume here
 
+> **Expected-behavior note (verified in the example, 2026-06-29):** opening a jsonValues entry in
+> the **Studio** (`/val/~/.../page.val.ts?p="/support/getting-started"`) throws
+> `Cannot resolve path into a jsonValues entry until its content is loaded` — this is the intentional
+> `resolvePath` guard (module.ts) firing because the Studio lazy-load of entry content isn't built
+> yet (UI task + single-entry endpoint, both pending). The **production read** path
+> (`/support/getting-started` rendered via `fetchValKey`) is wired. So: reading works; Studio editing
+> of jsonValues entries is the next milestone (endpoint → UI).
+
 - **Phase**: 1 ✅. Phase 2 server mostly done (validation + sha + loader + emit primitive); Phase 4
   started — RSC `fetchValKey` implemented (production path). **Next: example app to validate the
   runtime read path end-to-end, then the commit flow + single-entry endpoint.**
