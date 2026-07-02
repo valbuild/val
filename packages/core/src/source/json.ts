@@ -18,9 +18,9 @@ export type JsonImportThunk<T = unknown> = () => Promise<{ default: T }>;
  * A JSON source represents a record/router entry whose value is stored in a
  * separate `*.val.json` file and loaded lazily via a dynamic `import()` thunk.
  *
- * This is what `c.json(() => import("./entry.val.json"), "<contentSha>")` returns.
+ * This is what `c.json(() => import("./entry.val.json"))` returns.
  *
- * The *type* is a pure-JSON marker (`{ _type: "json", _sha, patch_id? }`) so that
+ * The *type* is a pure-JSON marker (`{ _type: "json", patch_id? }`) so that
  * `Source` stays JSON-serializable. At runtime the value additionally carries a
  * lazy import thunk (read via {@link getJsonImport}); over the wire only the
  * marker is sent.
@@ -31,21 +31,15 @@ export type JsonImportThunk<T = unknown> = () => Promise<{ default: T }>;
  */
 export type JsonSource<T = unknown> = {
   readonly [VAL_EXTENSION]: typeof JSON_VAL_EXTENSION_TAG;
-  /** Content hash of the backing JSON, used as a validation-cache key. */
-  readonly _sha: string;
   /** Set on uncommitted/draft entries (mirrors FileSource/RemoteSource). */
   readonly patch_id?: string;
 } & PhantomType<T>;
 
-export function json<T = Json>(
-  importThunk: JsonImportThunk<T>,
-  sha: string,
-): JsonSource<T> {
+export function json<T = Json>(importThunk: JsonImportThunk<T>): JsonSource<T> {
   return {
     [VAL_EXTENSION]: JSON_VAL_EXTENSION_TAG,
     // runtime-only: not described by JsonSource so Source stays JSON-serializable
     _import: importThunk,
-    _sha: sha,
   } as unknown as JsonSource<T>;
 }
 

@@ -37,7 +37,7 @@ export function traverseSchemas(
   ) => {
     if (Internal.isJson(source)) {
       // An un-loaded `.jsonValues()` entry is an opaque lazy marker
-      // ({ _type:"json", _sha }). Skip it: once its content is loaded the
+      // ({ _type:"json" }). Skip it: once its content is loaded the
       // substituted value is the real content and is traversed normally.
       return;
     }

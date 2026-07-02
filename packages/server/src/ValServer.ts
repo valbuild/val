@@ -1420,10 +1420,9 @@ export const ValServer = (
             };
           }
         }
-        const sha = (marker as { _sha?: string })._sha;
         return {
           status: 200,
-          json: { path: moduleFilePath, key, content, sha },
+          json: { path: moduleFilePath, key, content },
         };
       },
     },

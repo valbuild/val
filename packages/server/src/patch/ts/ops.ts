@@ -127,13 +127,10 @@ function createValRemoteReference(value: RemoteSource) {
 }
 
 /**
- * Builds the expression `c.json(() => import("<importPath>"), "<sha>")` used to
- * reference a lazily-loaded `*.val.json` entry of a `.jsonValues()` record.
+ * Builds the expression `c.json(() => import("<importPath>"))` used to reference
+ * a lazily-loaded `*.val.json` entry of a `.jsonValues()` record.
  */
-export function createValJsonReference(
-  importPath: string,
-  sha: string,
-): ts.Expression {
+export function createValJsonReference(importPath: string): ts.Expression {
   // () => import("<importPath>")
   // NOTE: an `import` identifier prints as the dynamic-import keyword call,
   // which avoids casting the ImportKeyword token (not typed as an Expression).
@@ -150,14 +147,14 @@ export function createValJsonReference(
     ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     importCall,
   );
-  // c.json(<thunk>, "<sha>")
+  // c.json(<thunk>)
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
       ts.factory.createIdentifier("c"),
       ts.factory.createIdentifier("json"),
     ),
     undefined,
-    [thunk, ts.factory.createStringLiteral(sha)],
+    [thunk],
   );
 }
 

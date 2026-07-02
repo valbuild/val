@@ -9,17 +9,16 @@ function print(node: ts.Node): string {
 }
 
 describe("createValJsonReference", () => {
-  test("prints c.json(() => import(...), sha)", () => {
-    const node = createValJsonReference("./page/blogs/test.val.json", "abc123");
+  test("prints c.json(() => import(...))", () => {
+    const node = createValJsonReference("./page/blogs/test.val.json");
     const out = print(node);
     expect(out).toContain("c.json(");
     expect(out).toContain('import("./page/blogs/test.val.json")');
-    expect(out).toContain('"abc123"');
     expect(out).toContain("() =>");
   });
 
   test("produces valid, re-parseable output", () => {
-    const node = createValJsonReference("./a.val.json", "sha");
+    const node = createValJsonReference("./a.val.json");
     const out = print(node);
     const reparsed = ts.createSourceFile(
       "reparse.ts",

@@ -20,11 +20,10 @@ import { nextAppRouter } from "../router";
 import { initVal } from "../initVal";
 
 describe("c.json + .jsonValues()", () => {
-  test("json() returns a JsonSource marker with thunk + sha", () => {
+  test("json() returns a JsonSource marker with a thunk", () => {
     const thunk = () => Promise.resolve({ default: { title: "hi" } });
-    const src = json(thunk, "abc123");
+    const src = json(thunk);
     expect(src[VAL_EXTENSION]).toBe("json");
-    expect(src._sha).toBe("abc123");
     expect(getJsonImport(src)).toBe(thunk);
     expect(isJson(src)).toBe(true);
     expect(isJson({ title: "hi" })).toBe(false);
@@ -85,7 +84,7 @@ describe("c.json + .jsonValues()", () => {
           // validateJsonEntryContent once the file is loaded.
           loaded = true;
           return Promise.resolve({ default: { title: "ok" } });
-        }, "s1"),
+        }),
       };
       const errors = schema["executeValidate"](
         "/test.val.ts" as SourcePath,
@@ -131,8 +130,8 @@ describe("c.json + .jsonValues()", () => {
 describe("resolveJsonValues", () => {
   test("resolves a record of markers into inlined content", async () => {
     const source: Source = {
-      "/a": json(() => Promise.resolve({ default: { title: "A" } }), "sa"),
-      "/b": json(() => Promise.resolve({ default: { title: "B" } }), "sb"),
+      "/a": json(() => Promise.resolve({ default: { title: "A" } })),
+      "/b": json(() => Promise.resolve({ default: { title: "B" } })),
     };
     const resolved = await resolveJsonValues(source);
     expect(resolved).toEqual({ "/a": { title: "A" }, "/b": { title: "B" } });
@@ -140,17 +139,12 @@ describe("resolveJsonValues", () => {
 
   test("resolves nested markers recursively", async () => {
     const source: Source = {
-      "/outer": json(
-        () =>
-          Promise.resolve({
-            default: {
-              inner: json(
-                () => Promise.resolve({ default: { deep: "value" } }),
-                "si",
-              ),
-            },
-          }),
-        "so",
+      "/outer": json(() =>
+        Promise.resolve({
+          default: {
+            inner: json(() => Promise.resolve({ default: { deep: "value" } })),
+          },
+        }),
       ),
     };
     const resolved = await resolveJsonValues(source);
@@ -158,9 +152,9 @@ describe("resolveJsonValues", () => {
   });
 
   test("leaves transport markers (no thunk) as-is", async () => {
-    const marker = { _type: "json", _sha: "x" } as unknown as Source;
+    const marker = { _type: "json" } as unknown as Source;
     const resolved = await resolveJsonValues({ "/a": marker });
-    expect(resolved).toEqual({ "/a": { _type: "json", _sha: "x" } });
+    expect(resolved).toEqual({ "/a": { _type: "json" } });
   });
 });
 
@@ -173,9 +167,8 @@ describe("c.define authoring surface (compile-time)", () => {
       "/blogs/[slug]/page.val.ts",
       s.router(nextAppRouter, s.object({ title: s.string() })).jsonValues(),
       {
-        "/blogs/test": c.json(
-          () => Promise.resolve({ default: { title: "Hello" } }),
-          "1232132",
+        "/blogs/test": c.json(() =>
+          Promise.resolve({ default: { title: "Hello" } }),
         ),
       },
     );

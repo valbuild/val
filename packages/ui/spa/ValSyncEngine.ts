@@ -137,7 +137,7 @@ export class ValSyncEngine {
   > | null;
   /**
    * Loaded content for `.jsonValues()` record entries, keyed by module then
-   * entry key. The on-disk source only carries lazy `{ _type:"json", _sha }`
+   * entry key. The on-disk source only carries lazy `{ _type:"json" }`
    * markers; the Studio fetches an entry's content on demand via
    * `requestJsonEntry` (GET /json) and `getPatchedSource` substitutes it in so
    * field resolution/rendering works.

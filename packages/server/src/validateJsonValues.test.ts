@@ -9,14 +9,8 @@ describe("validateJsonValuesEntries", () => {
 
   test("returns no errors when all entry content is valid", async () => {
     const source = {
-      "/a": c.json(
-        () => Promise.resolve({ default: { title: "ok" } }),
-        "sha-a",
-      ),
-      "/b": c.json(
-        () => Promise.resolve({ default: { title: "ok2" } }),
-        "sha-b",
-      ),
+      "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
+      "/b": c.json(() => Promise.resolve({ default: { title: "ok2" } })),
     };
     const errors = await validateJsonValuesEntries(schema, source, modulePath);
     expect(errors).toEqual({});
@@ -24,15 +18,9 @@ describe("validateJsonValuesEntries", () => {
 
   test("reports validation errors for invalid entry content", async () => {
     const source = {
-      "/a": c.json(
-        () => Promise.resolve({ default: { title: "ok" } }),
-        "sha-a",
-      ),
+      "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
       // wrong leaf type for title — caught by the deferred content validation
-      "/bad": c.json(
-        () => Promise.resolve({ default: { title: 123 } }),
-        "sha-bad",
-      ),
+      "/bad": c.json(() => Promise.resolve({ default: { title: 123 } })),
     };
     const errors = await validateJsonValuesEntries(schema, source, modulePath);
     const keys = Object.keys(errors);
@@ -42,7 +30,7 @@ describe("validateJsonValuesEntries", () => {
 
   test("reports a load error when the entry thunk rejects", async () => {
     const source = {
-      "/boom": c.json(() => Promise.reject(new Error("disk gone")), "sha-boom"),
+      "/boom": c.json(() => Promise.reject(new Error("disk gone"))),
     };
     const errors = await validateJsonValuesEntries(schema, source, modulePath);
     const keys = Object.keys(errors);
@@ -59,7 +47,7 @@ describe("validateJsonValuesEntries", () => {
       "/a": c.json(() => {
         loaded = true;
         return Promise.resolve({ default: { title: "ok" } });
-      }, "sha-a"),
+      }),
     };
     const errors = await validateJsonValuesEntries(
       plainSchema,

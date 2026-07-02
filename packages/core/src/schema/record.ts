@@ -640,7 +640,7 @@ export class RecordSchema<
   /**
    * Store each entry's value in its own lazily-loaded `*.val.json` file instead
    * of inlining it in the `.val.ts` module. Entry values become
-   * {@link JsonSource} thunks (`c.json(() => import("./entry.val.json"), sha)`),
+   * {@link JsonSource} thunks (`c.json(() => import("./entry.val.json"))`),
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *

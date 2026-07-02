@@ -1032,7 +1032,6 @@ export const Api = {
             key: z.string(),
             // The entry's JSON content (or null if the entry has no value).
             content: z.any(),
-            sha: z.string().optional(),
           }),
         }),
         z.object({

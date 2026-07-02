@@ -13,14 +13,12 @@ describe("loadValModules with .jsonValues() + c.json", () => {
     const source = Internal.getSource(mod) as Record<string, unknown>;
     const entry = source["/blogs/test"] as {
       _type: string;
-      _sha: string;
       _import: () => Promise<{ default: unknown }>;
     };
 
     // The entry is a json marker, not the loaded content.
     expect(Internal.isJson(entry)).toBe(true);
     expect(entry._type).toBe("json");
-    expect(entry._sha).toBe("testsha123");
     expect(typeof entry._import).toBe("function");
   });
 
