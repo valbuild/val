@@ -10,18 +10,26 @@
 
 ## Current state / resume here
 
+> **Commit flow DONE (2026-07-03):** `ValOps.prepare` now routes patch ops for `.jsonValues()`
+> records. Content edits write only the entry's `*.val.json` (the `.val.ts` is NOT touched); adding
+> an entry writes a new `*.val.json` + inserts a `c.json(() => import("..."))` thunk into the
+> `.val.ts`; removing an entry deletes the `*.val.json` (via a `patchedSourceFiles[path] = null`) +
+> drops the thunk. All three go through the existing `patchedSourceFiles` map, so both `ValOpsFS`
+> and `ValOpsHttp` commit them with no new abstraction. Server suite green (166), whole monorepo
+> `pnpm test` green (1056), `-r typecheck` clean.
+
 > **Studio lazy-load DONE (2026-06-30):** opening a jsonValues entry now fetches its content via
 > `GET /json` and renders the fields (was: the `resolvePath` guard error). Read path works in both
-> production (`fetchValKey`) and the Studio. **Editing** shows optimistic updates, but **persistence
-> to `*.val.json` needs the commit flow (still pending)** — so publishing an edit won't write the
-> json file yet. Requires `pnpm --filter @valbuild/ui build` for the Studio bundle to pick up UI
-> changes (it's a built bundle, not a live dev-stub).
+> production (`fetchValKey`) and the Studio. **Editing** now persists on commit (see above).
+> Requires `pnpm --filter @valbuild/ui build` for the Studio bundle to pick up UI changes (it's a
+> built bundle, not a live dev-stub).
 
-- **Phase**: 1 ✅. Phase 2 server: validation + loader + emit primitive + **/json endpoint** ✅
-  (commit flow still pending). Phase 3 UI lazy-load ✅ (Studio reads jsonValues entries). Phase 4:
+- **Phase**: 1 ✅. Phase 2 server: validation + loader + emit primitive + **/json endpoint** +
+  **commit flow** ✅. Phase 3 UI lazy-load ✅ (Studio reads jsonValues entries). Phase 4:
   `fetchValKey`/`useValKey` ✅ (production path). Example (support pages) added + typechecks.
-  **The `c.json` sha was removed (2026-07-02).** Remaining big piece: the **commit flow** (write
-  `*.val.json` for content edits; insert/remove `c.json` thunks for add/remove).
+  **The `c.json` sha was removed (2026-07-02).** Remaining: end-to-end Studio verify of add/remove/
+  edit against a running dev server; `fetchValRoute`/`useValRoute` key path; Enabled/Studio draft
+  runtime path; Phase 5 CI gate (example `.jsonValues()` router + `examples/next` build).
 - **Single-entry runtime read API (typecheck-validated, runtime-validation via example pending)**:
   - RSC `fetchValKey` — `initFetchValKeyStega` in `next/src/rsc/initValRsc.ts` (returned as
     `fetchValKeyStega`). Resolves ONE entry by key from the local module's thunk + stega-encodes.
@@ -30,36 +38,42 @@
   - Both: production path resolves the local thunk; Enabled/Studio **draft** path is a TODO (needs
     the single-entry endpoint + a sub-selector for stega edit tags). Still TODO: make `fetchValRoute`/
     `useValRoute` use the key path for jsonValues routers (load one).
-- **Next step (the commit flow — IN PROGRESS)**: persist edits to `*.val.json` instead of the
-  `.val.ts`. Design (now fully mapped):
+- **Commit flow — DONE (2026-07-03)**. Persists edits to `*.val.json` instead of the `.val.ts`.
+  Implementation landed:
   - **Key enabler**: `ValOps.prepare`'s `patchedSourceFiles: Record<path, string|null>` is written by
-    the commit loop to **arbitrary paths** relative to rootDir (`null` = delete). So `*.val.json`
+    the commit loop to **arbitrary paths** relative to rootDir (`null` = delete). `*.val.json`
     writes/deletes go through the same map (no new abstract FS method needed).
-  - **AST analyzer DONE**: `patch/ts/jsonValuesModule.ts` `analyzeJsonValuesEntries(sourceExpr)` →
+  - **AST analyzer**: `patch/ts/jsonValuesModule.ts` `analyzeJsonValuesEntries(sourceExpr)` →
     `Map<key, { importPath }>` (uses `analyzeValModule` to get the source object literal). Tested.
-  - **Filename convention (LOCKED)**: the `*.val.json` for a new entry mirrors the key under a folder
-    named after the `.val.ts` (the `.val.ts` suffix becomes the folder). For module
-    `/app/foo/[...slug]/page.val.ts` and key `/foo/bar/zoo`:
-    - json file path (relative to rootDir): `/app/foo/[...slug]/page/foo/bar/zoo.val.json`
-    - import path written in the `.val.ts` thunk: `./page/foo/bar/zoo.val.json`
-    - i.e. `jsonPath = stripValTsSuffix(moduleFilePath) + "/" + key.replace(/^\//, "") + ".val.json"`;
-      `importPath = "./" + relative(dirOf(moduleFilePath), jsonPath)`. For EXISTING entries use the
-      `importPath` from the analyzer (hybrid: devs may have hand-placed files); only NEW entries use
-      this convention.
-  - **Routing in `prepare.applySourceFilePatches`**: need the module's serialized schema to know
-    which records are `jsonValues`. Partition each patch's `sourceFileOps` by op path:
-    1. ops descending into a jsonValues entry (`[entryKey, ...sub]`) → CONTENT edits;
-    2. add/remove of an entry key on a jsonValues record → STRUCTURAL;
-    3. everything else → normal `tsOps` on the `.val.ts` (unchanged).
-  - **Content edits** (no sha ⇒ the `.val.ts` is NOT touched): load the entry's current `*.val.json`
-    (path = module dir + `importPath` from the analyzer; content via `getSourceFile`/fs), apply the
-    rebased sub-ops with `applyPatch` + `@valbuild/core/patch` JSON ops, and set
-    `patchedSourceFiles[jsonPath] = JSON.stringify(newContent)`. That's it — only the json file
-    changes.
-  - **Add entry**: `patchedSourceFiles[newJsonPath] = JSON.stringify(content)` + insert
-    `c.json(() => import("<newImportPath>"))` property via `createValJsonReference(importPath)` +
-    `insertAt`. **Remove**: `patchedSourceFiles[jsonPath] = null` + `removeAt` the property.
-  - Then validation already handles inline content (`validateJsonValuesEntries` for base thunks;
+  - **Path helpers**: `patch/jsonValuesPatch.ts` — `getNewJsonEntryPaths(mfp, key)` (LOCKED
+    convention below) + `resolveExistingJsonPath(mfp, importPath)` (existing/hand-placed files use
+    the analyzer's importPath). Tested (`jsonValuesPatch.test.ts`).
+  - **Op classifier**: `patch/jsonValuesPatch.ts` `classifyJsonValuesOp(serializedSchema, opPath)`
+    walks the serialized schema; returns `{kind:"entry", recordPath, entryKey, subPath}` or
+    `{kind:"normal"}`. Handles root records/routers (recordPath `[]`) AND nested jsonValues records.
+  - **ts-ops**: `patch/ts/ops.ts` `insertValJsonEntry` / `removeValJsonEntry` insert/remove the
+    `c.json(() => import(...))` property on the record's object literal (built with
+    `createValJsonReference`, spliced with the internal `insertAt`/`removeAt`). Tested
+    (`jsonValuesEntry.test.ts`).
+  - **Routing in `prepare.applySourceFilePatches`**: fetches `this.getSchemas()` once, serializes per
+    module, and processes each patch's `sourceFileOps` op-by-op (in order). Per op:
+    1. `normal` → `applyPatch(tsSourceFile, tsOps, [op])` (unchanged behavior; `.val.ts` reformatted).
+    2. `entry` + empty subPath → STRUCTURAL: `add` = new `*.val.json` + `insertValJsonEntry`;
+       `remove` = `null` json + `removeValJsonEntry`; `replace` = whole-entry json content.
+    3. `entry` + non-empty subPath → CONTENT: load current `*.val.json` (`getSourceFile` +
+       `JSON.parse`, cached in a per-module map), then replay the **rebased** op via `jsonOps`
+       (`rebaseContentOp` drops the record+entryKey prefix and rebases any move/copy `from`).
+  - **`.val.ts` untouched on pure content edits**: `applySourceFilePatches` now returns
+    `result: string | null` (`null` = ts unchanged) + `extraFiles: Record<path,string|null>`. The
+    caller only writes `patchedSourceFiles[mfp]` when `result !== null`, and always merges
+    `extraFiles`. So a content-only commit writes ONLY the `*.val.json`.
+  - **Filename convention (LOCKED)**: new entry mirrors the key under a folder named after the
+    `.val.ts` (its `.val.ts` suffix becomes the folder). Module `/app/foo/[...slug]/page.val.ts`,
+    key `/foo/bar/zoo` → jsonPath `/app/foo/[...slug]/page/foo/bar/zoo.val.json`, importPath
+    `./page/foo/bar/zoo.val.json`. EXISTING entries use the analyzer's importPath (hybrid authoring).
+  - **Tested**: `ValOpsFS.jsonValues.test.ts` (content edit writes only json; add writes json +
+    thunk; remove nulls json + drops thunk). Whole `pnpm test` green (1056).
+  - Validation already handles inline content (`validateJsonValuesEntries` for base thunks;
     `executeValidate` validates inline content). `/sources/~` shallow markers already work
     (JSON.stringify drops the thunk).
 - **Last verified green**: core json suite (14 tests) + server `validateJsonValues`/loader/
@@ -153,17 +167,19 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 - [x] `patch/ts/ops.ts`: `createValJsonReference(importPath)` — emits `c.json(() => import("..."))`
       (factory-built; uses `createIdentifier("import")` to print a dynamic import without casting the
       ImportKeyword token). Tested in `jsonReference.test.ts`. ✅
-- [ ] `patch/ts/ops.ts` (remaining): wire add/remove of json entries through `insertAt`/`removeAt`
-      (+ write/delete `*.val.json`) — done with the ValOps commit flow below. (Content edits don't
-      touch the `.val.ts` — no sha to update.)
+- [x] `patch/ts/ops.ts`: `insertValJsonEntry` / `removeValJsonEntry` insert/remove a
+      `c.json(() => import(...))` entry property on the record object literal (via
+      `insertAt`/`removeAt` + `createValJsonReference`). Tested (`jsonValuesEntry.test.ts`). ✅
 - [x] **Per-entry validation**: `validateJsonValues.ts` (`validateJsonValuesEntries`) loads each
       entry's content via `getJsonImport` and validates against the item schema; wired into
       `ValOps.validateSources` (runs before the `res === false` early-continue). Tested in
       `validateJsonValues.test.ts` (valid/invalid/load-error/non-jsonValues-skip). ✅
-- [ ] `ValOps.ts` / `ValOpsFS.ts` / `ValOpsHttp.ts` (remaining): confirm shallow source
-      serialization on `/sources/~` (JSON.stringify already drops the thunk → `{_type}`); commit
-      writes `*.val.json` (content edits) + inserts/removes `c.json(...)` thunks for add/remove (use
-      `createValJsonReference` + `insertAt`/`removeAt`).
+- [x] `ValOps.ts` commit flow: `prepare.applySourceFilePatches` routes ops via `classifyJsonValuesOp`
+      and writes `*.val.json` (content edits) + inserts/removes `c.json(...)` thunks for add/remove
+      through the existing `patchedSourceFiles` map (so `ValOpsFS`/`ValOpsHttp` commit them
+      unchanged). `.val.ts` is not written on pure content edits. Tested
+      (`ValOpsFS.jsonValues.test.ts`). ✅ (Still to confirm: shallow `/sources/~` serialization end to
+      end against the Studio.)
 - [x] Core eager resolver `Internal.resolveJsonValues(source)` (for `fetchVal`/`useVal`). ✅
 - [ ] `ValServer.ts`: endpoint to fetch one entry's content (draft-aware via `patch_id`);
       `/sources/~` returns shallow markers for json records.
@@ -238,6 +254,12 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Changelog
 
+- **Session 2 (2026-07-03)**: Commit flow landed. New `patch/jsonValuesPatch.ts` (op classifier +
+  path helpers), new `insertValJsonEntry`/`removeValJsonEntry` in `patch/ts/ops.ts`, and a rewritten
+  `ValOps.prepare.applySourceFilePatches` that routes ops into `*.val.json` writes/deletes +
+  `.val.ts` thunk insert/remove, skipping the `.val.ts` on pure content edits. Tests:
+  `jsonValuesPatch.test.ts`, `jsonValuesEntry.test.ts`, `ValOpsFS.jsonValues.test.ts`. Whole
+  `pnpm test` (1056) + `-r typecheck` green.
 - **Session 1**: Phase 1 (core) complete + tested; Phase 2 loader done + tested;
   `createValJsonReference` primitive done + tested. Whole monorepo typechecks (except pre-existing
   unrelated `packages/cli` chokidar error). `JsonSource` redesigned to a phantom-typed pure-JSON
