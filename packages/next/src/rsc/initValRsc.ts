@@ -20,7 +20,11 @@ import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
-import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
+import {
+  getValRouteUrlFromVal,
+  initValRouteFromVal,
+  isJsonValuesRecordSchema,
+} from "../routeFromVal";
 
 SET_RSC(true);
 const initFetchValStega =
@@ -174,7 +178,10 @@ type FetchValRouteReturnType<
 > =
   T extends ValModule<infer S>
     ? S extends SourceObject
-      ? StegaOfSource<NonNullable<S>[string]> | null
+      ? // `.jsonValues()` router: the matched entry resolves to its json content.
+        NonNullable<S>[string] extends JsonSource<infer C>
+        ? C | null
+        : StegaOfSource<NonNullable<S>[string]> | null
       : never
     : never;
 
@@ -198,6 +205,36 @@ const initFetchValRouteStega =
       | Record<string, string | string[]>
       | unknown,
   ): Promise<FetchValRouteReturnType<T>> => {
+    const resolvedParams = await Promise.resolve(params);
+    const path = selector && Internal.getValPath(selector);
+    const schema = selector && Internal.getSchema(selector);
+    // `.jsonValues()` router: map params → the entry key and load ONLY that
+    // entry's backing `*.val.json`, instead of eagerly resolving the whole
+    // record via `fetchVal`.
+    if (isJsonValuesRecordSchema(schema)) {
+      const source = selector && Internal.getSource(selector);
+      const url = getValRouteUrlFromVal(
+        resolvedParams,
+        "fetchValRoute",
+        path,
+        schema,
+        source,
+      );
+      if (!url) {
+        return null as FetchValRouteReturnType<T>;
+      }
+      const content = await loadJsonEntryContent(source, url);
+      if (content === undefined) {
+        return null as FetchValRouteReturnType<T>;
+      }
+      let enabled = false;
+      try {
+        enabled = await isEnabled();
+      } catch {
+        // not in a server context where draftMode is readable — treat as disabled
+      }
+      return stegaEncode(content, { disabled: !enabled });
+    }
     const fetchVal = initFetchValStega(
       config,
       valApiEndpoints,
@@ -206,9 +243,6 @@ const initFetchValRouteStega =
       getHeaders,
       getCookies,
     );
-    const resolvedParams = await Promise.resolve(params);
-    const path = selector && Internal.getValPath(selector);
-    const schema = selector && Internal.getSchema(selector);
     const val = selector && (await fetchVal(selector));
     const route = initValRouteFromVal(
       resolvedParams,
@@ -219,6 +253,29 @@ const initFetchValRouteStega =
     );
     return route;
   };
+
+/**
+ * Resolves a single `.jsonValues()` entry's content by key from a module's local
+ * source markers (one dynamic import). Returns `undefined` when the key is
+ * missing or its marker has no runtime thunk (transport marker / draft entry).
+ */
+async function loadJsonEntryContent(
+  source: unknown,
+  key: string,
+): Promise<unknown | undefined> {
+  if (!source || typeof source !== "object") {
+    return undefined;
+  }
+  const marker = (source as Record<string, unknown>)[key];
+  if (!Internal.isJson(marker)) {
+    return undefined;
+  }
+  const thunk = Internal.getJsonImport(marker);
+  if (!thunk) {
+    return undefined;
+  }
+  return (await thunk()).default;
+}
 
 // The (loosened) content type a single `.jsonValues()` entry resolves to.
 type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
@@ -259,19 +316,11 @@ const initFetchValKeyStega =
         // not in a server context where draftMode is readable — treat as disabled
       }
       const source = selector && Internal.getSource(selector);
-      if (!source || typeof source !== "object") {
+      const content = await loadJsonEntryContent(source, key);
+      if (content === undefined) {
+        // missing key, or transport marker without a runtime thunk — see TODO above
         return undefined;
       }
-      const marker = (source as Record<string, unknown>)[key];
-      if (!Internal.isJson(marker)) {
-        return undefined;
-      }
-      const thunk = Internal.getJsonImport(marker);
-      if (!thunk) {
-        // transport marker without a runtime thunk — see TODO above
-        return undefined;
-      }
-      const content = (await thunk()).default;
       return stegaEncode(content, {
         disabled: !enabled,
       });

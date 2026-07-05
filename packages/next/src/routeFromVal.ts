@@ -6,6 +6,18 @@ import {
   RoutePattern,
 } from "@valbuild/shared/internal";
 
+/**
+ * True when the module's schema is a `.jsonValues()` record/router — i.e. each
+ * entry value is a lazily-loaded `c.json(() => import(...))` marker. Used by the
+ * route helpers to load ONLY the matched entry instead of the whole record.
+ */
+export function isJsonValuesRecordSchema(schema: unknown): boolean {
+  return (
+    schema instanceof RecordSchema &&
+    schema["executeSerialize"]().jsonValues === true
+  );
+}
+
 export function getValRouteUrlFromVal(
   resolvedParams: Record<string, string | string[]> | unknown,
   methodName: string,

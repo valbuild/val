@@ -26,18 +26,20 @@
 
 - **Phase**: 1 ✅. Phase 2 server: validation + loader + emit primitive + **/json endpoint** +
   **commit flow** ✅. Phase 3 UI lazy-load ✅ (Studio reads jsonValues entries). Phase 4:
-  `fetchValKey`/`useValKey` ✅ (production path). Example (support pages) added + typechecks.
+  `fetchValKey`/`useValKey` + **`fetchValRoute`/`useValRoute`** ✅ (production path). Example
+  (support pages) now uses `fetchValRoute`; `examples/next` `next build` green.
   **The `c.json` sha was removed (2026-07-02).** Remaining: end-to-end Studio verify of add/remove/
-  edit against a running dev server; `fetchValRoute`/`useValRoute` key path; Enabled/Studio draft
-  runtime path; Phase 5 CI gate (example `.jsonValues()` router + `examples/next` build).
+  edit against a running dev server; **Enabled/Studio draft runtime path** (all the single-entry read
+  APIs still read the committed local thunk, not draft edits); full Phase 5 CI gate run.
 - **Single-entry runtime read API (typecheck-validated, runtime-validation via example pending)**:
   - RSC `fetchValKey` — `initFetchValKeyStega` in `next/src/rsc/initValRsc.ts` (returned as
     `fetchValKeyStega`). Resolves ONE entry by key from the local module's thunk + stega-encodes.
   - Client `useValKey` — `useValKeyStega` in `next/src/client/initValClient.ts` (returned as
     `useValKeyStega`). Uses a module-level promise cache + `React.use` (Suspense) to load one entry.
+  - `fetchValRoute`/`useValRoute` now also load a single entry for `.jsonValues()` routers (map
+    params → key, then resolve one entry) — see Phase 4. ✅
   - Both: production path resolves the local thunk; Enabled/Studio **draft** path is a TODO (needs
-    the single-entry endpoint + a sub-selector for stega edit tags). Still TODO: make `fetchValRoute`/
-    `useValRoute` use the key path for jsonValues routers (load one).
+    the single-entry endpoint + a sub-selector for stega edit tags).
 - **Commit flow — DONE (2026-07-03)**. Persists edits to `*.val.json` instead of the `.val.ts`.
   Implementation landed:
   - **Key enabler**: `ValOps.prepare`'s `patchedSourceFiles: Record<path, string|null>` is written by
@@ -219,17 +221,26 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
 
 - [x] `rsc/initValRsc.ts`: `fetchValKey` (`initFetchValKeyStega`, returned as `fetchValKeyStega`).
 - [x] `client/initValClient.ts`: `useValKey` (`useValKeyStega`, promise cache + `React.use`).
-- [x] Example wires `fetchValKey` (support pages) — typechecks clean.
-- [ ] `fetchValRoute` / `useValRoute`: use the key path for jsonValues routers (load one entry by
-      matching the route), instead of the eager fetchVal. (Reuse `ValRouter` to map route→key.)
+- [x] `fetchValRoute` / `useValRoute`: jsonValues-aware. When the module schema is a `.jsonValues()`
+      record (`isJsonValuesRecordSchema` in `routeFromVal.ts`), map params → the entry key via
+      `getValRouteUrlFromVal` (passing the LOCAL source markers as the guard `val`), then load ONLY
+      that entry (RSC: `loadJsonEntryContent`; client: same `React.use` + `jsonEntryPromiseCache` as
+      `useValKey`). Non-jsonValues routers keep the eager `fetchVal`/`useValStega` path. Return types
+      gained a `NonNullable<S>[string] extends JsonSource<infer C> ? C | null : …` branch. ✅
+- [x] Example wires `fetchValRoute` (support pages) — `next build` green; `/support/[slug]` is a
+      single-entry dynamic route. (Was `fetchValKey`.) ✅
 - [ ] Enabled/Studio draft path: resolve draft content via `/json` (+ sub-selector stega tags).
+      (fetchValKey/useValKey + fetchValRoute/useValRoute all still read the LOCAL committed thunk on
+      the enabled/draft path — draft edits aren't reflected until commit.)
 
 ## Phase 5 — Example + CI gate
 
-- [ ] Add a `.jsonValues()` router to `examples/next` with a few `*.val.json` entries.
-- [ ] `cd examples/next && pnpm run build` green; confirm single-entry import in output.
-- [ ] Full CI: `pnpm run lint`, `pnpm -w run format`, `pnpm run -r typecheck`, `pnpm test`,
-      `pnpm run build`, `cd examples/next && pnpm run build`.
+- [x] Add a `.jsonValues()` router to `examples/next` with a few `*.val.json` entries
+      (`app/support/[slug]/page.val.ts` + `content/*.val.json`); consumed via `fetchValRoute`.
+- [x] `cd examples/next && pnpm run build` green (`/support/[slug]` dynamic route builds).
+- [ ] Full CI in one pass: `pnpm run lint`, `pnpm -w run format`, `pnpm run -r typecheck`,
+      `pnpm test`, `pnpm run build` (root preconstruct+ui; remember `pnpm preconstruct dev` after),
+      `cd examples/next && pnpm run build`.
 
 ---
 
@@ -254,6 +265,12 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Changelog
 
+- **Session 3 (2026-07-03)**: `fetchValRoute`/`useValRoute` made jsonValues-aware — they now map
+  route params → the entry key and load ONLY the matched entry (RSC `loadJsonEntryContent`; client
+  reuses the `useValKey` `React.use` cache), instead of eagerly resolving the whole record. Added
+  `isJsonValuesRecordSchema` to `routeFromVal.ts`; return types gained the `JsonSource<C> ? C` branch.
+  Example support page switched to `fetchValRoute`; `examples/next` `next build` green. `-r typecheck`
+  - next tests green.
 - **Session 2 (2026-07-03)**: Commit flow landed. New `patch/jsonValuesPatch.ts` (op classifier +
   path helpers), new `insertValJsonEntry`/`removeValJsonEntry` in `patch/ts/ops.ts`, and a rewritten
   `ValOps.prepare.applySourceFilePatches` that routes ops into `*.val.json` writes/deletes +

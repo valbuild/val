@@ -1,4 +1,4 @@
-import { fetchValKey } from "../../../val/rsc";
+import { fetchValRoute } from "../../../val/rsc";
 import supportVal from "./page.val";
 
 export default async function SupportPage({
@@ -6,10 +6,9 @@ export default async function SupportPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  const { slug } = await params;
-  // Loads ONLY this slug's backing *.val.json (one dynamic import), not the
-  // whole support-pages record.
-  const page = await fetchValKey(supportVal, `/support/${slug}`);
+  // Maps the route params to the matching entry and loads ONLY that entry's
+  // backing *.val.json (one dynamic import), not the whole support-pages record.
+  const page = await fetchValRoute(supportVal, params);
   if (!page) {
     return <main>Support page not found.</main>;
   }
