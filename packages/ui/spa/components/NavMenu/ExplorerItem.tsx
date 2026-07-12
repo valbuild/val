@@ -1,9 +1,10 @@
-import { ChevronRight, Folder, FileText, AlertCircle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useState, useMemo } from "react";
 import { cn } from "../designSystem/cn";
 import { AnimateHeight } from "../AnimateHeight";
 import { ExplorerItem as ExplorerItemType } from "./types";
-import { prettifyFilename } from "../../utils/prettifyFilename";
+import { ErrorBadge } from "./ErrorBadge";
+import { totalExplorerErrorCount } from "./errorAggregation";
 
 export type ExplorerItemProps = {
   item: ExplorerItemType;
@@ -27,22 +28,16 @@ export function ExplorerItemNode({
   const isActive = currentPath.startsWith(item.fullPath) && !item.isDirectory;
   const isActiveParent =
     currentPath.startsWith(item.fullPath) && item.isDirectory;
+  const isExactActive = currentPath === item.fullPath;
 
-  // Check if any children have errors (for collapsed indicator)
-  const hasDescendantError = useMemo(() => {
-    if (item.hasError) return true;
-    const checkChildren = (children: ExplorerItemType[]): boolean => {
-      return children.some(
-        (child) => child.hasError || checkChildren(child.children),
-      );
-    };
-    return checkChildren(item.children);
-  }, [item]);
+  // Errors that resolve directly to this file (zero for directories), plus
+  // the recursive total used by the count badge.
+  const ownErrorCount = item.errors?.ownCount ?? (item.hasError ? 1 : 0);
+  const totalErrorCount = useMemo(() => totalExplorerErrorCount(item), [item]);
+  const hasOwnError = ownErrorCount > 0;
 
-  const showErrorIndicator = item.hasError || (!isOpen && hasDescendantError);
-
+  // Sort: directories first, then alphabetically.
   const sortedChildren = useMemo(() => {
-    // Sort: directories first, then alphabetically
     return [...item.children].sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
@@ -50,15 +45,11 @@ export function ExplorerItemNode({
     });
   }, [item.children]);
 
-  const handleClick = () => {
-    if (item.isDirectory) {
-      setIsOpen(!isOpen);
-    } else if (onNavigate) {
-      onNavigate(item.fullPath);
-    }
-  };
+  // Strip val module suffixes — `.val.ts`/`.val.js` are noise on every row.
+  // Other extensions are kept so users can still tell different file types apart.
+  const displayName = useMemo(() => stripValExtension(item.name), [item.name]);
 
-  // Skip root node rendering
+  // Skip the synthetic "/" root row — just render its children at depth 0.
   if (item.name === "/" && depth === 0) {
     return (
       <>
@@ -75,57 +66,78 @@ export function ExplorerItemNode({
     );
   }
 
+  const handleClick = () => {
+    if (item.isDirectory) {
+      setIsOpen((prev) => !prev);
+    } else if (onNavigate) {
+      onNavigate(item.fullPath);
+    }
+  };
+
+  const indent = depth * 12 + 8;
+
   return (
     <div className="w-full">
-      <button
+      <div
         className={cn(
-          "group flex items-center justify-between w-full h-9 pr-2 rounded-md transition-colors text-left",
+          "group relative flex items-center justify-between w-full h-8 pr-1.5 rounded-md transition-colors",
           "hover:bg-bg-secondary",
           {
-            "bg-bg-secondary": isActive,
+            "bg-bg-secondary": isActive || isActiveParent,
           },
         )}
-        style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        onClick={handleClick}
+        style={{ paddingLeft: `${indent}px` }}
       >
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {item.isDirectory ? (
+        {item.isDirectory && hasChildren ? (
+          <button
+            onClick={() => setIsOpen((prev) => !prev)}
+            className="shrink-0 mr-1 text-fg-secondary"
+            aria-label={isOpen ? "Collapse" : "Expand"}
+          >
             <ChevronRight
-              size={14}
-              className={cn(
-                "shrink-0 text-fg-secondary transition-transform duration-200",
-                {
-                  "rotate-90": isOpen,
-                  invisible: !hasChildren,
-                },
-              )}
+              size={12}
+              className={cn("transition-transform duration-200", {
+                "rotate-90": isOpen,
+              })}
             />
-          ) : (
-            <span className="w-3.5" />
-          )}
+          </button>
+        ) : (
+          <span className="shrink-0 w-3 mr-1" />
+        )}
 
-          {item.isDirectory ? (
-            <Folder size={14} className="shrink-0 text-fg-secondary" />
-          ) : (
-            <FileText size={14} className="shrink-0 text-fg-secondary" />
-          )}
-
+        <button
+          className="flex-1 min-w-0 flex items-center gap-1 py-1 text-left font-mono text-xs leading-none"
+          onClick={handleClick}
+        >
           <span
-            className={cn("truncate text-sm", {
-              "font-medium": isActive,
-              "font-semibold": isActiveParent,
-              "text-fg-primary": !showErrorIndicator,
-              "text-fg-error-primary": showErrorIndicator,
+            className={cn("truncate", {
+              "font-medium": isExactActive,
             })}
           >
-            {prettifyFilename(item.name)}
+            <span
+              className={cn({
+                // Direct errors on a file tint its name red. Aggregated counts
+                // on a parent folder use only the badge — the folder name
+                // stays neutral.
+                "text-fg-error-primary": hasOwnError,
+                "text-fg-primary": !hasOwnError && !item.isDirectory,
+                "text-fg-secondary": !hasOwnError && item.isDirectory,
+              })}
+            >
+              {displayName}
+              {item.isDirectory && <span className="text-fg-secondary">/</span>}
+            </span>
           </span>
-        </div>
+        </button>
 
-        {showErrorIndicator && (
-          <AlertCircle size={14} className="shrink-0 text-fg-error-primary" />
+        {totalErrorCount > 0 && (
+          <ErrorBadge
+            count={totalErrorCount}
+            ownCount={ownErrorCount}
+            firstMessage={item.errors?.firstMessage}
+          />
         )}
-      </button>
+      </div>
 
       {hasChildren && (
         <AnimateHeight isOpen={isOpen}>
@@ -144,4 +156,15 @@ export function ExplorerItemNode({
       )}
     </div>
   );
+}
+
+/**
+ * Strip the val module extensions (`.val.ts`, `.val.js`) so the display reads
+ * as a clean module name. Other extensions are kept so users can still
+ * distinguish file types.
+ */
+function stripValExtension(name: string): string {
+  if (name.endsWith(".val.ts")) return name.slice(0, -".val.ts".length);
+  if (name.endsWith(".val.js")) return name.slice(0, -".val.js".length);
+  return name;
 }

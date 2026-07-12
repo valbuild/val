@@ -2,6 +2,20 @@ import { SourcePath, ModuleFilePath } from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 
 /**
+ * Validation error summary for a single nav menu row.
+ *
+ * `ownCount` is the number of errors that resolve directly to this row (a
+ * file's own errors, or a sitemap entry's nested errors). Descendant counts
+ * are computed at render time by recursing the tree.
+ */
+export type NavItemErrors = {
+  /** Errors that resolve directly to this item (not descendants). */
+  ownCount: number;
+  /** First error's user-facing message — used in tooltips. */
+  firstMessage?: string;
+};
+
+/**
  * Represents a page or folder in the site map tree.
  * Used for Next.js app router pages.
  */
@@ -20,6 +34,8 @@ export type SitemapItem = {
   routePattern?: RoutePattern[];
   /** Existing children keys (for validation in add form) */
   existingKeys?: string[];
+  /** Validation errors attributable to this row (not descendants). */
+  errors?: NavItemErrors;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */
@@ -39,7 +55,12 @@ export type ExplorerItem = {
   isDirectory: boolean;
   /** Child items */
   children: ExplorerItem[];
-  /** Whether this item or any descendant has validation errors */
+  /** Validation errors attributable to this file (not descendants). */
+  errors?: NavItemErrors;
+  /**
+   * @deprecated Set `errors` instead. Retained so callers that constructed
+   * mock data with just `hasError: true` keep working.
+   */
   hasError?: boolean;
 };
 

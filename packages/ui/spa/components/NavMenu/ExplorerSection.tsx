@@ -1,4 +1,5 @@
 import { PanelsTopLeft } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "../designSystem/cn";
 import { ExplorerItem } from "./types";
 import { ExplorerItemNode } from "./ExplorerItem";
@@ -8,6 +9,8 @@ import {
   AccordionTrigger,
 } from "../designSystem/accordion";
 import { ScrollArea } from "../designSystem/scroll-area";
+import { ErrorBadge } from "./ErrorBadge";
+import { totalExplorerErrorCount } from "./errorAggregation";
 
 export type ExplorerSectionProps = {
   /** Explorer data */
@@ -26,6 +29,11 @@ export function ExplorerSection({
   onNavigate,
   maxHeight = "100%",
 }: ExplorerSectionProps) {
+  const sectionErrorCount = useMemo(
+    () => totalExplorerErrorCount(explorer),
+    [explorer],
+  );
+
   return (
     <AccordionItem value="explorer" className="border-b-0">
       <AccordionTrigger
@@ -38,6 +46,9 @@ export function ExplorerSection({
         <div className="flex items-center gap-2">
           <PanelsTopLeft size={16} />
           <span>Explorer</span>
+          {sectionErrorCount > 0 && (
+            <ErrorBadge count={sectionErrorCount} ownCount={0} size="sm" />
+          )}
         </div>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
