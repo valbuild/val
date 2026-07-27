@@ -449,6 +449,215 @@ describe("ValSyncEngine", () => {
       "module-schema-not-found",
     );
   });
+
+  describe("jsonValues", () => {
+    const PAGES = "/pages.val.ts" as const;
+
+    /**
+     * A `.jsonValues()` record module: the source only carries lazy markers, so
+     * the engine must fetch each entry's content via GET /json.
+     */
+    function setupJsonValues() {
+      const { s, c, config } = initVal();
+      const schema = s
+        .record(s.object({ title: s.string(), order: s.number() }))
+        .jsonValues();
+      const valModule = c.define(PAGES, schema, {
+        "/a": c.json(() =>
+          Promise.resolve({ default: { title: "A", order: 1 } }),
+        ),
+        "/b": c.json(() =>
+          Promise.resolve({ default: { title: "B", order: 2 } }),
+        ),
+      });
+      const tester = new SyncEngineTester("fs", [valModule as any], config);
+      tester.fakeJsonEntries[PAGES] = {
+        "/a": { title: "A", order: 1 },
+        "/b": { title: "B", order: 2 },
+      };
+      return { tester, config };
+    }
+
+    /** Lets the `/json` promise chain settle. */
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    test("requestJsonEntry substitutes the loaded content into the source", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      // Before loading, the entry is an opaque marker.
+      const before = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+        .data as any;
+      expect(Internal.isJson(before["/a"])).toBe(true);
+
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/a");
+      await flush();
+
+      const after = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+        .data as any;
+      expect(after["/a"]).toEqual({ title: "A", order: 1 });
+      // the un-requested entry is untouched
+      expect(Internal.isJson(after["/b"])).toBe(true);
+      expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(1);
+    });
+
+    test("a loaded entry is not refetched", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/a");
+      await flush();
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/a");
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/a");
+      await flush();
+      expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(1);
+    });
+
+    test("a failed load is memoized: no refetch loop, and an error is exposed", async () => {
+      // Regression: a failing entry used to be refetched on every remount and
+      // rendered a spinner forever, because nothing was cached on failure.
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/missing");
+      await flush();
+
+      expect(
+        engine.getJsonEntryError(toModuleFilePath(PAGES), "/missing"),
+      ).toContain("Entry not found");
+      expect(tester.jsonRequestCounts[`${PAGES}\0/missing`]).toBe(1);
+
+      // Subsequent requests must NOT hit the endpoint again.
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/missing");
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/missing");
+      await flush();
+      expect(tester.jsonRequestCounts[`${PAGES}\0/missing`]).toBe(1);
+    });
+
+    test("retryJsonEntry clears the memo and refetches", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/late");
+      await flush();
+      expect(
+        engine.getJsonEntryError(toModuleFilePath(PAGES), "/late"),
+      ).not.toBe(null);
+
+      // The entry shows up server-side, then the user retries.
+      tester.fakeJsonEntries[PAGES]["/late"] = { title: "Late", order: 3 };
+      engine.retryJsonEntry(toModuleFilePath(PAGES), "/late");
+      await flush();
+
+      expect(engine.getJsonEntryError(toModuleFilePath(PAGES), "/late")).toBe(
+        null,
+      );
+      expect(tester.jsonRequestCounts[`${PAGES}\0/late`]).toBe(2);
+    });
+
+    test("publish refetches loaded entries (a published edit must not revert)", async () => {
+      // Regression: jsonEntryContents was only cleared on init/reset. A
+      // content-only edit does not change the module source (bare markers), so
+      // sourcesSha is unchanged and nothing refetched — after publish the
+      // pre-edit content was re-substituted and the edit looked reverted.
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      expect(
+        (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+      ).toEqual({ title: "A", order: 1 });
+
+      // Edit the entry, then publish. The fake server commits it: the entry's
+      // *.val.json now holds the new content, the module source is unchanged.
+      const res = engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "replace", path: ["/a", "title"], value: "A edited" }],
+        tester.getNextNow(),
+      );
+      expect(res.status).toBe("patch-added");
+      tester.simulatePassingOfSeconds(5);
+      await engine.sync(tester.getNextNow());
+      await flush();
+      const patchIds = tester.fakePatches.map((p) => p.patchId);
+      tester.fakeJsonEntries[PAGES]["/a"] = { title: "A edited", order: 1 };
+      const requestsBeforePublish =
+        tester.jsonRequestCounts[`${PAGES}\0/a`] ?? 0;
+
+      expect(
+        await engine.publish(patchIds, undefined, tester.getNextNow()),
+      ).toMatchObject({ status: "done" });
+      await flush();
+
+      expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(
+        requestsBeforePublish + 1,
+      );
+      expect(
+        (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+      ).toEqual({ title: "A edited", order: 1 });
+    });
+
+    test("an entry invalidated mid-flight is refetched (a stale response must not win)", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "replace", path: ["/a", "title"], value: "A edited" }],
+        tester.getNextNow(),
+      );
+      tester.simulatePassingOfSeconds(5);
+      await engine.sync(tester.getNextNow());
+      const patchIds = tester.fakePatches.map((p) => p.patchId);
+
+      // Publish WITHOUT letting the sync-triggered refetch settle first, so the
+      // entry is invalidated while a request is still in flight. That in-flight
+      // response predates the publish and must not be the final value.
+      tester.fakeJsonEntries[PAGES]["/a"] = { title: "A edited", order: 1 };
+      await engine.publish(patchIds, undefined, tester.getNextNow());
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      await flush();
+
+      expect(
+        (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+      ).toEqual({ title: "A edited", order: 1 });
+    });
+
+    test("ensureJsonEntry resolves once content is loaded", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/b");
+      expect(
+        (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/b"],
+      ).toEqual({ title: "B", order: 2 });
+
+      // Already loaded: resolves immediately, no second request.
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/b");
+      expect(tester.jsonRequestCounts[`${PAGES}\0/b`]).toBe(1);
+    });
+
+    test("a move patch on a loaded entry carries real content to the new key", async () => {
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "move", from: ["/a"], path: ["/renamed"] }],
+        tester.getNextNow(),
+      );
+
+      const source = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+        .data as any;
+      expect(source["/a"]).toBeUndefined();
+      // real content, NOT an opaque marker
+      expect(source["/renamed"]).toEqual({ title: "A", order: 1 });
+    });
+  });
 });
 
 function toModuleFilePath(moduleFilePath: `/${string}.val.ts`): ModuleFilePath {
@@ -497,6 +706,12 @@ type FakeApi = {
   "/schema": {
     GET: z.infer<Api["/schema"]["GET"]["res"]> | ClientFetchErrors | null;
   };
+  "/json": {
+    GET: z.infer<Api["/json"]["GET"]["res"]> | ClientFetchErrors | null;
+  };
+  "/save": {
+    POST: z.infer<Api["/save"]["POST"]["res"]> | ClientFetchErrors | null;
+  };
 };
 
 class SyncEngineTester {
@@ -514,6 +729,10 @@ class SyncEngineTester {
   fakeSources: Record<string, any>;
   now: number;
   fakeResponses: Partial<FakeApi>;
+  /** Committed `.jsonValues()` entry content, by module then entry key. */
+  fakeJsonEntries: Record<string, Record<string, unknown>> = {};
+  /** How many times GET /json was called, keyed `${path}\0${key}`. */
+  jsonRequestCounts: Record<string, number> = {};
 
   constructor(
     private mode: "fs" | "http",
@@ -593,6 +812,30 @@ class SyncEngineTester {
       json: {
         schemas: serializedSchemas,
         schemaSha: this.getSchemasSha(),
+      },
+    };
+  }
+
+  getJson(
+    req: InferReq<Api["/json"]["GET"]["req"]>,
+  ): z.infer<Api["/json"]["GET"]["res"]> {
+    const path = req.query.path;
+    const key = req.query.key;
+    this.jsonRequestCounts[`${path}\0${key}`] =
+      (this.jsonRequestCounts[`${path}\0${key}`] ?? 0) + 1;
+    const entries = this.fakeJsonEntries[path];
+    if (entries === undefined || !(key in entries)) {
+      return {
+        status: 404,
+        json: { message: `Entry not found: ${key} in ${path}` },
+      };
+    }
+    return {
+      status: 200,
+      json: {
+        path: path as ModuleFilePath,
+        key,
+        content: entries[key],
       },
     };
   }
@@ -855,6 +1098,16 @@ class SyncEngineTester {
       }
       if (route === "/schema" && method === "GET") {
         return this.getSchema(req);
+      }
+      if (route === "/json" && method === "GET") {
+        // NOTE: must be a Promise — the sync engine calls `.then()` on it.
+        return Promise.resolve(this.getJson(req));
+      }
+      if (route === "/save" && method === "POST") {
+        // Publishing commits the pending patches; the fake server just drops
+        // them (fs mode behaviour).
+        this.fakePatches = [];
+        return { status: 200, json: {} };
       }
       return {
         status: 404,

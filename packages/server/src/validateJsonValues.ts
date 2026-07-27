@@ -22,6 +22,12 @@ import { ValidationError } from "@valbuild/core";
  * Entries without a runtime import thunk (transport markers / draft entries
  * whose content lives in a patch) are skipped here — their content is validated
  * where it is loaded (the single-entry fetch path).
+ *
+ * ROOT-ONLY BY CONTRACT: only a module whose root schema is a `.jsonValues()`
+ * record is visited. Nested `.jsonValues()` records are rejected up front as
+ * module errors (see `findNestedJsonValuesRecords`), so they can never reach
+ * here — if that guard is ever relaxed, this must become a recursive visitor or
+ * nested entries silently get no content validation at all.
  */
 export async function validateJsonValuesEntries(
   schema: Schema<SelectorSource>,

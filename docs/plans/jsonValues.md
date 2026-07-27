@@ -10,6 +10,14 @@
 
 ## Current state / resume here
 
+> **Studio hardening DONE (2026-07-27):** the Phase 3 defects are fixed. Renaming an entry now
+> commits (`move`/`copy` arms in `ValOps.prepare`), a published edit no longer appears to revert
+> (json entry cache is invalidated on publish), a failed `/json` load renders an error instead of a
+> forever-spinner, and nested `.jsonValues()` is rejected at startup. Also fixed a **pre-existing**
+> bug found on the way: `analyzePatches` pushed one `patchesByModule` entry per op, so `prepare`
+> re-applied the whole patch once per op (harmless for `replace`, corrupting for `move`).
+> Automated tests green; the **manual Studio walkthrough (V1–V9 below) has NOT been run yet.**
+
 > **Commit flow DONE (2026-07-03):** `ValOps.prepare` now routes patch ops for `.jsonValues()`
 > records. Content edits write only the entry's `*.val.json` (the `.val.ts` is NOT touched); adding
 > an entry writes a new `*.val.json` + inserts a `c.json(() => import("..."))` thunk into the
@@ -119,6 +127,18 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
    strictness. Val object-unions are always discriminated, so distribute+recurse suffices.
 5. i18n deferred; design json format locale-agnostic.
 6. All-or-nothing: every entry of a `.jsonValues()` record is a `c.json` thunk (no mixing).
+7. **Root-only (LOCKED 2026-07-27).** `.jsonValues()` is only supported on a module's ROOT
+   record/router. A nested one is rejected at startup: `ValOps.initSources` reports a `ModulesError`
+   per offender (via `findNestedJsonValuesRecords`), so `/sources/~` fails with "Val is not correctly
+   setup" naming the module; the commit flow rejects nested entry ops as defense in depth.
+   Rationale: the `/json` endpoint keys entries by a single string, the Studio substitutes content at
+   the top level of the module source, and `validateJsonValuesEntries` only visits a root record —
+   nested entries would silently get NO content validation. `classifyJsonValuesOp` still reports
+   `recordPath` truthfully so the door stays open.
+8. **A rename relocates the file (LOCKED 2026-07-27).** A `move` writes the destination via
+   `getNewJsonEntryPaths` — the generated convention path — and deletes the source file. So renaming
+   a hand-placed `content/faq.val.json` produces `page/support/faq2.val.json`. One invariant; the
+   accepted cost is that renaming empties a hand-authored directory.
 
 ## Key runtime shapes
 
@@ -210,12 +230,29 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
       (AnyField/Field at a path); when the path's parent schema is a `jsonValues` record and the
       marker isn't loaded, request it and render a loading state until `getSourceSnapshot` returns
       content. `useShallowSourceAtPath(path, "record")` already returns keys only (list is fine).
-- [ ] **Per-entry patches**: editing an entry field produces a normal patch at the entry path; on
+- [x] **Per-entry patches**: editing an entry field produces a normal patch at the entry path; on
       commit the server commit-flow writes the `*.val.json` (Phase 2 commit flow). Add/remove entry =
-      add/remove the record key (commit flow emits/removes thunk + file).
-- [ ] **Verify** (Studio running): list shows keys w/o loading; opening an entry fetches one `/json`;
-      fields render + edit; commit writes the `*.val.json`; add/remove a route inserts/removes
-      thunk + file.
+      add/remove the record key (commit flow emits/removes thunk + file). **Rename** (`move`) and
+      duplicate (`copy`) now supported too — see Session 4.
+- [x] **Cache lifecycle + error state** (Session 4): `jsonEntryErrors` memoizes a failed load (no
+      refetch-on-remount loop; the field renders an error, not a forever-spinner) and
+      `staleJsonEntries` invalidates loaded entries on publish / `/sources/~` refresh. The stale flag
+      is cleared when a request STARTS, so an invalidation that lands mid-flight wins over the
+      in-flight response. `retryJsonEntry` / `ensureJsonEntry` added.
+- [ ] **Verify** (Studio running) — **NOT YET RUN**. Walkthrough:
+  - **V1** open the router module → both keys listed, **zero** `/api/val/json` requests.
+  - **V2** open an entry → exactly one `/json`; revisiting it → no new request.
+  - **V3** edit `title`, publish → only `content/faq.val.json` modified, `page.val.ts` untouched, and
+    the new title **survives the publish without a reload**.
+  - **V4** add `/support/new-page` → new `page/support/new-page.val.json` = `{"title":"","body":"","order":0}`
+    (from `emptyOf`) + a `c.json` thunk in `page.val.ts`.
+  - **V5** hand-authored `content/` and generated `page/support/` coexist; re-editing an existing
+    entry still writes its original path.
+  - **V6** rename → new file with the same content, old file deleted, thunk key + import path swapped.
+  - **V7** delete → file deleted, thunk gone (empty dirs are left behind; `deleteFile` doesn't prune).
+  - **V8** corrupt a `*.val.json` → `/json` 500s → ONE request, an error in the field, no refetch on
+    navigate-away-and-back; restoring the file + a refresh clears the memo.
+  - **V9** a nested `.jsonValues()` module → Studio refuses to load, naming the module.
 
 ## Phase 4 — Runtime APIs (`packages/next`, `packages/react`)
 
@@ -265,6 +302,27 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Changelog
 
+- **Session 4 (2026-07-27)**: Studio hardening — closes the Phase 3 defects.
+  - **Rename/duplicate now commit.** `ValOps.prepare` classifies `op.from` as well as `op.path` and
+    gained `move`/`copy` arms: load the source entry's content, remove the old thunk (move only),
+    insert the new one at `getNewJsonEntryPaths`, and null the old file. Cross-record and
+    cross-entry `move`/`copy` are rejected instead of silently corrupting (`rebaseContentOp` sliced
+    `from` by the destination's prefix without checking they matched).
+  - **Pre-existing bug fixed**: `analyzePatches` pushed one `patchesByModule` entry per non-file op,
+    so `prepare` re-applied the _whole_ patch once per op. Idempotent for `replace`, but it
+    duplicated `add`s and broke `move`. Now at most one entry per (module, patch).
+  - **Nested `.jsonValues()` rejected** — `findNestedJsonValuesRecords` + a `ModulesError` from
+    `initSources` (locked decision #7).
+  - **Studio cache lifecycle**: `jsonEntryErrors` (failure memo + field error state),
+    `staleJsonEntries` (invalidate on publish and on `/sources/~` refresh), `retryJsonEntry`,
+    `ensureJsonEntry`. Publish needs its own invalidation because a content-only edit leaves the
+    module source (bare markers) byte-identical, so `sourcesSha` never changes and nothing refetches.
+  - **Rename guard**: `ChangeRecordPopover` awaits `ensureJsonEntry` before emitting the `move`, so
+    the patch carries real content instead of an opaque marker (which would 404 on the new key).
+  - Tests: `ValOpsFS.jsonValues.test.ts` (+7), `jsonValuesPatch.test.ts` (+6),
+    `validateJsonValues.test.ts` (+1 pinning the root-only contract), and a new `jsonValues`
+    describe in `ValSyncEngine.test.ts` (+8, was zero coverage) with `/json` + `/save` added to the
+    mock client.
 - **Session 3 (2026-07-03)**: `fetchValRoute`/`useValRoute` made jsonValues-aware — they now map
   route params → the entry key and load ONLY the matched entry (RSC `loadJsonEntryContent`; client
   reuses the `useValKey` `React.use` cache), instead of eagerly resolving the whole record. Added

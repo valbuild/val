@@ -74,6 +74,57 @@ function descend(
 }
 
 /**
+ * Finds every `.jsonValues()` record in a module's schema that is NOT the
+ * module's root, returning the path to each within the module source.
+ *
+ * `.jsonValues()` is only supported on a module's ROOT record/router: the
+ * `/json` endpoint keys entries by a single string, the Studio substitutes
+ * loaded content at the top level of the module source, and
+ * `validateJsonValuesEntries` only visits a root record. A nested one would
+ * silently skip content validation and hang the Studio on a 404, so we reject
+ * it up front instead (see {@link ValOps.initSources}).
+ */
+export function findNestedJsonValuesRecords(
+  schema: SerializedSchema,
+  path: string[] = [],
+): string[][] {
+  const found: string[][] = [];
+  const rec = (current: SerializedSchema, currentPath: string[]) => {
+    if (
+      current.type === "record" &&
+      current.jsonValues &&
+      currentPath.length > 0
+    ) {
+      found.push(currentPath);
+      // Do not descend: everything below lives in the entry's `*.val.json`.
+      return;
+    }
+    switch (current.type) {
+      case "object":
+        for (const key of Object.keys(current.items)) {
+          rec(current.items[key], currentPath.concat(key));
+        }
+        return;
+      case "record":
+        rec(current.item, currentPath.concat("*"));
+        return;
+      case "array":
+        rec(current.item, currentPath.concat("*"));
+        return;
+      case "union":
+        for (let i = 0; i < current.items.length; i++) {
+          rec(current.items[i], currentPath.concat(`union[${i}]`));
+        }
+        return;
+      default:
+        return;
+    }
+  };
+  rec(schema, path);
+  return found;
+}
+
+/**
  * The `.val.ts` suffix a module file path ends with. Stripping it yields the
  * folder that a new entry's `*.val.json` files are nested under.
  */

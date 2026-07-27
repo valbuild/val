@@ -149,4 +149,120 @@ describe("ValOpsFS jsonValues commit flow", () => {
     expect(ts).not.toContain(`"/blog/world"`);
     expect(ts).toContain(`"/blog/hello"`);
   });
+
+  test("move renames a hand-authored entry: relocates the file and swaps the thunk", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      { op: "move", from: ["/blog/hello"], path: ["/blog/renamed"] },
+    ]);
+    expect(pc.hasErrors).toBe(false);
+    // LOCKED convention: the destination uses the generated path, so a rename
+    // relocates a hand-placed file out of its original directory.
+    const newJson = pc.patchedSourceFiles["/test/pages/blog/renamed.val.json"];
+    expect(typeof newJson).toBe("string");
+    expect(JSON.parse(newJson as string)).toEqual({
+      title: "Hello",
+      order: 1,
+    });
+    expect(pc.patchedSourceFiles["/test/content/hello.val.json"]).toBeNull();
+    const ts = pc.patchedSourceFiles[MODULE_PATH];
+    expect(typeof ts).toBe("string");
+    expect(ts).not.toContain(`"/blog/hello"`);
+    expect(ts).not.toContain(`import("./content/hello.val.json")`);
+    expect(ts).toContain(`"/blog/renamed"`);
+    expect(ts).toContain(`import("./pages/blog/renamed.val.json")`);
+    // the untouched entry survives
+    expect(ts).toContain(`"/blog/world"`);
+  });
+
+  test("move then a content edit on the new key resolves to the new file", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      { op: "move", from: ["/blog/hello"], path: ["/blog/renamed"] },
+      { op: "replace", path: ["/blog/renamed", "title"], value: "Renamed!" },
+    ]);
+    expect(pc.hasErrors).toBe(false);
+    const newJson = pc.patchedSourceFiles["/test/pages/blog/renamed.val.json"];
+    expect(JSON.parse(newJson as string)).toEqual({
+      title: "Renamed!",
+      order: 1,
+    });
+    expect(pc.patchedSourceFiles["/test/content/hello.val.json"]).toBeNull();
+  });
+
+  test("a content edit on the OLD key after a move is an error", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      { op: "move", from: ["/blog/hello"], path: ["/blog/renamed"] },
+      { op: "replace", path: ["/blog/hello", "title"], value: "Nope" },
+    ]);
+    expect(pc.hasErrors).toBe(true);
+  });
+
+  test("copy duplicates an entry without deleting the source", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      { op: "copy", from: ["/blog/hello"], path: ["/blog/copy"] },
+    ]);
+    expect(pc.hasErrors).toBe(false);
+    const newJson = pc.patchedSourceFiles["/test/pages/blog/copy.val.json"];
+    expect(JSON.parse(newJson as string)).toEqual({
+      title: "Hello",
+      order: 1,
+    });
+    // the source file is NOT deleted
+    expect(
+      pc.patchedSourceFiles["/test/content/hello.val.json"],
+    ).not.toBeNull();
+    const ts = pc.patchedSourceFiles[MODULE_PATH];
+    expect(ts).toContain(`"/blog/hello"`);
+    expect(ts).toContain(`"/blog/copy"`);
+  });
+
+  test("move from a non-entry path into an entry is an error", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      // `from` targets a field INSIDE an entry, `path` targets a whole entry
+      {
+        op: "move",
+        from: ["/blog/hello", "title"],
+        path: ["/blog/renamed"],
+      },
+    ]);
+    expect(pc.hasErrors).toBe(true);
+  });
+
+  test("a multi-op patch is applied exactly once (not once per op)", async () => {
+    // Regression: analyzePatches used to push one entry per non-file op, so
+    // `prepare` re-applied the whole patch once per op.
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      { op: "replace", path: ["/blog/hello", "order"], value: 10 },
+      { op: "replace", path: ["/blog/world", "order"], value: 20 },
+    ]);
+    expect(pc.hasErrors).toBe(false);
+    expect(
+      JSON.parse(
+        pc.patchedSourceFiles["/test/content/hello.val.json"] as string,
+      ),
+    ).toEqual({ title: "Hello", order: 10 });
+    expect(
+      JSON.parse(
+        pc.patchedSourceFiles["/test/content/world.val.json"] as string,
+      ),
+    ).toEqual({ title: "World", order: 20 });
+    expect(pc.appliedPatches[MODULE_PATH]).toHaveLength(1);
+  });
+
+  test("move between different entries' content is an error", async () => {
+    const { ops } = setup();
+    const pc = await prepareSingle(ops, [
+      {
+        op: "move",
+        from: ["/blog/hello", "title"],
+        path: ["/blog/world", "title"],
+      },
+    ]);
+    expect(pc.hasErrors).toBe(true);
+  });
 });

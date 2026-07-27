@@ -645,6 +645,11 @@ export class RecordSchema<
    * so a record/router can scale to many thousands of entries.
    *
    * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   *
+   * Only supported on a module's ROOT record/router — a `.jsonValues()` record
+   * nested inside an object/array/record is rejected at startup with a module
+   * error, because the single-entry fetch endpoint, the Studio's content
+   * substitution and content validation are all root-only.
    */
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {

@@ -1,6 +1,7 @@
 import { initVal, type SerializedSchema } from "@valbuild/core";
 import {
   classifyJsonValuesOp,
+  findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
   resolveExistingJsonPath,
 } from "./jsonValuesPatch";
@@ -81,6 +82,67 @@ describe("getNewJsonEntryPaths", () => {
       jsonPath: "/app/support/[slug]/page/support/faq.val.json",
       importPath: "./page/support/faq.val.json",
     });
+  });
+});
+
+describe("findNestedJsonValuesRecords", () => {
+  test("a root jsonValues record is allowed → no offenders", () => {
+    const root: SerializedSchema = s
+      .record(s.object({ title: s.string() }))
+      .jsonValues()
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(root)).toEqual([]);
+  });
+
+  test("a plain schema with no jsonValues → no offenders", () => {
+    const plain: SerializedSchema = s
+      .object({ pages: s.record(s.object({ title: s.string() })) })
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(plain)).toEqual([]);
+  });
+
+  test("jsonValues nested under an object is reported", () => {
+    const nested: SerializedSchema = s
+      .object({
+        title: s.string(),
+        pages: s.record(s.object({ title: s.string() })).jsonValues(),
+      })
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(nested)).toEqual([["pages"]]);
+  });
+
+  test("jsonValues nested under an array is reported", () => {
+    const nested: SerializedSchema = s
+      .array(
+        s.object({
+          pages: s.record(s.object({ title: s.string() })).jsonValues(),
+        }),
+      )
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(nested)).toEqual([["*", "pages"]]);
+  });
+
+  test("jsonValues nested under another record is reported", () => {
+    const nested: SerializedSchema = s
+      .record(
+        s.object({
+          pages: s.record(s.object({ title: s.string() })).jsonValues(),
+        }),
+      )
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(nested)).toEqual([["*", "pages"]]);
+  });
+
+  test("multiple offenders are all reported", () => {
+    const nested: SerializedSchema = s
+      .object({
+        a: s.record(s.object({ title: s.string() })).jsonValues(),
+        b: s.object({
+          c: s.record(s.object({ title: s.string() })).jsonValues(),
+        }),
+      })
+      ["executeSerialize"]();
+    expect(findNestedJsonValuesRecords(nested)).toEqual([["a"], ["b", "c"]]);
   });
 });
 

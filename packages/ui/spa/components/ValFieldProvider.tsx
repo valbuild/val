@@ -553,11 +553,29 @@ function useSchemaAtPathInternal(
       syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
     }
   }, [syncEngine, moduleFilePath, unloadedJsonKey]);
+  const jsonEntryError = useSyncExternalStore(
+    syncEngine.subscribe("source", moduleFilePath),
+    () =>
+      unloadedJsonKey === null
+        ? null
+        : syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey),
+    () =>
+      unloadedJsonKey === null
+        ? null
+        : syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey),
+  );
   const resolvedSchemaAtPathRes = useMemo(() => {
     if (schemaRes.status !== "success") {
       return schemaRes;
     }
     if (unloadedJsonKey !== null) {
+      // A failed load must not render as a perpetual spinner.
+      if (jsonEntryError !== null) {
+        return {
+          status: "error" as const,
+          error: `Could not load entry '${unloadedJsonKey}': ${jsonEntryError}`,
+        };
+      }
       return { status: "loading" as const };
     }
     if (sourceData === undefined) {
@@ -625,6 +643,7 @@ function useSchemaAtPathInternal(
     modulePath,
     sourceData,
     unloadedJsonKey,
+    jsonEntryError,
   ]);
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
@@ -1233,6 +1252,17 @@ export function useSourceAtPath(
       syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
     }
   }, [syncEngine, moduleFilePath, unloadedJsonKey]);
+  const jsonEntryError = useSyncExternalStore(
+    syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
+    () =>
+      syncEngine && unloadedJsonKey !== null
+        ? syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey)
+        : null,
+    () =>
+      syncEngine && unloadedJsonKey !== null
+        ? syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey)
+        : null,
+  );
   return useMemo(() => {
     if (!syncEngine) {
       return NOT_FOUND;
@@ -1244,6 +1274,13 @@ export function useSourceAtPath(
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
     }
     if (unloadedJsonKey !== null) {
+      // A failed load must not render as a perpetual spinner.
+      if (jsonEntryError !== null) {
+        return {
+          status: "error",
+          error: `Could not load entry '${unloadedJsonKey}': ${jsonEntryError}`,
+        };
+      }
       return { status: "loading" };
     }
     if (sourceSnapshot && sourceSnapshot.status === "success") {
@@ -1261,6 +1298,7 @@ export function useSourceAtPath(
     moduleFilePath,
     sourceOverride,
     unloadedJsonKey,
+    jsonEntryError,
   ]);
 }
 

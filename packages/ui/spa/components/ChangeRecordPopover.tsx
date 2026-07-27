@@ -1,7 +1,12 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSyncEngine,
+} from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -70,8 +75,21 @@ export function ChangeRecordPopover({
     }
     return [];
   }, [parentSource]);
+  const syncEngine = useSyncEngine();
+  const parentSchema = useSchemaAtPath(parentPath);
+  // A `.jsonValues()` entry's content is lazily loaded. If we move an entry that
+  // is still an opaque marker, the marker (not the content) lands on the new key
+  // and opening it would fetch `/json?key=<newKey>` — which 404s, since the base
+  // source still only has the old key. Load it first.
+  const isJsonValuesRecord =
+    parentSchema.status === "success" &&
+    parentSchema.data.type === "record" &&
+    parentSchema.data.jsonValues === true;
   const onSubmit = useCallback(
-    (key: string) => {
+    async (key: string) => {
+      if (isJsonValuesRecord) {
+        await syncEngine.ensureJsonEntry(moduleFilePath, defaultValue);
+      }
       const patchOps: Patch = [
         {
           op: "move",
@@ -116,6 +134,10 @@ export function ChangeRecordPopover({
       parentPatchPath,
       navigate,
       onComplete,
+      syncEngine,
+      isJsonValuesRecord,
+      defaultValue,
+      existingKeys,
     ],
   );
 

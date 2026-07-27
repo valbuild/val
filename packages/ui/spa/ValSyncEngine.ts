@@ -145,7 +145,23 @@ export class ValSyncEngine {
   private jsonEntryContents: Record<ModuleFilePath, Record<string, JSONValue>> =
     {};
   /** In-flight json entry loads, keyed `${moduleFilePath}\0${key}`. */
-  private loadingJsonEntries: Set<string> = new Set();
+  private loadingJsonEntries: Map<string, Promise<void>> = new Map();
+  /**
+   * Entries whose last load failed, keyed by module then entry key. Memoizing
+   * the failure is what stops a permanently-failing entry from being refetched
+   * on every field remount (and from rendering a spinner forever): the field
+   * hooks surface this as an error state instead. Cleared by `retryJsonEntry`
+   * and whenever the module's server source is replaced.
+   */
+  private jsonEntryErrors: Record<ModuleFilePath, Record<string, string>> = {};
+  /**
+   * Loaded entries whose committed content may now be out of date (the module's
+   * server source was replaced, e.g. after publish), keyed
+   * `${moduleFilePath}\0${key}`. They keep rendering their old content until the
+   * refetch lands, so there is no loading flash — but they MUST be refetched, or
+   * a published edit appears to revert to the pre-edit content.
+   */
+  private staleJsonEntries: Set<string> = new Set();
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
@@ -398,7 +414,9 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.patchedSourcesCache = null;
     this.jsonEntryContents = {};
-    this.loadingJsonEntries = new Set();
+    this.loadingJsonEntries = new Map();
+    this.jsonEntryErrors = {};
+    this.staleJsonEntries = new Set();
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -836,15 +854,53 @@ export class ValSyncEngine {
    * Studio opens a path that descends into an unloaded json marker.
    */
   requestJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
-    if (this.jsonEntryContents[moduleFilePath]?.[key] !== undefined) {
-      return;
-    }
+    void this.ensureJsonEntry(moduleFilePath, key);
+  }
+
+  /**
+   * Resolves once a `.jsonValues()` entry's content is loaded — or immediately
+   * if it already is, or if its load previously failed. Awaited before emitting
+   * a patch that moves a whole entry, so the patch carries real content rather
+   * than an opaque marker. {@link requestJsonEntry} is the fire-and-forget
+   * variant used by the field hooks.
+   */
+  ensureJsonEntry(moduleFilePath: ModuleFilePath, key: string): Promise<void> {
     const loadingKey = `${moduleFilePath}\0${key}`;
-    if (this.loadingJsonEntries.has(loadingKey)) {
-      return;
+    const inFlight = this.loadingJsonEntries.get(loadingKey);
+    if (inFlight !== undefined) {
+      // The stale flag is cleared when a request STARTS, so if it is set again
+      // now, this in-flight response predates whatever invalidated the entry —
+      // wait for it, then load again.
+      return inFlight.then(() =>
+        this.staleJsonEntries.has(loadingKey)
+          ? this.ensureJsonEntry(moduleFilePath, key)
+          : undefined,
+      );
     }
-    this.loadingJsonEntries.add(loadingKey);
-    this.client("/json", "GET", {
+    const isStale = this.staleJsonEntries.has(loadingKey);
+    if (
+      !isStale &&
+      this.jsonEntryContents[moduleFilePath]?.[key] !== undefined
+    ) {
+      return Promise.resolve();
+    }
+    // A memoized failure stops the refetch-on-every-remount loop. Cleared by
+    // `retryJsonEntry` or by the module's server source being replaced.
+    if (this.jsonEntryErrors[moduleFilePath]?.[key] !== undefined) {
+      return Promise.resolve();
+    }
+    const setJsonEntryError = (message: string) => {
+      if (this.jsonEntryErrors[moduleFilePath] === undefined) {
+        this.jsonEntryErrors[moduleFilePath] = {};
+      }
+      this.jsonEntryErrors[moduleFilePath][key] = message;
+      this.invalidateSource(moduleFilePath);
+    };
+    // Cleared at request START, not on success: anything that marks the entry
+    // stale while this request is in flight must win, since the response we are
+    // about to get was produced before that invalidation.
+    this.staleJsonEntries.delete(loadingKey);
+    const promise = this.client("/json", "GET", {
       query: { path: moduleFilePath, key },
     })
       .then((res) => {
@@ -854,6 +910,9 @@ export class ValSyncEngine {
           }
           this.jsonEntryContents[moduleFilePath][key] =
             res.json.content ?? null;
+          if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
+            delete this.jsonEntryErrors[moduleFilePath][key];
+          }
           this.invalidateSource(moduleFilePath);
         } else {
           console.error("Val: SyncEngine: failed to load json entry", {
@@ -861,6 +920,11 @@ export class ValSyncEngine {
             key,
             res,
           });
+          setJsonEntryError(
+            "message" in res.json
+              ? res.json.message
+              : `Request failed with status ${res.status}`,
+          );
         }
       })
       .catch((err) => {
@@ -869,10 +933,66 @@ export class ValSyncEngine {
           key,
           err,
         });
+        setJsonEntryError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
         this.loadingJsonEntries.delete(loadingKey);
       });
+    this.loadingJsonEntries.set(loadingKey, promise);
+    return promise;
+  }
+
+  /**
+   * The error message of the last failed load of a `.jsonValues()` entry, or
+   * `null`. Returns a primitive so it is safe to read from a
+   * `useSyncExternalStore` snapshot getter.
+   */
+  getJsonEntryError(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): string | null {
+    return this.jsonEntryErrors[moduleFilePath]?.[key] ?? null;
+  }
+
+  /** Clears a memoized json entry failure and loads it again. */
+  retryJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
+    if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
+      delete this.jsonEntryErrors[moduleFilePath][key];
+    }
+    this.requestJsonEntry(moduleFilePath, key);
+  }
+
+  /**
+   * Marks every loaded entry of a module stale, so the next request refetches
+   * its committed content. Called when the module's server source is replaced
+   * (e.g. after publish): without this the pre-edit content is re-substituted
+   * and a published edit looks like it reverted.
+   */
+  private markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
+    const contents = this.jsonEntryContents[moduleFilePath];
+    delete this.jsonEntryErrors[moduleFilePath];
+    if (contents === undefined) {
+      return;
+    }
+    for (const key of Object.keys(contents)) {
+      this.staleJsonEntries.add(`${moduleFilePath}\0${key}`);
+      this.requestJsonEntry(moduleFilePath, key);
+    }
+  }
+
+  /**
+   * Marks every loaded `.jsonValues()` entry of every module stale.
+   *
+   * Needed on publish: a content-only edit rewrites the entry's `*.val.json`
+   * but NOT the `.val.ts`, so the module source (bare `{_type:"json"}` markers)
+   * is byte-identical and `sourcesSha` does not change — no `/sources/~`
+   * refresh is triggered. Without this the just-published content is served
+   * from the pre-edit cache and the edit looks like it reverted.
+   */
+  private markAllJsonEntriesStale(): void {
+    for (const moduleFilePathS of Object.keys(this.jsonEntryContents)) {
+      this.markJsonEntriesStale(moduleFilePathS as ModuleFilePath);
+    }
   }
 
   /**
@@ -3017,6 +3137,11 @@ export class ValSyncEngine {
               // the un-patched source. The patched view is computed by
               // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
+              // The committed content of any loaded `.jsonValues()` entry may
+              // have changed with it (e.g. after publish) — refetch, or the
+              // stale pre-edit content is re-substituted and the edit looks
+              // like it reverted.
+              this.markJsonEntriesStale(moduleFilePath);
               // render is always null in the new mode; keep the renders map
               // up-to-date for any downstream code that still subscribes.
               if (this.renders === null) {
@@ -3211,6 +3336,9 @@ export class ValSyncEngine {
         this.patchIdsByModuleFilePath = new Map();
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
+        // The published content is now the committed content: any loaded
+        // `.jsonValues()` entry must be refetched (see markAllJsonEntriesStale).
+        this.markAllJsonEntriesStale();
         const fullReset = true;
         await this.syncPatches(fullReset, now);
         this.invalidatePatchSets();

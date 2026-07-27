@@ -57,4 +57,31 @@ describe("validateJsonValuesEntries", () => {
     expect(errors).toEqual({});
     expect(loaded).toBe(false);
   });
+
+  test("ROOT-ONLY contract: a nested jsonValues record is not visited", async () => {
+    // Pins the documented limitation. Nested `.jsonValues()` records are
+    // rejected up front as module errors (findNestedJsonValuesRecords), so they
+    // never reach here — but if that guard is relaxed without making this a
+    // recursive visitor, nested entries silently get NO content validation.
+    const nestedSchema = s.object({
+      pages: s.record(s.object({ title: s.string() })).jsonValues(),
+    });
+    let loaded = false;
+    const source = {
+      pages: {
+        // invalid content: would be an error if it were visited
+        "/a": c.json(() => {
+          loaded = true;
+          return Promise.resolve({ default: { title: 123 } });
+        }),
+      },
+    };
+    const errors = await validateJsonValuesEntries(
+      nestedSchema,
+      source,
+      modulePath,
+    );
+    expect(errors).toEqual({});
+    expect(loaded).toBe(false);
+  });
 });
