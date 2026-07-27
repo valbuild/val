@@ -639,6 +639,44 @@ describe("ValSyncEngine", () => {
       expect(tester.jsonRequestCounts[`${PAGES}\0/b`]).toBe(1);
     });
 
+    test("an UNLOADED entry renamed by a pending patch still loads (rename then reload)", async () => {
+      // Regression: after a reload, a pending rename leaves the *marker* under
+      // the new key. Requesting that key from /json 404s, because the committed
+      // source only knows the old key. The engine must map back to the base key
+      // — loading it there also lets the move patch relocate the content.
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      // Rename WITHOUT ever loading the entry (as after a fresh page load).
+      engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "move", from: ["/a"], path: ["/renamed"] }],
+        tester.getNextNow(),
+      );
+      expect(
+        Internal.isJson(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)[
+            "/renamed"
+          ],
+        ),
+      ).toBe(true);
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/renamed");
+      await flush();
+
+      // Fetched under the BASE key, not the renamed one.
+      expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(1);
+      expect(tester.jsonRequestCounts[`${PAGES}\0/renamed`]).toBeUndefined();
+      expect(
+        engine.getJsonEntryError(toModuleFilePath(PAGES), "/renamed"),
+      ).toBe(null);
+      const source = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+        .data as any;
+      expect(source["/a"]).toBeUndefined();
+      expect(source["/renamed"]).toEqual({ title: "A", order: 1 });
+    });
+
     test("a move patch on a loaded entry carries real content to the new key", async () => {
       const { tester } = setupJsonValues();
       const engine = await tester.createInitializedSyncEngine();

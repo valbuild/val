@@ -858,13 +858,70 @@ export class ValSyncEngine {
   }
 
   /**
+   * Maps an entry key as it appears in the PATCHED source back to the key it
+   * has in the committed base source, by undoing pending whole-entry renames.
+   *
+   * `/json` can only resolve keys that exist in the committed source, so a
+   * pending rename would 404 on the new key. Loading the content under the
+   * BASE key instead is also what makes it render: `applyJsonEntryContents`
+   * substitutes into the base source, and the `move` patch then relocates the
+   * content to the new key on its own.
+   */
+  private resolveBaseJsonEntryKey(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): string {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (
+      baseSource === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource) ||
+      key in baseSource
+    ) {
+      return key;
+    }
+    // Walk the pending ops newest-first, undoing renames until we land on a key
+    // the base source actually has.
+    const patchIds = this.orderedPatchIdsForModule(moduleFilePath);
+    let current = key;
+    for (let i = patchIds.length - 1; i >= 0; i--) {
+      const patchData = this.patchDataByPatchId[patchIds[i]];
+      if (!patchData) {
+        continue;
+      }
+      const ops = patchData.patch;
+      for (let j = ops.length - 1; j >= 0; j--) {
+        const op = ops[j];
+        if (
+          (op.op === "move" || op.op === "copy") &&
+          op.path.length === 1 &&
+          op.path[0] === current &&
+          op.from.length === 1
+        ) {
+          current = op.from[0];
+          if (current in baseSource) {
+            return current;
+          }
+          break;
+        }
+      }
+    }
+    return current;
+  }
+
+  /**
    * Resolves once a `.jsonValues()` entry's content is loaded — or immediately
    * if it already is, or if its load previously failed. Awaited before emitting
    * a patch that moves a whole entry, so the patch carries real content rather
    * than an opaque marker. {@link requestJsonEntry} is the fire-and-forget
    * variant used by the field hooks.
    */
-  ensureJsonEntry(moduleFilePath: ModuleFilePath, key: string): Promise<void> {
+  ensureJsonEntry(
+    moduleFilePath: ModuleFilePath,
+    requestedKey: string,
+  ): Promise<void> {
+    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
     const loadingKey = `${moduleFilePath}\0${key}`;
     const inFlight = this.loadingJsonEntries.get(loadingKey);
     if (inFlight !== undefined) {
@@ -949,13 +1006,15 @@ export class ValSyncEngine {
    */
   getJsonEntryError(
     moduleFilePath: ModuleFilePath,
-    key: string,
+    requestedKey: string,
   ): string | null {
+    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
     return this.jsonEntryErrors[moduleFilePath]?.[key] ?? null;
   }
 
   /** Clears a memoized json entry failure and loads it again. */
-  retryJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
+  retryJsonEntry(moduleFilePath: ModuleFilePath, requestedKey: string): void {
+    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
     if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
       delete this.jsonEntryErrors[moduleFilePath][key];
     }
