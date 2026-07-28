@@ -413,6 +413,27 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     > = {};
+    // Serialized schemas, resolved lazily and only for modules that actually
+    // have patches, so the common (non-jsonValues) case stays free.
+    const { schemas } = await this.initSources();
+    const serializedSchemaCache = new Map<
+      ModuleFilePath,
+      SerializedSchema | undefined
+    >();
+    const jsonValuesSchemaFor = (
+      path: ModuleFilePath,
+    ): SerializedSchema | undefined => {
+      if (!serializedSchemaCache.has(path)) {
+        let serialized: SerializedSchema | undefined = undefined;
+        try {
+          serialized = schemas[path]?.["executeSerialize"]();
+        } catch {
+          // Serialization errors are reported elsewhere; treat as "no schema".
+        }
+        serializedSchemaCache.set(path, serialized);
+      }
+      return serializedSchemaCache.get(path);
+    };
     for (const patchData of analysis.patches) {
       const path = patchData.path;
       if (sources[path] === undefined) {
@@ -445,6 +466,13 @@ export abstract class ValOps {
       } else {
         const applicableOps: Patch = [];
         const fileFixOps: Record<string, Patch> = {};
+        // `.jsonValues()` entry values are opaque `{_type:"json"}` markers in
+        // the module source — their content lives in the entry's `*.val.json`.
+        // Ops that reach INTO an entry therefore cannot be applied here (and
+        // would fail with "Cannot replace object element which does not exist",
+        // poisoning the rest of this module's patch chain). See the per-op
+        // routing below.
+        const serializedSchema = jsonValuesSchemaFor(path);
         for (const op of patchData.patch) {
           if (op.op === "file") {
             if (op.value !== null) {
@@ -465,7 +493,46 @@ export abstract class ValOps {
             // null value = delete: no patch_id to inject; the "remove" op in
             // the patch already removes the metadata entry from the source
           } else {
-            applicableOps.push(op);
+            const cls = serializedSchema
+              ? classifyJsonValuesOp(serializedSchema, op.path)
+              : ({ kind: "normal" } as const);
+            if (cls.kind === "normal") {
+              applicableOps.push(op);
+            } else if (cls.subPath.length > 0) {
+              // Content edit inside an entry: the module source is genuinely
+              // unaffected (the content lives in the `*.val.json`), so skip it.
+              // Draft content is served by the single-entry `/json` endpoint.
+            } else if (op.op === "add" || op.op === "replace") {
+              // Whole-entry add/replace: keep the record's KEY SET correct for
+              // drafts by writing the marker rather than the content. Record
+              // validation only asserts `isJson`, and
+              // `validateJsonValuesEntries` skips thunkless markers by design.
+              applicableOps.push({
+                op: op.op,
+                path: op.path,
+                value: {
+                  [VAL_EXTENSION]: "json",
+                  patch_id: patchId,
+                } as JSONValue,
+              } as Operation);
+            } else if (op.op === "remove") {
+              applicableOps.push(op);
+            } else {
+              // move/copy of a whole entry: the destination key must appear, and
+              // for a move the source key must disappear. Both are key-set
+              // changes we can express with markers.
+              applicableOps.push({
+                op: "add",
+                path: op.path,
+                value: {
+                  [VAL_EXTENSION]: "json",
+                  patch_id: patchId,
+                } as JSONValue,
+              } as Operation);
+              if (op.op === "move" && array.isNonEmpty(op.from)) {
+                applicableOps.push({ op: "remove", path: op.from });
+              }
+            }
           }
         }
         const patchRes = applyPatch(

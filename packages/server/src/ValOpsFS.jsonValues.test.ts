@@ -1,4 +1,4 @@
-import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
+import { Internal, ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
 import { ValOpsFS } from "./ValOpsFS";
@@ -94,6 +94,25 @@ async function prepareSingle(
   ];
   const analysis = ops.analyzePatches(patches);
   return ops.prepare({ ...analysis, patches });
+}
+
+async function getSourcesWith(
+  ops: ValOpsFS,
+  patch: OrderedPatches["patches"][number]["patch"],
+) {
+  const patches: OrderedPatches["patches"] = [
+    {
+      path: MODULE_PATH,
+      patchId: crypto.randomUUID() as PatchId,
+      patch,
+      createdAt: new Date().toISOString(),
+      authorId: null,
+      baseSha: await ops.getBaseSha(),
+      appliedAt: null,
+    },
+  ];
+  const analysis = ops.analyzePatches(patches);
+  return ops.getSources({ ...analysis, patches });
 }
 
 describe("ValOpsFS jsonValues commit flow", () => {
@@ -252,6 +271,41 @@ describe("ValOpsFS jsonValues commit flow", () => {
       ),
     ).toEqual({ title: "World", order: 20 });
     expect(pc.appliedPatches[MODULE_PATH]).toHaveLength(1);
+  });
+
+  test("getSources: a content edit does not poison the module's patch chain", async () => {
+    // Regression: getSources applied entry-content ops with jsonOps against the
+    // opaque `{_type:"json"}` marker. That failed with "Cannot replace object
+    // element which does not exist", after which EVERY later patch for the
+    // module was skipped with "previous errors exists".
+    const { ops } = setup();
+    const res = await getSourcesWith(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Hello!" },
+      { op: "add", path: ["/blog/new"], value: { title: "New", order: 3 } },
+    ]);
+    expect(res.errors[MODULE_PATH]).toBeUndefined();
+    const source = res.sources[MODULE_PATH] as Record<string, unknown>;
+    // Content edits leave the marker alone (content lives in the *.val.json).
+    expect(Internal.isJson(source["/blog/hello"])).toBe(true);
+    // A newly added entry appears as a marker, so the record's KEY SET is right.
+    expect(Internal.isJson(source["/blog/new"])).toBe(true);
+    expect(Object.keys(source).sort()).toEqual([
+      "/blog/hello",
+      "/blog/new",
+      "/blog/world",
+    ]);
+  });
+
+  test("getSources: remove and rename update the key set", async () => {
+    const { ops } = setup();
+    const res = await getSourcesWith(ops, [
+      { op: "remove", path: ["/blog/world"] },
+      { op: "move", from: ["/blog/hello"], path: ["/blog/renamed"] },
+    ]);
+    expect(res.errors[MODULE_PATH]).toBeUndefined();
+    const source = res.sources[MODULE_PATH] as Record<string, unknown>;
+    expect(Object.keys(source)).toEqual(["/blog/renamed"]);
+    expect(Internal.isJson(source["/blog/renamed"])).toBe(true);
   });
 
   test("move between different entries' content is an error", async () => {
