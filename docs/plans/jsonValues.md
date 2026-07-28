@@ -10,6 +10,18 @@
 
 ## Current state / resume here
 
+> **Draft runtime path DONE (2026-07-28):** the last Phase 4 box is closed on the server + RSC side.
+> `/json` takes `apply_patches` (default **true**, mirroring `/sources/~`) and replays pending
+> patches via the new pure `applyJsonValuesEntryPatches`; the Studio passes `false` because it owns
+> in-flight client patches. RSC `fetchValKey`/`fetchValRoute` read drafts through it when enabled and
+> fall back to the local thunk. **jsonValues entries now get click-to-edit at all** — `stegaEncode`
+> gained an optional `root` seed (entry path + serialized item schema), without which every
+> jsonValues stega call was a silent identity transform. Also fixed `getSources` poisoning a
+> jsonValues module's whole patch chain (observed live on the example support router).
+> Still open: client `useValKey`/`useValRoute` render committed content in draft mode (needs the
+> overlay emitter to carry patched sources — same limitation `useValStega` has today), and the
+> **manual Studio walkthrough (V1–V9) has still NOT been run.**
+
 > **Studio hardening DONE (2026-07-27):** the Phase 3 defects are fixed. Renaming an entry now
 > commits (`move`/`copy` arms in `ValOps.prepare`), a published edit no longer appears to revert
 > (json entry cache is invalidated on publish), a failed `/json` load renders an error instead of a
@@ -203,10 +215,20 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
       (`ValOpsFS.jsonValues.test.ts`). ✅ (Still to confirm: shallow `/sources/~` serialization end to
       end against the Studio.)
 - [x] Core eager resolver `Internal.resolveJsonValues(source)` (for `fetchVal`/`useVal`). ✅
-- [ ] `ValServer.ts`: endpoint to fetch one entry's content (draft-aware via `patch_id`);
-      `/sources/~` returns shallow markers for json records.
-- [ ] **Verify**: `pnpm test packages/server/...` green (ops add/replace/remove, loader fixture,
-      incremental validation).
+- [x] `ValServer.ts` `/json`: fetch one entry's content, **draft-aware** (2026-07-28). It takes
+      `apply_patches` (default TRUE, mirroring `/sources/~`); the Studio passes `false` because it owns
+      in-flight client patches and would otherwise double-apply. The handler is a thin adapter over
+      `ValOps.getJsonEntry(path, key, {applyPatches})`, which reads committed content from the import
+      thunk (fs + http, no extra I/O) and replays pending patches with `applyJsonValuesEntryPatches`.
+      NOTE: no `patch_id[]` pinning — no caller has patch ids, and `fetchPatches({patchIds})` is
+      already there if one appears. `/sources/~` shallow markers fall out of `JSON.stringify` dropping
+      the thunk. ✅
+- [x] `getSources` is jsonValues-aware (2026-07-28). It used to apply entry-content ops with `jsonOps`
+      against the opaque marker → "Cannot replace object element which does not exist", which then
+      marked the module poisoned and skipped **every** later patch for it. Content sub-ops are now
+      skipped (the module source is genuinely unaffected); whole-entry add/replace/move/copy push the
+      MARKER so the key set stays right for drafts. ✅
+- [x] **Verify**: `pnpm test packages/server/...` green. ✅
 
 ## Phase 3 — UI (`packages/ui/spa`) — NEXT MILESTONE (do with Studio running)
 
@@ -266,9 +288,30 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
       gained a `NonNullable<S>[string] extends JsonSource<infer C> ? C | null : …` branch. ✅
 - [x] Example wires `fetchValRoute` (support pages) — `next build` green; `/support/[slug]` is a
       single-entry dynamic route. (Was `fetchValKey`.) ✅
-- [ ] Enabled/Studio draft path: resolve draft content via `/json` (+ sub-selector stega tags).
-      (fetchValKey/useValKey + fetchValRoute/useValRoute all still read the LOCAL committed thunk on
-      the enabled/draft path — draft edits aren't reflected until commit.)
+- [x] **Edit tags for jsonValues entries** (2026-07-28). `stegaEncode` seeds its recursion only from
+      the selector branch, so calling it on an entry's RAW content (plain JSON, no `Path`/`GetSchema`
+      symbols) left `recOpts` undefined and every string hit the `!recOpts` bail — all four jsonValues
+      call sites were **silent identity transforms**, i.e. entries had no click-to-edit at all.
+      `stegaEncode` now takes `root?: {path, schema}`; `getJsonEntryStegaRoot` (in `routeFromVal.ts`)
+      builds it from `Internal.createValPathOfItem(modulePath, key)` + the serialized `item` schema, so
+      a field is tagged `…?p="/support/faq"."title"` — the shape `findUnloadedJsonEntryKey` walks.
+      Also needs `SET_AUTO_TAG_JSX_ENABLED(true)`, which only `initFetchValStega` used to call.
+      **Not** a sub-selector: `newSelectorProxy` isn't exported from core, it needs the private
+      `RecordSchema["item"]` instance, and re-entering the selector branch makes `getModuleIds` report
+      the sub-path as a module id. ✅
+- [x] RSC draft path (2026-07-28): `fetchValKey` + the jsonValues branch of `fetchValRoute` read
+      through the in-process `/json` (`loadDraftJsonEntry`) when enabled, falling back to the local
+      committed thunk. `initFetchValKeyStega` now takes `valServerPromise` + `getCookies`. ✅
+- [ ] **Client hooks draft path**: `useValKey`/`useValRoute` have the stega tags but still render
+      COMMITTED content in draft mode — the same limitation `useValStega` has today. The blocker is
+      that `overlayEmitter` is handed the raw `/sources/~` module (`apply_patches:false`, json entries
+      still markers), so reading `valOverlayContext.store` would be a no-op. Fixing that means
+      emitting `getPatchedSource(...)` (ideally from `invalidateSource`, the single choke point) and
+      having the overlay's engine proactively `requestJsonEntry` for entries that have drafts. That
+      changes `useValStega` behaviour for ALL client components, so it wants its own change.
+- [ ] Draft-added routes are not reachable via `fetchValRoute` (params → key is resolved from the
+      LOCAL source), and draft-removed routes still route, then 404 → `null`. Revisit by resolving the
+      key set from `/sources/~` now that `getSources` keeps it correct for drafts.
 
 ## Phase 5 — Example + CI gate
 
@@ -302,6 +345,21 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Changelog
 
+- **Session 5 (2026-07-28)**: enabled/draft runtime path (server + RSC) and edit tags.
+  - Merged `main` (which fixed an unrelated blocker: the publish gate read the RAW
+    `errors.validationErrors` instead of the surfaced snapshot, so every `s.images()`/`s.files()`
+    gallery's always-on `check-unique-folder`/`check-all-files` errors blocked publish while the
+    Studio showed none — `0fcfecf0`).
+  - `getSources` jsonValues-aware — entry-content ops no longer poison the module's patch chain.
+  - `applyJsonValuesEntryPatches` + `rebaseContentOp` moved into `patch/jsonValuesPatch.ts`; new
+    `ValOps.getJsonEntry`; `/json` gained `apply_patches` (default true; Studio opts out).
+  - `stegaEncode` `root` seed + `getJsonEntryStegaRoot` → jsonValues entries finally get edit tags;
+    `SET_AUTO_TAG_JSX_ENABLED` now also set by the single-entry readers.
+  - RSC `fetchValKey`/`fetchValRoute` read drafts via `/json`.
+  - Test-harness fix: `ValOpsFS.jsonValues.test.ts` evaluated the module in a `vm` whose `require`
+    resolved `import("./x.val.json")` relative to the TEST FILE, so entry thunks never loaded.
+  - Tests: +2 `getSources` routing, +6 `ValOps.getJsonEntry`, +11 `rebaseContentOp` /
+    `applyJsonValuesEntryPatches`, +3 `stegaEncode` root seed (incl. a guard that no seed ⇒ identity).
 - **Session 4 (2026-07-27)**: Studio hardening — closes the Phase 3 defects.
   - **Rename/duplicate now commit.** `ValOps.prepare` classifies `op.from` as well as `op.path` and
     gained `move`/`copy` arms: load the source entry's content, remove the old thunk (move only),
