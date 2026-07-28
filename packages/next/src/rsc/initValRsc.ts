@@ -21,6 +21,7 @@ import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 import {
+  getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
@@ -223,17 +224,32 @@ const initFetchValRouteStega =
       if (!url) {
         return null as FetchValRouteReturnType<T>;
       }
-      const content = await loadJsonEntryContent(source, url);
-      if (content === undefined) {
-        return null as FetchValRouteReturnType<T>;
-      }
       let enabled = false;
       try {
         enabled = await isEnabled();
       } catch {
         // not in a server context where draftMode is readable — treat as disabled
       }
-      return stegaEncode(content, { disabled: !enabled });
+      let content: unknown = undefined;
+      if (enabled && path) {
+        SET_AUTO_TAG_JSX_ENABLED(true);
+        content = await loadDraftJsonEntry(
+          valServerPromise,
+          getCookies,
+          path as unknown as ModuleFilePath,
+          url,
+        );
+      }
+      if (content === undefined) {
+        content = await loadJsonEntryContent(source, url);
+      }
+      if (content === undefined) {
+        return null as FetchValRouteReturnType<T>;
+      }
+      return stegaEncode(content, {
+        disabled: !enabled,
+        root: getJsonEntryStegaRoot(selector, url),
+      });
     }
     const fetchVal = initFetchValStega(
       config,
@@ -277,6 +293,49 @@ async function loadJsonEntryContent(
   return (await thunk()).default;
 }
 
+/**
+ * Loads a single `.jsonValues()` entry's DRAFT content via the in-process
+ * `/json` endpoint (which replays pending patches). Returns `undefined` when the
+ * entry has no draft content to serve — the caller then falls back to the
+ * locally-bundled committed content.
+ */
+async function loadDraftJsonEntry(
+  valServerPromise: Promise<ValServer>,
+  getCookies: () => Promise<{
+    get(name: string): { name: string; value: string } | undefined;
+  }>,
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): Promise<unknown | undefined> {
+  let cookies;
+  try {
+    cookies = await getCookies();
+  } catch {
+    // not in a server context where cookies are readable
+    return undefined;
+  }
+  const valServer = await valServerPromise;
+  const res = await valServer["/json"]["GET"]({
+    query: { path: moduleFilePath, key, apply_patches: true },
+    cookies: {
+      [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
+    },
+  });
+  if (res.status === 200) {
+    return res.json.content;
+  }
+  if (res.status === 401) {
+    console.warn("Val: authentication error: ", res.json.message);
+    return undefined;
+  }
+  if (res.status === 404) {
+    // No such entry in the draft state (e.g. removed by a pending patch).
+    return undefined;
+  }
+  console.error("Val: could not load draft JSON entry: ", res.json.message);
+  return undefined;
+}
+
 // The (loosened) content type a single `.jsonValues()` entry resolves to.
 type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
   T extends ValModule<infer S>
@@ -288,43 +347,59 @@ type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
     : never;
 
 /**
- * Resolves a SINGLE entry of a `.jsonValues()` record/router by key, loading
- * only that entry's backing `*.val.json` (one dynamic import) instead of the
- * whole record. This is the runtime-scaling counterpart to the eager `fetchVal`.
+ * Resolves ONE `.jsonValues()` entry by key, loading only that entry instead of
+ * the whole record — the runtime-scaling counterpart to the eager `fetchVal`.
  *
  * Production (Val disabled): resolves the entry's lazy import thunk from the
- * local module and returns its content.
+ * locally-bundled module. One dynamic import, no server round-trip.
  *
- * TODO(enabled/Studio): when Val is enabled, draft edits to the entry live in
- * patches on the server. Until the single-entry fetch endpoint is wired, this
- * resolves the locally-bundled (committed) content. Visual-editing tags for the
- * resolved entry are also a follow-up (needs a sub-selector at the entry path).
+ * Enabled (draft mode): reads the entry through `/json`, which replays pending
+ * patches, so uncommitted Studio edits show up. Falls back to the local thunk if
+ * the draft read yields nothing.
  */
 const initFetchValKeyStega =
-  // NOTE: only needs `isEnabled` for the production read path. The
-  // enabled/Studio draft path (TODO) will also need the server deps the sibling
-  // init* factories take.
-  (isEnabled: () => Promise<boolean>) =>
-    async <T extends ValModule<GenericSelector<SourceObject>>>(
-      selector: T,
-      key: string,
-    ): Promise<JsonEntryContentOf<T> | undefined> => {
-      let enabled = false;
-      try {
-        enabled = await isEnabled();
-      } catch {
-        // not in a server context where draftMode is readable — treat as disabled
-      }
-      const source = selector && Internal.getSource(selector);
-      const content = await loadJsonEntryContent(source, key);
-      if (content === undefined) {
-        // missing key, or transport marker without a runtime thunk — see TODO above
-        return undefined;
-      }
-      return stegaEncode(content, {
-        disabled: !enabled,
-      });
-    };
+  (
+    valServerPromise: Promise<ValServer>,
+    isEnabled: () => Promise<boolean>,
+    getCookies: () => Promise<{
+      get(name: string): { name: string; value: string } | undefined;
+    }>,
+  ) =>
+  async <T extends ValModule<GenericSelector<SourceObject>>>(
+    selector: T,
+    key: string,
+  ): Promise<JsonEntryContentOf<T> | undefined> => {
+    let enabled = false;
+    try {
+      enabled = await isEnabled();
+    } catch {
+      // not in a server context where draftMode is readable — treat as disabled
+    }
+    const source = selector && Internal.getSource(selector);
+    const moduleFilePath =
+      selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+    let content: unknown = undefined;
+    if (enabled && moduleFilePath) {
+      SET_AUTO_TAG_JSX_ENABLED(true);
+      content = await loadDraftJsonEntry(
+        valServerPromise,
+        getCookies,
+        moduleFilePath,
+        key,
+      );
+    }
+    if (content === undefined) {
+      content = await loadJsonEntryContent(source, key);
+    }
+    if (content === undefined) {
+      // missing key, or transport marker without a runtime thunk
+      return undefined;
+    }
+    return stegaEncode(content, {
+      disabled: !enabled,
+      root: getJsonEntryStegaRoot(selector, key),
+    });
+  };
 
 const initFetchValRouteUrl =
   (
@@ -434,9 +509,15 @@ export function initValRsc(
         return await rscNextConfig.cookies();
       },
     ),
-    fetchValKeyStega: initFetchValKeyStega(async () => {
-      return (await rscNextConfig.draftMode()).isEnabled;
-    }),
+    fetchValKeyStega: initFetchValKeyStega(
+      valServerPromise,
+      async () => {
+        return (await rscNextConfig.draftMode()).isEnabled;
+      },
+      async () => {
+        return await rscNextConfig.cookies();
+      },
+    ),
     fetchValRouteStega: initFetchValRouteStega(
       config,
       valApiEndpoints,
