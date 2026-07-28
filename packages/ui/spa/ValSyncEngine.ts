@@ -33,7 +33,10 @@ import {
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
-import { ValidationWorkerClient } from "./validation/ValidationWorkerClient";
+import {
+  ValidationWorkerClient,
+  type ValidationWorkerFactory,
+} from "./validation/ValidationWorkerClient";
 import { partitionValidationErrors } from "./validation/partitionValidationErrors";
 
 /**
@@ -264,6 +267,12 @@ export class ValSyncEngine {
     private readonly client: ValClient,
     private readonly overlayEmitter:
       | typeof defaultOverlayEmitter
+      | undefined = undefined,
+    // Injected by the composition root (ValProvider). Kept out of this file so
+    // the worker's import.meta reference never reaches the Jest-compiled core.
+    // When undefined (tests / SSR / stories) validation runs on the main thread.
+    private readonly createValidationWorker:
+      | ValidationWorkerFactory
       | undefined = undefined,
   ) {
     this.initializedAt = null;
@@ -1708,6 +1717,7 @@ export class ValSyncEngine {
         (moduleFilePath, errors) => {
           this.applyValidationResult(moduleFilePath, errors);
         },
+        this.createValidationWorker,
       );
     }
     return this.validationWorker;
@@ -3266,17 +3276,10 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds &&
         this.globalServerSidePatchIds.length > 0
       ) {
-        let hasValidationError = false;
-        for (const sourcePathS in this.errors.validationErrors || {}) {
-          const sourcePath = sourcePathS as SourcePath;
-          if (
-            this.errors?.validationErrors?.[sourcePath] &&
-            this.errors?.validationErrors?.[sourcePath]!.length > 0
-          ) {
-            hasValidationError = true;
-            break;
-          }
-        }
+        const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
+        const hasValidationError = Object.values(
+          surfacedValidationErrors || {},
+        ).some((errors) => errors && errors.length > 0);
         if (!hasValidationError) {
           await this.publish(
             this.globalServerSidePatchIds.concat(
@@ -3289,7 +3292,7 @@ export class ValSyncEngine {
         } else {
           console.debug(
             "Skip auto-publish since there's validation errors",
-            this.errors.validationErrors,
+            surfacedValidationErrors,
           );
         }
       }
@@ -3332,14 +3335,15 @@ export class ValSyncEngine {
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
 
+      const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
       const hasValidationError =
-        Object.values(this.errors.validationErrors || {}).flatMap(
+        Object.values(surfacedValidationErrors || {}).flatMap(
           (errors) => errors || [],
         ).length > 0;
       if (hasValidationError) {
         console.debug(
           "Skipping publish since there's validation errors",
-          this.errors.validationErrors,
+          surfacedValidationErrors,
         );
         this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",

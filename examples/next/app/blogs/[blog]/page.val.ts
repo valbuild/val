@@ -228,7 +228,7 @@ export default c.define(
       },
     },
     "/blogs/blog-15": {
-      title: "Blog 1",
+      title: "Blog dette er jo sinnsyjt! men hvorfor har vi to feil?",
       content: [
         {
           tag: "p",

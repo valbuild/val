@@ -34,6 +34,7 @@ import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
+import { createValidationWorker } from "../validation/createValidationWorker";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
 import {
@@ -314,11 +315,15 @@ export function ValProvider({
 
   const syncEngine = useMemo(
     () =>
-      new ValSyncEngine(client, (moduleFilePath, newSource) => {
-        if (dispatchValEvents) {
-          defaultOverlayEmitter(moduleFilePath, newSource);
-        }
-      }),
+      new ValSyncEngine(
+        client,
+        (moduleFilePath, newSource) => {
+          if (dispatchValEvents) {
+            defaultOverlayEmitter(moduleFilePath, newSource);
+          }
+        },
+        createValidationWorker,
+      ),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
