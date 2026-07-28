@@ -967,7 +967,10 @@ export class ValSyncEngine {
     // about to get was produced before that invalidation.
     this.staleJsonEntries.delete(loadingKey);
     const promise = this.client("/json", "GET", {
-      query: { path: moduleFilePath, key },
+      // apply_patches=false: we own in-flight client patches the server has not
+      // seen yet and apply them ourselves in `getPatchedSource`. Letting the
+      // server apply them too would double-apply.
+      query: { path: moduleFilePath, key, apply_patches: false },
     })
       .then((res) => {
         if (res.status === 200) {

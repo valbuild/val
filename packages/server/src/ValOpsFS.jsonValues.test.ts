@@ -30,6 +30,9 @@ const JSON_FILES: Record<string, unknown> = {
 
 function setup() {
   const { s, c, config } = initVal();
+  // Use the OS temp dir (NOT the repo-local ".tmp", which other suites wipe).
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "val-jsonvalues-test"));
+
   const evalModule = (code: string) =>
     new Script(
       transform(code, { transforms: ["imports"] }).code,
@@ -39,14 +42,22 @@ function setup() {
         if (p === "val.config") {
           return { s, c, config };
         }
+        // Resolve the `c.json(() => import("./x.val.json"))` thunks against the
+        // module's directory in the TEMP root — plain `require` would resolve
+        // them relative to this test file.
+        if (p.startsWith("./") || p.startsWith("../")) {
+          const abs = path.resolve(
+            path.join(rootDir, path.dirname(MODULE_PATH)),
+            p,
+          );
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          return require(abs);
+        }
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require(p);
       },
       module: { exports: {} },
     });
-
-  // Use the OS temp dir (NOT the repo-local ".tmp", which other suites wipe).
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "val-jsonvalues-test"));
 
   const moduleAbs = path.join(rootDir, MODULE_PATH);
   fs.mkdirSync(path.dirname(moduleAbs), { recursive: true });
@@ -114,6 +125,100 @@ async function getSourcesWith(
   const analysis = ops.analyzePatches(patches);
   return ops.getSources({ ...analysis, patches });
 }
+
+/** Creates a real pending patch on disk, as the Studio would. */
+async function createPatch(
+  ops: ValOpsFS,
+  patch: OrderedPatches["patches"][number]["patch"],
+) {
+  const existing = await ops.fetchPatches({ excludePatchOps: true });
+  const last = existing.patches[existing.patches.length - 1];
+  const res = await ops.createPatch(
+    MODULE_PATH,
+    patch,
+    crypto.randomUUID() as PatchId,
+    last
+      ? { type: "patch", patchId: last.patchId }
+      : { type: "head", headBaseSha: await ops.getBaseSha() },
+    null,
+    null,
+  );
+  if ("error" in res) {
+    throw new Error(`Could not create patch: ${JSON.stringify(res)}`);
+  }
+  return res;
+}
+
+describe("ValOps.getJsonEntry", () => {
+  test("returns the committed content when there are no patches", async () => {
+    const { ops } = setup();
+    const res = await ops.getJsonEntry(MODULE_PATH, "/blog/hello");
+    expect(res).toEqual({
+      status: "success",
+      content: { title: "Hello", order: 1 },
+    });
+  });
+
+  test("applies a pending content patch (the draft read path)", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Draft!" },
+    ]);
+    const res = await ops.getJsonEntry(MODULE_PATH, "/blog/hello");
+    expect(res).toEqual({
+      status: "success",
+      content: { title: "Draft!", order: 1 },
+    });
+  });
+
+  test("applyPatches:false returns the committed content (what the Studio asks for)", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Draft!" },
+    ]);
+    const res = await ops.getJsonEntry(MODULE_PATH, "/blog/hello", {
+      applyPatches: false,
+    });
+    expect(res).toEqual({
+      status: "success",
+      content: { title: "Hello", order: 1 },
+    });
+  });
+
+  test("resolves an entry that only exists in a pending patch", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [
+      { op: "add", path: ["/blog/new"], value: { title: "New", order: 3 } },
+    ]);
+    expect(await ops.getJsonEntry(MODULE_PATH, "/blog/new")).toEqual({
+      status: "success",
+      content: { title: "New", order: 3 },
+    });
+    // ...but not when the caller wants committed content only.
+    expect(
+      (
+        await ops.getJsonEntry(MODULE_PATH, "/blog/new", {
+          applyPatches: false,
+        })
+      ).status,
+    ).toBe("not-found");
+  });
+
+  test("an entry removed by a pending patch is not-found", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [{ op: "remove", path: ["/blog/world"] }]);
+    expect((await ops.getJsonEntry(MODULE_PATH, "/blog/world")).status).toBe(
+      "not-found",
+    );
+  });
+
+  test("an unknown key is not-found", async () => {
+    const { ops } = setup();
+    expect((await ops.getJsonEntry(MODULE_PATH, "/nope")).status).toBe(
+      "not-found",
+    );
+  });
+});
 
 describe("ValOpsFS jsonValues commit flow", () => {
   test("content edit writes only the *.val.json (not the .val.ts)", async () => {

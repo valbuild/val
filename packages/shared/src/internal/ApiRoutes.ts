@@ -1012,13 +1012,19 @@ export const Api = {
   },
   // Loads the content of a single `.jsonValues()` record/router entry by key,
   // so the Studio can lazily load just the entry being opened (instead of the
-  // whole record). Returns the committed entry content; client overlays patches.
+  // whole record), and so the runtime can read draft edits in draft mode.
+  //
+  // `apply_patches` defaults to TRUE (as on `/sources/~`): the server replays
+  // pending patches for the entry. The Studio passes `false` explicitly, because
+  // it owns in-flight client patches the server has not seen yet and applies
+  // them itself — letting the server apply them too would double-apply.
   "/json": {
     GET: {
       req: {
         query: {
           path: onlyOneStringQueryParam,
           key: onlyOneStringQueryParam,
+          apply_patches: onlyOneBooleanQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },

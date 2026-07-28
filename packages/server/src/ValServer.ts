@@ -1363,8 +1363,9 @@ export const ValServer = (
 
     // #region json
     // Loads the content of a single `.jsonValues()` entry by key, so the Studio
-    // can lazily load just the entry being opened. Returns the committed content
-    // (from the base source's import thunk); the client overlays its own patches.
+    // can lazily load just the entry being opened, and the runtime can read draft
+    // edits. With apply_patches (default true) pending patches for the entry are
+    // replayed server-side; the Studio passes false and overlays its own.
     "/json": {
       GET: async (req) => {
         const auth = getAuth(req.cookies);
@@ -1376,53 +1377,23 @@ export const ValServer = (
         }
         const moduleFilePath = req.query.path as ModuleFilePath;
         const key = req.query.key;
-        const sources = await serverOps.getBaseSources();
-        const moduleSource = sources[moduleFilePath];
-        if (moduleSource === undefined || moduleSource === null) {
-          return {
-            status: 404,
-            json: { message: `Module not found: ${moduleFilePath}` },
-          };
+        // Defaults to true, mirroring /sources/~. The Studio opts out.
+        const applyPatches = req.query.apply_patches !== false;
+        const res = await serverOps.getJsonEntry(moduleFilePath, key, {
+          applyPatches,
+        });
+        if (res.status === "unauthorized") {
+          return { status: 401, json: { message: res.message } };
         }
-        if (typeof moduleSource !== "object" || Array.isArray(moduleSource)) {
-          return {
-            status: 404,
-            json: { message: `Module is not a record: ${moduleFilePath}` },
-          };
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
         }
-        const marker = (moduleSource as Record<string, unknown>)[key];
-        if (marker === undefined) {
-          return {
-            status: 404,
-            json: { message: `Entry not found: ${key} in ${moduleFilePath}` },
-          };
-        }
-        if (!Internal.isJson(marker)) {
-          // Not a jsonValues entry — return the inlined value as-is (defensive).
-          return {
-            status: 200,
-            json: { path: moduleFilePath, key, content: marker },
-          };
-        }
-        const thunk = Internal.getJsonImport(marker);
-        let content: unknown = null;
-        if (thunk) {
-          try {
-            content = (await thunk()).default;
-          } catch (e) {
-            return {
-              status: 500,
-              json: {
-                message: `Failed to load JSON entry '${key}': ${
-                  e instanceof Error ? e.message : JSON.stringify(e)
-                }`,
-              },
-            };
-          }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
         }
         return {
           status: 200,
-          json: { path: moduleFilePath, key, content },
+          json: { path: moduleFilePath, key, content: res.content },
         };
       },
     },

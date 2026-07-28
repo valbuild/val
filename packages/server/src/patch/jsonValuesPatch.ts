@@ -1,5 +1,17 @@
 import * as path from "path";
-import type { SerializedSchema } from "@valbuild/core";
+import type { PatchId, SerializedSchema } from "@valbuild/core";
+import { array, result } from "@valbuild/core/fp";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  JSONValue,
+  Operation,
+  Patch,
+  PatchError,
+} from "@valbuild/core/patch";
+
+const jsonOps = new JSONOps();
 
 /**
  * Classification of a single patch op against a module's serialized schema,
@@ -155,6 +167,139 @@ export function getNewJsonEntryPaths(
     importPath = `./${importPath}`;
   }
   return { jsonPath, importPath };
+}
+
+/**
+ * Rebases a patch op that targets a `.jsonValues()` entry's content so its paths
+ * are relative to the entry's `*.val.json` root (drops the record + entry-key
+ * prefix). Used to replay the op against the backing JSON file.
+ */
+export function rebaseContentOp(
+  op: Operation,
+  prefixLen: number,
+): result.Result<Operation, PatchError> {
+  const path = op.path.slice(prefixLen);
+  switch (op.op) {
+    case "add":
+    case "replace":
+    case "test":
+      return result.ok({ ...op, path });
+    case "remove": {
+      if (!array.isNonEmpty(path)) {
+        return result.err(
+          new PatchError("Cannot remove the root of a jsonValues entry"),
+        );
+      }
+      return result.ok({ ...op, path });
+    }
+    case "move": {
+      const from = op.from.slice(prefixLen);
+      if (!array.isNonEmpty(from)) {
+        return result.err(
+          new PatchError("Cannot move from the root of a jsonValues entry"),
+        );
+      }
+      return result.ok({ ...op, path, from });
+    }
+    case "copy":
+      return result.ok({ ...op, path, from: op.from.slice(prefixLen) });
+    case "file":
+      return result.err(
+        new PatchError("Cannot apply a file op to a jsonValues entry"),
+      );
+  }
+}
+
+/** The outcome of replaying pending patches onto one `.jsonValues()` entry. */
+export type JsonEntryResolution =
+  | { kind: "content"; content: JSONValue | null; appliedPatchIds: PatchId[] }
+  | { kind: "deleted"; appliedPatchIds: PatchId[] }
+  | { kind: "error"; message: string; patchId?: PatchId };
+
+/**
+ * Replays the ops of `patches` that target ONE `.jsonValues()` entry onto its
+ * committed content, yielding the entry's draft content.
+ *
+ * This is the read-side counterpart to the commit flow in `ValOps.prepare`:
+ * both route ops with {@link classifyJsonValuesOp} and replay content sub-ops
+ * with {@link rebaseContentOp}, but this one produces a value instead of files
+ * and never touches the `.val.ts`.
+ *
+ * Root-only, like the rest of the `.jsonValues()` machinery: ops targeting a
+ * nested record are ignored (nested `.jsonValues()` is rejected at startup).
+ */
+export function applyJsonValuesEntryPatches(args: {
+  serializedSchema: SerializedSchema | undefined;
+  entryKey: string;
+  /** `undefined` when the entry does not exist in the committed source. */
+  baseContent: JSONValue | undefined;
+  /** Ordered, already filtered to the entry's module. */
+  patches: { patchId: PatchId; patch: Patch }[];
+}): JsonEntryResolution {
+  const { serializedSchema, entryKey, baseContent, patches } = args;
+  let content: JSONValue | undefined = baseContent;
+  let deleted = false;
+  const appliedPatchIds: PatchId[] = [];
+  for (const { patchId, patch } of patches) {
+    let touched = false;
+    for (const op of patch) {
+      if (op.op === "file") {
+        continue;
+      }
+      const cls = serializedSchema
+        ? classifyJsonValuesOp(serializedSchema, op.path)
+        : ({ kind: "normal" } as const);
+      if (
+        cls.kind !== "entry" ||
+        cls.recordPath.length > 0 ||
+        cls.entryKey !== entryKey
+      ) {
+        continue;
+      }
+      touched = true;
+      if (cls.subPath.length === 0) {
+        if (op.op === "add" || op.op === "replace") {
+          content = op.value as JSONValue;
+          deleted = false;
+        } else if (op.op === "remove") {
+          content = undefined;
+          deleted = true;
+        } else {
+          // move/copy INTO this key: the content comes from the source entry,
+          // which the caller must resolve (it is a different `*.val.json`).
+          return {
+            kind: "error",
+            message: `Cannot resolve '${op.op}' of jsonValues entry '${entryKey}' from its own content`,
+            patchId,
+          };
+        }
+        continue;
+      }
+      if (content === undefined) {
+        return {
+          kind: "error",
+          message: `Cannot edit jsonValues entry '${entryKey}': it does not exist`,
+          patchId,
+        };
+      }
+      const rebased = rebaseContentOp(op, cls.recordPath.length + 1);
+      if (result.isErr(rebased)) {
+        return { kind: "error", message: rebased.error.message, patchId };
+      }
+      const applied = applyPatch(deepClone(content), jsonOps, [rebased.value]);
+      if (result.isErr(applied)) {
+        return { kind: "error", message: applied.error.message, patchId };
+      }
+      content = applied.value;
+    }
+    if (touched) {
+      appliedPatchIds.push(patchId);
+    }
+  }
+  if (deleted || content === undefined) {
+    return { kind: "deleted", appliedPatchIds };
+  }
+  return { kind: "content", content, appliedPatchIds };
 }
 
 /**

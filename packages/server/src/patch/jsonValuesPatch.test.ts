@@ -1,10 +1,14 @@
-import { initVal, type SerializedSchema } from "@valbuild/core";
+import { initVal, PatchId, type SerializedSchema } from "@valbuild/core";
 import {
+  applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
+  rebaseContentOp,
   resolveExistingJsonPath,
 } from "./jsonValuesPatch";
+import { result } from "@valbuild/core/fp";
+import type { Patch } from "@valbuild/core/patch";
 
 const { s } = initVal();
 
@@ -143,6 +147,153 @@ describe("findNestedJsonValuesRecords", () => {
       })
       ["executeSerialize"]();
     expect(findNestedJsonValuesRecords(nested)).toEqual([["a"], ["b", "c"]]);
+  });
+});
+
+describe("rebaseContentOp", () => {
+  test("drops the record + entry-key prefix from path and from", () => {
+    const res = rebaseContentOp(
+      { op: "move", from: ["/a", "items", "0"], path: ["/a", "items", "2"] },
+      1,
+    );
+    expect(result.isOk(res) && res.value).toEqual({
+      op: "move",
+      from: ["items", "0"],
+      path: ["items", "2"],
+    });
+  });
+
+  test("rejects removing the entry root", () => {
+    const res = rebaseContentOp({ op: "remove", path: ["/a"] }, 1);
+    expect(result.isErr(res)).toBe(true);
+  });
+
+  test("rejects a file op", () => {
+    const res = rebaseContentOp(
+      {
+        op: "file",
+        path: ["/a", "img"],
+        filePath: "/public/val/x.png",
+        value: "data:...",
+        remote: false,
+      },
+      1,
+    );
+    expect(result.isErr(res)).toBe(true);
+  });
+});
+
+describe("applyJsonValuesEntryPatches", () => {
+  const schema: SerializedSchema = s
+    .record(s.object({ title: s.string(), order: s.number() }))
+    .jsonValues()
+    ["executeSerialize"]();
+  const patch = (patch: Patch, n = 1) => ({
+    patchId: `p${n}` as PatchId,
+    patch,
+  });
+
+  test("replays a content sub-op onto the committed content", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/a",
+      baseContent: { title: "A", order: 1 },
+      patches: [patch([{ op: "replace", path: ["/a", "title"], value: "A!" }])],
+    });
+    expect(res).toEqual({
+      kind: "content",
+      content: { title: "A!", order: 1 },
+      appliedPatchIds: ["p1"],
+    });
+  });
+
+  test("ignores ops for other entries and other schemas' paths", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/a",
+      baseContent: { title: "A", order: 1 },
+      patches: [
+        patch([{ op: "replace", path: ["/b", "title"], value: "B!" }], 1),
+        patch([{ op: "replace", path: ["/a", "order"], value: 9 }], 2),
+      ],
+    });
+    expect(res).toEqual({
+      kind: "content",
+      content: { title: "A", order: 9 },
+      appliedPatchIds: ["p2"],
+    });
+  });
+
+  test("a whole-entry add creates content that did not exist", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/new",
+      baseContent: undefined,
+      patches: [
+        patch([{ op: "add", path: ["/new"], value: { title: "N", order: 3 } }]),
+      ],
+    });
+    expect(res).toEqual({
+      kind: "content",
+      content: { title: "N", order: 3 },
+      appliedPatchIds: ["p1"],
+    });
+  });
+
+  test("a whole-entry remove reports deleted", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/a",
+      baseContent: { title: "A", order: 1 },
+      patches: [patch([{ op: "remove", path: ["/a"] }])],
+    });
+    expect(res).toEqual({ kind: "deleted", appliedPatchIds: ["p1"] });
+  });
+
+  test("an entry missing from the base with no patches is deleted", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/nope",
+      baseContent: undefined,
+      patches: [],
+    });
+    expect(res).toEqual({ kind: "deleted", appliedPatchIds: [] });
+  });
+
+  test("editing an entry that does not exist is an error", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/nope",
+      baseContent: undefined,
+      patches: [
+        patch([{ op: "replace", path: ["/nope", "title"], value: "x" }]),
+      ],
+    });
+    expect(res.kind).toBe("error");
+  });
+
+  test("a whole-entry move into this key is reported as an error (needs the source entry)", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: schema,
+      entryKey: "/renamed",
+      baseContent: undefined,
+      patches: [patch([{ op: "move", from: ["/a"], path: ["/renamed"] }])],
+    });
+    expect(res.kind).toBe("error");
+  });
+
+  test("without a schema nothing is treated as an entry op", () => {
+    const res = applyJsonValuesEntryPatches({
+      serializedSchema: undefined,
+      entryKey: "/a",
+      baseContent: { title: "A", order: 1 },
+      patches: [patch([{ op: "replace", path: ["/a", "title"], value: "A!" }])],
+    });
+    expect(res).toEqual({
+      kind: "content",
+      content: { title: "A", order: 1 },
+      appliedPatchIds: [],
+    });
   });
 });
 
