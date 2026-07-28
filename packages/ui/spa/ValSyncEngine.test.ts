@@ -127,6 +127,128 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("FooBar");
   });
 
+  test("fs publish clears the server-side patch-id snapshot (no Save button re-enable)", async () => {
+    // Regression test for the Save button flicker: after publish() empties
+    // globalServerSidePatchIds in fs mode, its snapshot must be invalidated too.
+    // Otherwise getGlobalServerSidePatchIdsSnapshot() (which the button reads as
+    // pendingServerSidePatchIds) stays stale and non-empty until the next
+    // stat/sync, so the button briefly flips back to enabled when publish()'s
+    // finally clears publishDisabled.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    // Push the patch to the server and promote it to a global server-side patch
+    // id via the stat callback — this is the button's "enabled" precondition.
+    expect(await syncEngine.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    const patchIds = syncEngine.getGlobalServerSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+
+    // Immediately after publish (before any further stat/sync) the server-side
+    // patch-id snapshot must be empty — this fails without the invalidation.
+    expect(syncEngine.getGlobalServerSidePatchIdsSnapshot()).toStrictEqual([]);
+  });
+
+  test("fs publish persists patches that contain file ops", async () => {
+    // File ops carry binary content, not document mutations, so applyPatch
+    // rejects them: the fake /save must filter them out (as the real server
+    // does) before applying the rest of the patch. Otherwise an image / gallery
+    // patch never persists and the value reverts on the next sources sync.
+    const { s, c, config } = initVal();
+    const ref = "/public/val/test_a1b2c.png";
+    const metadata = {
+      width: 10,
+      height: 20,
+      mimeType: "image/png",
+      alt: "",
+    };
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define(
+          "/gallery.val.ts",
+          s.record(
+            s.object({
+              width: s.number(),
+              height: s.number(),
+              mimeType: s.string(),
+              alt: s.string(),
+            }),
+          ),
+          {},
+        ),
+      ],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    // Same shape as ModuleGallery: the metadata entry is added by a JSON op and
+    // the binary is carried by a file op on the same path (in the real flow
+    // `value` is the sha256 of the already uploaded content).
+    syncEngine.addPatch(
+      toSourcePath("/gallery.val.ts"),
+      "record",
+      [
+        { op: "add", path: [ref], value: metadata },
+        {
+          op: "file",
+          path: [ref],
+          filePath: ref,
+          value:
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          remote: false,
+          metadata,
+        },
+      ],
+      tester.getNextNow(),
+    );
+    expect(await syncEngine.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    const patchIds = syncEngine.getGlobalServerSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+    // /save must have applied the non-file half of the patch to the sources...
+    expect(tester.fakeSources["/gallery.val.ts"]).toStrictEqual({
+      [ref]: metadata,
+    });
+    // ...so the entry survives the follow-up stat-triggered sources sync, where
+    // it comes from the server instead of the now-dropped patch chain.
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/gallery.val.ts")).data,
+    ).toStrictEqual({ [ref]: metadata });
+  });
+
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
@@ -801,10 +923,14 @@ class SyncEngineTester {
       if (!patch) {
         continue;
       }
+      // File ops carry binary content rather than document mutations, so
+      // applyPatch rejects them outright. The real server filters them out the
+      // same way before applying (see applySourceFilePatches in ValOps).
+      const sourceFileOps = patch.filter((op) => op.op !== "file");
       const patchRes = applyPatch(
         deepClone(this.fakeSources[moduleFilePath]),
         this.ops,
-        patch,
+        sourceFileOps,
       );
       if (!modules[moduleFilePath]) {
         modules[moduleFilePath] = {};
@@ -864,24 +990,54 @@ class SyncEngineTester {
   }
 
   postSave(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _req: any,
-  ): any {
-    // Model fs-mode /save: apply every pending patch to the backing sources
-    // and then delete the patches, so a subsequent /patches read returns empty.
+    req: InferReq<Api["/save"]["POST"]["req"]>,
+  ): z.infer<Api["/save"]["POST"]["res"]> {
+    // Model fs-mode /save: apply the requested patches to the backing sources
+    // and then delete every patch (fs mode deletes all of them), so a
+    // subsequent /patches read returns empty.
+    const requestedPatchIds = new Set(req.body.patchIds);
+    const savedSources = { ...this.fakeSources };
+    const sourceFilePatchErrors: Record<ModuleFilePath, { message: string }[]> =
+      {};
     for (const patchData of this.fakePatches) {
-      if (!patchData.patch) {
+      if (!patchData.patch || !requestedPatchIds.has(patchData.patchId)) {
         continue;
       }
+      // File ops carry binary content rather than document mutations: the real
+      // /save writes those to disk separately and filters them out before
+      // applying the rest (applyPatch errors on them). A file-only patch
+      // therefore leaves the source untouched instead of failing to save.
+      const sourceFileOps = patchData.patch.filter((op) => op.op !== "file");
       const patchRes = applyPatch(
-        deepClone(this.fakeSources[patchData.path]),
+        deepClone(savedSources[patchData.path]),
         this.ops,
-        patchData.patch,
+        sourceFileOps,
       );
       if (patchRes.kind === "ok") {
-        this.fakeSources[patchData.path] = patchRes.value;
+        savedSources[patchData.path] = patchRes.value;
+      } else {
+        if (!sourceFilePatchErrors[patchData.path]) {
+          sourceFilePatchErrors[patchData.path] = [];
+        }
+        sourceFilePatchErrors[patchData.path].push({
+          message: patchRes.error.message,
+        });
       }
     }
+    if (Object.keys(sourceFilePatchErrors).length > 0) {
+      // The real /save bails out before writing sources or deleting patches.
+      return {
+        status: 400,
+        json: {
+          message: "Failed to save patches",
+          details: {
+            sourceFilePatchErrors,
+            binaryFilePatchErrors: {},
+          },
+        },
+      };
+    }
+    this.fakeSources = savedSources;
     this.fakePatches = [];
     return {
       status: 200,

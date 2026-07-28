@@ -3155,6 +3155,11 @@ export class ValSyncEngine {
         this.invalidatePendingClientSidePatchIds();
         this.invalidateSyncedServerSidePatchIds();
         this.invalidateSavedServerSidePatchIds();
+        // We emptied globalServerSidePatchIds above (fs), so its snapshot must be
+        // invalidated too — otherwise the Save button re-reads a stale non-empty
+        // value when the finally clears publishDisabled, briefly flicking back to
+        // enabled before the next stat/sync corrects it.
+        this.invalidateGlobalServerSidePatchIds();
         // Notify subscribers so they re-read the freshly baked-in base. The
         // value is unchanged from the optimistic view, so there's no flicker;
         // only the snapshot's `optimistic` flag flips to false (now published).
