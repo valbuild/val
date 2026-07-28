@@ -30,8 +30,9 @@ export const initRemote = (config?: ValConfig) => {
   return remote;
 };
 
+// NOTE: the segments must match the ref built by createRemoteRef below and the RegEx in splitRemoteRef.
 export type RemoteRef =
-  `${string}/file/p/${string}/v/${string}/h/${string}/f/${string}/p/public/${string}`;
+  `${string}/file/p/${string}/b/${string}/v/${string}/h/${string}/f/${string}/p/public/${string}`;
 
 export function createRemoteRef(
   remoteHost: string,
