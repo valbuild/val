@@ -119,6 +119,9 @@ export function AddRecordPopover({
   }
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
+  // Callers may pass the description explicitly, but fall back to the key schema
+  // so that call sites which only know the path (the sitemap, for example) show it too
+  const description = keyDescription ?? schema.key?.description;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -135,12 +138,12 @@ export function AddRecordPopover({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{keyDescription ? `Add ${keyDescription}` : "Add"}</p>
+          <p>{description ? `Add ${description}` : "Add"}</p>
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer}>
-        {keyDescription && (
-          <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
+        {description && (
+          <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
         )}
         {routePattern ? (
           <RouteForm
