@@ -10,6 +10,19 @@
 
 ## Current state / resume here
 
+> **Reference-integrity defect found (2026-07-30) — Phase 6 is the next milestone, NOT started.**
+> The Studio's three global scans (route refs, keyOf refs, referenced files) and search silently skip
+> un-loaded `{_type:"json"}` markers, so the delete gate and the rename fixup can both answer "no
+> references" for a ref that lives inside an entry the user happens not to have opened. That is a
+> data-integrity hole, not a cosmetic one, and the result is nondeterministic (it depends on session
+> history). Phase 6 below fixes it with a **schema-derived scoping rule** (in the common case NOTHING
+> needs loading) plus a **batch `/json`** for the cases that do, and for search. Read Phase 6 before
+> touching any of the `get*References` / `traverseSchemas` / search files.
+> Phase 6 also covers the **record LIST view**, which turns out to be the most user-visible half: it
+> renders a per-entry preview for every key, unvirtualized, so a jsonValues record currently shows N
+> broken previews. Fix = virtualize with `@tanstack/react-virtual` + load only the rendered window.
+> This **supersedes V1** ("zero `/json` on open").
+
 > **Draft runtime path DONE (2026-07-28):** the last Phase 4 box is closed on the server + RSC side.
 > `/json` takes `apply_patches` (default **true**, mirroring `/sources/~`) and replays pending
 > patches via the new pure `applyJsonValuesEntryPatches`; the Studio passes `false` because it owns
@@ -263,6 +276,9 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
       in-flight response. `retryJsonEntry` / `ensureJsonEntry` added.
 - [ ] **Verify** (Studio running) — **NOT YET RUN**. Walkthrough:
   - **V1** open the router module → both keys listed, **zero** `/api/val/json` requests.
+    ⚠️ **SUPERSEDED by Phase 6**: once the list view loads previews for visible rows, opening a module
+    legitimately requests the visible window. Verify V16 instead (bounded by visible + overscan, never
+    by total key count). "Zero on open" only holds while the list renders no per-entry preview.
   - **V2** open an entry → exactly one `/json`; revisiting it → no new request.
   - **V3** edit `title`, publish → only `content/faq.val.json` modified, `page.val.ts` untouched, and
     the new title **survives the publish without a reload**.
@@ -322,6 +338,273 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
       `pnpm test`, `pnpm run build` (root preconstruct+ui; remember `pnpm preconstruct dev` after),
       `cd examples/next && pnpm run build`.
 
+## Phase 6 — Reference integrity + search over un-loaded entries — NEXT MILESTONE
+
+### The defect (found 2026-07-30, reviewing PR #453)
+
+Four client-side global scans are blind to un-loaded entry content:
+
+| Scan                                                                                   | Marker handling                                                                                              | Backs                              |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| [getRouteReferences.ts:31](../../packages/ui/spa/components/getRouteReferences.ts#L31) | `isJson` → `return`                                                                                          | route refs                         |
+| [traverseSchemas.ts:38](../../packages/ui/spa/components/traverseSchemas.ts#L38)       | `isJson` → `return`                                                                                          | `getKeysOf` + `getReferencedFiles` |
+| [traverseSchemaSource.ts](../../packages/ui/spa/utils/traverseSchemaSource.ts)         | **none** — marker hits the object/record branch, `_type` matches no sub-schema, `continue` ⇒ indexes nothing | the LIVE search worker             |
+| [createSearchIndex.ts:25](../../packages/ui/spa/search/createSearchIndex.ts#L25)       | `isJson` → `return`                                                                                          | **nothing — file is DEAD**         |
+
+Why it is not cosmetic: route refs and keyOf refs merge into `allRefs`
+([ArrayAndRecordTools.tsx:120](../../packages/ui/spa/components/ArrayAndRecordTools.tsx#L120)), which feeds
+two mutating decisions — `refs.length > 0` is the ONLY thing that turns `DeleteRecordPopover` into
+"Cannot delete", and `existingKeys` is the list of referring fields `ChangeRecordPopover` rewrites on
+rename. A missed ref ⇒ delete looks safe (dangling ref left behind) / rename silently leaves the
+referrer pointing at a key that no longer exists. Worse, the answer depends on which entries the user
+happened to open this session, so it is nondeterministic.
+
+`traverseSchemaSource`'s accidental skip has one edge: an entry schema with a field literally named
+`_type` or `patch_id` would index the marker's own value.
+
+### Scoping rule — direction decides (LOCKED 2026-07-30)
+
+The serialized schema names the target module for 2 of the 3 ref kinds:
+
+| Ref kind   | Matcher                                                           | Names target module?                                                  |
+| ---------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `keyOf`    | `schema.path === parentSourcePath` (`SerializedKeyOfSchema.path`) | **yes**                                                               |
+| image/file | `schema.referencedModule === parent`                              | **yes**                                                               |
+| `route`    | `source === routeKey` (plain string compare)                      | **no** — `SerializedRouteSchema` only carries include/exclude regexes |
+
+Therefore:
+
+- **Incoming refs → keys only, ZERO loading.** Renaming/deleting key `K` of a jsonValues record `M`:
+  the referrers are `keyOf(M)` / `route` fields _elsewhere_, and `M`'s own key set is fully present in
+  the base source (markers preserve keys). `M`'s entry CONTENT is irrelevant to finding them. The one
+  entry we do need is the one being moved — already handled by the `ensureJsonEntry` await in
+  `ChangeRecordPopover`. One entry, not all.
+- **Outgoing refs → the only case that needs content.** Loading is required only when a jsonValues
+  entry's own schema can contain a referrer to the thing being edited, e.g.
+  `s.record(s.object({ test: s.keyOf(otherModule) })).jsonValues()`.
+- **The predicate** (schemas only — no sources, no fetching): for a query "refs to `M`", the set to
+  load = every jsonValues record whose **item schema transitively contains** (through
+  object/array/record/union) a `keyOf` with `path === M`, or an image/file with
+  `referencedModule === M`. In the overwhelmingly common case the set is EMPTY: no requests, no
+  progress UI, guard complete and correct immediately. Self-reference falls out for free.
+- **Route refs are the one over-approximation**: since `s.route()` does not record which router it
+  points into, the predicate degrades to "does this jsonValues item schema contain ANY `route` field".
+  Still a large cut. Optional later narrowing: test the field's `options.include` regex against the
+  route key being renamed and skip fields that cannot match.
+- **Search cannot be scoped** — it indexes all content by definition. It is the one unconditional
+  full-load consumer, which is why it (and only it) needs pagination + visible progress.
+
+### Third consumer: the record LIST view — visible rows only (added 2026-07-30)
+
+The list view already renders a per-entry preview for EVERY key, unvirtualized:
+[RecordFields.tsx:162](../../packages/ui/spa/components/fields/RecordFields.tsx#L162) (default grid) and
+[:191](../../packages/ui/spa/components/fields/RecordFields.tsx#L191) (`ListRecordRenderComponent`), both
+`<PreviewWithRender path={sourcePathOfItem(path, key)} />`. For a jsonValues record that preview reads
+the entry path, i.e. an un-loaded marker — so **today a jsonValues record list shows N broken/empty
+previews**, and the naive fix (load what the preview needs) would load every entry on open, defeating
+the whole feature.
+
+**Requirement (LOCKED 2026-07-30):** the list must be virtualized with `@tanstack/react-virtual`
+(already a dependency — used in `FileGalleryListView` / `MediaPicker`, not yet in record lists) and
+entry content loaded **only for the rows the virtualizer actually renders** (visible + overscan).
+
+- The virtualizer's rendered window IS the key window → **one batch request per window**, not one per
+  row. This is the strongest argument for the `keys` batch param.
+- Debounce on scroll and drop stale windows: flinging through 10k rows must not enqueue 10k keys.
+  Requests already in flight for keys that scrolled out are harmless (they fill the cache) but must
+  not block newer windows.
+- Rows whose content is not loaded yet render a skeleton/spinner, NOT an error — an un-loaded marker in
+  a read/render path is normal (see the watch-list note).
+- **This changes V1.** "Open the module → zero `/json` requests" is no longer the invariant, because the
+  visible rows now load. The new invariant: requests are bounded by (visible + overscan) and by the
+  batch chunk size — never by the record's total key count.
+- The list shares the SAME `jsonEntryContents` cache, so scrolling warms it for later ref scans. It must
+  NOT be mistaken for completeness: the refs guard still runs its own `ensureJsonEntries` for the
+  modules the predicate names.
+- **`.render()` list layouts for jsonValues records** — now its own work item + step below (was a
+  deferred note). `RecordSchema.executeRender` returns `{}` when `isJsonValues`
+  ([record.ts:795](../../packages/core/src/schema/record.ts#L795)), so BOTH the per-entry renders and the
+  record-level `ListRecordRender` are dropped for these records (the early return precedes the
+  `renderInput` block).
+
+### Order of work (decided 2026-07-30)
+
+The list view comes early — it is the most user-visible breakage (a jsonValues record shows N broken
+previews today) and it exercises the batch path under real scroll load before anything subtle depends
+on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of each other after that.
+
+1. **Batch transport** — `ValOps.getJsonEntries` (hoist `initSources`/`fetchPatches`) + `/json` batch
+   mode + `ApiRoutes` zod, with server tests. Everything below depends on this.
+2. **Engine primitives** — `requestJsonEntries(mfp, keys)` (window, fire-and-forget) +
+   `ensureJsonEntries(modules)` (whole-module, awaitable) + progress store, and fold
+   `markAllJsonEntriesStale` into the batch path. Extend the `jsonValues` describe in
+   `ValSyncEngine.test.ts`.
+3. **List view** — virtualize `RecordFields` (both branches) with `@tanstack/react-virtual`, load the
+   rendered window via `requestJsonEntries`, **skeletons for un-loaded rows on all three preview paths**
+   (a marker must never reach a preview component). → **V16**. First visible win; also the first real
+   load-test of steps 1–2.
+4. **Predicate** — `jsonValuesLoadRequirements` + its unit tests (pure; could be done any time, but it
+   only pays off once the hooks below use it).
+5. **Ref hooks + popover gating** — hooks return a status, destructive popovers gate on `success`.
+   → **V10–V13, V17**. This is where the data-integrity hole actually closes.
+6. **Search** — first-query trigger, debounced re-index, marker skip in `traverseSchemaSource`, delete
+   the dead `createSearchIndex.ts`. → **V14**.
+7. **`.render()` list layouts (windowed)** — per-key `render` on the batch `/json` response + partial
+   `items` merged into the client renders map. → **V18**. **Gated on the renders-are-null decision** in
+   its work item; until that is answered, step 3's skeleton + `<Preview>` fallback IS the list preview.
+   Deliberately last: it is the only step that depends on a Studio-wide question rather than on
+   jsonValues.
+8. **Verify + gate** — the full manual walkthrough (V1–V18, noting V1 is superseded; V1–V9 have still
+   never been run) then the Phase 5 CI gate.
+
+The caching decision (last item below) is deliberately NOT in this order — it is a question for Fredrik,
+not a step.
+
+### Work items
+
+- [ ] **Batch `/json` (transport)** — `ApiRoutes.ts`: GET `/json` grows a batch mode. `keys` (JSON
+      array param, client-driven paging, cap the batch server-side) **and** `offset`/`limit` for
+      all-mode. Response returns an array of `{key, content}` (plus the resolved `offset`/`limit`/
+      `total` for all-mode). Keep the existing single `key` form working — the entry-open path must not
+      get slower. `apply_patches` semantics unchanged (Studio passes `false`).
+- [ ] **Batch `ValOps.getJsonEntries(mfp, {keys | offset+limit}, {applyPatches})`** —
+      `getJsonEntry` currently calls `initSources()` AND `fetchPatches()` per entry
+      ([ValOps.ts:272](../../packages/server/src/ValOps.ts#L272)); a batch MUST hoist both out of the
+      loop or "load 500 entries" becomes 500 patch fetches. Keep `getJsonEntry` as a thin wrapper over
+      the batch so there is one code path.
+- [ ] **`jsonValuesLoadRequirements(schemas, query)`** — new pure module in `packages/ui/spa`
+      implementing the predicate above. `query` is one of `{kind:"keyOf", module}` /
+      `{kind:"file", module}` / `{kind:"route"}`; returns the `ModuleFilePath[]` whose entries must be
+      loaded. Own unit test file: empty result for the incoming-ref case, non-empty for nested
+      `keyOf`/image/file, `route` over-approximation, transitivity through object/array/record/union.
+- [ ] **`ValSyncEngine.ensureJsonEntries(moduleFilePaths)`** — idempotent batch loader: for each
+      module, diff the marker key set against `jsonEntryContents` + `staleJsonEntries`, request the
+      missing keys in chunks (start at 50) through the batch endpoint, fill the SAME
+      `jsonEntryContents` cache, then the existing invalidate + emit. Returns a promise that resolves
+      when the requested modules are fully loaded. Never fires on Studio boot.
+- [ ] **Progress store** — `{loaded, total, status}` (not a boolean) exposed as a sync-external-store
+      snapshot (`subscribe("json-entries-progress")` + `getJsonEntriesProgressSnapshot()`), so any
+      component can render "Checking references… 340/5000". `total` needs no server help: the client
+      already has every entry key from the marker record.
+- [ ] **`ValSyncEngine.requestJsonEntries(mfp, keys)`** — the window-based sibling of
+      `ensureJsonEntries`: fire-and-forget, takes an explicit key list, skips cached/in-flight/errored
+      keys, batches the rest in one request. This is what the virtualized list calls per rendered
+      window; `ensureJsonEntries(modules)` (awaitable, whole-module) stays for the refs guard and search.
+      Both share the chunking + cache + emit path.
+- [ ] **Virtualize the record list + load visible rows only** — `RecordFields.tsx`: wrap both list
+      branches (default grid at :162 and `ListRecordRenderComponent` at :191) in
+      `useVirtualizer` from `@tanstack/react-virtual`, and for a jsonValues record call
+      `requestJsonEntries(mfp, visibleKeys)` from the rendered window (debounced; drop stale windows).
+      Un-loaded rows render a skeleton, not an error. Non-jsonValues records get virtualization too
+      (same code path, no loading) — a 10k-key ordinary record renders 10k previews today.
+- [ ] **Skeletons for un-loaded jsonValues rows (all three preview paths)** — a marker must never reach
+      a preview component. `PreviewWithRender` → `useRefPreview` miss → `<Preview>` →
+      `ObjectPreview`/etc. reading a marker is exactly today's broken state. So: when the parent schema is
+      a jsonValues record and the entry's content is not in `jsonEntryContents`, render a skeleton
+      (a) instead of the `<Preview>` fallback, (b) instead of a `ListPreviewItem` when the key is missing
+      from a partial `items` array, and (c) for the `errored` case a small retry affordance rather than a
+      dead row. Skeleton must be the same height as a loaded row or the virtualizer's measurements jump.
+- [ ] **`.render()` list layouts for jsonValues records (windowed)** — drop the `isJsonValues` early
+      return in `RecordSchema.executeRender` and instead compute renders for the keys whose content the
+      caller has. Shape: - The user's `select({key, val})` lives in the schema INSTANCE, so only the SERVER can run it (the
+      client has serialized schemas only). Batch `/json` therefore returns `render` per key next to
+      `content` — one more field on the same response, no extra round trip. - The record-level `ListRecordRender.items` is `[key, {title, subtitle?, image?}][]`
+      ([render.ts:9](../../packages/core/src/render.ts#L9)) — an ALL-ROWS payload, so it can never be
+      produced eagerly for a 10k jsonValues record. It becomes **partial**: the client merges the render
+      values it has received into the module's renders map, and `items` holds only loaded keys. - This works with zero changes to the consumer: `resolveRefPreview` looks the row up by key
+      (`items.find(([itemKey]) => itemKey === key)`,
+      [useRefPreview.ts:82](../../packages/ui/spa/components/useRefPreview.ts#L82)) and returns
+      `undefined` on a miss — which the previous work item turns into a skeleton. - **BLOCKER (Studio-wide, not jsonValues-specific): renders are null in the Studio today.**
+      `/sources/~` only computes them when `apply_patches` is true
+      ([ValServer.ts:1479](../../packages/server/src/ValServer.ts#L1479)) and the Studio always sends
+      `false`, so `ValSyncEngine` stores `valModule.render || null` and every list already falls back to
+      `<Preview>`. `setRenders` is called from stories only. So `.render()` list layouts are dead for
+      ALL schema types right now, and fixing jsonValues alone changes nothing visible. - **DECISION NEEDED (ask Fredrik)**: renders need the user's `select` (server-only) AND the PATCHED
+      source (client-only, because the Studio owns in-flight patches) — that pincer is why they are off.
+      Options: (i) a dedicated render request with `apply_patches:true`, accepting that a render lags an
+      unsaved edit (a row would show the committed title while the user is editing it); (ii) make the
+      title/subtitle/image selection serializable so the client can evaluate it; (iii) leave renders off
+      and treat `<Preview>` as the only list preview. Same class of limitation as the `useValKey` draft
+      path already tracked in Phase 4. Pick one before building this item.
+- [ ] **Ref hooks stop lying** — `useEagerRouteReferences` / `useKeysOf` / `useReferencedFiles` return
+      a status (`loading` + progress → `success` with COMPLETE refs → `error`) instead of a bare array.
+      Each hook calls `jsonValuesLoadRequirements` first; empty ⇒ synchronously `success` (today's
+      behaviour, no request). Non-empty ⇒ `ensureJsonEntries` and report progress.
+- [ ] **Popovers gate on completeness** — `DeleteRecordPopover` / `ChangeRecordPopover` render progress
+      and refuse to act until `success`; on `error` they stay blocked with a retry. Never
+      "no refs found, go ahead". This is the actual fix for the defect.
+- [ ] **Search** — trigger `ensureJsonEntries(all jsonValues modules)` **only on user intent**: search
+      is lazy, so nothing loads before it is requested. Trigger on the first non-empty query, NOT on
+      `SearchField` mount / dialog open (radix mounts the content when the dialog opens, so a
+      mount-effect trigger would load on open). **Debounce the re-index** —
+      [Search.tsx:121-138](../../packages/ui/spa/components/Search.tsx#L121-L138) rebuilds the whole index
+      on every `sources` change and would otherwise rebuild once per batch.
+- [ ] **Search shows partial results + a percentage while loading** — results appear IMMEDIATELY from
+      whatever is already indexed (never a blocked/empty dropdown waiting for a full load), and the
+      dropdown carries a loading indicator with a **percentage** — `Math.round(loaded / total * 100)` off
+      the progress store, e.g. "Searching… 42% indexed". The list re-renders as each batch lands and the
+      indicator disappears at 100%. Two details that matter: the percentage must be over the whole
+      requested set (all jsonValues modules), not per module, or it resets visibly on every module
+      boundary; and results arriving late must not reorder/jump what the user is already looking at more
+      than the new matches require.
+- [ ] **Fix the live search traversal** — add the marker skip to `traverseSchemaSource` (interim
+      correctness + kills the `_type`/`patch_id` edge).
+- [ ] **Delete the dead `createSearchIndex.ts` + `search.test.ts`** and the unused barrel export in
+      `search/index.ts`. The marker skip added there was on unreachable code.
+- [ ] **Fold `markAllJsonEntriesStale` into the batch path** —
+      [ValSyncEngine.ts:1063](../../packages/ui/spa/ValSyncEngine.ts#L1063) currently re-requests every
+      loaded entry one-by-one, so with hundreds cached a publish is a request storm today. The progress
+      store must cover this post-publish refresh too: anything transitively derived from stale entries
+      (entry detail view, refs guard, search index) goes back to `loading` with progress rather than
+      briefly rendering stale or content-free values. In particular a refs query must NOT answer from
+      stale content — it re-enters `loading`.
+- [ ] **Verify** (Studio running):
+  - **V10** rename/delete a key in a jsonValues router while another ORDINARY module holds a
+    `keyOf`/`route` ref to it → refs found, delete blocked, rename rewrites the referrer, and **zero**
+    `/json` requests (incoming-ref case).
+  - **V11** same, but the referrer lives inside a jsonValues entry (`keyOf` in the item schema) →
+    progress shown, refs found after load, delete blocked, rename rewrites it.
+  - **V12** delete a key in an ordinary record while no jsonValues item schema references it → zero
+    `/json` requests, guard instant.
+  - **V13** a batch load that fails mid-way → guard shows an error + retry, destructive action stays
+    blocked (never silently "no refs").
+  - **V14** open search, type nothing → zero `/json`. Type a query → matches from already-indexed
+    content appear IMMEDIATELY (not after the load), the dropdown shows a percentage that climbs to
+    100%, entry content becomes findable as batches land, and the index is NOT rebuilt once per batch.
+  - **V15** publish with many entries cached → one batched refresh (not N requests), progress visible,
+    no stale answers from the refs guard in between.
+  - **V16** open a jsonValues record with many entries → only the visible window (+ overscan) is
+    requested, in ONE batch, and those rows show real previews; rows below the fold show skeletons and
+    have NOT been requested. Scroll slowly → one batch per window. Fling to the bottom → the number of
+    requests is bounded by windows actually rendered, never by total keys.
+  - **V17** scroll a jsonValues list to the bottom, then rename a key whose only referrer is an entry
+    that was scrolled past → the refs guard still reports COMPLETE (cache warm ⇒ instant) and the
+    rename rewrites the referrer.
+  - **V18** (step 7 only) a jsonValues record WITH `.render({layout:"list"})` → visible rows show the
+    user's title/subtitle/image; rows below the fold are skeletons of the same height (no measurement
+    jump, no marker reaching a preview component); scrolling fills them in. Then edit a visible row's
+    title without publishing → confirm what the row shows, and that it matches whichever option was
+    chosen in the renders decision (it will show COMMITTED content under option (i)).
+- [ ] **DECISION NEEDED — ask Fredrik: efficient browser caching for `/json`.** Deferred from the
+      Phase 6 design round (2026-07-30). Fredrik's idea: in **http/prod mode there is a stable commit**,
+      so put it in the request and make the response immutably cacheable by the browser. Open parts:
+      (1) FS/dev mode has no commit — what is the key there, or do we simply not cache?
+      (2) `ValClient` sets its own headers, exposes no response headers, and zod-validates a JSON body,
+      so `ETag`/`If-None-Match`/304 is NOT reachable without extending that layer
+      ([ValClient.ts:88](../../packages/shared/src/internal/ValClient.ts#L88)).
+      (3) `apply_patches:false` (what the Studio sends) is a pure function of committed files, so it is
+      the cacheable case; `apply_patches:true` is mutable.
+      (4) Alternative if headers stay off-limits: in-payload conditional loading (client sends known
+      version tokens, server replies "unchanged") — needs a per-entry version token, and
+      `jsonValuesSha.ts` was deliberately deleted (locked decision #3), so there is none today.
+      Until this is decided, "caching" means only: the client never refetches what is in
+      `jsonEntryContents`, and the server hoists `initSources`/`fetchPatches` per batch.
+
+**Longer-term alternative (not now):** a server-side reference-scan endpoint ("which source paths hold
+`keyOf`/`route` value X"), which the server can answer from the `*.val.json` files on disk with no
+client download at all. Phase 6 keeps the scan client-side; the schema predicate is what makes that
+affordable. Revisit if the outgoing-ref case (V11) turns out to be common in real projects.
+
 ---
 
 ## sha design — DROPPED (2026-07-02)
@@ -342,9 +625,39 @@ unconditionally (accepted "validation takes more time" tradeoff).
   draft/endpoint path later). So committed validation is correct.
 - `vm` loader dynamic `import()` + `.json` resolution.
 - resolvePath/selector must never throw on a not-yet-loaded entry.
+- **Skipping an un-loaded marker is NOT automatically safe.** It is fine for a read/render path (the
+  content is simply not there yet) but WRONG for any scan whose answer gates a mutation — see Phase 6.
+  When adding a new traversal, decide explicitly which of the two it is.
+- Browser caching of `/json` — deferred; the last Phase 6 item holds the open questions.
+- **Does `jsonEntryContents` need eviction?** With visible-row loading, scrolling a 10k-entry list (or
+  running search once) eventually caches every entry's content in the client. Nothing evicts today. If
+  this bites, an LRU keyed by `mfp\0key` is the obvious answer — but eviction must never silently
+  downgrade a refs guard that reported COMPLETE, so the guard needs to re-check (or pin) the keys it
+  depended on. Decide only when we see real memory numbers.
+- **Where do per-entry renders come from for jsonValues?** `executeRender` returns `{}` for these
+  records and Studio renders are null across the board today — see the Phase 6 list-view subsection.
 
 ## Changelog
 
+- **Session 6 (2026-07-30)**: planning only — NO code. Reviewing PR #453 surfaced the
+  reference-integrity defect (the marker skips in `getRouteReferences`/`traverseSchemas` silently make
+  the delete gate and rename fixup answer "no references", nondeterministically) and that the live
+  search path never handled markers at all while the file that does (`createSearchIndex.ts`) is dead.
+  Designed Phase 6: schema-derived scoping rule (direction decides — incoming refs need keys only,
+  so the common case loads NOTHING), batch `/json` (`keys` + `offset`/`limit`), a progress store,
+  status-returning ref hooks that gate the destructive popovers, lazy search-triggered full load, and
+  batched publish invalidation. Browser caching deferred to a decision item at the end of Phase 6.
+  Then added the **visible-rows-only list requirement** (Fredrik): the list view already renders a
+  per-entry `<Preview>` for every key with no virtualization, so jsonValues records show N broken
+  previews AND the naive fix would load everything on open. Virtualize with `@tanstack/react-virtual`
+  and request only the rendered window (`requestJsonEntries(mfp, keys)`). Supersedes V1; added V16/V17,
+  plus watch-list entries for cache eviction and for `executeRender` returning `{}` on jsonValues.
+  Then promoted the deferred render note to real work: an explicit **Order of work** (8 steps, list view
+  early because it is the visible breakage), **skeletons on all three preview paths** (a marker must never
+  reach a preview component), **windowed `.render()` list layouts** (per-key `render` on the batch
+  response + partial `items`; gated on a DECISION about renders being null Studio-wide — `/sources/~` only
+  computes them when `apply_patches` is true, and the Studio always sends false), and **search showing
+  partial results with a percentage** while the index fills. Added V18.
 - **Session 5 (2026-07-28)**: enabled/draft runtime path (server + RSC) and edit tags.
   - Merged `main` (which fixed an unrelated blocker: the publish gate read the RAW
     `errors.validationErrors` instead of the surfaced snapshot, so every `s.images()`/`s.files()`
