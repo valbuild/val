@@ -210,6 +210,49 @@ describe("router", () => {
       }
     });
 
+    it("should keep item errors on a key that also has router and key schema errors", () => {
+      // The item is a string, so its errors land on the key path itself: all
+      // three error sources collide on the same SourcePath
+      const schema = s.router(
+        strictMockRouter,
+        s.string().maxLength(5),
+        s.string().maxLength(3),
+      );
+
+      const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
+        "/bad-and-too-long": "item value is too long as well",
+      });
+
+      expect(result).not.toBe(false);
+      if (result !== false) {
+        const keyPath = Object.keys(result).find((p) =>
+          p.includes("/bad-and-too-long"),
+        );
+        expect(keyPath).toBeDefined();
+        if (keyPath) {
+          const errsAtKey = result[keyPath as SourcePath];
+          // Router pattern error
+          expect(
+            errsAtKey.some(
+              (e) => e.keyError && e.message.includes("not a valid route"),
+            ),
+          ).toBe(true);
+          // Key schema error
+          expect(
+            errsAtKey.some(
+              (e) => e.keyError && e.message.includes("at most 5"),
+            ),
+          ).toBe(true);
+          // Item error must not be dropped by the merge
+          expect(
+            errsAtKey.some(
+              (e) => !e.keyError && e.message.includes("at most 3"),
+            ),
+          ).toBe(true);
+        }
+      }
+    });
+
     it("should still work with the two-arg form (no key schema)", () => {
       const schema = s.router(mockRouter, s.object({ title: s.string() }));
       const result = schema["executeValidate"]("/test.val.ts" as SourcePath, {
