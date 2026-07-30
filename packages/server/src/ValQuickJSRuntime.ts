@@ -119,6 +119,12 @@ export default new Proxy({}, {
               "export const ValApp = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValApp' in this file`) } } } )",
           };
         }
+        if (modulePath.includes("/ValModulesClient")) {
+          return {
+            value:
+              "export const ValModulesClient = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValModulesClient' in this file`) } } } ); export const useRegisterValModules = () => { throw new Error(`Cannot use 'useRegisterValModules' in this type of file`) };",
+          };
+        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch {
         return {
@@ -162,6 +168,9 @@ export default new Proxy({}, {
           return { value: requestedName };
         }
         if (requestedName.includes("/ValApp")) {
+          return { value: requestedName };
+        }
+        if (requestedName.includes("/ValModulesClient")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

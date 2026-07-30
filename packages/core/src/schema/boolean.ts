@@ -13,6 +13,8 @@ export type SerializedBooleanSchema = {
   type: "boolean";
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -20,6 +22,8 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   constructor(
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -29,6 +33,8 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return new BooleanSchema(
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -39,6 +45,8 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return new BooleanSchema(
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -100,8 +108,35 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   }
 
   nullable(): BooleanSchema<Src | null> {
-    return new BooleanSchema<Src | null>(true, [], this.description);
+    return new BooleanSchema<Src | null>(
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
+
+  readonly(): BooleanSchema<Src> {
+    return new BooleanSchema<Src>(
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): BooleanSchema<Src> {
+    return new BooleanSchema<Src>(
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     return {
       type: "boolean",
@@ -109,6 +144,8 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

@@ -43,6 +43,7 @@ function buildIndex(
         schema.type === "number" ||
         schema.type === "boolean" ||
         schema.type === "date" ||
+        schema.type === "dateTime" ||
         schema.type === "keyOf" ||
         schema.type === "route"
       ) {

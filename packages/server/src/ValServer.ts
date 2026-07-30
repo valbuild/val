@@ -1419,24 +1419,29 @@ export const ValServer = (
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
         const unpatchedSources = sourcesRes.sources;
-        const onlyPatchedTreeModules = await serverOps.getSources({
-          ...patchAnalysis,
-          ...patchOps,
-        });
-        sourcesRes = {
-          sources: {
-            ...sourcesRes.sources,
-            ...(onlyPatchedTreeModules.sources || {}),
-          },
-          errors: {
-            ...sourcesRes.errors,
-            ...(onlyPatchedTreeModules.errors || {}),
-          },
-        };
-        const renderRes = await serverOps.getRenders(
-          schemasRes,
-          sourcesRes.sources,
-        );
+        // Default to true to keep the legacy contract for older clients.
+        // The studio client always passes false: it owns patch application
+        // and rendering, and treats /sources/~ as a pure un-patched read.
+        const applyPatches = query.apply_patches !== false;
+        if (applyPatches) {
+          const onlyPatchedTreeModules = await serverOps.getSources({
+            ...patchAnalysis,
+            ...patchOps,
+          });
+          sourcesRes = {
+            sources: {
+              ...sourcesRes.sources,
+              ...(onlyPatchedTreeModules.sources || {}),
+            },
+            errors: {
+              ...sourcesRes.errors,
+              ...(onlyPatchedTreeModules.errors || {}),
+            },
+          };
+        }
+        const renderRes = applyPatches
+          ? await serverOps.getRenders(schemasRes, sourcesRes.sources)
+          : { renders: {} as Record<ModuleFilePath, ReifiedRender | null> };
 
         let sourcesValidation: {
           errors: Record<
@@ -1520,9 +1525,12 @@ export const ValServer = (
               (patchAnalysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
             modules[moduleFilePath] = {
               source: module,
-              baseSource: hasPatches
-                ? unpatchedSources[moduleFilePath]
-                : undefined,
+              // baseSource is only meaningful when the server applied patches:
+              // with apply_patches=false, `source` is already un-patched.
+              baseSource:
+                applyPatches && hasPatches
+                  ? unpatchedSources[moduleFilePath]
+                  : undefined,
               render: renderRes.renders[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||

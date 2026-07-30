@@ -19,6 +19,8 @@ export type SerializedArraySchema = {
   item: SerializedSchema;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -32,6 +34,8 @@ export class ArraySchema<
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -42,6 +46,8 @@ export class ArraySchema<
       this.item,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -53,6 +59,8 @@ export class ArraySchema<
       this.item,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -133,7 +141,36 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(this.item, true, [], this.description);
+    return new ArraySchema(
+      this.item,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedArraySchema {
@@ -144,6 +181,8 @@ export class ArraySchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

@@ -32,6 +32,8 @@ export type SerializedRichTextSchema = {
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -43,6 +45,8 @@ export class RichTextSchema<
     private readonly options: O & ValidationOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -53,6 +57,8 @@ export class RichTextSchema<
       this.options,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -65,6 +71,8 @@ export class RichTextSchema<
       },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -77,6 +85,8 @@ export class RichTextSchema<
       },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -88,6 +98,8 @@ export class RichTextSchema<
       this.options,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -641,7 +653,36 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(this.options, true, [], this.description);
+    return new RichTextSchema(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -684,6 +725,8 @@ export class RichTextSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

@@ -212,6 +212,12 @@ Notes:
 - `examples/next` build is its own CI job and must be run separately.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
 
+### Don't run `pnpm run build` during development
+
+Prefer `pnpm run -r typecheck` (or `pnpm --filter <pkg> run typecheck` for a single package) to validate cross-package changes. `pnpm run build` invokes `preconstruct build`, which replaces each workspace package's `main`/`module` entries with the built `dist/` artifacts. After that, downstream packages and the running dev server resolve imports against the built output, so further source edits in upstream packages are invisible until you rebuild.
+
+If you do run `pnpm run build` (e.g., as a final CI check), you MUST run `pnpm preconstruct dev` afterward to restore the source-mapped entries so dev mode picks up live edits again.
+
 ## Working with Images
 
 ### ImageSource Shape

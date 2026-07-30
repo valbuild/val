@@ -3,6 +3,7 @@ import {
   Loader2,
   Type,
   Calendar,
+  Clock,
   Code,
   FileIcon,
   FileText,
@@ -55,6 +56,8 @@ export function NodeIcon({
       return <FileIcon size={size} className={className} />;
     case "date":
       return <Calendar size={size} className={className} />;
+    case "dateTime":
+      return <Clock size={size} className={className} />;
     case "image":
       return <ImageIcon size={size} className={className} />;
     default:
