@@ -220,6 +220,154 @@ describe("ValOps.getJsonEntry", () => {
   });
 });
 
+describe("ValOps.getJsonEntries (batch)", () => {
+  test("resolves many keys in one call", async () => {
+    const { ops } = setup();
+    const res = await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/hello", "/blog/world"],
+    });
+    expect(res).toEqual({
+      status: "success",
+      entries: [
+        { key: "/blog/hello", content: { title: "Hello", order: 1 } },
+        { key: "/blog/world", content: { title: "World", order: 2 } },
+      ],
+      missing: [],
+      errors: [],
+      total: 2,
+    });
+  });
+
+  test("keeps the requested key order, and echoes it back", async () => {
+    const { ops } = setup();
+    const res = await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/world", "/blog/hello"],
+    });
+    expect(res.status === "success" && res.entries.map((e) => e.key)).toEqual([
+      "/blog/world",
+      "/blog/hello",
+    ]);
+  });
+
+  test("an unknown key is `missing`, NOT a failed batch", async () => {
+    const { ops } = setup();
+    const res = await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/hello", "/nope"],
+    });
+    expect(res).toMatchObject({
+      status: "success",
+      entries: [{ key: "/blog/hello", content: { title: "Hello", order: 1 } }],
+      missing: ["/nope"],
+      errors: [],
+    });
+  });
+
+  test("a corrupt entry is a per-key error, NOT a failed batch", async () => {
+    const { ops, rootDir } = setup();
+    fs.writeFileSync(
+      path.join(rootDir, "test/content/world.val.json"),
+      "{ not json",
+      "utf-8",
+    );
+    const res = await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/hello", "/blog/world"],
+    });
+    expect(res.status).toBe("success");
+    if (res.status !== "success") throw new Error("unreachable");
+    expect(res.entries).toEqual([
+      { key: "/blog/hello", content: { title: "Hello", order: 1 } },
+    ]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].key).toBe("/blog/world");
+  });
+
+  test("applies pending patches per entry", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Draft!" },
+      { op: "remove", path: ["/blog/world"] },
+    ]);
+    const res = await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/hello", "/blog/world"],
+    });
+    expect(res).toMatchObject({
+      status: "success",
+      entries: [{ key: "/blog/hello", content: { title: "Draft!", order: 1 } }],
+      missing: ["/blog/world"],
+    });
+  });
+
+  test("offset/limit pages over the record in key order", async () => {
+    const { ops } = setup();
+    const first = await ops.getJsonEntries(
+      MODULE_PATH,
+      { offset: 0, limit: 1 },
+      { applyPatches: false },
+    );
+    expect(first).toEqual({
+      status: "success",
+      entries: [{ key: "/blog/hello", content: { title: "Hello", order: 1 } }],
+      missing: [],
+      errors: [],
+      offset: 0,
+      limit: 1,
+      total: 2,
+    });
+    const second = await ops.getJsonEntries(
+      MODULE_PATH,
+      { offset: 1, limit: 10 },
+      { applyPatches: false },
+    );
+    expect(second).toMatchObject({
+      status: "success",
+      entries: [{ key: "/blog/world", content: { title: "World", order: 2 } }],
+      offset: 1,
+      limit: 10,
+      total: 2,
+    });
+    // Past the end: empty, not an error.
+    expect(
+      await ops.getJsonEntries(
+        MODULE_PATH,
+        { offset: 5, limit: 10 },
+        { applyPatches: false },
+      ),
+    ).toMatchObject({ status: "success", entries: [], total: 2 });
+  });
+
+  test("offset/limit is rejected when patches would be applied", async () => {
+    const { ops } = setup();
+    // The base key set cannot represent draft-added keys, so enumerating with
+    // apply_patches would silently return a short list.
+    const res = await ops.getJsonEntries(MODULE_PATH, { offset: 0, limit: 10 });
+    expect(res.status).toBe("error");
+  });
+
+  test("an unknown module is not-found for the whole request", async () => {
+    const { ops } = setup();
+    expect(
+      (
+        await ops.getJsonEntries("/test/nope.val.ts" as ModuleFilePath, {
+          keys: ["/blog/hello"],
+        })
+      ).status,
+    ).toBe("not-found");
+  });
+
+  test("fetches patches ONCE for the whole batch", async () => {
+    const { ops } = setup();
+    await createPatch(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Draft!" },
+    ]);
+    const fetchPatches = jest.spyOn(ops, "fetchPatches");
+    await ops.getJsonEntries(MODULE_PATH, {
+      keys: ["/blog/hello", "/blog/world"],
+    });
+    expect(fetchPatches).toHaveBeenCalledTimes(1);
+    fetchPatches.mockRestore();
+  });
+});
+
 describe("ValOpsFS jsonValues commit flow", () => {
   test("content edit writes only the *.val.json (not the .val.ts)", async () => {
     const { ops } = setup();

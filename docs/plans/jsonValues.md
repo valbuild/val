@@ -10,7 +10,15 @@
 
 ## Current state / resume here
 
-> **Reference-integrity defect found (2026-07-30) — Phase 6 is the next milestone, NOT started.**
+> **Phase 6 step 1 DONE (2026-07-31): batch `/json`.** `ValOps.getJsonEntries` is the single
+> implementation (`getJsonEntry` is a one-key wrapper); `initSources`/`fetchPatches` are hoisted out of
+> the per-entry loop; per-entry failures are per-entry (`missing`/`errors`) so one corrupt `*.val.json`
+> cannot fail a batch; `offset`/`limit` refuses `apply_patches` rather than silently omitting
+> draft-added keys. `keys` is a repeated query param (no plumbing needed — the client already serializes
+> array query values). +14 tests, `pnpm test` 1118 green, `-r typecheck` clean, lint clean.
+> **Next: step 2 — engine primitives (`requestJsonEntries` / `ensureJsonEntries` + progress store).**
+
+> **Reference-integrity defect found (2026-07-30) — Phase 6 is the next milestone, step 1 done.**
 > The Studio's three global scans (route refs, keyOf refs, referenced files) and search silently skip
 > un-loaded `{_type:"json"}` markers, so the delete gate and the rename fixup can both answer "no
 > references" for a ref that lives inside an entry the user happens not to have opened. That is a
@@ -22,6 +30,11 @@
 > renders a per-entry preview for every key, unvirtualized, so a jsonValues record currently shows N
 > broken previews. Fix = virtualize with `@tanstack/react-virtual` + load only the rendered window.
 > This **supersedes V1** ("zero `/json` on open").
+> **Phase 7 (2026-07-31)** is the follow-on: the SPA already holds the user's REAL schema instances
+> (`window.__VAL_MODULES__` → `extractValModules().schemas`) and throws them away in `setValModules`,
+> re-deriving a lobotomised schema with `deserializeSchema` that has no render `select`, no custom
+> validators and no router. Using the instances fixes renders (all schema types, draft-accurate) and
+> finally lets custom validators run client-side. Phase 6 step 7 moved there.
 
 > **Draft runtime path DONE (2026-07-28):** the last Phase 4 box is closed on the server + RSC side.
 > `/json` takes `apply_patches` (default **true**, mirroring `/sources/~`) and replays pending
@@ -449,11 +462,9 @@ on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of eac
    → **V10–V13, V17**. This is where the data-integrity hole actually closes.
 6. **Search** — first-query trigger, debounced re-index, marker skip in `traverseSchemaSource`, delete
    the dead `createSearchIndex.ts`. → **V14**.
-7. **`.render()` list layouts (windowed)** — per-key `render` on the batch `/json` response + partial
-   `items` merged into the client renders map. → **V18**. **Gated on the renders-are-null decision** in
-   its work item; until that is answered, step 3's skeleton + `<Preview>` fallback IS the list preview.
-   Deliberately last: it is the only step that depends on a Studio-wide question rather than on
-   jsonValues.
+7. **`.render()` list layouts (windowed)** → **Phase 7 stage 1** (client-side schema instances), verified
+   by **V18**. Not gated on anything any more; it is simply a different phase's work. Until it lands,
+   step 3's skeleton + `<Preview>` fallback IS the list preview.
 8. **Verify + gate** — the full manual walkthrough (V1–V18, noting V1 is superseded; V1–V9 have still
    never been run) then the Phase 5 CI gate.
 
@@ -462,16 +473,23 @@ not a step.
 
 ### Work items
 
-- [ ] **Batch `/json` (transport)** — `ApiRoutes.ts`: GET `/json` grows a batch mode. `keys` (JSON
-      array param, client-driven paging, cap the batch server-side) **and** `offset`/`limit` for
-      all-mode. Response returns an array of `{key, content}` (plus the resolved `offset`/`limit`/
-      `total` for all-mode). Keep the existing single `key` form working — the entry-open path must not
-      get slower. `apply_patches` semantics unchanged (Studio passes `false`).
-- [ ] **Batch `ValOps.getJsonEntries(mfp, {keys | offset+limit}, {applyPatches})`** —
-      `getJsonEntry` currently calls `initSources()` AND `fetchPatches()` per entry
-      ([ValOps.ts:272](../../packages/server/src/ValOps.ts#L272)); a batch MUST hoist both out of the
-      loop or "load 500 entries" becomes 500 patch fetches. Keep `getJsonEntry` as a thin wrapper over
-      the batch so there is one code path.
+- [x] **Batch `/json` (transport)** — DONE (2026-07-31). GET `/json` now takes exactly one of `key`
+      (unchanged single-entry shape), `keys` (**repeated** query param, not a JSON array — `ValClient`
+      already serialises array query values, and the router's `groupQueryParams` already hands zod a
+      `string[]`, so no plumbing was needed), or `offset`+`limit`. Batch responses are
+      `{path, entries, missing, errors, total, offset?, limit?}`. `JSON_ENTRIES_BATCH_MAX = 100` is
+      exported from `ApiRoutes` so client and server agree; over-cap requests fail zod validation.
+      Shape violations are 400s, checked in `ValRouter.test.ts` (+5). `ValidQueryParamTypes` gained
+      `number` (the client stringifies query values anyway).
+- [x] **Batch `ValOps.getJsonEntries(mfp, {keys | offset+limit}, {applyPatches})`** — DONE (2026-07-31).
+      `initSources()` and `fetchPatches()` are hoisted out of the per-entry loop (pinned by a test that
+      asserts `fetchPatches` is called exactly once for a 2-key batch); thunks resolve via `Promise.all`.
+      `getJsonEntry` is now a one-key wrapper over it, so there is a single code path. Per-entry problems
+      stay per-entry: an unknown key lands in `missing`, a corrupt `*.val.json` in `errors`, and only a
+      missing/non-record MODULE is a whole-request `not-found`. `offset`/`limit` REQUIRES
+      `applyPatches:false` and errors otherwise — enumerating from the base source would silently omit
+      draft-added keys, which is the exact bug class this phase exists to kill. Tests: +9 in
+      `ValOpsFS.jsonValues.test.ts`.
 - [ ] **`jsonValuesLoadRequirements(schemas, query)`** — new pure module in `packages/ui/spa`
       implementing the predicate above. `query` is one of `{kind:"keyOf", module}` /
       `{kind:"file", module}` / `{kind:"route"}`; returns the `ModuleFilePath[]` whose entries must be
@@ -504,28 +522,17 @@ not a step.
       (a) instead of the `<Preview>` fallback, (b) instead of a `ListPreviewItem` when the key is missing
       from a partial `items` array, and (c) for the `errored` case a small retry affordance rather than a
       dead row. Skeleton must be the same height as a loaded row or the virtualizer's measurements jump.
-- [ ] **`.render()` list layouts for jsonValues records (windowed)** — drop the `isJsonValues` early
-      return in `RecordSchema.executeRender` and instead compute renders for the keys whose content the
-      caller has. Shape: - The user's `select({key, val})` lives in the schema INSTANCE, so only the SERVER can run it (the
-      client has serialized schemas only). Batch `/json` therefore returns `render` per key next to
-      `content` — one more field on the same response, no extra round trip. - The record-level `ListRecordRender.items` is `[key, {title, subtitle?, image?}][]`
-      ([render.ts:9](../../packages/core/src/render.ts#L9)) — an ALL-ROWS payload, so it can never be
-      produced eagerly for a 10k jsonValues record. It becomes **partial**: the client merges the render
-      values it has received into the module's renders map, and `items` holds only loaded keys. - This works with zero changes to the consumer: `resolveRefPreview` looks the row up by key
-      (`items.find(([itemKey]) => itemKey === key)`,
-      [useRefPreview.ts:82](../../packages/ui/spa/components/useRefPreview.ts#L82)) and returns
-      `undefined` on a miss — which the previous work item turns into a skeleton. - **BLOCKER (Studio-wide, not jsonValues-specific): renders are null in the Studio today.**
-      `/sources/~` only computes them when `apply_patches` is true
-      ([ValServer.ts:1479](../../packages/server/src/ValServer.ts#L1479)) and the Studio always sends
-      `false`, so `ValSyncEngine` stores `valModule.render || null` and every list already falls back to
-      `<Preview>`. `setRenders` is called from stories only. So `.render()` list layouts are dead for
-      ALL schema types right now, and fixing jsonValues alone changes nothing visible. - **DECISION NEEDED (ask Fredrik)**: renders need the user's `select` (server-only) AND the PATCHED
-      source (client-only, because the Studio owns in-flight patches) — that pincer is why they are off.
-      Options: (i) a dedicated render request with `apply_patches:true`, accepting that a render lags an
-      unsaved edit (a row would show the committed title while the user is editing it); (ii) make the
-      title/subtitle/image selection serializable so the client can evaluate it; (iii) leave renders off
-      and treat `<Preview>` as the only list preview. Same class of limitation as the `useValKey` draft
-      path already tracked in Phase 4. Pick one before building this item.
+- [ ] **`.render()` list layouts for jsonValues records (windowed)** — **moved to Phase 7 stage 1**; it is
+      a client-side-instance change, not a transport one. Summary: replace the `isJsonValues` early return
+      in `RecordSchema.executeRender` with a per-key `isJson(itemSrc) → continue`, then call
+      `executeRender(mfp, patchedSource)` on the CLIENT instance. Because `executeRender` iterates
+      `Object.entries(src)` and un-loaded entries are still markers, the resulting
+      `ListRecordRender.items` ([render.ts:9](../../packages/core/src/render.ts#L9)) is naturally
+      **partial** — exactly the loaded keys — and `resolveRefPreview`'s keyed lookup
+      ([useRefPreview.ts:82](../../packages/ui/spa/components/useRefPreview.ts#L82)) misses on the rest,
+      which the skeleton item above turns into a skeleton. No `render` field on `/json`, no pagination in
+      the render path. (Earlier draft of this item assumed only the server could run `select`; wrong — see
+      Phase 7.)
 - [ ] **Ref hooks stop lying** — `useEagerRouteReferences` / `useKeysOf` / `useReferencedFiles` return
       a status (`loading` + progress → `success` with COMPLETE refs → `error`) instead of a bare array.
       Each hook calls `jsonValuesLoadRequirements` first; empty ⇒ synchronously `success` (today's
@@ -580,11 +587,11 @@ not a step.
   - **V17** scroll a jsonValues list to the bottom, then rename a key whose only referrer is an entry
     that was scrolled past → the refs guard still reports COMPLETE (cache warm ⇒ instant) and the
     rename rewrites the referrer.
-  - **V18** (step 7 only) a jsonValues record WITH `.render({layout:"list"})` → visible rows show the
+  - **V18** (Phase 7 stage 1) a jsonValues record WITH `.render({layout:"list"})` → visible rows show the
     user's title/subtitle/image; rows below the fold are skeletons of the same height (no measurement
     jump, no marker reaching a preview component); scrolling fills them in. Then edit a visible row's
-    title without publishing → confirm what the row shows, and that it matches whichever option was
-    chosen in the renders decision (it will show COMMITTED content under option (i)).
+    title WITHOUT publishing → the row updates as you type (the render is computed from the patched
+    source on the client).
 - [ ] **DECISION NEEDED — ask Fredrik: efficient browser caching for `/json`.** Deferred from the
       Phase 6 design round (2026-07-30). Fredrik's idea: in **http/prod mode there is a stable commit**,
       so put it in the request and make the response immutably cacheable by the browser. Open parts:
@@ -604,6 +611,133 @@ not a step.
 `keyOf`/`route` value X"), which the server can answer from the `*.val.json` files on disk with no
 client download at all. Phase 6 keeps the scan client-side; the schema predicate is what makes that
 affordable. Revisit if the outgoing-ref case (V11) turns out to be common in real projects.
+
+## Phase 7 — Use the CLIENT-SIDE schema instances (added 2026-07-31)
+
+### The realisation
+
+The SPA already has the user's REAL schema instances and has been throwing them away.
+`<ValModulesClient>` registers the registry on `window.__VAL_MODULES__`
+([ValModulesClient.tsx:27](../../packages/next/src/ValModulesClient.tsx#L27)), `useValModules` reads it
+([hooks/useValModules.ts](../../packages/ui/spa/hooks/useValModules.ts)), `ValProvider` pushes it into
+`syncEngine.setValModules`, and `extractValModules` returns BOTH
+`schemas: Record<ModuleFilePath, Schema<…>>` (instances) and `serializedSchemas`
+([extractValModules.ts:113](../../packages/core/src/extractValModules.ts#L113)) — but `setValModules`
+keeps only the serialized ones. Everything downstream then re-derives a lobotomised schema with
+`deserializeSchema`, which drops (a) the render `select`, (b) `customValidateFunctions` (every case passes
+`[]`), and (c) the router. Cross-bundle identity is already handled: the identity symbols use
+`Symbol.for` so the SPA's copy of core and the host bundle's copy agree
+([selector/index.ts:57](../../packages/core/src/selector/index.ts#L57)), and protected methods are called
+by bracket access (`schema["executeSerialize"]()`) precisely because `instanceof` is unreliable across
+copies. So: keep the instances and use them.
+
+Availability caveat: instances exist only when the host app renders `<ValModulesClient>`. Without it
+`window.__VAL_MODULES__` is undefined, `setValModules(null)` runs, and everything must fall back to
+today's serialized behaviour. `localModulesStatus` (`absent`/`loading`/`error`/`loaded`) is the flag.
+
+### Stage 1 — renders from instances (absorbs Phase 6 step 7) → **V18**
+
+- [ ] Retain `extracted.schemas` on the engine as `localSchemaInstances`.
+- [ ] Core: replace the `isJsonValues` early return in `RecordSchema.executeRender`
+      ([record.ts:795](../../packages/core/src/schema/record.ts#L795)) with a per-key
+      `isJson(itemSrc) → continue`, so a partially-substituted record renders its loaded keys.
+- [ ] Engine `computeRender(mfp)` = `instance["executeRender"](mfp, patchedSource)` → the existing
+      `renders` map + `invalidateRenders`; memoized per (module, sourceSha); recomputed on source
+      invalidation. Wrap each key's `select` in try/catch so one throwing user function is one error row,
+      not a dead Studio.
+- [ ] Windowing is free: un-loaded entries are markers, markers are skipped, `items` comes out partial,
+      `resolveRefPreview` misses → skeleton (Phase 6).
+- What this buys beyond jsonValues: renders work again for ALL schema types (they are dead Studio-wide
+  today) and they are computed from the PATCHED source, so a row's title updates as the user types —
+  something the server path could never do.
+
+### Stage 2 — custom validators, worker kept (LOCKED 2026-07-31)
+
+The worker stays. `executeCustomValidateFunctions` only ever APPENDS errors
+([schema/index.ts:91](../../packages/core/src/schema/index.ts#L91)) and `CustomValidateFunction` is
+`(src, ctx:{path}) => false | string` — pure, per-node — so custom errors can be merged AFTER the
+worker's structural result. No synchronous worker→main round trip is needed.
+
+- [ ] **Gate**: one boolean per module, memoized by `schemaSha` — does the serialized tree contain any
+      `customValidate: true`? If not (the common case) nothing changes: no extra message, no main-thread
+      work. Only modules that actually declare a custom validator pay anything.
+- [ ] **Worker reports WHERE**: while it has the module, the worker walks (serialized schema, source) and
+      collects the paths of flagged nodes it actually visited (so unions/optional branches only report
+      paths that exist). Response grows `customValidatePaths`. This walk must be separate from
+      `executeValidate` — the deserialized schema has no validators, so it cannot report that it skipped
+      any. Walking stays off the main thread; the main thread only EXECUTES.
+- [ ] **Main thread executes, time-sliced**: per path, `Internal.resolvePath(modulePath, source, instance)`
+      (already generic over `Schema | SerializedSchema`,
+      [module.ts:279](../../packages/core/src/module.ts#L279)) → node instance + src, then run that node's
+      validators. Slice on a ~5ms budget yielding via `scheduler.postTask({priority:"background"})` →
+      `requestIdleCallback` → `MessageChannel`. Abort when the module's `latestRequestId` changes
+      (`ValidationWorkerClient` already tracks it) or the sourceSha moves.
+      A slow user validator still blocks — accepted: devs who write slow validators see their own slowness.
+- [ ] **Error store must MERGE, not replace** — structural errors publish immediately (fast feedback),
+      custom errors merge per chunk. A wholesale replace would erase the first publish.
+- [ ] **API gap**: running one node's validators needs `customValidateFunctions`, which is
+      `private readonly` on EACH SUBCLASS, so no base-class helper can reach it. Chosen fix: add a one-line
+      `protected executeCustomValidateAt(path, src)` to each schema class (~15 files, mechanical, matches
+      the `schema["executeX"]()` convention). Rejected: bracket-accessing a private field from the SPA;
+      hoisting the field to the base class (cleanest end state, biggest diff — revisit in stage 3).
+
+**Triggers (LOCKED 2026-07-31)** — custom validation is NOT part of the load path:
+
+- [ ] **On update only**: `addPatch` → `requestModuleValidation(mfp)` runs structural (as today) plus
+      custom for THAT module. Note `requestAllModuleValidation()` currently fires from `setValModules`
+      ([ValSyncEngine.ts:2631](../../packages/ui/spa/ValSyncEngine.ts#L2631)), i.e. on boot and every HMR —
+      structural may keep doing that, custom must not.
+- [ ] **Pre-publish**: validate every module touched by patches (the engine already knows the patch set
+      per module), custom included, with every needs-keys round resolved before publish is allowed.
+- [ ] **"Validate absolutely everything" switch**: one call —
+      `validateAll({ custom: true, loadAllJsonEntries: true })` — walks every module, resolves every
+      needs-keys round, reports progress through the Phase 6 progress store. For dev/CI/debugging.
+
+**needs-keys protocol for `.jsonValues()` (LOCKED 2026-07-31)**: a custom validator cannot run against
+opaque markers, so the call returns what it needs instead of guessing:
+
+```
+runCustomValidation(path) →
+  | { status: "done", errors }
+  | { status: "needs-keys", moduleFilePath, keys: string[] }
+```
+
+- [ ] The keys come from the record's MARKER key set in the module source — always present, no loading
+      required to compute them. A validator on the RECORD needs every key in its subtree; a validator on
+      the ITEM schema needs only that entry's key.
+- [ ] The caller resolves them with Phase 6's `ensureJsonEntries` / `requestJsonEntries(mfp, keys)` and
+      retries. Guard the loop: if a retry returns the same `needs-keys` set, report an error instead of
+      spinning. Validation is thereby the FOURTH consumer of the batch loader (list view, refs guard,
+      search, validation).
+- [ ] **Cost to document for users**: a custom validator on a `.jsonValues()` RECORD forces a full load of
+      that record whenever it runs (on update of that module, or pre-publish). Prefer putting custom
+      validators on the ITEM schema, which needs one key. This is inherent, not a bug: a record-level
+      validator is by definition a statement about all entries.
+- [ ] **The server stays the authority for publish.** Client-side custom validation of a jsonValues module
+      is only ever as complete as what is loaded; `validateJsonValuesEntries` on the server validates every
+      entry. The client pass is feedback, not proof.
+- [ ] **Expect newly-surfaced errors.** Client validation cannot run custom validators AT ALL today, so
+      existing projects may light up with errors that were previously invisible — and the publish gate
+      reads validation errors ([DraftChanges.tsx:143](../../packages/ui/spa/components/DraftChanges.tsx#L143)),
+      so some will block publish. Correct behaviour that will read as a regression; worth a release note.
+
+### Stage 3 — instances become the primary schema source
+
+- [ ] Serialized schemas stay for what genuinely must be JSON: `schemaSha` (the change-detection key
+      against the server), patch-op classification, `/sources/~` comparison. Anything needing BEHAVIOUR
+      (render, validate, `emptyOf`) reads instances. Honest framing: serialize never fully goes away;
+      `deserialize` **on the client** does.
+- [ ] Ends with `deserializeSchema` removed from the SPA (the worker keeps it only if stage 2's structural
+      pass still runs there — which it does, so this is "removed from the main thread").
+- [ ] Consider hoisting `customValidateFunctions` (and the router) to the `Schema` base here, which
+      retires the stage-2 per-class helper.
+
+### Stage 4 — delete the server render path for the Studio
+
+- [ ] `getRenders` has exactly ONE caller — `/sources/~`
+      ([ValServer.ts:1480](../../packages/server/src/ValServer.ts#L1480)) — and only when
+      `apply_patches` is true, which the Studio never sends. Once stage 1 lands that branch is dead for the
+      Studio: remove it, and the `render` field on the `/sources/~` response if no other consumer wants it.
 
 ---
 
@@ -634,8 +768,10 @@ unconditionally (accepted "validation takes more time" tradeoff).
   this bites, an LRU keyed by `mfp\0key` is the obvious answer — but eviction must never silently
   downgrade a refs guard that reported COMPLETE, so the guard needs to re-check (or pin) the keys it
   depended on. Decide only when we see real memory numbers.
-- **Where do per-entry renders come from for jsonValues?** `executeRender` returns `{}` for these
-  records and Studio renders are null across the board today — see the Phase 6 list-view subsection.
+- ~~**Where do per-entry renders come from for jsonValues?**~~ **Resolved (2026-07-31)**: from the CLIENT
+  schema instances — the SPA already has them via `window.__VAL_MODULES__` and discards them in
+  `setValModules`. See Phase 7. (`executeRender` returning `{}` for jsonValues and Studio renders being
+  null across the board are both fixed there.)
 
 ## Changelog
 
@@ -658,6 +794,20 @@ unconditionally (accepted "validation takes more time" tradeoff).
   response + partial `items`; gated on a DECISION about renders being null Studio-wide — `/sources/~` only
   computes them when `apply_patches` is true, and the Studio always sends false), and **search showing
   partial results with a percentage** while the index fills. Added V18.
+- **Session 7 (2026-07-31)**: planning — **Phase 7 (client-side schema instances)** added, and Phase 6
+  step 7 moved into it. The SPA already has the user's real `Schema` instances via
+  `window.__VAL_MODULES__` → `extractValModules().schemas`; `setValModules` discards them and everything
+  downstream re-derives a `deserializeSchema` copy with no render `select`, no `customValidateFunctions`
+  (every case passes `[]`) and no router. Stage 1 renders from instances (all schema types, computed from
+  the PATCHED source, so draft-accurate). Stage 2 keeps the validation WORKER and adds custom validators:
+  gate per module on the serialized `customValidate` flag, worker reports the flagged PATHS, main thread
+  executes them time-sliced, error store merges instead of replacing. Triggers locked: on update only,
+  all patch-touched modules pre-publish, plus a `validateAll({custom, loadAllJsonEntries})` switch. New
+  `needs-keys` protocol so a custom validator on a `.jsonValues()` record asks for the keys it needs and
+  the caller loads them via the Phase 6 batch loader (validation = its fourth consumer). Stages 3–4:
+  instances become primary (`deserialize` leaves the main thread), then delete the now-dead server render
+  path. The "renders pincer" decision item is gone — it was premised on a wrong claim that only the server
+  could run `select`.
 - **Session 5 (2026-07-28)**: enabled/draft runtime path (server + RSC) and edit tags.
   - Merged `main` (which fixed an unrelated blocker: the publish gate read the RAW
     `errors.validationErrors` instead of the surfaced snapshot, so every `s.images()`/`s.files()`

@@ -316,12 +316,19 @@ async function loadDraftJsonEntry(
   }
   const valServer = await valServerPromise;
   const res = await valServer["/json"]["GET"]({
-    query: { path: moduleFilePath, key, apply_patches: true },
+    query: {
+      path: moduleFilePath,
+      key,
+      keys: undefined, // single-entry shape
+      offset: undefined,
+      limit: undefined,
+      apply_patches: true,
+    },
     cookies: {
       [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
     },
   });
-  if (res.status === 200) {
+  if (res.status === 200 && "content" in res.json) {
     return res.json.content;
   }
   if (res.status === 401) {
@@ -332,7 +339,10 @@ async function loadDraftJsonEntry(
     // No such entry in the draft state (e.g. removed by a pending patch).
     return undefined;
   }
-  console.error("Val: could not load draft JSON entry: ", res.json.message);
+  console.error(
+    "Val: could not load draft JSON entry: ",
+    "message" in res.json ? res.json.message : `status ${res.status}`,
+  );
   return undefined;
 }
 

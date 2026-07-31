@@ -279,6 +279,73 @@ export abstract class ValOps {
     | { status: "error"; message: string }
     | { status: "unauthorized"; message: string }
   > {
+    const res = await this.getJsonEntries(
+      moduleFilePath,
+      { keys: [entryKey] },
+      opts,
+    );
+    if (res.status !== "success") {
+      return res;
+    }
+    const entry = res.entries[0];
+    if (entry !== undefined) {
+      return { status: "success", content: entry.content };
+    }
+    const error = res.errors[0];
+    if (error !== undefined) {
+      return { status: "error", message: error.message };
+    }
+    return {
+      status: "not-found",
+      message: `Entry not found: ${entryKey} in ${moduleFilePath}`,
+    };
+  }
+
+  /**
+   * Resolves the content of MANY `.jsonValues()` entries in one pass.
+   *
+   * This is the single implementation; {@link getJsonEntry} is a one-key wrapper.
+   * Batching matters because the expensive parts — `initSources()` and
+   * `fetchPatches()` — are hoisted OUT of the per-entry loop: resolving 500
+   * entries one-by-one would otherwise mean 500 patch fetches.
+   *
+   * Per-entry problems stay per-entry (`missing` / `errors`) so one corrupt
+   * `*.val.json` cannot fail a whole batch. Only a missing or non-record MODULE
+   * is a whole-request `not-found`.
+   *
+   * `selector` is either explicit `keys` or an `offset`/`limit` window over every
+   * key of the record, in module key order. The window form requires
+   * `applyPatches: false`: enumerating from the base source would silently omit
+   * draft-added keys, and a silently-short key list is exactly the class of bug
+   * this endpoint exists to avoid.
+   */
+  async getJsonEntries(
+    moduleFilePath: ModuleFilePath,
+    selector: { keys: string[] } | { offset: number; limit: number },
+    opts?: { applyPatches?: boolean },
+  ): Promise<
+    | {
+        status: "success";
+        entries: { key: string; content: JSONValue | null }[];
+        missing: string[];
+        errors: { key: string; message: string }[];
+        total: number;
+        offset?: number;
+        limit?: number;
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+    | { status: "unauthorized"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const isWindow = !("keys" in selector);
+    if (isWindow && applyPatches) {
+      return {
+        status: "error",
+        message:
+          "Cannot enumerate json entries by offset/limit with apply_patches: the base key set would omit draft-added entries. Pass apply_patches=false, or request explicit keys.",
+      };
+    }
     const { sources, schemas } = await this.initSources();
     const moduleSource = sources[moduleFilePath];
     if (moduleSource === undefined || moduleSource === null) {
@@ -293,72 +360,115 @@ export abstract class ValOps {
         message: `Module is not a record: ${moduleFilePath}`,
       };
     }
-    const marker = (moduleSource as Record<string, unknown>)[entryKey];
-    let baseContent: JSONValue | undefined = undefined;
-    if (marker !== undefined) {
-      if (!Internal.isJson(marker)) {
-        // Not a jsonValues entry — return the inlined value as-is (defensive).
-        return { status: "success", content: marker as JSONValue };
+    const record = moduleSource as Record<string, unknown>;
+    const allKeys = Object.keys(record);
+    const requestedKeys = isWindow
+      ? allKeys.slice(selector.offset, selector.offset + selector.limit)
+      : selector.keys;
+
+    // Fetched once for the whole batch, not per entry.
+    let modulePatches: { patchId: PatchId; patch: Patch }[] = [];
+    let serializedSchema: SerializedSchema | undefined = undefined;
+    if (applyPatches) {
+      const patchOps = await this.fetchPatches({ excludePatchOps: false });
+      if (patchOps.error) {
+        return { status: "error", message: patchOps.error.message };
       }
-      const thunk = Internal.getJsonImport(marker);
-      if (thunk) {
+      if (patchOps.errors && Object.keys(patchOps.errors).length > 0) {
+        return {
+          status: "error",
+          message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
+        };
+      }
+      modulePatches = patchOps.patches
+        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
+        .map((p) => ({ patchId: p.patchId, patch: p.patch }));
+      try {
+        serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
+      } catch {
+        // Serialization errors are reported elsewhere; treat as "no schema".
+      }
+    }
+
+    const entries: { key: string; content: JSONValue | null }[] = [];
+    const missing: string[] = [];
+    const errors: { key: string; message: string }[] = [];
+    type ResolvedEntry =
+      | {
+          entryKey: string;
+          baseContent: JSONValue | undefined;
+          /** Set when the value lives in the module source, not a `*.val.json`. */
+          inline?: true;
+        }
+      | { entryKey: string; message: string };
+    const resolved = await Promise.all(
+      requestedKeys.map(async (entryKey): Promise<ResolvedEntry> => {
+        const marker = record[entryKey];
+        if (marker !== undefined && !Internal.isJson(marker)) {
+          // Not a jsonValues entry — return the inlined value as-is (defensive).
+          // `inline` skips patch replay: entry patches are expressed against a
+          // jsonValues entry, and this value is part of the module source proper.
+          return { entryKey, baseContent: marker as JSONValue, inline: true };
+        }
+        if (marker === undefined) {
+          return { entryKey, baseContent: undefined };
+        }
+        const thunk = Internal.getJsonImport(marker);
+        if (!thunk) {
+          return { entryKey, baseContent: null };
+        }
         try {
-          baseContent = ((await thunk()).default ?? null) as JSONValue;
+          return {
+            entryKey,
+            baseContent: ((await thunk()).default ?? null) as JSONValue,
+          };
         } catch (e) {
           return {
-            status: "error",
+            entryKey,
             message: `Failed to load JSON entry '${entryKey}': ${
               e instanceof Error ? e.message : String(e)
             }`,
           };
         }
+      }),
+    );
+    for (const result of resolved) {
+      const { entryKey } = result;
+      if ("message" in result) {
+        errors.push({ key: entryKey, message: result.message });
+        continue;
+      }
+      const { baseContent } = result;
+      if (!applyPatches || "inline" in result) {
+        if (baseContent === undefined) {
+          missing.push(entryKey);
+        } else {
+          entries.push({ key: entryKey, content: baseContent });
+        }
+        continue;
+      }
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema,
+        entryKey,
+        baseContent,
+        patches: modulePatches,
+      });
+      if (res.kind === "error") {
+        errors.push({ key: entryKey, message: res.message });
+      } else if (res.kind === "deleted") {
+        missing.push(entryKey);
       } else {
-        baseContent = null;
+        entries.push({ key: entryKey, content: res.content });
       }
     }
-    if (opts?.applyPatches === false) {
-      if (baseContent === undefined) {
-        return {
-          status: "not-found",
-          message: `Entry not found: ${entryKey} in ${moduleFilePath}`,
-        };
-      }
-      return { status: "success", content: baseContent };
-    }
-    const patchOps = await this.fetchPatches({ excludePatchOps: false });
-    if (patchOps.error) {
-      return { status: "error", message: patchOps.error.message };
-    }
-    if (patchOps.errors && Object.keys(patchOps.errors).length > 0) {
-      return {
-        status: "error",
-        message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
-      };
-    }
-    let serializedSchema: SerializedSchema | undefined = undefined;
-    try {
-      serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
-    } catch {
-      // Serialization errors are reported elsewhere; treat as "no schema".
-    }
-    const res = applyJsonValuesEntryPatches({
-      serializedSchema,
-      entryKey,
-      baseContent,
-      patches: patchOps.patches
-        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
-        .map((p) => ({ patchId: p.patchId, patch: p.patch })),
-    });
-    if (res.kind === "error") {
-      return { status: "error", message: res.message };
-    }
-    if (res.kind === "deleted") {
-      return {
-        status: "not-found",
-        message: `Entry not found: ${entryKey} in ${moduleFilePath}`,
-      };
-    }
-    return { status: "success", content: res.content };
+    return {
+      status: "success",
+      entries,
+      missing,
+      errors,
+      total: allKeys.length,
+      ...(isWindow ? { offset: selector.offset, limit: selector.limit } : {}),
+    };
   }
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);

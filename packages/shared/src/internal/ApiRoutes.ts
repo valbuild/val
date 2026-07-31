@@ -128,6 +128,19 @@ const onlyOneBooleanQueryParam = onlyOneStringQueryParam
     "Value must be true or false",
   )
   .transform((arg) => arg === "true");
+const onlyOneIntQueryParam = onlyOneStringQueryParam
+  .refine(
+    (arg) => /^\d+$/.test(arg),
+    "Value must be a non-negative whole number",
+  )
+  .transform((arg) => parseInt(arg, 10));
+
+/**
+ * Upper bound on how many `.jsonValues()` entries one `/json` request may ask
+ * for. Callers page through bigger sets; the Studio chunks its key windows to
+ * this. Shared so client and server agree on the limit.
+ */
+export const JSON_ENTRIES_BATCH_MAX = 100;
 
 export const Api = {
   "/draft/enable": {
@@ -1010,20 +1023,45 @@ export const Api = {
       ]),
     },
   },
-  // Loads the content of a single `.jsonValues()` record/router entry by key,
-  // so the Studio can lazily load just the entry being opened (instead of the
-  // whole record), and so the runtime can read draft edits in draft mode.
+  // Loads the content of `.jsonValues()` record/router entries, so the Studio can
+  // lazily load just the entries it needs (instead of the whole record), and so
+  // the runtime can read draft edits in draft mode.
+  //
+  // Three request shapes, exactly one of which must be used:
+  //   1. `key=<k>`                 — ONE entry; responds `{path, key, content}`.
+  //   2. `keys=<k>&keys=<k2>&…`    — a BATCH; responds `{path, entries, missing, errors}`.
+  //   3. `offset=<n>&limit=<n>`    — a PAGE of every entry, in module key order;
+  //                                  responds as (2) plus `{offset, limit, total}`.
+  // (2) and (3) are what make loading many entries one round trip instead of N:
+  // the server resolves sources and pending patches ONCE per request, not per entry.
+  //
+  // Batch failures are per entry, never whole-request: a key with no entry lands in
+  // `missing`, a key whose `*.val.json` fails to load lands in `errors`. Only a
+  // missing/non-record MODULE is a 404.
   //
   // `apply_patches` defaults to TRUE (as on `/sources/~`): the server replays
   // pending patches for the entry. The Studio passes `false` explicitly, because
   // it owns in-flight client patches the server has not seen yet and applies
   // them itself — letting the server apply them too would double-apply.
+  //
+  // Shape (3) REQUIRES `apply_patches=false`. Enumerating "every entry" from the
+  // base source would silently omit draft-added keys, and the only all-mode caller
+  // (the Studio) derives its key set from its own patched source anyway. Callers
+  // that need draft-aware enumeration pass explicit `keys`.
   "/json": {
     GET: {
       req: {
         query: {
           path: onlyOneStringQueryParam,
-          key: onlyOneStringQueryParam,
+          key: onlyOneStringQueryParam.optional(),
+          keys: z.array(z.string()).max(JSON_ENTRIES_BATCH_MAX).optional(),
+          offset: onlyOneIntQueryParam.optional(),
+          limit: onlyOneIntQueryParam
+            .refine(
+              (arg) => arg > 0 && arg <= JSON_ENTRIES_BATCH_MAX,
+              `limit must be between 1 and ${JSON_ENTRIES_BATCH_MAX}`,
+            )
+            .optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
@@ -1031,6 +1069,7 @@ export const Api = {
       res: z.union([
         unauthorizedResponse,
         notFoundResponse,
+        // Shape (1): single `key`.
         z.object({
           status: z.literal(200),
           json: z.object({
@@ -1039,6 +1078,32 @@ export const Api = {
             // The entry's JSON content (or null if the entry has no value).
             content: z.any(),
           }),
+        }),
+        // Shapes (2) and (3): `keys` or `offset`+`limit`.
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            entries: z.array(
+              z.object({
+                key: z.string(),
+                // The entry's JSON content (or null if the entry has no value).
+                content: z.any(),
+              }),
+            ),
+            // Requested keys that have no entry (neither committed nor drafted).
+            missing: z.array(z.string()),
+            // Requested keys whose content could not be loaded.
+            errors: z.array(z.object({ key: z.string(), message: z.string() })),
+            // All-mode only: the resolved window and the record's total key count.
+            offset: z.number().optional(),
+            limit: z.number().optional(),
+            total: z.number().optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: GenericError,
         }),
         z.object({
           status: z.literal(500),
@@ -1289,7 +1354,14 @@ type DefinedObject<T> = Pick<T, DefinedKeys<T>>;
  *
  * Do not change this without updating the ValRouter query parsing logic
  * */
-export type ValidQueryParamTypes = boolean | string | string[] | undefined;
+// `number` is allowed because the client stringifies every query value before it
+// goes on the URL (see createValClient), so a numeric param round-trips fine.
+export type ValidQueryParamTypes =
+  | boolean
+  | number
+  | string
+  | string[]
+  | undefined;
 export type ApiEndpoint = {
   req: {
     path?: z.ZodString | z.ZodOptional<z.ZodString>;

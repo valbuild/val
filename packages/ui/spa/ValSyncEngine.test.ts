@@ -771,6 +771,8 @@ class SyncEngineTester {
   fakeJsonEntries: Record<string, Record<string, unknown>> = {};
   /** How many times GET /json was called, keyed `${path}\0${key}`. */
   jsonRequestCounts: Record<string, number> = {};
+  /** HTTP requests (not keys) served by the batch shapes of `/json`, per module. */
+  jsonBatchRequestCounts: Record<string, number> = {};
 
   constructor(
     private mode: "fs" | "http",
@@ -858,22 +860,65 @@ class SyncEngineTester {
     req: InferReq<Api["/json"]["GET"]["req"]>,
   ): z.infer<Api["/json"]["GET"]["res"]> {
     const path = req.query.path;
-    const key = req.query.key;
-    this.jsonRequestCounts[`${path}\0${key}`] =
-      (this.jsonRequestCounts[`${path}\0${key}`] ?? 0) + 1;
-    const entries = this.fakeJsonEntries[path];
-    if (entries === undefined || !(key in entries)) {
+    const { key, keys, offset, limit } = req.query;
+    const countKey = (k: string) => {
+      this.jsonRequestCounts[`${path}\0${k}`] =
+        (this.jsonRequestCounts[`${path}\0${k}`] ?? 0) + 1;
+    };
+    const available = this.fakeJsonEntries[path];
+    if (key !== undefined) {
+      countKey(key);
+      if (available === undefined || !(key in available)) {
+        return {
+          status: 404,
+          json: { message: `Entry not found: ${key} in ${path}` },
+        };
+      }
       return {
-        status: 404,
-        json: { message: `Entry not found: ${key} in ${path}` },
+        status: 200,
+        json: {
+          path: path as ModuleFilePath,
+          key,
+          content: available[key],
+        },
       };
+    }
+    // Batch shapes: one HTTP request, per-key outcomes.
+    this.jsonBatchRequestCounts[path] =
+      (this.jsonBatchRequestCounts[path] ?? 0) + 1;
+    const allKeys = Object.keys(available ?? {});
+    const isWindow = offset !== undefined && limit !== undefined;
+    const requestedKeys = isWindow
+      ? allKeys.slice(offset, offset + limit)
+      : keys;
+    if (requestedKeys === undefined) {
+      return {
+        status: 400,
+        json: {
+          message:
+            "Exactly one of 'key', 'keys' or 'offset'+'limit' must be given",
+        },
+      };
+    }
+    const entries: { key: string; content: unknown }[] = [];
+    const missing: string[] = [];
+    for (const requestedKey of requestedKeys) {
+      countKey(requestedKey);
+      if (available !== undefined && requestedKey in available) {
+        entries.push({ key: requestedKey, content: available[requestedKey] });
+      } else {
+        missing.push(requestedKey);
+      }
     }
     return {
       status: 200,
       json: {
         path: path as ModuleFilePath,
-        key,
-        content: entries[key],
+        entries,
+        missing,
+        errors: [],
+        ...(isWindow ? { offset, limit } : {}),
+        total: allKeys.length,
       },
     };
   }

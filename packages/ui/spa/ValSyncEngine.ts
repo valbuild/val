@@ -970,10 +970,17 @@ export class ValSyncEngine {
       // apply_patches=false: we own in-flight client patches the server has not
       // seen yet and apply them ourselves in `getPatchedSource`. Letting the
       // server apply them too would double-apply.
-      query: { path: moduleFilePath, key, apply_patches: false },
+      query: {
+        path: moduleFilePath,
+        key,
+        keys: undefined, // single-entry shape
+        offset: undefined,
+        limit: undefined,
+        apply_patches: false,
+      },
     })
       .then((res) => {
-        if (res.status === 200) {
+        if (res.status === 200 && "content" in res.json) {
           if (this.jsonEntryContents[moduleFilePath] === undefined) {
             this.jsonEntryContents[moduleFilePath] = {};
           }
