@@ -10,6 +10,16 @@
 
 ## Current state / resume here
 
+> **Phase 6 step 2 DONE (2026-07-31): engine primitives.** `requestJsonEntries(mfp, keys)`
+> (fire-and-forget window) and `ensureJsonEntries(mfps)` (awaitable, whole-module, returns
+> `{complete, errors}` so a guard can tell "loaded" from "failed") both delegate to one private
+> `loadJsonEntries` — filter, chunk at 50, one `/json` per chunk, one `invalidateSource` per batch.
+> Keys that exist only in a pending patch are never requested (no committed content to fetch; a request
+> would 404 and wrongly mark the row errored). Progress is `{status, loaded, total, percentage}` on
+> `subscribe("json-entries-progress")`, counted per RUN across modules so a percentage never resets at a
+> module boundary. Publish invalidation is batched. +8 tests (28 in the jsonValues describe).
+> **Next: step 3 — virtualize the record list + load the rendered window (V16).**
+
 > **Phase 6 step 1 DONE (2026-07-31): batch `/json`.** `ValOps.getJsonEntries` is the single
 > implementation (`getJsonEntry` is a one-key wrapper); `initSources`/`fetchPatches` are hoisted out of
 > the per-entry loop; per-entry failures are per-entry (`missing`/`errors`) so one corrupt `*.val.json`
@@ -495,20 +505,25 @@ not a step.
       `{kind:"file", module}` / `{kind:"route"}`; returns the `ModuleFilePath[]` whose entries must be
       loaded. Own unit test file: empty result for the incoming-ref case, non-empty for nested
       `keyOf`/image/file, `route` over-approximation, transitivity through object/array/record/union.
-- [ ] **`ValSyncEngine.ensureJsonEntries(moduleFilePaths)`** — idempotent batch loader: for each
-      module, diff the marker key set against `jsonEntryContents` + `staleJsonEntries`, request the
-      missing keys in chunks (start at 50) through the batch endpoint, fill the SAME
-      `jsonEntryContents` cache, then the existing invalidate + emit. Returns a promise that resolves
-      when the requested modules are fully loaded. Never fires on Studio boot.
-- [ ] **Progress store** — `{loaded, total, status}` (not a boolean) exposed as a sync-external-store
-      snapshot (`subscribe("json-entries-progress")` + `getJsonEntriesProgressSnapshot()`), so any
-      component can render "Checking references… 340/5000". `total` needs no server help: the client
-      already has every entry key from the marker record.
-- [ ] **`ValSyncEngine.requestJsonEntries(mfp, keys)`** — the window-based sibling of
-      `ensureJsonEntries`: fire-and-forget, takes an explicit key list, skips cached/in-flight/errored
-      keys, batches the rest in one request. This is what the virtualized list calls per rendered
-      window; `ensureJsonEntries(modules)` (awaitable, whole-module) stays for the refs guard and search.
-      Both share the chunking + cache + emit path.
+- [x] **`ValSyncEngine.ensureJsonEntries(moduleFilePaths)`** — DONE (2026-07-31). Awaitable,
+      whole-module, and it returns `{complete, errors}` rather than plain `void`: a guard that gates a
+      delete must be able to tell "loaded everything" from "some entry failed", which is the entire
+      point. Runs up to 3 passes, because an invalidation landing mid-flight re-marks entries stale and
+      reporting `complete` while holding pre-invalidation content would be the same lie in a new place.
+      Never called on boot.
+- [x] **Progress store** — DONE (2026-07-31). `{status, loaded, total, percentage}` via
+      `subscribe("json-entries-progress")` + `getJsonEntriesProgressSnapshot()`. Counts the whole RUN
+      across modules and batches (not per module) so a percentage never resets at a module boundary;
+      resets to zero once nothing is in flight. `loaded` counts resolved keys — loaded, missing AND
+      failed — so a failing entry cannot stall the bar at 99%. The single-entry `ensureJsonEntry` counts
+      into the same run, so one indicator covers an opened entry and a loading list.
+- [x] **`ValSyncEngine.requestJsonEntries(mfp, keys)`** — DONE (2026-07-31). Fire-and-forget window
+      loader; both public methods delegate to one private `loadJsonEntries` (filter → chunk at 50 →
+      `loadJsonEntryChunk`), so there is a single cache/in-flight/emit path. Skips
+      cached/in-flight/errored keys, so re-rendering the same window costs nothing, and **skips keys that
+      exist only in a pending patch** — they have no committed content, so requesting them would 404 and
+      wrongly mark the row errored (their value comes from the patch, via `getPatchedSource`). One
+      `invalidateSource` per batch rather than per entry.
 - [ ] **Virtualize the record list + load visible rows only** — `RecordFields.tsx`: wrap both list
       branches (default grid at :162 and `ListRecordRenderComponent` at :191) in
       `useVirtualizer` from `@tanstack/react-virtual`, and for a jsonValues record call
@@ -558,13 +573,13 @@ not a step.
       correctness + kills the `_type`/`patch_id` edge).
 - [ ] **Delete the dead `createSearchIndex.ts` + `search.test.ts`** and the unused barrel export in
       `search/index.ts`. The marker skip added there was on unreachable code.
-- [ ] **Fold `markAllJsonEntriesStale` into the batch path** —
-      [ValSyncEngine.ts:1063](../../packages/ui/spa/ValSyncEngine.ts#L1063) currently re-requests every
-      loaded entry one-by-one, so with hundreds cached a publish is a request storm today. The progress
-      store must cover this post-publish refresh too: anything transitively derived from stale entries
-      (entry detail view, refs guard, search index) goes back to `loading` with progress rather than
-      briefly rendering stale or content-free values. In particular a refs query must NOT answer from
-      stale content — it re-enters `loading`.
+- [x] **Fold `markAllJsonEntriesStale` into the batch path** — DONE (2026-07-31).
+      `markJsonEntriesStale` now marks the module's loaded keys stale and hands them to
+      `requestJsonEntries` in one call, so a publish with hundreds of cached entries is one batch per
+      module instead of one request per entry (pinned by a test that counts batches AND per-key
+      requests). It feeds the same progress store, so the post-publish refresh is visible.
+      **Still open**: making the consumers re-enter `loading` on that refresh (refs guard, search index,
+      entry detail) — that lands with those consumers in steps 5–6, since they do not exist yet.
 - [ ] **Verify** (Studio running):
   - **V10** rename/delete a key in a jsonValues router while another ORDINARY module holds a
     `keyOf`/`route` ref to it → refs found, delete blocked, rename rewrites the referrer, and **zero**

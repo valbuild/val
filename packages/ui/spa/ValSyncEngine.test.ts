@@ -695,6 +695,189 @@ describe("ValSyncEngine", () => {
       // real content, NOT an opaque marker
       expect(source["/renamed"]).toEqual({ title: "A", order: 1 });
     });
+
+    describe("batch loading", () => {
+      test("requestJsonEntries loads a window in ONE request", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        engine.requestJsonEntries(toModuleFilePath(PAGES), ["/a", "/b"]);
+        await flush();
+
+        const source = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+          .data as any;
+        expect(source["/a"]).toEqual({ title: "A", order: 1 });
+        expect(source["/b"]).toEqual({ title: "B", order: 2 });
+        // Two keys, ONE HTTP request — the point of the batch.
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(1);
+      });
+
+      test("already-loaded and in-flight keys are not refetched", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+        // /a is cached; only /b should go out.
+        engine.requestJsonEntries(toModuleFilePath(PAGES), ["/a", "/b"]);
+        // Re-rendering the same window while it is in flight must add nothing.
+        engine.requestJsonEntries(toModuleFilePath(PAGES), ["/a", "/b"]);
+        await flush();
+
+        expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(1);
+        expect(tester.jsonRequestCounts[`${PAGES}\0/b`]).toBe(1);
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(1);
+      });
+
+      test("keys that exist only in a pending patch are never requested", async () => {
+        // They have no committed content: their value comes from the patch, so
+        // asking /json would 404 and wrongly mark the row errored.
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        engine.addPatch(
+          toSourcePath(PAGES),
+          "record",
+          [{ op: "add", path: ["/drafted"], value: { title: "D", order: 3 } }],
+          tester.getNextNow(),
+        );
+        engine.requestJsonEntries(toModuleFilePath(PAGES), ["/drafted"]);
+        await flush();
+
+        expect(tester.jsonRequestCounts[`${PAGES}\0/drafted`]).toBeUndefined();
+        expect(
+          engine.getJsonEntryError(toModuleFilePath(PAGES), "/drafted"),
+        ).toBe(null);
+        expect(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)[
+            "/drafted"
+          ],
+        ).toEqual({ title: "D", order: 3 });
+      });
+
+      test("ensureJsonEntries loads every committed entry and reports complete", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        const res = await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(res).toEqual({ complete: true, errors: [] });
+        const source = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+          .data as any;
+        expect(source["/a"]).toEqual({ title: "A", order: 1 });
+        expect(source["/b"]).toEqual({ title: "B", order: 2 });
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(1);
+
+        // Fully cached: resolves without another request.
+        expect(
+          await engine.ensureJsonEntries([toModuleFilePath(PAGES)]),
+        ).toEqual({ complete: true, errors: [] });
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(1);
+      });
+
+      test("ensureJsonEntries reports NOT complete when an entry fails", async () => {
+        // The whole point: a guard that gates a delete must never read a failed
+        // load as "no references found".
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        delete tester.fakeJsonEntries[PAGES]["/b"];
+
+        const res = await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(res.complete).toBe(false);
+        expect(res.errors).toHaveLength(1);
+        expect(res.errors[0]).toMatchObject({
+          moduleFilePath: PAGES,
+          key: "/b",
+        });
+        // The entry that DID load is still usable.
+        expect(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+        ).toEqual({ title: "A", order: 1 });
+      });
+
+      test("progress counts up across the run and resets when it settles", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        expect(engine.getJsonEntriesProgressSnapshot()).toEqual({
+          status: "idle",
+          loaded: 0,
+          total: 0,
+          percentage: 100,
+        });
+
+        const done = engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        const during = engine.getJsonEntriesProgressSnapshot();
+        expect(during.status).toBe("loading");
+        expect(during.total).toBe(2);
+        expect(during.loaded).toBe(0);
+        expect(during.percentage).toBe(0);
+
+        await done;
+        // Nothing in flight: the run is over and the next one starts from zero.
+        expect(engine.getJsonEntriesProgressSnapshot()).toEqual({
+          status: "idle",
+          loaded: 0,
+          total: 0,
+          percentage: 100,
+        });
+      });
+
+      test("progress notifies subscribers", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        let notified = 0;
+        const unsubscribe = engine.subscribe("json-entries-progress")(() => {
+          notified++;
+        });
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(notified).toBeGreaterThan(0);
+        unsubscribe();
+      });
+
+      test("publish refetches loaded entries in ONE batch, not one request each", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+
+        engine.addPatch(
+          toSourcePath(PAGES),
+          "record",
+          [{ op: "replace", path: ["/a", "title"], value: "A edited" }],
+          tester.getNextNow(),
+        );
+        tester.simulatePassingOfSeconds(5);
+        await engine.sync(tester.getNextNow());
+        await flush();
+        const patchIds = tester.fakePatches.map((p) => p.patchId);
+        tester.fakeJsonEntries[PAGES]["/a"] = { title: "A edited", order: 1 };
+        // Measured from just before publish: the sync above also refreshes the
+        // module's entries (its own single batch).
+        const batchesBefore = tester.jsonBatchRequestCounts[PAGES] ?? 0;
+        const keyRequestsBefore = {
+          a: tester.jsonRequestCounts[`${PAGES}\0/a`] ?? 0,
+          b: tester.jsonRequestCounts[`${PAGES}\0/b`] ?? 0,
+        };
+
+        expect(
+          await engine.publish(patchIds, undefined, tester.getNextNow()),
+        ).toMatchObject({ status: "done" });
+        await flush();
+
+        // BOTH cached entries were invalidated and refetched...
+        expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(
+          keyRequestsBefore.a + 1,
+        );
+        expect(tester.jsonRequestCounts[`${PAGES}\0/b`]).toBe(
+          keyRequestsBefore.b + 1,
+        );
+        // ...in ONE request, not one per entry.
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(batchesBefore + 1);
+        expect(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+        ).toEqual({ title: "A edited", order: 1 });
+      });
+    });
   });
 });
 
