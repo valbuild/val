@@ -717,6 +717,7 @@ describe("ValSyncEngine", () => {
         const engine = await tester.createInitializedSyncEngine();
 
         await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+        const batchesAfterFirstLoad = tester.jsonBatchRequestCounts[PAGES] ?? 0;
         // /a is cached; only /b should go out.
         engine.requestJsonEntries(toModuleFilePath(PAGES), ["/a", "/b"]);
         // Re-rendering the same window while it is in flight must add nothing.
@@ -725,7 +726,28 @@ describe("ValSyncEngine", () => {
 
         expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(1);
         expect(tester.jsonRequestCounts[`${PAGES}\0/b`]).toBe(1);
+        // Two window calls, ONE additional request.
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(
+          batchesAfterFirstLoad + 1,
+        );
+      });
+
+      test("single-entry requests in the same tick collapse into ONE request", async () => {
+        // Regression: a record list renders a <Preview> per key and each one
+        // triggers requestJsonEntry for its own entry, so opening a record with N
+        // entries fired N requests. They must coalesce.
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        engine.requestJsonEntry(toModuleFilePath(PAGES), "/a");
+        engine.requestJsonEntry(toModuleFilePath(PAGES), "/b");
+        await flush();
+
         expect(tester.jsonBatchRequestCounts[PAGES]).toBe(1);
+        const source = engine.getSourceSnapshot(toModuleFilePath(PAGES))
+          .data as any;
+        expect(source["/a"]).toEqual({ title: "A", order: 1 });
+        expect(source["/b"]).toEqual({ title: "B", order: 2 });
       });
 
       test("keys that exist only in a pending patch are never requested", async () => {

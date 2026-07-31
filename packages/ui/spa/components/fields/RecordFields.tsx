@@ -1,12 +1,20 @@
 import {
+  Internal,
   ListRecordRender as ListRecordRender,
+  ModuleFilePath,
   SourcePath,
 } from "@valbuild/core";
+import { useMemo } from "react";
 import {
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValFieldProvider";
+import {
+  RecordRowSkeleton,
+  VirtualizedRecordList,
+} from "./VirtualizedRecordList";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -19,6 +27,7 @@ import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewWithRender } from "../../components/PreviewWithRender";
 import { ValidationErrors } from "../../components/ValidationError";
+import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
@@ -41,7 +50,6 @@ export function RecordFields({
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
-  const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const renderAtPath = useRenderOverrideAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -137,61 +145,159 @@ export function RecordFields({
         <PreviewError error={renderAtPath.message} path={path} />
       )}
       {renderListAtPathData && (
-        <ListRecordRenderComponent path={path} {...renderListAtPathData} />
+        <ListRecordRenderComponent
+          path={path}
+          jsonValues={schema.jsonValues === true}
+          {...renderListAtPathData}
+        />
       )}
-      {!renderListAtPathData && (
-        <div className="grid grid-cols-1 gap-4">
-          {source &&
-            Object.entries(source).map(([key]) => (
-              <div
-                key={key}
-                onClick={() => navigate(sourcePathOfItem(path, key))}
-                className={classNames(
-                  "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                  "hover:bg-bg-secondary-hover",
-                )}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="pb-4 font-semibold text-md">{key}</div>
-                  {isParentError(
-                    sourcePathOfItem(path, key),
-                    validationErrors,
-                  ) && <ErrorIndicator />}
-                </div>
-                <div>
-                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
-                </div>
-              </div>
-            ))}
-        </div>
+      {!renderListAtPathData && source && (
+        <RecordCardList
+          path={path}
+          keys={Object.keys(source)}
+          jsonValues={schema.jsonValues === true}
+          validationErrors={validationErrors}
+        />
       )}
     </div>
   );
 }
 
+/** Row height estimate for the default card layout (`max-h-[170px]` + gap). */
+const CARD_ROW_HEIGHT = 186;
+/** Row height estimate for a `.render({layout:"list"})` row. */
+const RENDER_ROW_HEIGHT = 104;
+
+function RecordCardList({
+  path,
+  keys,
+  jsonValues,
+  validationErrors,
+}: {
+  path: SourcePath;
+  keys: string[];
+  jsonValues: boolean;
+  validationErrors: Record<SourcePath, ValidationError[]>;
+}) {
+  const { navigate } = useNavigation();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const unloadedKeys = useUnloadedJsonEntryKeys(moduleFilePath, jsonValues);
+  return (
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={CARD_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="grid grid-cols-1"
+      renderRow={(key) => (
+        <div className="pb-4">
+          <div
+            onClick={() => navigate(sourcePathOfItem(path, key))}
+            className={classNames(
+              "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+              "hover:bg-bg-secondary-hover",
+            )}
+          >
+            <div className="flex justify-between items-start">
+              <div className="pb-4 font-semibold text-md">{key}</div>
+              {isParentError(sourcePathOfItem(path, key), validationErrors) && (
+                <ErrorIndicator />
+              )}
+            </div>
+            <div>
+              {unloadedKeys.has(key) ? (
+                // An un-loaded `.jsonValues()` entry: a preview here would read
+                // the opaque marker, which is what made these lists a wall of
+                // spinners.
+                <RecordRowSkeleton
+                  path={sourcePathOfItem(path, key)}
+                  height={96}
+                />
+              ) : (
+                <PreviewWithRender path={sourcePathOfItem(path, key)} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    />
+  );
+}
+
+/**
+ * The record keys of a `.jsonValues()` module whose entry content has not been
+ * loaded yet — i.e. whose value in the patched source is still a lazy marker.
+ *
+ * Computed once for the whole list rather than per row: one source subscription
+ * instead of one per visible row.
+ */
+function useUnloadedJsonEntryKeys(
+  moduleFilePath: ModuleFilePath,
+  jsonValues: boolean,
+): ReadonlySet<string> {
+  const moduleSource = useSourceAtPath(moduleFilePath);
+  const data = "data" in moduleSource ? moduleSource.data : undefined;
+  return useMemo(() => {
+    const unloaded = new Set<string>();
+    if (
+      !jsonValues ||
+      data === undefined ||
+      data === null ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    ) {
+      return unloaded;
+    }
+    for (const [key, value] of Object.entries(data)) {
+      if (Internal.isJson(value)) {
+        unloaded.add(key);
+      }
+    }
+    return unloaded;
+  }, [jsonValues, data]);
+}
+
 function ListRecordRenderComponent({
   path,
   items,
+  jsonValues,
 }: {
   path: SourcePath;
   items: ListRecordRender["items"];
+  jsonValues: boolean;
 }) {
   const { navigate } = useNavigation();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const unloadedKeys = useUnloadedJsonEntryKeys(moduleFilePath, jsonValues);
+  const keys = useMemo(() => items.map(([key]) => key), [items]);
   return (
-    <div className="flex flex-col space-y-4 w-full">
-      {items.map(([key]) => (
-        <button
-          key={key}
-          onClick={() => navigate(sourcePathOfItem(path, key))}
-          className={classNames(
-            "hover:bg-bg-secondary-hover",
-            "border rounded-lg cursor-pointer border-border-primary",
-          )}
-        >
-          <PreviewWithRender path={sourcePathOfItem(path, key)} />
-        </button>
-      ))}
-    </div>
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={RENDER_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="flex flex-col w-full"
+      renderRow={(key) => (
+        <div className="pb-4">
+          <button
+            onClick={() => navigate(sourcePathOfItem(path, key))}
+            className={classNames(
+              "w-full hover:bg-bg-secondary-hover",
+              "border rounded-lg cursor-pointer border-border-primary",
+            )}
+          >
+            {unloadedKeys.has(key) ? (
+              <RecordRowSkeleton
+                path={sourcePathOfItem(path, key)}
+                height={72}
+              />
+            ) : (
+              <PreviewWithRender path={sourcePathOfItem(path, key)} />
+            )}
+          </button>
+        </div>
+      )}
+    />
   );
 }
 

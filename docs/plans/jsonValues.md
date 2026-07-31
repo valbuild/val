@@ -10,6 +10,18 @@
 
 ## Current state / resume here
 
+> **Phase 6 step 3 DONE (2026-07-31): virtualized list + the real bug it exposed.** Reviewing the list
+> view turned up something worse than "N broken previews": every row's `<Preview>` resolves its own path,
+> and `useSchemaAtPathInternal` fires `requestJsonEntry` for any un-loaded marker it walks into — so
+> opening a jsonValues record with N entries fired **N `/json` requests**. Fixed at the engine level by
+> coalescing requests onto a microtask (one request per module per render pass) and deleting the
+> single-entry fetch path entirely, so `ensureJsonEntry` shares `loadJsonEntriesSettled`. On top of that,
+> `VirtualizedRecordList` virtualizes both list branches above 50 keys, requests only the rendered
+> window, and swaps un-loaded rows for a fixed-height skeleton. +1 test (29 in the jsonValues describe).
+> Self-review findings are recorded as tasks at the end of Phase 6 — two were fixed in the pass, seven
+> remain (chiefly: no component tests, because the jest preset has no jsdom).
+> **Next: step 4 — `jsonValuesLoadRequirements` predicate + tests.**
+
 > **Phase 6 step 2 DONE (2026-07-31): engine primitives.** `requestJsonEntries(mfp, keys)`
 > (fire-and-forget window) and `ensureJsonEntries(mfps)` (awaitable, whole-module, returns
 > `{complete, errors}` so a guard can tell "loaded" from "failed") both delegate to one private
@@ -456,16 +468,13 @@ The list view comes early — it is the most user-visible breakage (a jsonValues
 previews today) and it exercises the batch path under real scroll load before anything subtle depends
 on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of each other after that.
 
-1. **Batch transport** — `ValOps.getJsonEntries` (hoist `initSources`/`fetchPatches`) + `/json` batch
-   mode + `ApiRoutes` zod, with server tests. Everything below depends on this.
-2. **Engine primitives** — `requestJsonEntries(mfp, keys)` (window, fire-and-forget) +
-   `ensureJsonEntries(modules)` (whole-module, awaitable) + progress store, and fold
-   `markAllJsonEntriesStale` into the batch path. Extend the `jsonValues` describe in
-   `ValSyncEngine.test.ts`.
-3. **List view** — virtualize `RecordFields` (both branches) with `@tanstack/react-virtual`, load the
-   rendered window via `requestJsonEntries`, **skeletons for un-loaded rows on all three preview paths**
-   (a marker must never reach a preview component). → **V16**. First visible win; also the first real
-   load-test of steps 1–2.
+1. ✅ **Batch transport** (2026-07-31) — `ValOps.getJsonEntries` + `/json` batch mode + `ApiRoutes` zod.
+2. ✅ **Engine primitives** (2026-07-31) — `requestJsonEntries` + `ensureJsonEntries` + progress store,
+   `markAllJsonEntriesStale` batched.
+3. ✅ **List view** (2026-07-31) — virtualized `RecordFields` (both branches) with
+   `@tanstack/react-virtual`, loads the rendered window via `requestJsonEntries`, skeletons for un-loaded
+   rows. Also fixed the N-requests-on-open storm it exposed, by coalescing at the engine level. → **V16**
+   still to run manually.
 4. **Predicate** — `jsonValuesLoadRequirements` + its unit tests (pure; could be done any time, but it
    only pays off once the hooks below use it).
 5. **Ref hooks + popover gating** — hooks return a status, destructive popovers gate on `success`.
@@ -524,19 +533,29 @@ not a step.
       exist only in a pending patch** — they have no committed content, so requesting them would 404 and
       wrongly mark the row errored (their value comes from the patch, via `getPatchedSource`). One
       `invalidateSource` per batch rather than per entry.
-- [ ] **Virtualize the record list + load visible rows only** — `RecordFields.tsx`: wrap both list
-      branches (default grid at :162 and `ListRecordRenderComponent` at :191) in
-      `useVirtualizer` from `@tanstack/react-virtual`, and for a jsonValues record call
-      `requestJsonEntries(mfp, visibleKeys)` from the rendered window (debounced; drop stale windows).
-      Un-loaded rows render a skeleton, not an error. Non-jsonValues records get virtualization too
-      (same code path, no loading) — a 10k-key ordinary record renders 10k previews today.
-- [ ] **Skeletons for un-loaded jsonValues rows (all three preview paths)** — a marker must never reach
-      a preview component. `PreviewWithRender` → `useRefPreview` miss → `<Preview>` →
-      `ObjectPreview`/etc. reading a marker is exactly today's broken state. So: when the parent schema is
-      a jsonValues record and the entry's content is not in `jsonEntryContents`, render a skeleton
-      (a) instead of the `<Preview>` fallback, (b) instead of a `ListPreviewItem` when the key is missing
-      from a partial `items` array, and (c) for the `errored` case a small retry affordance rather than a
-      dead row. Skeleton must be the same height as a loaded row or the virtualizer's measurements jump.
+- [x] **Coalesce single-entry requests** — DONE (2026-07-31), and it turned out to be the actual bug.
+      Each row's `<Preview>` resolves its own path, and `useSchemaAtPathInternal` fires
+      `requestJsonEntry` for any un-loaded marker it walks into — so opening a jsonValues record with N
+      entries fired **N `/json` requests** (the symptom is a wall of spinners, but the cause is a request
+      storm, not a rendering bug). `requestJsonEntry`/`requestJsonEntries` now queue into
+      `pendingJsonEntryRequests` and flush on a microtask, so one render pass costs ONE request per
+      module. The single-entry fetch path was deleted: `ensureJsonEntry` now delegates to the same
+      `loadJsonEntriesSettled`, so there is one fetch path (and the Studio no longer uses `/json?key=`
+      at all — only the RSC runtime does).
+- [x] **Virtualize the record list + load visible rows only** — DONE (2026-07-31). New
+      `VirtualizedRecordList` wraps both branches of `RecordFields` (default cards + the
+      `.render()` list), requests the rendered window via `requestJsonEntries`, and depends on the
+      window's CONTENT (not the array identity — `Object.keys` returns a fresh array each render, which
+      would re-fire the effect on every render of a long list). Records at or below
+      `VIRTUALIZE_THRESHOLD = 50` keys render plainly as before — a nested scroll container is a real UX
+      change and is not worth imposing on the ordinary small record — and that threshold also bounds the
+      un-virtualized load to one or two batches. Non-jsonValues records virtualize through the same path.
+- [x] **Skeletons for un-loaded jsonValues rows** — DONE (2026-07-31). `RecordRowSkeleton` (fixed
+      height, so the virtualizer's measurements do not jump as content lands) replaces the preview when
+      the key's value in the patched source is still a marker; `useUnloadedJsonEntryKeys` computes that
+      set ONCE per list rather than subscribing per row.
+      **Still open**: (c) from the original item — a per-row retry affordance for the `errored` case.
+      A failed row currently falls through to `<Preview>`, which renders the existing error state.
 - [ ] **`.render()` list layouts for jsonValues records (windowed)** — **moved to Phase 7 stage 1**; it is
       a client-side-instance change, not a transport one. Summary: replace the `isJsonValues` early return
       in `RecordSchema.executeRender` with a per-key `isJson(itemSrc) → continue`, then call
@@ -607,6 +626,40 @@ not a step.
     jump, no marker reaching a preview component); scrolling fills them in. Then edit a visible row's
     title WITHOUT publishing → the row updates as you type (the render is computed from the patched
     source on the client).
+
+### Review findings (self-review of steps 1–3, 2026-07-31)
+
+Two issues were found and fixed during the pass (a missing React `key` in the un-virtualized branch,
+and an effect that re-fired on every render because `Object.keys` returns a fresh array). What is left:
+
+- [ ] **No component tests for `VirtualizedRecordList`** — the jest preset is `testEnvironment: "node"`
+      and `jest-environment-jsdom` is not installed, so nothing in the repo renders React. The
+      virtualization, the window→`requestJsonEntries` wiring and the skeleton swap are therefore covered
+      only by V16 (manual). Either add a jsdom project to the preset (`@testing-library/react` IS already
+      a devDependency of `packages/ui`) or accept manual-only and say so.
+- [ ] **Nested scroll container needs a real look (V16)** — the virtualized branch introduces an
+      `overflow-auto` viewport capped at `VIEWPORT_MAX_HEIGHT = 800`, inside the Studio's own scroll
+      container. Two things to check on a real screen: that scroll chaining feels right (the inner
+      scroller should not trap the page), and that 800px is not taller than a small viewport. A
+      `max-h-[70vh]`-style cap may be better than a fixed pixel height.
+- [ ] **Row-height estimates are guesses** — `CARD_ROW_HEIGHT = 186` / `RENDER_ROW_HEIGHT = 104` were
+      derived from the card's `max-h-[170px]` + padding, not measured. `measureElement` corrects the real
+      heights, so the estimate only affects the initial scrollbar and the first window's size; still
+      worth checking against V16 so the first window is not visibly wrong.
+- [ ] **Skeleton has no retry affordance** — item (c) of the original skeleton task. A row whose entry
+      FAILED to load falls through to `<Preview>` and renders the existing error state; there is no
+      per-row retry button calling `retryJsonEntry`.
+- [ ] **`loadJsonEntriesSettled`'s 3-pass bound is arbitrary** — it is a backstop against an
+      invalidation loop, not a computed limit. If a pathological case ever exhausts it we return
+      `complete: false` with no errors, which reads as "incomplete for an unknown reason". Consider
+      logging when the bound is hit so it is diagnosable rather than mysterious.
+- [ ] **The un-virtualized path requests up to 50 keys on mount** — for a jsonValues record of 50
+      entries, opening it loads all 50 (one batch). That is a deliberate trade (see
+      `VIRTUALIZE_THRESHOLD`) but it does mean "zero requests on open" is never true for small
+      jsonValues records. Revisit if a 50-entry record's previews prove expensive to load.
+- [ ] **Progress `percentage` is 100 when idle** — so a consumer that renders it without checking
+      `status` first shows "100%" before anything starts. Documented on the type; a `null` percentage
+      while idle would be harder to misuse.
 - [ ] **DECISION NEEDED — ask Fredrik: efficient browser caching for `/json`.** Deferred from the
       Phase 6 design round (2026-07-30). Fredrik's idea: in **http/prod mode there is a stable commit**,
       so put it in the request and make the response immutably cacheable by the browser. Open parts:

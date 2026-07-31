@@ -177,6 +177,15 @@ export class ValSyncEngine {
     requested: 0,
     resolved: 0,
   };
+  /**
+   * Keys queued by {@link requestJsonEntry} / {@link requestJsonEntries} for the
+   * next coalesced flush. A record list renders one `<Preview>` per key and each
+   * asks for its own entry, so without this a record with N entries fires N
+   * requests; with it, one render pass costs one request per module.
+   */
+  private pendingJsonEntryRequests: Map<ModuleFilePath, Set<string>> =
+    new Map();
+  private jsonEntryFlushScheduled = false;
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
@@ -440,6 +449,10 @@ export class ValSyncEngine {
     this.staleJsonEntries = new Set();
     this.jsonEntriesProgress = { requested: 0, resolved: 0 };
     this.cachedJsonEntriesProgressSnapshot = null;
+    this.pendingJsonEntryRequests = new Map();
+    // Deliberately NOT clearing jsonEntryFlushScheduled: a flush may already be
+    // queued, and it must find an empty pending map rather than a second flush
+    // being scheduled behind it.
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -879,13 +892,52 @@ export class ValSyncEngine {
    * server-side reorder, and any other non-append change.
    */
   /**
-   * Lazily loads the content of a single `.jsonValues()` entry (GET /json) and
-   * folds it into the source view (re-rendering subscribers). No-op if the entry
-   * is already loaded or a load is in flight. Called by the field hooks when the
-   * Studio opens a path that descends into an unloaded json marker.
+   * Lazily loads the content of a single `.jsonValues()` entry and folds it into
+   * the source view (re-rendering subscribers). No-op if the entry is already
+   * loaded or a load is in flight. Called by the field hooks when the Studio
+   * renders a path that descends into an un-loaded json marker.
+   *
+   * COALESCED: every call in the same tick becomes ONE `/json` request per
+   * module. That matters because a record list renders a `<Preview>` per key and
+   * each one asks for its own entry — before coalescing, opening a record with
+   * N entries fired N requests.
    */
   requestJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
-    void this.ensureJsonEntry(moduleFilePath, key);
+    this.coalesceJsonEntryRequests(moduleFilePath, [key]);
+  }
+
+  /**
+   * Queues keys for the next coalesced flush. The flush is a microtask, so all
+   * the field effects of one render pass land in a single request per module.
+   */
+  private coalesceJsonEntryRequests(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+  ): void {
+    let pending = this.pendingJsonEntryRequests.get(moduleFilePath);
+    if (pending === undefined) {
+      pending = new Set();
+      this.pendingJsonEntryRequests.set(moduleFilePath, pending);
+    }
+    for (const key of keys) {
+      pending.add(key);
+    }
+    if (this.jsonEntryFlushScheduled) {
+      return;
+    }
+    this.jsonEntryFlushScheduled = true;
+    queueMicrotask(() => {
+      this.jsonEntryFlushScheduled = false;
+      const requests = Array.from(
+        this.pendingJsonEntryRequests,
+        ([path, requestedKeys]) => ({
+          moduleFilePath: path,
+          keys: Array.from(requestedKeys),
+        }),
+      );
+      this.pendingJsonEntryRequests.clear();
+      void this.loadJsonEntriesSettled(requests);
+    });
   }
 
   /**
@@ -948,100 +1000,13 @@ export class ValSyncEngine {
    * than an opaque marker. {@link requestJsonEntry} is the fire-and-forget
    * variant used by the field hooks.
    */
-  ensureJsonEntry(
+  async ensureJsonEntry(
     moduleFilePath: ModuleFilePath,
     requestedKey: string,
   ): Promise<void> {
-    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
-    const loadingKey = `${moduleFilePath}\0${key}`;
-    const inFlight = this.loadingJsonEntries.get(loadingKey);
-    if (inFlight !== undefined) {
-      // The stale flag is cleared when a request STARTS, so if it is set again
-      // now, this in-flight response predates whatever invalidated the entry —
-      // wait for it, then load again.
-      return inFlight.then(() =>
-        this.staleJsonEntries.has(loadingKey)
-          ? this.ensureJsonEntry(moduleFilePath, key)
-          : undefined,
-      );
-    }
-    const isStale = this.staleJsonEntries.has(loadingKey);
-    if (
-      !isStale &&
-      this.jsonEntryContents[moduleFilePath]?.[key] !== undefined
-    ) {
-      return Promise.resolve();
-    }
-    // A memoized failure stops the refetch-on-every-remount loop. Cleared by
-    // `retryJsonEntry` or by the module's server source being replaced.
-    if (this.jsonEntryErrors[moduleFilePath]?.[key] !== undefined) {
-      return Promise.resolve();
-    }
-    const setJsonEntryError = (message: string) => {
-      if (this.jsonEntryErrors[moduleFilePath] === undefined) {
-        this.jsonEntryErrors[moduleFilePath] = {};
-      }
-      this.jsonEntryErrors[moduleFilePath][key] = message;
-      this.invalidateSource(moduleFilePath);
-    };
-    // Cleared at request START, not on success: anything that marks the entry
-    // stale while this request is in flight must win, since the response we are
-    // about to get was produced before that invalidation.
-    this.staleJsonEntries.delete(loadingKey);
-    // Counted in the same run as batch loads, so one progress indicator covers
-    // both an opened entry and a loading list.
-    this.noteJsonEntriesRequested(1);
-    const promise = this.client("/json", "GET", {
-      // apply_patches=false: we own in-flight client patches the server has not
-      // seen yet and apply them ourselves in `getPatchedSource`. Letting the
-      // server apply them too would double-apply.
-      query: {
-        path: moduleFilePath,
-        key,
-        keys: undefined, // single-entry shape
-        offset: undefined,
-        limit: undefined,
-        apply_patches: false,
-      },
-    })
-      .then((res) => {
-        if (res.status === 200 && "content" in res.json) {
-          if (this.jsonEntryContents[moduleFilePath] === undefined) {
-            this.jsonEntryContents[moduleFilePath] = {};
-          }
-          this.jsonEntryContents[moduleFilePath][key] =
-            res.json.content ?? null;
-          if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
-            delete this.jsonEntryErrors[moduleFilePath][key];
-          }
-          this.invalidateSource(moduleFilePath);
-        } else {
-          console.error("Val: SyncEngine: failed to load json entry", {
-            moduleFilePath,
-            key,
-            res,
-          });
-          setJsonEntryError(
-            "message" in res.json
-              ? res.json.message
-              : `Request failed with status ${res.status}`,
-          );
-        }
-      })
-      .catch((err) => {
-        console.error("Val: SyncEngine: error loading json entry", {
-          moduleFilePath,
-          key,
-          err,
-        });
-        setJsonEntryError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        this.loadingJsonEntries.delete(loadingKey);
-        this.noteJsonEntriesResolved(1);
-      });
-    this.loadingJsonEntries.set(loadingKey, promise);
-    return promise;
+    await this.loadJsonEntriesSettled([
+      { moduleFilePath, keys: [requestedKey] },
+    ]);
   }
 
   /**
@@ -1077,7 +1042,7 @@ export class ValSyncEngine {
    * so re-rendering the same window costs nothing.
    */
   requestJsonEntries(moduleFilePath: ModuleFilePath, keys: string[]): void {
-    void this.loadJsonEntries([{ moduleFilePath, keys }]);
+    this.coalesceJsonEntryRequests(moduleFilePath, keys);
   }
 
   /**
@@ -1095,30 +1060,49 @@ export class ValSyncEngine {
     complete: boolean;
     errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
   }> {
+    return this.loadJsonEntriesSettled(
+      moduleFilePaths.map((moduleFilePath) => ({
+        moduleFilePath,
+        keys: this.committedJsonEntryKeys(moduleFilePath) ?? [],
+      })),
+    );
+  }
+
+  /**
+   * Loads `requests` and re-passes while anything it asked for is still
+   * outstanding, then reports whether everything resolved to content.
+   *
+   * The re-pass exists because an invalidation that lands mid-flight marks
+   * entries stale again: the response we were waiting for predates it, so
+   * reporting `complete` on the strength of it would be exactly the lie this
+   * method exists to prevent. Bounded, so a pathological invalidation loop
+   * cannot spin here forever.
+   */
+  private async loadJsonEntriesSettled(
+    requests: { moduleFilePath: ModuleFilePath; keys: string[] }[],
+  ): Promise<{
+    complete: boolean;
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  }> {
     let errors: {
       moduleFilePath: ModuleFilePath;
       key: string;
       message: string;
     }[] = [];
-    // Bounded passes: an invalidation that lands mid-flight marks entries stale
-    // again, and reporting "complete" while holding pre-invalidation content is
-    // exactly the lie this method exists to prevent.
     for (let pass = 0; pass < 3; pass++) {
-      const requests = moduleFilePaths.map((moduleFilePath) => ({
-        moduleFilePath,
-        keys: this.committedJsonEntryKeys(moduleFilePath) ?? [],
-      }));
-      errors = (await this.loadJsonEntries(requests)).errors;
-      const outstanding = requests.some(({ moduleFilePath, keys }) =>
-        keys.some((key) => {
-          if (this.staleJsonEntries.has(`${moduleFilePath}\0${key}`)) {
-            return true;
-          }
-          return (
-            this.jsonEntryContents[moduleFilePath]?.[key] === undefined &&
-            this.jsonEntryErrors[moduleFilePath]?.[key] === undefined
-          );
-        }),
+      const res = await this.loadJsonEntries(requests);
+      errors = res.errors;
+      const outstanding = res.requestedBaseKeys.some(
+        ({ moduleFilePath, keys }) =>
+          keys.some((key) => {
+            if (this.staleJsonEntries.has(`${moduleFilePath}\0${key}`)) {
+              return true;
+            }
+            return (
+              this.jsonEntryContents[moduleFilePath]?.[key] === undefined &&
+              this.jsonEntryErrors[moduleFilePath]?.[key] === undefined
+            );
+          }),
       );
       if (!outstanding) {
         break;
@@ -1128,14 +1112,16 @@ export class ValSyncEngine {
   }
 
   /**
-   * The shared core of {@link requestJsonEntries} / {@link ensureJsonEntries}:
-   * filters each module's requested keys down to the ones actually worth
-   * fetching, chunks them, and resolves when every chunk has settled.
+   * ONE load pass: filters each module's requested keys down to the ones worth
+   * fetching, chunks them, and resolves when every chunk has settled. Reports the
+   * keys it actually took responsibility for, so the caller can tell "resolved"
+   * from "deliberately skipped".
    */
   private async loadJsonEntries(
     requests: { moduleFilePath: ModuleFilePath; keys: string[] }[],
   ): Promise<{
     errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+    requestedBaseKeys: { moduleFilePath: ModuleFilePath; keys: string[] }[];
   }> {
     const waits: Promise<void>[] = [];
     const requestedBaseKeys: {
@@ -1148,12 +1134,28 @@ export class ValSyncEngine {
         continue;
       }
       const committedKeys = new Set(committed);
+      const patchedSource = this.getPatchedSource(moduleFilePath);
+      const draftedKeys =
+        patchedSource !== undefined &&
+        patchedSource !== null &&
+        typeof patchedSource === "object" &&
+        !Array.isArray(patchedSource)
+          ? new Set(Object.keys(patchedSource))
+          : new Set<string>();
       const baseKeys: string[] = [];
       const wanted: string[] = [];
       const seen = new Set<string>();
       for (const requestedKey of keys) {
         const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
-        if (seen.has(key) || !committedKeys.has(key)) {
+        if (seen.has(key)) {
+          continue;
+        }
+        // A key the committed source does not have, but the PATCHED source does,
+        // exists only in a pending patch: its value comes from that patch, so
+        // there is nothing to fetch and asking would 404 and wrongly mark it
+        // errored. A key in neither is a genuine miss and IS requested, so the
+        // caller gets a real error instead of silence.
+        if (!committedKeys.has(key) && draftedKeys.has(key)) {
           continue;
         }
         seen.add(key);
@@ -1203,7 +1205,7 @@ export class ValSyncEngine {
         }
       }
     }
-    return { errors };
+    return { errors, requestedBaseKeys };
   }
 
   /** Loads ONE batch of entries: a single `/json` request for many keys. */
