@@ -1,5 +1,8 @@
 import {
   deserializeSchema,
+  ExtractedModuleError,
+  ExtractedValModules,
+  extractValModules,
   Internal,
   Json,
   ModuleFilePath,
@@ -7,9 +10,11 @@ import {
   Schema,
   SelectorSource,
   SerializedSchema,
+  Source,
   SourcePath,
   ValidationError,
   ValidationErrors,
+  ValModules,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import {
@@ -18,12 +23,21 @@ import {
   deepEqual,
   JSONOps,
   JSONValue,
-  ReadonlyJSONValue,
 } from "@valbuild/core/patch";
-import { ParentRef, ValClient, Patch } from "@valbuild/shared/internal";
+import {
+  ParentRef,
+  ValClient,
+  Patch,
+  resolveSchemaSourceFixes,
+} from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
+import {
+  ValidationWorkerClient,
+  type ValidationWorkerFactory,
+} from "./validation/ValidationWorkerClient";
+import { partitionValidationErrors } from "./validation/partitionValidationErrors";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
@@ -71,10 +85,13 @@ export class ValSyncEngine {
    */
   private savedButNotYetGlobalServerSidePatchIds: PatchId[];
   /**
-   * Maps each creator SourcePath to the ordered list of PatchIds it produced.
-   * Only populated when pathOfCreator is provided (i.e. user field edits, not AI).
+   * Maps each per-instance creator id (e.g. `useFieldCreatorId()`) to the
+   * ordered list of PatchIds it produced. Only populated when creatorId is
+   * provided (i.e. user field edits, not AI). Instance-scoped — never path —
+   * so a re-mounted field at the same path doesn't inherit the previous
+   * instance's "is editing" status.
    */
-  private patchIdsByCreatorPath: Map<SourcePath, PatchId[]>;
+  private patchIdsByCreatorId: Map<string, PatchId[]>;
   /**
    * Maps each ModuleFilePath to the set of PatchIds that belong to it.
    * Incrementally maintained alongside patchDataByPatchId.
@@ -98,17 +115,61 @@ export class ValSyncEngine {
   >;
   private authorId: string | null;
   private patchSets: PatchSets;
-  /** serverSources is the state on the server, it is the actual state */
+  /**
+   * Un-patched source values, as delivered by `/sources/~` with
+   * `apply_patches=false`, or seeded from the local val modules registry.
+   * The patched view shown by the UI is computed on demand by applying
+   * server-side + pending client patches in `getPatchedSource`. The
+   * compare-view "before" reads this directly.
+   */
   private serverSources: Record<ModuleFilePath, JSONValue | undefined> | null;
-  /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
-  private optimisticClientSources: Record<
+  /**
+   * Per-module cache of the most recently computed patched source, keyed by
+   * the ordered list of patch ids that produced it. `getPatchedSource` uses
+   * the cached entry's `patchIds` as a prefix check: if the next ordered
+   * patch list extends the cached one, only the new tail is applied;
+   * otherwise the result is rebuilt from `serverSources`.
+   */
+  private patchedSourcesCache: Record<
     ModuleFilePath,
-    JSONValue | undefined
-  >;
+    | {
+        patchIds: PatchId[];
+        source: JSONValue | undefined;
+      }
+    | undefined
+  > | null;
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
+  /**
+   * Schemas extracted client-side from a ValModules registry. When non-null
+   * these are adopted as authoritative — `syncSchema()` skips the /schema
+   * fetch and `syncWithUpdatedStat()` no longer resets+inits on a remote
+   * schema-SHA change (it flags `schemaOutOfDate` in http mode instead).
+   */
+  private localSchemas: Record<ModuleFilePath, SerializedSchema> | null;
+  private localSchemaSha: string | null;
+  /**
+   * Un-patched sources extracted client-side from a ValModules registry.
+   * Used to seed `serverSources` immediately (before /sources/~ resolves)
+   * when no server response has landed yet. Patches are layered on top via
+   * `getPatchedSource`, so this only needs to carry the on-disk content.
+   */
+  private localSources: Record<ModuleFilePath, Source> | null;
+  private localSourcesSha: string | null;
+  /**
+   * Status of the client-side extraction. Drives both the schema/source
+   * adoption decisions and the dev-only LocalModulesErrorBanner.
+   */
+  private localModulesStatus: LocalModulesStatus;
+  /**
+   * Monotonic token for `setValModules`. Each invocation captures the current
+   * value; after its `await`, a stale (superseded) call bails out so a slower
+   * earlier extraction can't overwrite a newer registry's schemas/sources.
+   */
+  private setValModulesSeq = 0;
+  private schemaOutOfDate: boolean;
   private mode: "fs" | "http" | null;
 
   private commitSha: string | null;
@@ -167,10 +228,24 @@ export class ValSyncEngine {
    */
   private forceSyncAllModules: boolean;
 
+  /**
+   * Owns the validation worker. Lazily created on first use so tests / SSR
+   * (where `Worker` is undefined) don't pay the cost. When local schemas are
+   * present this is the sole source of `validationErrors` — server-side
+   * validation is suppressed via `validate_sources=false` on `/sources/~`.
+   */
+  private validationWorker: ValidationWorkerClient | null;
+
   constructor(
     private readonly client: ValClient,
     private readonly overlayEmitter:
       | typeof defaultOverlayEmitter
+      | undefined = undefined,
+    // Injected by the composition root (ValProvider). Kept out of this file so
+    // the worker's import.meta reference never reaches the Jest-compiled core.
+    // When undefined (tests / SSR / stories) validation runs on the main thread.
+    private readonly createValidationWorker:
+      | ValidationWorkerFactory
       | undefined = undefined,
   ) {
     this.initializedAt = null;
@@ -181,16 +256,22 @@ export class ValSyncEngine {
     this.schemas = null;
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
+    this.localSchemas = null;
+    this.localSchemaSha = null;
+    this.localSources = null;
+    this.localSourcesSha = null;
+    this.localModulesStatus = { type: "absent" };
+    this.schemaOutOfDate = false;
     this.baseSha = null;
     this.sourcesSha = null;
     this.mode = null;
-    this.optimisticClientSources = {};
     this.serverSources = null;
+    this.patchedSourcesCache = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
-    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByCreatorId = new Map();
     this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
@@ -203,6 +284,8 @@ export class ValSyncEngine {
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
     this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
@@ -222,9 +305,12 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.cachedLocalModulesStatusSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
+    this.validationWorker = null;
   }
 
   setAutoPublish(now: number, autoPublish: boolean) {
@@ -260,7 +346,9 @@ export class ValSyncEngine {
     this.mode = mode;
     this.baseSha = baseSha;
     this.commitSha = commitSha;
-    this.sourcesSha = sourcesSha;
+    // Do NOT pre-set this.sourcesSha — syncWithUpdatedStat compares the
+    // previous value (which adoptLocalSources may have set to
+    // localSourcesSha) against the new server SHA to detect divergence.
     this.authorId = authorId;
     const start = Date.now();
     if (mode === "fs") {
@@ -298,14 +386,20 @@ export class ValSyncEngine {
     this.schemas = null;
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
+    this.localSchemas = null;
+    this.localSchemaSha = null;
+    this.localSources = null;
+    this.localSourcesSha = null;
+    this.localModulesStatus = { type: "absent" };
+    this.schemaOutOfDate = false;
     this.sourcesSha = null;
-    this.optimisticClientSources = {};
     this.serverSources = null;
+    this.patchedSourcesCache = null;
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
-    this.patchIdsByCreatorPath = new Map();
+    this.patchIdsByCreatorId = new Map();
     this.patchIdsByModuleFilePath = new Map();
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
@@ -318,6 +412,8 @@ export class ValSyncEngine {
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
     this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
@@ -336,9 +432,16 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.cachedLocalModulesStatusSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
     this.cachedParentRef = undefined;
     this.cachedPatchErrorsSnapshot = null;
+
+    // Terminate the validation worker thread so a re-init doesn't leak it.
+    // getValidationWorker() lazily recreates it on next use.
+    this.validationWorker?.dispose();
+    this.validationWorker = null;
 
     this.invalidateInitializedAt();
   }
@@ -394,6 +497,8 @@ export class ValSyncEngine {
     type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
+  subscribe(type: "schema-out-of-date"): (listener: () => void) => () => void;
+  subscribe(type: "local-modules-status"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(type: "all-patches"): (listener: () => void) => () => void;
@@ -474,11 +579,32 @@ export class ValSyncEngine {
         this.cachedSourceSnapshots = next;
       }
     }
+    if (this.cachedServerSourceSnapshots !== null) {
+      this.cachedServerSourceSnapshots = {
+        ...this.cachedServerSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
+    }
+    if (this.cachedBaseSourceSnapshots !== null) {
+      this.cachedBaseSourceSnapshots = {
+        ...this.cachedBaseSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
+    }
+    // Drop the patched-source cache entry for this module so the next read
+    // recomputes from the (possibly updated) serverSources + patch chain.
+    this.invalidatePatchedSourcesCache(moduleFilePath);
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
+    // Cross-module keyof:check-keys / router:check-route errors are resolved
+    // at read time against the source snapshot — drop the cache so the next
+    // read re-resolves with the updated source without waiting for the
+    // worker round-trip.
+    this.cachedValidationErrors = null;
     this.emit(this.listeners["sources"]?.[moduleFilePath]);
     this.emit(this.listeners["source"]?.[moduleFilePath]);
     this.emit(this.listeners["all-sources"]?.[globalNamespace]);
+    this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
@@ -593,6 +719,16 @@ export class ValSyncEngine {
     this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
   }
 
+  private invalidateSchemaOutOfDate() {
+    this.cachedSchemaOutOfDateSnapshot = null;
+    this.emit(this.listeners["schema-out-of-date"]?.[globalNamespace]);
+  }
+
+  private invalidateLocalModulesStatus() {
+    this.cachedLocalModulesStatusSnapshot = null;
+    this.emit(this.listeners["local-modules-status"]?.[globalNamespace]);
+  }
+
   private invalidateAutoPublish() {
     this.cachedAutoPublishSnapshot = null;
     this.emit(this.listeners["auto-publish"]?.[globalNamespace]);
@@ -656,6 +792,134 @@ export class ValSyncEngine {
     return this.cachedRenderSnapshots[moduleFilePath];
   }
 
+  /**
+   * Ordered list of patch ids that touch `moduleFilePath`, in the order they
+   * must be applied: confirmed server-side first, then saved-but-not-yet-
+   * confirmed, then pending client patches. Filters out ids missing from
+   * `patchDataByPatchId` (data not yet loaded) — those are skipped by
+   * `getPatchedSource` rather than treated as a gap.
+   */
+  private orderedPatchIdsForModule(moduleFilePath: ModuleFilePath): PatchId[] {
+    const out: PatchId[] = [];
+    const known = this.patchIdsByModuleFilePath.get(moduleFilePath);
+    if (!known || known.size === 0) return out;
+    const push = (id: PatchId) => {
+      if (known.has(id) && this.patchDataByPatchId[id]) out.push(id);
+    };
+    if (this.globalServerSidePatchIds) {
+      for (const id of this.globalServerSidePatchIds) push(id);
+    }
+    for (const id of this.savedButNotYetGlobalServerSidePatchIds) push(id);
+    for (const id of this.pendingClientPatchIds) push(id);
+    return out;
+  }
+
+  /**
+   * Computes (and caches) the patched view of `moduleFilePath`. Returns
+   * `undefined` if we have no un-patched source yet.
+   *
+   * The cache stores the ordered patch ids that produced the cached result.
+   * On read, if the next ordered list extends the cached one (the cached
+   * `patchIds` is a strict prefix), only the new tail is applied on top of
+   * the cached source — the common case when a fresh patch is appended.
+   * Otherwise we rebuild from `serverSources`, which covers patch deletion,
+   * server-side reorder, and any other non-append change.
+   */
+  private getPatchedSource(
+    moduleFilePath: ModuleFilePath,
+  ): JSONValue | undefined {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (baseSource === undefined) return undefined;
+    const nextIds = this.orderedPatchIdsForModule(moduleFilePath);
+    if (nextIds.length === 0) return baseSource;
+
+    if (this.patchedSourcesCache === null) {
+      this.patchedSourcesCache = {};
+    }
+    const cached = this.patchedSourcesCache[moduleFilePath];
+    let current: JSONValue;
+    let startIndex: number;
+    if (cached && this.isPrefix(cached.patchIds, nextIds)) {
+      if (cached.source === undefined) return undefined;
+      current = cached.source;
+      startIndex = cached.patchIds.length;
+      if (startIndex === nextIds.length) return current;
+    } else {
+      current = baseSource as JSONValue;
+      startIndex = 0;
+    }
+
+    // Track the contiguous, fully-applied prefix so we never cache a source
+    // under a patch-id list that includes a skipped (unappliable) patch. Once a
+    // patch fails, later patches still apply on top for the returned value, but
+    // the cache only remembers the clean prefix — so the failing patch (and the
+    // tail) is retried on the next read instead of being treated as applied.
+    let appliedPrefixLen = startIndex;
+    let appliedPrefixSource = current;
+    let prefixIntact = true;
+    for (let i = startIndex; i < nextIds.length; i++) {
+      const patchId = nextIds[i];
+      const data = this.patchDataByPatchId[patchId];
+      if (!data) {
+        // shouldn't happen — filter in orderedPatchIdsForModule
+        prefixIntact = false;
+        continue;
+      }
+      const patchableOps = data.patch.filter((op) => op.op !== "file");
+      if (patchableOps.length === 0) {
+        // file-only / no-op patch — nothing changes, prefix stays intact
+        if (prefixIntact) {
+          appliedPrefixLen = i + 1;
+          appliedPrefixSource = current;
+        }
+        continue;
+      }
+      const patchRes = applyPatch(deepClone(current), ops, patchableOps);
+      if (result.isOk(patchRes)) {
+        current = patchRes.value;
+        if (prefixIntact) {
+          appliedPrefixLen = i + 1;
+          appliedPrefixSource = current;
+        }
+      } else {
+        // skip a failing patch — server-side patch analysis would report
+        // this as an error/skip; don't pollute the cache with the bad state
+        prefixIntact = false;
+        console.debug("ValSyncEngine: skipping unappliable client-side patch", {
+          patchId,
+          moduleFilePath,
+          message: patchRes.error.message,
+        });
+      }
+    }
+
+    this.patchedSourcesCache[moduleFilePath] = {
+      patchIds: nextIds.slice(0, appliedPrefixLen),
+      source: appliedPrefixSource,
+    };
+    return current;
+  }
+
+  private isPrefix(prev: PatchId[], next: PatchId[]): boolean {
+    if (prev.length > next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      if (prev[i] !== next[i]) return false;
+    }
+    return true;
+  }
+
+  private invalidatePatchedSourcesCache(moduleFilePath?: ModuleFilePath) {
+    if (this.patchedSourcesCache === null) return;
+    if (moduleFilePath === undefined) {
+      this.patchedSourcesCache = null;
+    } else {
+      this.patchedSourcesCache = {
+        ...this.patchedSourcesCache,
+        [moduleFilePath]: undefined,
+      };
+    }
+  }
+
   private cachedSourceSnapshots: Record<
     string,
     | {
@@ -669,22 +933,13 @@ export class ValSyncEngine {
         message?: string;
       }
   > | null;
-  getSourceSnapshot(
-    sourcePath: ModuleFilePath,
-    creatorSourcePath?: SourcePath,
-  ) {
+  getSourceSnapshot(sourcePath: ModuleFilePath, creatorId?: string) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    const cacheKey = creatorSourcePath
-      ? `${sourcePath}\0${creatorSourcePath}`
-      : sourcePath;
+    const cacheKey = creatorId ? `${sourcePath}\0${creatorId}` : sourcePath;
     if (this.cachedSourceSnapshots[cacheKey] === undefined) {
-      const moduleData =
-        this.optimisticClientSources[sourcePath] !== undefined
-          ? this.optimisticClientSources[sourcePath]
-          : this.serverSources?.[sourcePath];
-
+      const moduleData = this.getPatchedSource(sourcePath);
       if (this.schemas === null) {
         this.cachedSourceSnapshots[cacheKey] = {
           status: "no-schemas",
@@ -701,11 +956,91 @@ export class ValSyncEngine {
         this.cachedSourceSnapshots[cacheKey] = {
           status: "success",
           data: deepClone(moduleData),
-          optimistic: this.isEditedByComponent(sourcePath, creatorSourcePath),
+          optimistic: this.isEditedByComponent(sourcePath, creatorId),
         };
       }
     }
     return this.cachedSourceSnapshots[cacheKey];
+  }
+
+  private cachedServerSourceSnapshots: Record<
+    ModuleFilePath,
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" }
+  > | null;
+  getServerSourceSnapshot(
+    sourcePath: ModuleFilePath,
+  ):
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" } {
+    if (this.cachedServerSourceSnapshots === null) {
+      this.cachedServerSourceSnapshots = {};
+    }
+    if (this.cachedServerSourceSnapshots[sourcePath] === undefined) {
+      if (this.schemas === null) {
+        this.cachedServerSourceSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else if (!this.schemas[sourcePath]) {
+        this.cachedServerSourceSnapshots[sourcePath] = {
+          status: "schema-not-found",
+        };
+      } else {
+        const moduleData = this.serverSources?.[sourcePath];
+        if (moduleData === undefined) {
+          this.cachedServerSourceSnapshots[sourcePath] = {
+            status: "source-not-found",
+          };
+        } else {
+          this.cachedServerSourceSnapshots[sourcePath] = {
+            status: "success",
+            data: deepClone(moduleData),
+          };
+        }
+      }
+    }
+    return this.cachedServerSourceSnapshots[sourcePath];
+  }
+
+  private cachedBaseSourceSnapshots: Record<
+    ModuleFilePath,
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" }
+  > | null;
+  getBaseSourceSnapshot(
+    sourcePath: ModuleFilePath,
+  ):
+    | { status: "success"; data: Json }
+    | { status: "no-schemas" | "source-not-found" | "schema-not-found" } {
+    if (this.cachedBaseSourceSnapshots === null) {
+      this.cachedBaseSourceSnapshots = {};
+    }
+    if (this.cachedBaseSourceSnapshots[sourcePath] === undefined) {
+      if (this.schemas === null) {
+        this.cachedBaseSourceSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else if (!this.schemas[sourcePath]) {
+        this.cachedBaseSourceSnapshots[sourcePath] = {
+          status: "schema-not-found",
+        };
+      } else {
+        // With apply_patches=false on /sources/~, serverSources is already
+        // the un-patched view — exactly what the compare-view "before" wants.
+        const moduleData = this.serverSources?.[sourcePath];
+        if (moduleData === undefined) {
+          this.cachedBaseSourceSnapshots[sourcePath] = {
+            status: "source-not-found",
+          };
+        } else {
+          this.cachedBaseSourceSnapshots[sourcePath] = {
+            status: "success",
+            data: deepClone(moduleData),
+          };
+        }
+      }
+    }
+    return this.cachedBaseSourceSnapshots[sourcePath];
   }
 
   private cachedAllSourcesSnapshot: Record<ModuleFilePath, Json> | null;
@@ -714,9 +1049,7 @@ export class ValSyncEngine {
       this.cachedAllSourcesSnapshot = {};
       for (const moduleFilePathS in this.schemas || {}) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        const data =
-          this.optimisticClientSources[moduleFilePath] ||
-          this.serverSources?.[moduleFilePath];
+        const data = this.getPatchedSource(moduleFilePath);
         if (data !== undefined) {
           this.cachedAllSourcesSnapshot[moduleFilePath] = deepClone(data);
         }
@@ -755,9 +1088,7 @@ export class ValSyncEngine {
     }
     if (this.cachedSourcesSnapshot[pathsKey] === undefined) {
       for (const moduleFilePath of paths) {
-        const data =
-          this.optimisticClientSources[moduleFilePath] ||
-          this.serverSources?.[moduleFilePath];
+        const data = this.getPatchedSource(moduleFilePath);
         if (data !== undefined) {
           this.cachedSourcesSnapshot[pathsKey] = [
             ...(this.cachedSourcesSnapshot[pathsKey] || []),
@@ -799,19 +1130,33 @@ export class ValSyncEngine {
 
   getAllValidationErrorsSnapshot() {
     if (!this.cachedValidationErrors) {
-      this.cachedValidationErrors = {};
-      for (const sourcePathS in this.errors.validationErrors) {
+      const raw: Record<SourcePath, ValidationError[]> = {};
+      const validationErrors = this.errors.validationErrors || {};
+      for (const sourcePathS in validationErrors) {
         const sourcePath = sourcePathS as SourcePath;
-        const newErrors = [];
-        for (const error of this.errors.validationErrors[sourcePath] || []) {
+        const newErrors: ValidationError[] = [];
+        for (const error of validationErrors[sourcePath] || []) {
           if (error) {
             newErrors.push(error);
           }
         }
         if (newErrors.length > 0) {
-          this.cachedValidationErrors[sourcePath] = newErrors;
+          raw[sourcePath] = newErrors;
         }
       }
+      // Resolve keyof:check-keys / router:check-route against the current
+      // schema/source snapshot so no UI consumer sees the raw "version
+      // mismatch" message emitted by core schemas.
+      const resolved = resolveSchemaSourceFixes(raw, {
+        schemas: this.getAllSchemasSnapshot(),
+        sources: this.getAllSourcesSnapshot(),
+      });
+      // Drop fixes the server resolves on save (image/file metadata, remote
+      // files, gallery directory checks). We partition (not filter) so a
+      // future "N fixes pending" indicator can opt into the `skipped` half
+      // without re-deriving it. See partitionValidationErrors for the policy.
+      const { surfaced } = partitionValidationErrors(resolved);
+      this.cachedValidationErrors = surfaced;
     }
     return this.cachedValidationErrors;
   }
@@ -958,6 +1303,22 @@ export class ValSyncEngine {
     return this.cachedPublishDisabledSnapshot;
   }
 
+  private cachedSchemaOutOfDateSnapshot: boolean | null;
+  getSchemaOutOfDateSnapshot() {
+    if (this.cachedSchemaOutOfDateSnapshot === null) {
+      this.cachedSchemaOutOfDateSnapshot = this.schemaOutOfDate;
+    }
+    return this.cachedSchemaOutOfDateSnapshot;
+  }
+
+  private cachedLocalModulesStatusSnapshot: LocalModulesStatus | null;
+  getLocalModulesStatusSnapshot(): LocalModulesStatus {
+    if (this.cachedLocalModulesStatusSnapshot === null) {
+      this.cachedLocalModulesStatusSnapshot = this.localModulesStatus;
+    }
+    return this.cachedLocalModulesStatusSnapshot;
+  }
+
   private cachedAutoPublishSnapshot: boolean | null;
   getAutoPublishSnapshot() {
     if (this.cachedAutoPublishSnapshot === null) {
@@ -1009,15 +1370,20 @@ export class ValSyncEngine {
   }
 
   // #region Patching
+  /**
+   * Dry-runs a patch against the current patched view to confirm it applies
+   * cleanly. No state mutation: the caller registers the patch in
+   * `patchDataByPatchId` + `pendingClientPatchIds` + `patchIdsByModuleFilePath`
+   * and lets `getPatchedSource` fold it into the view on the next read.
+   */
   private addPatchOnClientOnly(
     sourcePath: SourcePath | ModuleFilePath,
     patch: Patch,
     now: number,
   ):
     | {
-        status: "optimistic-client-sources-updated";
+        status: "patch-applies";
         moduleFilePath: ModuleFilePath;
-        prevSource: JSONValue;
         patch: Patch;
       }
     | {
@@ -1032,8 +1398,8 @@ export class ValSyncEngine {
       this.serverSources === null ||
       this.serverSources?.[moduleFilePath] === undefined
     ) {
-      // This happens if the client add patches, but the server sources have not yet been initialized
-      // so this should not happen
+      // This happens if the client adds patches but server sources have not
+      // yet been initialized — should not happen in practice.
       this.addGlobalTransientError(
         `Content at '${moduleFilePath}' is not yet initialized`,
         now,
@@ -1044,20 +1410,24 @@ export class ValSyncEngine {
         moduleFilePath,
       };
     }
-    if (this.optimisticClientSources[moduleFilePath] === undefined) {
-      this.optimisticClientSources[moduleFilePath] =
-        this.serverSources[moduleFilePath];
+    const currentPatched = this.getPatchedSource(moduleFilePath);
+    if (currentPatched === undefined) {
+      return {
+        status: "patch-error",
+        message: `Content at '${moduleFilePath}' is not yet initialized`,
+        moduleFilePath,
+      };
     }
     const patchableOps = patch.filter((op) => op.op !== "file");
-    const patchRes = applyPatch(
-      deepClone(this.optimisticClientSources[moduleFilePath] as JSONValue),
-      ops,
-      patchableOps,
-    );
+    if (patchableOps.length === 0) {
+      // File-only patch — nothing to apply against the source value.
+      return { status: "patch-applies", moduleFilePath, patch } as const;
+    }
+    const patchRes = applyPatch(deepClone(currentPatched), ops, patchableOps);
     if (result.isErr(patchRes)) {
       console.error("Could not apply patch:", patchRes.error);
       this.addGlobalTransientError(
-        `Could apply patch: ${patchRes.error.message}`,
+        `Could not apply patch: ${patchRes.error.message}`,
         now,
       );
       return {
@@ -1065,18 +1435,85 @@ export class ValSyncEngine {
         message: patchRes.error.message,
         moduleFilePath,
       };
-    } else {
-      const newSource = patchRes.value;
-      const prevSource = deepClone(
-        this.optimisticClientSources[moduleFilePath] as JSONValue,
+    }
+    return { status: "patch-applies", moduleFilePath, patch } as const;
+  }
+
+  private ensureValidationWorker(): ValidationWorkerClient {
+    if (!this.validationWorker) {
+      this.validationWorker = new ValidationWorkerClient(
+        (moduleFilePath, errors) => {
+          this.applyValidationResult(moduleFilePath, errors);
+        },
+        this.createValidationWorker,
       );
-      this.optimisticClientSources[moduleFilePath] = newSource;
-      return {
-        status: "optimistic-client-sources-updated",
-        moduleFilePath,
-        prevSource,
-        patch,
-      } as const;
+    }
+    return this.validationWorker;
+  }
+
+  private requestModuleValidation(moduleFilePath: ModuleFilePath): void {
+    // Validate against whatever schema is currently loaded, regardless of
+    // whether it came from local `ValModules` or the server's `/schema`.
+    // `/sources/~` is always called with `validate_sources=false`, so this
+    // client-side worker validation is the only validation that runs.
+    const schemaSha = this.clientSideSchemaSha;
+    if (!schemaSha) return;
+    const serializedSchema = this.schemas?.[moduleFilePath];
+    if (!serializedSchema) return;
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) return;
+    this.ensureValidationWorker().validate(
+      moduleFilePath,
+      source as Source,
+      serializedSchema,
+      schemaSha,
+    );
+  }
+
+  private requestAllModuleValidation(): void {
+    const schemas = this.schemas;
+    if (!schemas) return;
+    for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
+      this.requestModuleValidation(moduleFilePath);
+    }
+  }
+
+  private applyValidationResult(
+    moduleFilePath: ModuleFilePath,
+    errors: ValidationErrors,
+  ): void {
+    if (!this.errors.validationErrors) {
+      this.errors.validationErrors = {};
+    }
+    const changed = new Set<SourcePath>();
+    // Drop any previous entries that belong to this module — schema validation
+    // returns the full set of errors for the module on each call, so anything
+    // not present in `errors` should be cleared.
+    for (const sourcePathS in this.errors.validationErrors) {
+      const sourcePath = sourcePathS as SourcePath;
+      if (
+        (sourcePath as string) === (moduleFilePath as string) ||
+        sourcePath.startsWith(moduleFilePath + ".") ||
+        sourcePath.startsWith(moduleFilePath + "?")
+      ) {
+        if (this.errors.validationErrors[sourcePath] !== undefined) {
+          this.errors.validationErrors[sourcePath] = undefined;
+          changed.add(sourcePath);
+        }
+      }
+    }
+    if (errors !== false) {
+      for (const sourcePathS in errors) {
+        const sourcePath = sourcePathS as SourcePath;
+        this.errors.validationErrors[sourcePath] = errors[sourcePath];
+        changed.add(sourcePath);
+      }
+    }
+    if (changed.size > 0) {
+      this.invalidateAllValidationErrors();
+      for (const sourcePath of changed) {
+        this.invalidateValidationError(sourcePath);
+      }
     }
   }
 
@@ -1086,9 +1523,7 @@ export class ValSyncEngine {
   ):
     | ValidationErrors
     | { status: "no-source" | "no-schema" | "patch-error"; message: string } {
-    const currentSource =
-      this.optimisticClientSources[moduleFilePath] ??
-      this.serverSources?.[moduleFilePath];
+    const currentSource = this.getPatchedSource(moduleFilePath);
     if (currentSource === undefined) {
       return {
         status: "no-source",
@@ -1141,7 +1576,7 @@ export class ValSyncEngine {
     patchId: PatchId,
     sessionId: string | null,
     now: number,
-    pathOfCreator?: SourcePath,
+    creatorId?: string,
     parentRefOverride?: ParentRef,
   ): Promise<
     | {
@@ -1162,15 +1597,30 @@ export class ValSyncEngine {
       }
   > {
     const res = this.addPatchOnClientOnly(sourcePath, patch, now);
-    if (res.status !== "optimistic-client-sources-updated") {
+    if (res.status !== "patch-applies") {
       return res;
     }
 
     const { moduleFilePath, patch: addedPatch } = res;
+    // Register the patch so getPatchedSource folds it into the view
+    // immediately. On sync failure, executeAddPatches removes it from
+    // patchIdsByModule + patchDataByPatchId + pendingClientPatchIds.
+    this.patchDataByPatchId[patchId] = {
+      moduleFilePath,
+      patch: addedPatch,
+      isPending: true,
+      createdAt: new Date(now).toISOString(),
+      authorId: this.authorId,
+    };
+    this.pendingClientPatchIds.push(patchId);
     this.addToPatchIdsByModule(moduleFilePath, patchId);
-    if (pathOfCreator) {
-      this.addToCreatorPath(pathOfCreator, patchId);
+    if (creatorId) {
+      this.addToCreatorId(creatorId, patchId);
     }
+    this.invalidateAllPatches();
+    this.invalidatePendingClientSidePatchIds();
+    this.invalidateSource(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath);
     const addOp: AddPatchOp = {
       type: "add-patches",
       data: {
@@ -1206,8 +1656,9 @@ export class ValSyncEngine {
         moduleFilePath,
       } as const;
     }
-    // Reset optimistic state on failure
-    this.optimisticClientSources[moduleFilePath] = res.prevSource;
+    // Cleanup happened in executeAddPatches's failure path; just invalidate.
+    this.invalidateSource(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath);
     return {
       status: "patch-sync-error",
       message: "Could not sync patch. Tried 3 times.",
@@ -1220,7 +1671,7 @@ export class ValSyncEngine {
     type: SerializedSchema["type"],
     patch: Patch,
     now: number,
-    pathOfCreator?: SourcePath,
+    creatorId?: string,
   ):
     | {
         status: "patch-merged";
@@ -1238,7 +1689,7 @@ export class ValSyncEngine {
         moduleFilePath: ModuleFilePath;
       } {
     const res = this.addPatchOnClientOnly(sourcePath, patch, now);
-    if (res.status !== "optimistic-client-sources-updated") {
+    if (res.status !== "patch-applies") {
       return res;
     }
     const moduleFilePath = res.moduleFilePath;
@@ -1269,6 +1720,11 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        // Optimistically re-validate the edited module so per-field errors
+        // (maxLength, regex, ...) surface within a worker round-trip — no
+        // waiting for the next sync tick. The worker dedups stale requests
+        // when the user keeps typing.
+        this.requestModuleValidation(moduleFilePath);
 
         return {
           status: "patch-merged",
@@ -1299,12 +1755,13 @@ export class ValSyncEngine {
         this.invalidateAllPatches();
         this.addToPatchIdsByModule(moduleFilePath, patchId);
         this.patchSetInsert(moduleFilePath, patchId, patch, now);
-        if (pathOfCreator) {
-          this.addToCreatorPath(pathOfCreator, patchId);
+        if (creatorId) {
+          this.addToCreatorId(creatorId, patchId);
         }
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath);
 
         return {
           status: "patch-added",
@@ -1334,12 +1791,13 @@ export class ValSyncEngine {
       this.invalidateAllPatches();
       this.addToPatchIdsByModule(moduleFilePath, patchId);
       this.patchSetInsert(moduleFilePath, patchId, patch, now);
-      if (pathOfCreator) {
-        this.addToCreatorPath(pathOfCreator, patchId);
+      if (creatorId) {
+        this.addToCreatorId(creatorId, patchId);
       }
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
+      this.requestModuleValidation(moduleFilePath);
 
       return {
         status: "patch-added",
@@ -1354,11 +1812,11 @@ export class ValSyncEngine {
     return patchId;
   }
 
-  private addToCreatorPath(creatorPath: SourcePath, patchId: PatchId) {
-    let arr = this.patchIdsByCreatorPath.get(creatorPath);
+  private addToCreatorId(creatorId: string, patchId: PatchId) {
+    let arr = this.patchIdsByCreatorId.get(creatorId);
     if (!arr) {
       arr = [];
-      this.patchIdsByCreatorPath.set(creatorPath, arr);
+      this.patchIdsByCreatorId.set(creatorId, arr);
     }
     arr.push(patchId);
   }
@@ -1398,11 +1856,11 @@ export class ValSyncEngine {
 
   private isEditedByComponent(
     moduleFilePath: ModuleFilePath,
-    creatorSourcePath?: SourcePath,
+    creatorId?: string,
   ): boolean {
-    if (!creatorSourcePath) return false;
+    if (!creatorId) return false;
     this.patchIdsByModuleFilePath.get(moduleFilePath);
-    const creatorPatchIds = this.patchIdsByCreatorPath.get(creatorSourcePath);
+    const creatorPatchIds = this.patchIdsByCreatorId.get(creatorId);
     if (!creatorPatchIds) {
       return false;
     }
@@ -1527,6 +1985,7 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
+    const haveLocal = this.localModulesStatus.type === "loaded";
     const sourcesShaDidChange = this.sourcesSha !== sourcesSha;
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
@@ -1535,19 +1994,32 @@ export class ValSyncEngine {
       this.serverSideSchemaSha !== schemaSha ||
       this.commitSha !== commitSha
     ) {
-      this.reset();
-      this.serverSideSchemaSha = schemaSha;
-      this.commitSha = commitSha;
-      return this.init(
-        mode,
-        baseSha,
-        schemaSha,
-        sourcesSha,
-        patchIds,
-        authorId,
-        commitSha,
-        now,
-      );
+      if (haveLocal) {
+        // Local schemas are authoritative. Flag the divergence (http-only
+        // dialog) but do NOT reset+init — that would discard local state.
+        // Source-sync below continues to run: source updates remain useful
+        // even while the schema-out-of-date dialog is open.
+        this.serverSideSchemaSha = schemaSha;
+        this.commitSha = commitSha;
+        this.recomputeSchemaOutOfDate();
+      } else {
+        // No local: classic reset+init. The new SHAs are stashed AFTER
+        // reset() (which clears them) so the recursive init's stat-compare
+        // doesn't immediately re-trigger the reset path.
+        this.reset();
+        this.serverSideSchemaSha = schemaSha;
+        this.commitSha = commitSha;
+        return this.init(
+          mode,
+          baseSha,
+          schemaSha,
+          sourcesSha,
+          patchIds,
+          authorId,
+          commitSha,
+          now,
+        );
+      }
     }
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||
@@ -1592,6 +2064,16 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
+    if (this.schemaOutOfDate) {
+      this.addGlobalTransientError(
+        "Cannot save: a new version has been deployed. Reload to continue editing.",
+        now,
+      );
+      return {
+        status: "retry",
+        reason: "schema-out-of-date",
+      };
+    }
     const postPatchesBody: {
       path: ModuleFilePath;
       patch: Patch;
@@ -1803,6 +2285,141 @@ export class ValSyncEngine {
     };
   }
 
+  async setValModules(valModules: ValModules | null): Promise<void> {
+    if (!valModules) {
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = { type: "absent" };
+      this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
+      return;
+    }
+    const seq = ++this.setValModulesSeq;
+    this.localModulesStatus = { type: "loading" };
+    this.invalidateLocalModulesStatus();
+    let extracted: ExtractedValModules;
+    try {
+      extracted = await extractValModules(valModules);
+    } catch (e) {
+      // A newer setValModules call superseded us while we were extracting —
+      // drop this stale result so we don't clobber the latest registry state.
+      if (seq !== this.setValModulesSeq) return;
+      console.debug("setValModules: extractValModules threw", e);
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = {
+        type: "error",
+        moduleErrors: [{ message: e instanceof Error ? e.message : String(e) }],
+      };
+      this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
+      return;
+    }
+    // Superseded by a newer call while awaiting — ignore this result.
+    if (seq !== this.setValModulesSeq) return;
+    if (extracted.moduleErrors.length > 0) {
+      console.debug(
+        "setValModules: moduleErrors present, falling back to server",
+        extracted.moduleErrors,
+      );
+      this.localSchemas = null;
+      this.localSchemaSha = null;
+      this.localSources = null;
+      this.localSourcesSha = null;
+      this.localModulesStatus = {
+        type: "error",
+        moduleErrors: extracted.moduleErrors,
+      };
+      this.invalidateLocalModulesStatus();
+      this.recomputeSchemaOutOfDate();
+      return;
+    }
+    this.localSchemas = extracted.serializedSchemas;
+    this.localSchemaSha = extracted.schemaSha;
+    this.localSources = extracted.sources;
+    this.localSourcesSha = extracted.sourcesSha;
+    this.localModulesStatus = {
+      type: "loaded",
+      schemaSha: extracted.schemaSha,
+      sourcesSha: extracted.sourcesSha,
+      moduleCount: Object.keys(extracted.serializedSchemas).length,
+    };
+    this.adoptLocalSchemas();
+    this.adoptLocalSources();
+    // Validate every module with the freshly-adopted local schema so the UI
+    // shows existing errors even when the user makes no edits. Also covers
+    // HMR — setValModules re-runs and re-validates on every schema change.
+    this.requestAllModuleValidation();
+    // Make schemas + sources renderable immediately, before /stat arrives.
+    // The server-driven init() that follows will still run via the
+    // ValProvider init effect, and will reconcile any remote divergence
+    // through syncWithUpdatedStat without resetting the local content.
+    if (this.initializedAt === null) {
+      this.initializedAt = Date.now();
+      this.invalidateInitializedAt();
+    }
+    this.invalidateLocalModulesStatus();
+    this.recomputeSchemaOutOfDate();
+  }
+
+  private adoptLocalSchemas(): void {
+    if (!this.localSchemas || !this.localSchemaSha) return;
+    this.schemas = this.localSchemas;
+    this.clientSideSchemaSha = this.localSchemaSha;
+    this.resetSchemaError();
+    this.invalidateSchema();
+  }
+
+  private adoptLocalSources(): void {
+    if (!this.localSources || !this.localSourcesSha) {
+      return;
+    }
+    // localSources are un-patched, exactly like /sources/~ now returns.
+    // Only seed serverSources if we don't already have a server response —
+    // overwriting a populated serverSources would race against /sources/~
+    // and erase newer disk content. Patches are not seeded here; they layer
+    // on in getPatchedSource and Just Work the next time the UI reads.
+    const local = this.localSources as Record<ModuleFilePath, JSONValue>;
+    if (this.serverSources === null) {
+      this.serverSources = { ...local };
+      this.sourcesSha = this.localSourcesSha;
+    }
+    // Make sure the next sync() refetches /sources/~ so any disk edits made
+    // outside HMR's reach are picked up (and so an existing serverSources
+    // gets refreshed even though we didn't touch it here).
+    this.forceSyncAllModules = true;
+    this.patchedSourcesCache = null;
+    for (const path of Object.keys(local) as ModuleFilePath[]) {
+      this.invalidateSource(path);
+    }
+  }
+
+  private recomputeSchemaOutOfDate() {
+    const next =
+      this.mode === "http" &&
+      this.localSchemaSha !== null &&
+      this.serverSideSchemaSha !== null &&
+      this.localSchemaSha !== this.serverSideSchemaSha;
+    if (next !== this.schemaOutOfDate) {
+      this.schemaOutOfDate = next;
+      this.invalidateSchemaOutOfDate();
+      if (next) {
+        this.publishDisabled = true;
+        this.invalidatePublishDisabled();
+      } else if (!this.isPublishing) {
+        // Schema is back in sync (e.g. HMR matched the server, or we fell back
+        // to server modules) — re-enable publishing. Don't touch it mid-publish:
+        // publish() owns publishDisabled while it runs and clears it in finally.
+        this.publishDisabled = false;
+        this.invalidatePublishDisabled();
+      }
+    }
+  }
+
   async syncSchema(): Promise<
     | {
         status: "done";
@@ -1812,6 +2429,14 @@ export class ValSyncEngine {
         reason: "error";
       }
   > {
+    if (this.localSchemas && this.localSchemaSha) {
+      this.schemas = this.localSchemas;
+      this.clientSideSchemaSha = this.localSchemaSha;
+      this.resetSchemaError();
+      this.invalidateSchema();
+      return { status: "done" };
+    }
+
     const schemaRes = await this.client("/schema", "GET", {});
     if (schemaRes.status === 200) {
       this.schemas = {};
@@ -2101,8 +2726,14 @@ export class ValSyncEngine {
       // We are not initialized yet, so we need to sync everything
       changedModules = "all";
     }
-    if (this.clientSideSchemaSha !== this.serverSideSchemaSha) {
-      // Schema has changed, so we need to sync everything
+    if (
+      !this.localSchemas &&
+      this.clientSideSchemaSha !== this.serverSideSchemaSha
+    ) {
+      // Schema has changed, so we need to sync everything.
+      // Skip when local schemas are present: they're authoritative in fs mode,
+      // and any genuine remote/local schema divergence in http mode is surfaced
+      // via the blocking SchemaOutOfDateDialog rather than driving sync churn.
       changedModules = "all";
     }
 
@@ -2245,12 +2876,17 @@ export class ValSyncEngine {
             : undefined;
 
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
+        // The studio client always treats /sources/~ as a pure un-patched
+        // read: patch application and validation run on the client (via
+        // getPatchedSource and the validation worker). The server's
+        // apply_patches=false branch skips render generation too.
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
           query: {
-            validate_sources: true,
+            validate_sources: false,
             validate_binary_files: false,
             exclude_patches: false,
+            apply_patches: false,
           },
         });
         if (sourcesRes.status !== null) {
@@ -2294,35 +2930,26 @@ export class ValSyncEngine {
               if (this.serverSources === null) {
                 this.serverSources = {};
               }
+              // With apply_patches=false on /sources/~, valModule.source is
+              // the un-patched source. The patched view is computed by
+              // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
+              // render is always null in the new mode; keep the renders map
+              // up-to-date for any downstream code that still subscribes.
               if (this.renders === null) {
                 this.renders = {};
               }
               this.renders[moduleFilePath] = valModule.render || null;
               this.invalidateRenders(moduleFilePath);
-
-              if (
-                // Feel free to revisit / rewrite this if statement:
-                // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
-                // If we remove the optimistic client side sources without verifying that the server side sources are the same, the user will see a flash and it revert back to the previously saved state.
-                // It feels like there might be errors that pops up because of this: what if the patch never is written / is wrong?! The change will then be lost.
-                deepEqual(
-                  this.serverSources[moduleFilePath] as ReadonlyJSONValue,
-                  this.optimisticClientSources[
-                    moduleFilePath
-                  ] as ReadonlyJSONValue,
-                ) ||
-                // We check for pendingOps, because the check above will fail for files since they inject a patchId...
-                this.pendingOps.length === 0
-              ) {
-                this.optimisticClientSources = {
-                  ...this.optimisticClientSources,
+              // Drop any cached patched view for this module; the next read
+              // rebuilds from the fresh un-patched source.
+              if (this.patchedSourcesCache !== null) {
+                this.patchedSourcesCache = {
+                  ...this.patchedSourcesCache,
                   [moduleFilePath]: undefined,
                 };
               }
               console.debug("Invalidating source", moduleFilePath);
-              // this.optimisticClientSources = {};
-              // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
               this.overlayEmitter?.(moduleFilePath, valModule.source);
               this.invalidatePatchErrors(moduleFilePath);
@@ -2333,16 +2960,9 @@ export class ValSyncEngine {
                 this.errors.patchErrors[moduleFilePath] = valModule.patches
                   .errors as Record<PatchId, { message: string }>;
               }
-              // NOTE: we clean up relevant validation errors above
-              for (const sourcePathS in valModule.validationErrors) {
-                const sourcePath = sourcePathS as SourcePath;
-                if (!this.errors.validationErrors) {
-                  this.errors.validationErrors = {};
-                }
-                this.errors.validationErrors[sourcePath] =
-                  valModule.validationErrors[sourcePath];
-                changedValidationErrors.add(sourcePath);
-              }
+              // Validation always runs client-side via the worker now —
+              // /sources/~ is called with validate_sources=false.
+              this.requestModuleValidation(moduleFilePath);
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
               }
@@ -2379,17 +2999,10 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds &&
         this.globalServerSidePatchIds.length > 0
       ) {
-        let hasValidationError = false;
-        for (const sourcePathS in this.errors.validationErrors || {}) {
-          const sourcePath = sourcePathS as SourcePath;
-          if (
-            this.errors?.validationErrors?.[sourcePath] &&
-            this.errors?.validationErrors?.[sourcePath]!.length > 0
-          ) {
-            hasValidationError = true;
-            break;
-          }
-        }
+        const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
+        const hasValidationError = Object.values(
+          surfacedValidationErrors || {},
+        ).some((errors) => errors && errors.length > 0);
         if (!hasValidationError) {
           await this.publish(
             this.globalServerSidePatchIds.concat(
@@ -2402,7 +3015,7 @@ export class ValSyncEngine {
         } else {
           console.debug(
             "Skip auto-publish since there's validation errors",
-            this.errors.validationErrors,
+            surfacedValidationErrors,
           );
         }
       }
@@ -2445,14 +3058,15 @@ export class ValSyncEngine {
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
 
+      const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
       const hasValidationError =
-        Object.values(this.errors.validationErrors || {}).flatMap(
+        Object.values(surfacedValidationErrors || {}).flatMap(
           (errors) => errors || [],
         ).length > 0;
       if (hasValidationError) {
         console.debug(
           "Skipping publish since there's validation errors",
-          this.errors.validationErrors,
+          surfacedValidationErrors,
         );
         this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",
@@ -2496,7 +3110,33 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
+        // In fs mode /save applies exactly these patches to the .val files and
+        // then deletes them. Since serverSources still holds the *un-patched*
+        // base (we read /sources/~ with apply_patches=false), dropping the patch
+        // chain below would momentarily revert affected fields to their
+        // pre-patch value until the next stat-triggered /sources/~ refresh.
+        // Bake the current optimistic (patched) value into serverSources first
+        // so the base swaps out from under the optimistic view atomically and
+        // the displayed value never changes. The later /sources/~ overwrites
+        // serverSources with the authoritative value (self-healing if it
+        // differs). Only safe in fs mode: in http mode the committed patches
+        // persist server-side and are re-applied by syncPatches, so the base
+        // must stay un-patched (baking would double-apply).
+        const affectedModules: ModuleFilePath[] = [];
         if (this.mode === "fs") {
+          for (const moduleFilePath of this.patchIdsByModuleFilePath.keys()) {
+            const patched = this.getPatchedSource(moduleFilePath);
+            if (patched !== undefined && this.serverSources) {
+              this.serverSources[moduleFilePath] = patched;
+              if (this.patchedSourcesCache !== null) {
+                this.patchedSourcesCache = {
+                  ...this.patchedSourcesCache,
+                  [moduleFilePath]: undefined,
+                };
+              }
+              affectedModules.push(moduleFilePath);
+            }
+          }
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];
           console.debug("Deleting all patch ids");
@@ -2504,7 +3144,7 @@ export class ValSyncEngine {
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
         this.savedButNotYetGlobalServerSidePatchIds = [];
-        this.patchIdsByCreatorPath = new Map();
+        this.patchIdsByCreatorId = new Map();
         this.patchIdsByModuleFilePath = new Map();
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
@@ -2515,6 +3155,17 @@ export class ValSyncEngine {
         this.invalidatePendingClientSidePatchIds();
         this.invalidateSyncedServerSidePatchIds();
         this.invalidateSavedServerSidePatchIds();
+        // We emptied globalServerSidePatchIds above (fs), so its snapshot must be
+        // invalidated too — otherwise the Save button re-reads a stale non-empty
+        // value when the finally clears publishDisabled, briefly flicking back to
+        // enabled before the next stat/sync corrects it.
+        this.invalidateGlobalServerSidePatchIds();
+        // Notify subscribers so they re-read the freshly baked-in base. The
+        // value is unchanged from the optimistic view, so there's no flicker;
+        // only the snapshot's `optimistic` flag flips to false (now published).
+        for (const moduleFilePath of affectedModules) {
+          this.invalidateSource(moduleFilePath);
+        }
         return {
           status: "done",
         } as const;
@@ -2568,6 +3219,12 @@ export class ValSyncEngine {
       timestamp: now,
       id: crypto.randomUUID(),
     });
+    // Keep the in-memory history bounded - this is a transient/debugging list.
+    const MAX_TRANSIENT_ERRORS = 100;
+    if (this.errors.globalTransientErrorQueue.length > MAX_TRANSIENT_ERRORS) {
+      this.errors.globalTransientErrorQueue =
+        this.errors.globalTransientErrorQueue.slice(-MAX_TRANSIENT_ERRORS);
+    }
     this.invalidateGlobalTransientErrors();
   }
 
@@ -2598,11 +3255,17 @@ export class ValSyncEngine {
 
   /**
    * Mock method for testing and Storybook.
-   * Sets both serverSources and optimisticClientSources to the same value and invalidates related caches.
+   * Sets serverSources (the un-patched view) and invalidates related caches.
+   * Note: any patched view is computed on demand from `serverSources` plus
+   * the known patch chain; tests that want a patched view should also seed
+   * patchDataByPatchId / pendingClientPatchIds.
    */
   setSources(sources: Record<ModuleFilePath, JSONValue | undefined>): void {
     this.serverSources = sources;
+    this.patchedSourcesCache = null;
     this.cachedSourceSnapshots = null;
+    this.cachedServerSourceSnapshots = null;
+    this.cachedBaseSourceSnapshots = null;
     this.cachedAllSourcesSnapshot = null;
     this.cachedSourcesSnapshot = null;
     for (const moduleFilePath in sources) {
@@ -2636,6 +3299,16 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.emit(this.listeners["initialized-at"]?.[globalNamespace]);
   }
+
+  /**
+   * Mock method for testing and Storybook.
+   * Sets baseSha so that getParentRef() returns a valid ref,
+   * which allows the sync loop to flush pending ops.
+   */
+  setBaseSha(sha: string): void {
+    this.baseSha = sha;
+    this.cachedParentRef = undefined;
+  }
 }
 
 // #region Supporting code
@@ -2650,6 +3323,7 @@ const nonInterDependentTypes = [
   "boolean",
   "number",
   "date",
+  "dateTime",
   "richtext",
   "file",
   "image",
@@ -2678,7 +3352,22 @@ type RetryReason =
   | "publishing"
   | "error"
   | "patch-ids-changed"
-  | "already-syncing";
+  | "already-syncing"
+  | "schema-out-of-date";
+export type LocalModulesStatus =
+  | { type: "absent" }
+  | { type: "loading" }
+  | {
+      type: "loaded";
+      schemaSha: string;
+      sourcesSha: string;
+      moduleCount: number;
+    }
+  | {
+      type: "error";
+      moduleErrors: ExtractedModuleError[];
+    };
+
 type SyncEngineListenerType =
   | "schema"
   | "initialized-at"
@@ -2699,6 +3388,8 @@ type SyncEngineListenerType =
   | "synced-server-side-patch-ids"
   | "saved-server-side-patch-ids"
   | "publish-disabled"
+  | "schema-out-of-date"
+  | "local-modules-status"
   | "pending-ops-count"
   | "all-sources"
   | "all-renders"

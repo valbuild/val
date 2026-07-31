@@ -88,6 +88,7 @@ export interface ToolbarButtonsProps {
   detailsVariants?: EditorDetailsVariant[];
   linkCatalog?: EditorLinkCatalogItem[];
   styleConfig?: EditorStyleConfig;
+  readOnly?: boolean;
 }
 
 const MARK_ICON: Record<string, LucideIcon> = {
@@ -121,6 +122,13 @@ function Separator() {
   );
 }
 
+// Override the ghost variant's default disabled background/border so toolbar
+// buttons remain visually flush with the toolbar surface when disabled. The
+// Button component sets both `disabled` and `aria-disabled` attributes, so
+// both variant selectors must be overridden.
+const TOOLBAR_BUTTON_DISABLED_CLASS =
+  "disabled:bg-transparent disabled:border-transparent aria-disabled:bg-transparent aria-disabled:border-transparent";
+
 export function ToolbarButtons({
   view,
   schema,
@@ -137,6 +145,7 @@ export function ToolbarButtons({
   detailsVariants,
   linkCatalog,
   styleConfig,
+  readOnly,
 }: ToolbarButtonsProps) {
   const markButtons = getFormattingButtons(schema, features);
   const customStyleButtons = getCustomStyleButtons(schema, styleConfig);
@@ -160,7 +169,12 @@ export function ToolbarButtons({
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="xs" className="min-w-[3.5rem]">
+              <Button
+                variant="ghost"
+                size="xs"
+                className={cn("min-w-[3.5rem]", TOOLBAR_BUTTON_DISABLED_CLASS)}
+                disabled={readOnly}
+              >
                 {currentBlockType.startsWith("heading") &&
                   (() => {
                     const level = Number(
@@ -208,7 +222,8 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
-            className={cn({
+            disabled={readOnly}
+            className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
               "stroke-[3px]": active,
             })}
@@ -237,7 +252,8 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
-            className={cn({
+            disabled={readOnly}
+            className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
               "stroke-[3px]": active,
             })}
@@ -266,7 +282,8 @@ export function ToolbarButtons({
             variant="ghost"
             size="icon-sm"
             title={btn.title}
-            className={cn({
+            disabled={readOnly}
+            className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
               "text-accent": active,
               "stroke-[3px]": active,
             })}
@@ -297,6 +314,7 @@ export function ToolbarButtons({
               onImageUpload={onImageUpload}
               imageAccept={imageAccept}
               uploadProgress={uploadProgress}
+              readOnly={readOnly}
             />
           </>
         )}
@@ -313,6 +331,7 @@ export function ToolbarButtons({
               linkHelper={linkHelper}
               linkCatalog={linkCatalog}
               dropdownContainer={dropdownContainerRef.current}
+              readOnly={readOnly}
             />
           </>
         )}
@@ -327,6 +346,7 @@ export function ToolbarButtons({
               schema={schema}
               variants={detailsVariants}
               dropdownContainer={dropdownContainerRef.current}
+              readOnly={readOnly}
             />
           </>
         )}
@@ -343,6 +363,7 @@ function ImageInsertDropdown({
   onImageUpload,
   imageAccept,
   uploadProgress,
+  readOnly,
 }: {
   view: EditorView;
   schema: Schema;
@@ -363,6 +384,7 @@ function ImageInsertDropdown({
   ) => Promise<{ filePath: string; ref: string } | null>;
   imageAccept?: string;
   uploadProgress?: number | null;
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -403,8 +425,10 @@ function ImageInsertDropdown({
         variant="ghost"
         size="icon-sm"
         title="Insert image"
-        disabled={uploading}
-        className={cn({ "text-accent stroke-[3px]": open })}
+        disabled={uploading || readOnly}
+        className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
+          "text-accent stroke-[3px]": open,
+        })}
         onClick={(e) => {
           e.preventDefault();
           if (!hasPicker && onImageUpload) {
@@ -521,16 +545,24 @@ function DetailsInsertDropdown({
   schema,
   variants,
   dropdownContainer,
+  readOnly,
 }: {
   view: EditorView;
   schema: Schema;
   variants: EditorDetailsVariant[];
   dropdownContainer: HTMLElement | null;
+  readOnly?: boolean;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" title="Insert details">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Insert details"
+          disabled={readOnly}
+          className={TOOLBAR_BUTTON_DISABLED_CLASS}
+        >
           <PanelTop size={16} />
         </Button>
       </DropdownMenuTrigger>
@@ -563,6 +595,7 @@ function ButtonInsertDropdown({
   schema,
   variants,
   dropdownContainer,
+  readOnly,
 }: {
   view: EditorView;
   schema: Schema;
@@ -570,6 +603,7 @@ function ButtonInsertDropdown({
   linkHelper: LinkHelper;
   linkCatalog?: EditorLinkCatalogItem[];
   dropdownContainer: HTMLElement | null;
+  readOnly?: boolean;
 }) {
   const [pendingLinkVariant, setPendingLinkVariant] =
     useState<EditorButtonVariant | null>(null);
@@ -611,7 +645,10 @@ function ButtonInsertDropdown({
             variant="ghost"
             size="icon-sm"
             title="Insert button"
-            className={cn({ "text-accent stroke-[3px]": !!pendingLinkVariant })}
+            disabled={readOnly}
+            className={cn(TOOLBAR_BUTTON_DISABLED_CLASS, {
+              "text-accent stroke-[3px]": !!pendingLinkVariant,
+            })}
           >
             <MousePointerClick size={16} />
           </Button>

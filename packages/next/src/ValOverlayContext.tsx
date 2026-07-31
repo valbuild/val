@@ -43,9 +43,10 @@ export class ValExternalStore {
 
     return () => {
       const current = this.listeners.get(subscriberId);
-      if (current) {
-        current.splice(current.indexOf(listener), 1);
-      }
+      if (!current) return;
+      const idx = current.indexOf(listener);
+      if (idx >= 0) current.splice(idx, 1);
+      if (current.length === 0) this.listeners.delete(subscriberId);
     };
   };
 
@@ -179,29 +180,32 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
 export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
   readonly draftMode: boolean | null;
-  // Whether Val is enabled (the VAL_ENABLE cookie is set). Unlike draftMode
-  // this is stable for the lifetime of the page, so it is what gates the
-  // Suspense call in useValStega.
-  readonly enabled: boolean;
+  // Whether useValStega should suspend until draft data is loaded. False
+  // during SSR and hydration (the server store is never populated; draft data
+  // arrives via browser CustomEvents only); activated by ValProvider after
+  // hydration — inside a transition, so static content stays visible while
+  // hooks suspend — when its `suspend` prop is set and the Val Enable cookie
+  // is present. Never deactivated once active.
+  readonly suspend: boolean;
 }>({
   store: undefined,
   draftMode: false,
-  enabled: false,
+  suspend: false,
 });
 
 export function ValOverlayProvider({
   store,
   draftMode,
-  enabled,
+  suspend,
   children,
 }: {
   store?: ValExternalStore;
   draftMode: boolean | null;
-  enabled: boolean;
+  suspend: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <ValOverlayContext.Provider value={{ store, draftMode, enabled }}>
+    <ValOverlayContext.Provider value={{ store, draftMode, suspend }}>
       {children}
     </ValOverlayContext.Provider>
   );

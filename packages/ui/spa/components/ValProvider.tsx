@@ -21,6 +21,7 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
+  ValModules,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import {
@@ -33,6 +34,7 @@ import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
+import { createValidationWorker } from "../validation/createValidationWorker";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
 import {
@@ -40,7 +42,10 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { useSchemas } from "./ValFieldProvider";
+import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
+import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
+import { useSchemas, useSyncEngine } from "./ValFieldProvider";
+export { useSyncEngine } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -184,6 +189,7 @@ export function ValProvider({
   children,
   client,
   config: _config,
+  valModules,
   dispatchValEvents,
   theme,
   setTheme,
@@ -191,6 +197,7 @@ export function ValProvider({
   children: React.ReactNode;
   client: ValClient;
   config: SharedValConfig | null;
+  valModules?: ValModules | null;
   dispatchValEvents: boolean;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
@@ -308,14 +315,25 @@ export function ValProvider({
 
   const syncEngine = useMemo(
     () =>
-      new ValSyncEngine(client, (moduleFilePath, newSource) => {
-        if (dispatchValEvents) {
-          defaultOverlayEmitter(moduleFilePath, newSource);
-        }
-      }),
+      new ValSyncEngine(
+        client,
+        (moduleFilePath, newSource) => {
+          if (dispatchValEvents) {
+            defaultOverlayEmitter(moduleFilePath, newSource);
+          }
+        },
+        createValidationWorker,
+      ),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
+
+  // Push client-side valModules into the engine. Re-runs on HMR-driven
+  // reference changes, which causes the engine to re-extract schemas/sources
+  // and re-invalidate subscribers without a server round-trip.
+  useEffect(() => {
+    syncEngine.setValModules(valModules ?? null);
+  }, [valModules, syncEngine]);
   const runtimeConfig =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
 
@@ -674,7 +692,9 @@ export function ValProvider({
                     getDirectFileUploadSettings={getDirectFileUploadSettings}
                     config={runtimeConfig}
                   >
+                    <LocalModulesErrorBanner syncEngine={syncEngine} />
                     {children}
+                    <SchemaOutOfDateGate syncEngine={syncEngine} />
                   </ValFieldProvider>
                 </ValRemoteProvider>
               </ValPortalProvider>
@@ -686,6 +706,24 @@ export function ValProvider({
       </TooltipProvider>
     </ValContext.Provider>
   );
+}
+
+function SchemaOutOfDateGate({ syncEngine }: { syncEngine: ValSyncEngine }) {
+  const subscribe = useMemo(
+    () => syncEngine.subscribe("schema-out-of-date"),
+    [syncEngine],
+  );
+  const getSnapshot = useCallback(
+    () => syncEngine.getSchemaOutOfDateSnapshot(),
+    [syncEngine],
+  );
+  const schemaOutOfDate = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+  if (!schemaOutOfDate) return null;
+  return <SchemaOutOfDateDialog />;
 }
 
 function useProfilesData(
@@ -821,7 +859,7 @@ export function useAddModuleFilePatch() {
 }
 
 export function useDeletePatches() {
-  const { syncEngine } = useContext(ValContext);
+  const syncEngine = useSyncEngine();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
       // Delete in batches of 100 patch ids (since it is added to request url as query param)
@@ -859,10 +897,6 @@ export function useAIContext() {
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   };
-}
-
-export function useSyncEngine() {
-  return useContext(ValContext).syncEngine;
 }
 
 export function useDeployments() {
@@ -1340,6 +1374,7 @@ export type ShallowSource = EnsureAllTypes<{
   number: number;
   string: string;
   date: string;
+  dateTime: string;
   file: {
     [FILE_REF_PROP]: string;
     metadata?: { readonly [key: string]: Json };
@@ -1764,7 +1799,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "date" || type === "string" || type === "literal") {
+  } else if (
+    type === "date" ||
+    type === "dateTime" ||
+    type === "string" ||
+    type === "literal"
+  ) {
     if (typeof source !== "string" && source !== null) {
       return {
         status: "error",

@@ -57,11 +57,26 @@ You can setup Val in your Next.js project manually by following the steps below:
   ]);
   ```
 
-- Add the ValProvider in your root layout. Val needs this to be able to show updates when editors updates content. An example of a root layout with the ValProvider can look like this:
+- Create the `/val/ValModulesClient.tsx` file. This is a Client Component that pulls your `val.modules` into the client bundle and registers it so the Val editor can read your schemas and sources. It is rendered inside both the `ValProvider` and the `ValApp` (see the next steps):
 
-```ts
+  ```tsx
+  "use client";
+  import { ValModulesClient as Base } from "@valbuild/next";
+  import valModules from "../val.modules";
+
+  export function ValModulesClient() {
+    return <Base modules={valModules} />;
+  }
+  ```
+
+  **NOTE**: `val.modules` must be imported from a Client Component (`"use client"`), not passed in from a Server Component — its module definitions are functions, which cannot cross the Server → Client Component boundary.
+
+- Add the ValProvider in your root layout, with the `ValModulesClient` rendered inside it. Val needs this to be able to show updates when editors updates content. An example of a root layout with the ValProvider can look like this:
+
+```tsx
 import { ValProvider } from "@valbuild/next";
 import { config } from "../val.config";
+import { ValModulesClient } from "./val/ValModulesClient";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -82,9 +97,29 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         {/* ValProvider with config below: */}
-        <ValProvider config={config}>{children}</ValProvider>
+        <ValProvider config={config}>
+          <ValModulesClient />
+          {children}
+        </ValProvider>
       </body>
     </html>
+  );
+}
+```
+
+- Add the Val editor page at `/app/(val)/val/[[...val]]/page.tsx`, again rendering `ValModulesClient` inside `ValApp`:
+
+```tsx
+"use client";
+import { ValApp } from "@valbuild/next";
+import { config } from "../../../../val.config";
+import { ValModulesClient } from "../../../val/ValModulesClient";
+
+export default function Val() {
+  return (
+    <ValApp config={config}>
+      <ValModulesClient />
+    </ValApp>
   );
 }
 ```

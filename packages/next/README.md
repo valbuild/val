@@ -333,6 +333,39 @@ import { s } from "./val.config";
 s.string().nullable(); // <- Schema<string | null>
 ```
 
+## Description
+
+All schema types can be given a human-readable description with `.describe(text)`. Descriptions are shown in the Val editor UI as muted helper text under the field label, helping editors understand what a field is for without leaving the page.
+
+```ts
+import { s } from "./val.config";
+
+s.object({
+  name: s.string().describe("The author's full name"),
+}).describe("Author of the blog post");
+```
+
+For records, calling `.describe()` on the **key** schema labels the record keys in the editor (useful when the key is something like an email or slug that benefits from extra context), while calling it on the **value** schema describes the entry itself.
+
+```ts
+s.record(
+  s.string().describe("Email"),
+  s.object({ name: s.string() }).describe("Author"),
+);
+```
+
+`.describe()` can be combined freely with other modifiers and is preserved through `.nullable()`, `.validate()`, `.minLength()`, etc.:
+
+```ts
+s.string().describe("Slug").minLength(1).maxLength(64);
+```
+
+Pass `null` to clear a previously set description (useful when extending a base schema):
+
+```ts
+s.string().describe("Original").describe(null); // no description on the resulting schema
+```
+
 ## Array
 
 ```ts

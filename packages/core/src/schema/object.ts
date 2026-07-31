@@ -25,6 +25,9 @@ export type SerializedObjectSchema = {
   items: Record<string, SerializedSchema>;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
+  description?: string;
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
@@ -58,17 +61,35 @@ export class ObjectSchema<
     private readonly items: Props,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): ObjectSchema<Props, Src> {
-    return new ObjectSchema(this.items, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -209,7 +230,36 @@ export class ObjectSchema<
   }
 
   nullable(): ObjectSchema<Props, Src | null> {
-    return new ObjectSchema(this.items, true);
+    return new ObjectSchema(
+      this.items,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -225,6 +275,9 @@ export class ObjectSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
+      description: this.description,
     };
   }
 

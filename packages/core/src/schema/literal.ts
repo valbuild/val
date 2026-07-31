@@ -16,6 +16,9 @@ export type SerializedLiteralSchema = {
   value: string;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
+  description?: string;
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
@@ -23,17 +26,35 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     private readonly value: string,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
+    private readonly description?: string,
   ) {
     super();
+  }
+
+  describe(description: string | null): LiteralSchema<Src> {
+    return new LiteralSchema(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      description ?? undefined,
+    );
   }
 
   validate(
     validationFunction: (src: Src) => false | string,
   ): LiteralSchema<Src> {
-    return new LiteralSchema(this.value, this.opt, [
-      ...this.customValidateFunctions,
-      validationFunction,
-    ]);
+    return new LiteralSchema(
+      this.value,
+      this.opt,
+      [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -116,7 +137,36 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   }
 
   nullable(): LiteralSchema<Src | null> {
-    return new LiteralSchema<Src | null>(this.value, true);
+    return new LiteralSchema<Src | null>(
+      this.value,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): LiteralSchema<Src> {
+    return new LiteralSchema<Src>(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): LiteralSchema<Src> {
+    return new LiteralSchema<Src>(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -127,6 +177,9 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
+      description: this.description,
     };
   }
 

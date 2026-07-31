@@ -1,8 +1,8 @@
-import { Internal, ValProvider } from "@valbuild/next";
+import { ValProvider } from "@valbuild/next";
 import { config } from "../val.config";
+import { ValModulesClient } from "./ValModulesClient";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { cookies } from "next/headers";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -17,15 +17,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Read the VAL_ENABLE cookie on the server so ValProvider knows synchronously
-  // (during SSR) whether Val is enabled. This lets useValRoute suspend instead
-  // of rendering notFound() for routes that only exist in an uncommitted draft.
-  const valEnabled =
-    cookies().get(Internal.VAL_ENABLE_COOKIE_NAME)?.value === "true";
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ValProvider config={config} enabled={valEnabled}>
+        <ValProvider config={config} suspend>
+          <ValModulesClient />
           {children}
         </ValProvider>
       </body>

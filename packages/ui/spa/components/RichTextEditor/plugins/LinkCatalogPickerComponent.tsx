@@ -10,6 +10,7 @@ import {
   CommandList,
 } from "../../designSystem/command";
 import { cn } from "../../designSystem/cn";
+import { DropdownPreviewRow } from "../../DropdownPreviewRow";
 
 export interface LinkCatalogPickerProps {
   catalog: EditorLinkCatalogItem[];
@@ -81,26 +82,12 @@ export function LinkCatalogPicker({
                     isCurrent ? "opacity-100" : "opacity-0",
                   )}
                 />
-                {item.image && (
-                  <img
-                    src={item.image}
-                    alt={item.title}
-                    className="h-8 w-8 rounded object-cover shrink-0"
-                  />
-                )}
-                <div className="flex flex-col min-w-0">
-                  <span
-                    className={cn(
-                      "font-medium truncate",
-                      isCurrent ? "text-fg-brand-primary" : "text-fg-primary",
-                    )}
-                  >
-                    {item.title}
-                  </span>
-                  <span className="text-xs text-fg-secondary truncate">
-                    {item.subtitle}
-                  </span>
-                </div>
+                <DropdownPreviewRow
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  image={item.image ?? null}
+                  className={cn(isCurrent && "text-fg-brand-primary")}
+                />
               </CommandItem>
             );
           })}

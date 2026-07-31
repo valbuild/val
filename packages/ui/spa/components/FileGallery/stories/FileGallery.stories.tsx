@@ -1,9 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FileGallery } from "../FileGallery";
 import type { GalleryFile } from "../types";
 import { ValPortalProvider } from "../../ValPortalProvider";
 import { ValThemeProvider } from "../../ValThemeProvider";
+import { ValRouter } from "../../ValRouter";
+import { ValFieldProvider } from "../../ValFieldProvider";
+import { ValSyncEngine } from "../../../ValSyncEngine";
+import { ValClient } from "@valbuild/shared/internal";
 
 const meta: Meta<typeof FileGallery> = {
   title: "Components/FileGallery",
@@ -13,13 +17,51 @@ const meta: Meta<typeof FileGallery> = {
   },
   tags: ["autodocs"],
   decorators: [
-    (Story) => (
-      <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
-        <ValPortalProvider>
-          <Story />
-        </ValPortalProvider>
-      </ValThemeProvider>
-    ),
+    (Story) => {
+      const mockClient = useMemo(
+        () =>
+          (() =>
+            Promise.resolve({
+              status: 200,
+              json: { schemas: {}, sources: {} },
+            })) as unknown as ValClient,
+        [],
+      );
+      const syncEngine = useMemo(() => {
+        const engine = new ValSyncEngine(mockClient, undefined);
+        engine.setSchemas({});
+        engine.setBaseSha("storybook-mock-sha");
+        engine.setInitializedAt(Date.now());
+        return engine;
+      }, [mockClient]);
+      const getDirectFileUploadSettings = useMemo(
+        () => async () => ({
+          status: "success" as const,
+          data: {
+            nonce: null,
+            baseUrl: "https://mock-upload.example.com",
+            contentBaseUrl: null,
+            contentAuthNonce: null,
+          },
+        }),
+        [],
+      );
+      return (
+        <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
+          <ValRouter>
+            <ValPortalProvider>
+              <ValFieldProvider
+                syncEngine={syncEngine}
+                getDirectFileUploadSettings={getDirectFileUploadSettings}
+                config={undefined}
+              >
+                <Story />
+              </ValFieldProvider>
+            </ValPortalProvider>
+          </ValRouter>
+        </ValThemeProvider>
+      );
+    },
   ],
 };
 

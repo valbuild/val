@@ -30,6 +30,7 @@ export function ChangeRecordPopover({
   size,
   children,
   onComplete,
+  keyDescription,
 }: {
   defaultValue: string;
   path: SourcePath;
@@ -40,6 +41,7 @@ export function ChangeRecordPopover({
   children: React.ReactNode;
   routePattern?: RoutePattern[] | null;
   onComplete?: () => void;
+  keyDescription?: string;
 }) {
   const { navigate } = useNavigation();
   const [open, setOpen] = useState(false);
@@ -131,9 +133,14 @@ export function ChangeRecordPopover({
             </PopoverTrigger>
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">Rename record</TooltipContent>
+        <TooltipContent side="top">
+          {keyDescription ? `Rename ${keyDescription}` : "Rename record"}
+        </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
+        {keyDescription && (
+          <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
+        )}
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}

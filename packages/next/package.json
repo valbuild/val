@@ -12,7 +12,7 @@
     "next",
     "react"
   ],
-  "version": "0.96.1",
+  "version": "0.97.3",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -68,8 +68,9 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "next": ">=13.4.0",
-    "react": ">=18.2.0 || ^19.0 || ^19.0.0-rc"
+    "next": ">=14.3.0",
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
   },
   "externals": [
     "next"

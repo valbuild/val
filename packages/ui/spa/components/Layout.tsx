@@ -12,6 +12,8 @@ import {
   Sidebar,
 } from "./designSystem/sidebar";
 import { useIsMobile } from "./hooks/use-mobile";
+import { Toaster } from "./designSystem/sonner";
+import { TransientErrorToasts } from "./TransientErrorToasts";
 
 export function Layout() {
   const isMobile = useIsMobile();
@@ -22,9 +24,6 @@ export function Layout() {
   useEffect(() => {
     if (!didInitialize && navigationReady) {
       if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
-        if (!currentSourcePath) {
-          setIsNavMenuOpenState(true);
-        }
         setDidInitialize(true);
       } else {
         setIsToolsMenuOpenState(true);
@@ -75,7 +74,7 @@ export function Layout() {
         },
       }}
     >
-      <main className="flex">
+      <main className="flex" style={{ height: "100svh", overflow: "hidden" }}>
         <SidebarProvider
           open={isNavMenuOpen}
           onOpenChange={setNavMenuOpen}
@@ -104,6 +103,8 @@ export function Layout() {
           </Sidebar>
         </SidebarProvider>
       </main>
+      <Toaster />
+      <TransientErrorToasts />
     </LayoutContext.Provider>
   );
 }

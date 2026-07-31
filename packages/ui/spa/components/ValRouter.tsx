@@ -7,17 +7,28 @@ import React, {
   useState,
 } from "react";
 
+const VAL_COMPARE_ROUTE = "/val/compare";
+export const VAL_ERRORS_ROUTE = "/val/errors";
+
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
   navigate: (
-    path: SourcePath | ModuleFilePath,
+    path:
+      | SourcePath
+      | ModuleFilePath
+      | typeof VAL_COMPARE_ROUTE
+      | typeof VAL_ERRORS_ROUTE,
     params?: {
-      scrollToId?: string;
+      scrollToPath?: SourcePath | ModuleFilePath;
       replace?: true;
+      errorFields?: SourcePath[];
     },
   ) => void;
   currentSourcePath: SourcePath;
+  isCompareView: boolean;
+  isErrorsView: boolean;
+  errorFields: SourcePath[];
 };
 const ValRouterContext = React.createContext<ValRouterContextValue>(
   new Proxy(
@@ -32,11 +43,34 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
+const STUDIO_PATH_ATTR = "data-val-studio-path";
+
+function findStudioPathTarget(
+  root: ShadowRoot,
+  path: string,
+): HTMLElement | null {
+  const candidates = Array.from(
+    root.querySelectorAll<HTMLElement>(`[${STUDIO_PATH_ATTR}]`),
+  );
+  for (const el of candidates) {
+    if (el.getAttribute(STUDIO_PATH_ATTR) === path) return el;
+  }
+  return null;
+}
+
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
   shadowRoot.getElementById("val-content-area")?.scrollTo({
-    top: element.offsetTop,
+    top: Math.max(0, element.offsetTop - 16),
     behavior: "smooth",
   });
+  element.classList.remove("val-scroll-highlight");
+  void element.offsetWidth;
+  element.classList.add("val-scroll-highlight");
+  element.addEventListener(
+    "animationend",
+    () => element.classList.remove("val-scroll-highlight"),
+    { once: true },
+  );
 }
 
 /**
@@ -51,9 +85,41 @@ export function ValRouter({
 }) {
   const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
+  const [isCompareView, setIsCompareView] = useState(false);
+  const [isErrorsView, setIsErrorsView] = useState(false);
+  const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
+      if (
+        location.pathname === VAL_COMPARE_ROUTE ||
+        location.pathname === VAL_COMPARE_ROUTE + "/"
+      ) {
+        setIsCompareView(true);
+        setIsErrorsView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      if (
+        location.pathname === VAL_ERRORS_ROUTE ||
+        location.pathname === VAL_ERRORS_ROUTE + "/"
+      ) {
+        setIsErrorsView(true);
+        setIsCompareView(false);
+        setErrorFields(
+          new URLSearchParams(location.search).getAll(
+            "error-field",
+          ) as SourcePath[],
+        );
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      setIsCompareView(false);
+      setIsErrorsView(false);
+      setErrorFields([]);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
@@ -74,7 +140,7 @@ export function ValRouter({
             }
           }, 50);
         } else if (location.hash) {
-          const scrollToId = decodeURIComponent(location.hash.slice(1));
+          const scrollToPath = decodeURIComponent(location.hash.slice(1));
           // remove hash:
           window.history.replaceState(
             null,
@@ -83,10 +149,12 @@ export function ValRouter({
           );
           let retriesLeft = 100;
           const execScroll = () => {
-            if (scrollToId) {
+            if (scrollToPath) {
               const shadowRoot =
                 document.getElementById("val-shadow-root")?.shadowRoot;
-              const element = shadowRoot?.getElementById(scrollToId);
+              const element = shadowRoot
+                ? findStudioPathTarget(shadowRoot, scrollToPath)
+                : null;
               if (element && shadowRoot) {
                 doScroll(shadowRoot, element);
               } else if (retriesLeft > 0) {
@@ -115,24 +183,55 @@ export function ValRouter({
   }, []);
   const navigate = useCallback(
     (
-      path: SourcePath | ModuleFilePath,
-      params?: { scrollToId?: string; replace?: true },
+      path:
+        | SourcePath
+        | ModuleFilePath
+        | typeof VAL_COMPARE_ROUTE
+        | typeof VAL_ERRORS_ROUTE,
+      params?: {
+        scrollToPath?: SourcePath | ModuleFilePath;
+        replace?: true;
+        errorFields?: SourcePath[];
+      },
     ) => {
-      const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
-      setSourcePath(path as SourcePath);
+      const isCompare = path === VAL_COMPARE_ROUTE;
+      const isErrors = path === VAL_ERRORS_ROUTE;
+      const errorFieldsQuery =
+        isErrors && params?.errorFields && params.errorFields.length > 0
+          ? "?" +
+            params.errorFields
+              .map((p) => `error-field=${encodeURIComponent(p)}`)
+              .join("&")
+          : "";
+      const navigateTo = isCompare
+        ? VAL_COMPARE_ROUTE
+        : isErrors
+          ? VAL_ERRORS_ROUTE + errorFieldsQuery
+          : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+      setIsCompareView(isCompare);
+      setIsErrorsView(isErrors);
+      setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
+      setSourcePath(
+        isCompare || isErrors ? ("" as SourcePath) : (path as SourcePath),
+      );
       if (!overlay) {
         const shadowRoot =
           document.getElementById("val-shadow-root")?.shadowRoot;
         const scrollContainer = shadowRoot?.getElementById("val-content-area");
         const prevScrollPos = scrollContainer?.scrollTop;
-        const scrollId = params?.scrollToId;
-        if (scrollId && shadowRoot) {
-          setTimeout(() => {
-            const element = shadowRoot.getElementById(scrollId);
-            if (element && shadowRoot) {
+        const scrollToPath = params?.scrollToPath;
+        if (scrollToPath && shadowRoot) {
+          let retriesLeft = 10;
+          const execScroll = () => {
+            const element = findStudioPathTarget(shadowRoot, scrollToPath);
+            if (element) {
               doScroll(shadowRoot, element);
+            } else if (retriesLeft > 0) {
+              retriesLeft--;
+              setTimeout(execScroll, 100);
             }
-          }, 100);
+          };
+          setTimeout(execScroll, 100);
         } else {
           scrollContainer?.scrollTo(0, 0);
         }
@@ -147,7 +246,10 @@ export function ValRouter({
         }
       } else {
         window.location.href =
-          navigateTo + (params?.scrollToId ? `#${params.scrollToId}` : "");
+          navigateTo +
+          (params?.scrollToPath
+            ? `#${encodeURIComponent(params.scrollToPath)}`
+            : "");
       }
     },
     [overlay],
@@ -159,6 +261,9 @@ export function ValRouter({
         currentSourcePath,
         navigate,
         ready,
+        isCompareView,
+        isErrorsView,
+        errorFields,
       }}
     >
       {children}
@@ -167,11 +272,21 @@ export function ValRouter({
 }
 
 export function useNavigation() {
-  const { navigate, currentSourcePath, ready } = useContext(ValRouterContext);
+  const {
+    navigate,
+    currentSourcePath,
+    ready,
+    isCompareView,
+    isErrorsView,
+    errorFields,
+  } = useContext(ValRouterContext);
   return {
     navigate,
     currentSourcePath,
     ready,
+    isCompareView,
+    isErrorsView,
+    errorFields,
   };
 }
 

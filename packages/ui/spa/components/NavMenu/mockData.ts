@@ -44,6 +44,7 @@ export const mockSitemap: SitemapItem = {
           sourcePath:
             '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-2"' as SourcePath,
           children: [],
+          hasError: true,
         },
         {
           name: "blog-3",
@@ -143,6 +144,7 @@ export const mockExplorer: ExplorerItem = {
  */
 export const mockExternal: ExternalModule = {
   moduleFilePath: "/app/external.val.ts" as ModuleFilePath,
+  hasError: true,
 };
 
 /**

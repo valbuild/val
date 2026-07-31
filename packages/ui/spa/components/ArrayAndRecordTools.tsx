@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
-import { Plus, Trash, Edit, Link, Check } from "lucide-react";
+import { Plus, Trash, Edit, Link } from "lucide-react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -29,7 +29,6 @@ import {
   isRecord,
   useParent,
 } from "../hooks/useParent";
-import { ValPath } from "./ValPath";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
@@ -42,15 +41,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "./designSystem/command";
-import { cn } from "./designSystem/cn";
+import { ConnectedReferencesList } from "./ReferencesList";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -129,6 +120,15 @@ export function ArrayAndRecordTools({
     ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
     : refs;
 
+  const parentKeyDescription =
+    parentSchemaAtPath?.type === "record"
+      ? parentSchemaAtPath.key?.description
+      : undefined;
+  const currentKeyDescription =
+    "data" in schemaAtPath && schemaAtPath.data.type === "record"
+      ? schemaAtPath.data.key?.description
+      : undefined;
+
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
@@ -143,6 +143,7 @@ export function ArrayAndRecordTools({
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
               existingKeys={allRefs}
+              keyDescription={parentKeyDescription}
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
@@ -173,6 +174,7 @@ export function ArrayAndRecordTools({
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={routePattern}
+              keyDescription={currentKeyDescription}
             >
               <Plus size={getIconSize(variant)} />
             </AddRecordPopover>
@@ -210,25 +212,6 @@ function ReferencesPopover({
     return null;
   }
 
-  // Create display labels for each reference
-  const refItems = refs.map((ref) => {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(ref);
-    const patchPath = Internal.createPatchPath(modulePath);
-    return {
-      path: ref,
-      moduleFilePath,
-      patchPath,
-      label: `${prettifyFilename(
-        Internal.splitModuleFilePath(moduleFilePath).pop() || "",
-      )}${
-        modulePath
-          ? ` → ${Internal.splitModulePath(modulePath).join(" → ")}`
-          : ""
-      }`,
-    };
-  });
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -250,41 +233,14 @@ function ReferencesPopover({
         className="w-[clamp(300px, 40vw, 400px)] p-0 z-[8999]"
         container={portalContainer}
       >
-        <Command>
-          <CommandInput placeholder="Filter" />
-          <CommandList>
-            {refItems.length === 0 ? (
-              <CommandEmpty>No references found.</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {refItems.map((item) => {
-                  const isCurrent = currentSourcePath === item.path;
-                  return (
-                    <CommandItem
-                      key={item.path}
-                      value={item.label}
-                      onSelect={() => {
-                        navigate(item.path);
-                        setOpen(false);
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          isCurrent ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                      <ValPath
-                        moduleFilePath={item.moduleFilePath}
-                        patchPath={item.patchPath}
-                      />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+        <ConnectedReferencesList
+          refs={refs}
+          currentPath={currentSourcePath}
+          onSelect={(navPath, { scrollToPath }) => {
+            navigate(navPath, { scrollToPath });
+            setOpen(false);
+          }}
+        />
       </PopoverContent>
     </Popover>
   );

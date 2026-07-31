@@ -1,5 +1,10 @@
 export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
+export {
+  extractValModules,
+  type ExtractedValModules,
+  type ExtractedModuleError,
+} from "./extractValModules";
 export type {
   InitVal,
   ValConfig,
@@ -110,6 +115,10 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export {
+  type SerializedDateTimeSchema,
+  DateTimeSchema,
+} from "./schema/datetime";
 export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {

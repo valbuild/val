@@ -1,6 +1,5 @@
 "use client";
 import { notFound } from "next/navigation";
-import { fetchVal, fetchValRoute } from "../../../val/rsc";
 import blogsVal from "./page.val";
 import Link from "next/link";
 import authorsVal from "../../../content/authors.val";
@@ -12,11 +11,9 @@ export default function BlogPage({
 }: {
   params: Promise<{ blog: string }>;
 }) {
-  console.log("here");
   const blog = useValRoute(blogsVal, params);
   const authors = useVal(authorsVal);
   if (!blog) {
-    console.log("not found");
     return notFound();
   }
   const author = authors[blog.author];

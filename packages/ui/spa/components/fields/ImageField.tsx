@@ -14,6 +14,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useFieldCreatorId,
   useValConfig,
   useSchemas,
   useFilePatchIds,
@@ -29,20 +30,32 @@ import { useEffect, useMemo, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
 import { Button } from "../designSystem/button";
+import { Checkbox } from "../designSystem/checkbox";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 import { JSONValue } from "@valbuild/core/patch";
+import { array } from "@valbuild/core/fp";
 import { useImageUpload } from "./useImageUpload";
 
-export function ImageField({ path }: { path: SourcePath }) {
+export function ImageField({
+  path,
+  readonly,
+  hideUpload,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  hideUpload?: boolean;
+}) {
   const type = "image";
+  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
@@ -52,7 +65,7 @@ export function ImageField({ path }: { path: SourcePath }) {
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path);
+  } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
   const filePatchIds = useFilePatchIds();
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
@@ -87,7 +100,6 @@ export function ImageField({ path }: { path: SourcePath }) {
           console.warn(
             `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`,
           );
-          return;
         }
         if ("hotspot" in metadata) {
           if (
@@ -166,7 +178,8 @@ export function ImageField({ path }: { path: SourcePath }) {
         ? []
         : [referencedModule]
       : [];
-  const disabled = remoteFileUploadDisabled || missingModules.length > 0;
+  const disabled =
+    readonly || remoteFileUploadDisabled || missingModules.length > 0;
   const acceptOptions = useMemo(() => {
     if (
       schemaAtPath.data.type !== "image" ||
@@ -315,10 +328,11 @@ export function ImageField({ path }: { path: SourcePath }) {
               draggable={false}
               className="object-contain max-h-[500px] w-full"
               style={{
-                cursor: "crosshair",
+                cursor: readonly ? "default" : "crosshair",
               }}
               id={hotspotPath}
               onClick={(ev) => {
+                if (readonly) return;
                 const { width, height, left, top } =
                   ev.currentTarget.getBoundingClientRect();
                 const hotspot = {
@@ -369,16 +383,106 @@ export function ImageField({ path }: { path: SourcePath }) {
             />
             {hotspot && (
               <div
-                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-primary border-2 absolute pointer-events-none"
+                className="absolute pointer-events-none"
                 style={{
                   top: `${hotspot.y * 100}%`,
                   left: `${hotspot.x * 100}%`,
+                  transform: "translate(-50%, -50%)",
+                  zIndex: 10,
                 }}
-              />
+              >
+                <div
+                  style={{
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "50%",
+                    border: "2px solid white",
+                    boxShadow:
+                      "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "4px",
+                    height: "4px",
+                    borderRadius: "50%",
+                    backgroundColor: "white",
+                    boxShadow: "0 0 2px rgba(0,0,0,0.5)",
+                  }}
+                />
+              </div>
             )}
           </div>
         )}
-        {referencedModule && (
+        {source && url && (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`hotspot_toggle:${path}`}
+              checked={!!hotspot}
+              disabled={disabled}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  const defaultHotspot = { x: 0.5, y: 0.5 };
+                  if (source.metadata && "hotspot" in source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath.concat(["metadata", "hotspot"]),
+                          value: defaultHotspot,
+                        },
+                      ],
+                      "object",
+                    );
+                  } else if (source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "add",
+                          path: patchPath.concat(["metadata", "hotspot"]),
+                          value: defaultHotspot,
+                        },
+                      ],
+                      "object",
+                    );
+                  }
+                } else {
+                  if (source.metadata && "hotspot" in source.metadata) {
+                    addPatch(
+                      [
+                        {
+                          op: "remove",
+                          path: patchPath.concat([
+                            "metadata",
+                            "hotspot",
+                          ]) as array.NonEmptyArray<string>,
+                        },
+                      ],
+                      "object",
+                    );
+                  }
+                }
+              }}
+            />
+            <label
+              htmlFor={`hotspot_toggle:${path}`}
+              className="text-xs text-fg-secondary select-none"
+            >
+              Hotspot
+              {hotspot && (
+                <span className="ml-1 text-fg-tertiary">
+                  ({Math.round(hotspot.x * 100)}%, {Math.round(hotspot.y * 100)}
+                  %)
+                </span>
+              )}
+            </label>
+          </div>
+        )}
+        {!hideUpload && referencedModule && (
           <ModuleMediaPicker
             modulePath={referencedModule as ModuleFilePath}
             selectedRef={source?._ref ?? null}
@@ -404,27 +508,31 @@ export function ImageField({ path }: { path: SourcePath }) {
             portalContainer={portalContainer}
           />
         )}
-        <Button asChild variant={"secondary"} disabled={disabled}>
-          <label htmlFor={`img_input:${path}`}>Upload</label>
-        </Button>
-        <input
-          disabled={disabled}
-          hidden
-          id={`img_input:${path}`}
-          type="file"
-          accept={acceptOptions ?? "image/*"}
-          onChange={(ev) => {
-            const imageFile = ev.currentTarget.files?.[0];
-            if (!imageFile) return;
-            const prevUrl: string | null = url;
-            uploadImage(imageFile).then((result) => {
-              if (!result) {
-                setUrl(prevUrl);
-              }
-            });
-            ev.target.value = "";
-          }}
-        />
+        {!hideUpload && (
+          <>
+            <Button asChild variant={"secondary"} disabled={disabled}>
+              <label htmlFor={`img_input:${path}`}>Upload</label>
+            </Button>
+            <input
+              disabled={disabled}
+              hidden
+              id={`img_input:${path}`}
+              type="file"
+              accept={acceptOptions ?? "image/*"}
+              onChange={(ev) => {
+                const imageFile = ev.currentTarget.files?.[0];
+                if (!imageFile) return;
+                const prevUrl: string | null = url;
+                uploadImage(imageFile).then((result) => {
+                  if (!result) {
+                    setUrl(prevUrl);
+                  }
+                });
+                ev.target.value = "";
+              }}
+            />
+          </>
+        )}
       </div>
     </div>
   );

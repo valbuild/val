@@ -129,7 +129,7 @@ export function ValPath({
       if (navPath) {
         return {
           navPath,
-          scrollToId: sourcePath,
+          scrollToPath: sourcePath,
         };
       } else {
         console.debug(
@@ -154,7 +154,11 @@ export function ValPath({
         <a
           href={
             navPath && config
-              ? `${config.studioPrefix}${navPath.navPath}#${navPath.scrollToId}`
+              ? `${config.studioPrefix}${navPath.navPath}${
+                  navPath.scrollToPath
+                    ? `#${encodeURIComponent(navPath.scrollToPath)}`
+                    : ""
+                }`
               : undefined
           }
           ref={containerRef}
@@ -175,7 +179,7 @@ export function ValPath({
             ) {
               e.preventDefault();
               navigate(navPath.navPath, {
-                scrollToId: navPath.scrollToId,
+                scrollToPath: navPath.scrollToPath,
               });
             }
           }}

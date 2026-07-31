@@ -11,6 +11,7 @@ export const toolNames = [
   "get_patches",
   "get_source_path_from_route",
   "set_session_name",
+  "show_compare_view",
   "ask_user_question",
 ] as const;
 export type ToolName = (typeof toolNames)[number];

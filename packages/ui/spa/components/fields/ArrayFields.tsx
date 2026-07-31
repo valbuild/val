@@ -1,6 +1,7 @@
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
   useAddPatch,
+  useFieldCreatorId,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -12,22 +13,38 @@ import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
-import { SortableList } from "../../components/SortableList";
+import { SortableList, SortableContainer } from "../../components/SortableList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import { PreviewError } from "../PreviewError";
 import { Loader2 } from "lucide-react";
+import { Field } from "../../components/Field";
+import { AnyField } from "../../components/AnyField";
+import { InlineSortableItem } from "../../components/InlineAnyField";
 
-export function ArrayFields({ path }: { path: SourcePath }) {
+export function ArrayFields({
+  path,
+  readonly,
+  compact,
+  inline,
+  errorDisplay = "default",
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  compact?: boolean;
+  inline?: boolean;
+  errorDisplay?: "default" | "compact" | "none";
+}) {
   const type = "array";
+  const creatorId = useFieldCreatorId();
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const renderAtPath = useRenderOverrideAtPath(path);
-  const shallowSourceAtPath = useShallowSourceAtPath(path, type);
-  const sourceAtPath = useSourceAtPath(path);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const sourceAtPath = useSourceAtPath(path, creatorId);
 
-  const { addPatch, patchPath } = useAddPatch(path);
+  const { addPatch, patchPath } = useAddPatch(path, creatorId);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -75,6 +92,61 @@ export function ArrayFields({ path }: { path: SourcePath }) {
     ((shallowSourceAtPath.status === "success" &&
       shallowSourceAtPath.clientSideOnly) ||
       shallowSourceAtPath.status === "loading");
+  if (inline) {
+    const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
+    if (sourcePaths === null) {
+      return null;
+    }
+    return (
+      <div id={path}>
+        <ValidationErrors path={path} />
+        <SortableContainer
+          source={sourcePaths}
+          disabled={readonly}
+          onMove={(from, to) => {
+            addPatch(
+              [
+                {
+                  op: "move",
+                  from: patchPath.concat(
+                    from.toString(),
+                  ) as array.NonEmptyArray<string>,
+                  path: patchPath.concat(to.toString()),
+                },
+              ],
+              schema.type,
+            );
+          }}
+          className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}
+          renderItem={({ path: itemPath, id }) => {
+            if (schema.item.hidden) {
+              return null;
+            }
+            return (
+              <InlineSortableItem id={id} disabled={readonly}>
+                <Field
+                  path={itemPath}
+                  type={schema.item.type}
+                  readonly={readonly || schema.item.readonly}
+                  compact={compact}
+                  errorDisplay={errorDisplay}
+                >
+                  <AnyField
+                    path={itemPath}
+                    schema={schema.item}
+                    readonly={readonly || schema.item.readonly}
+                    compact={compact}
+                    inline={inline}
+                    errorDisplay={errorDisplay}
+                  />
+                </Field>
+              </InlineSortableItem>
+            );
+          }}
+        />
+      </div>
+    );
+  }
   return (
     <div id={path} className="relative w-full">
       <ValidationErrors path={path} />
