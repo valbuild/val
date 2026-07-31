@@ -138,13 +138,15 @@ export function AddRecordPopover({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{description ? `Add ${description}` : "Add"}</p>
+          <p>{routePattern ? "Add page" : "Add"}</p>
+          {description && (
+            <p className="max-w-[240px] text-pretty text-fg-tertiary">
+              {description}
+            </p>
+          )}
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer}>
-        {description && (
-          <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
-        )}
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}
@@ -154,12 +156,18 @@ export function AddRecordPopover({
               setOpen(false);
             }}
             submitText="Create"
+            keyDescription={description}
           ></RouteForm>
         ) : (
-          <BasicAddForm
-            existingKeys={Object.keys(shallowSourceAtPath.data)}
-            onSubmit={onSubmit}
-          />
+          <>
+            {description && (
+              <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
+            )}
+            <BasicAddForm
+              existingKeys={Object.keys(shallowSourceAtPath.data)}
+              onSubmit={onSubmit}
+            />
+          </>
         )}
       </PopoverContent>
     </Popover>

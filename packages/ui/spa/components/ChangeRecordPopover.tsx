@@ -146,13 +146,15 @@ export function ChangeRecordPopover({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          {description ? `Rename ${description}` : "Rename record"}
+          <p>{routePattern ? "Change URL of this page" : "Rename record"}</p>
+          {description && (
+            <p className="max-w-[240px] text-pretty text-fg-tertiary">
+              {description}
+            </p>
+          )}
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
-        {description && (
-          <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
-        )}
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}
@@ -166,20 +168,26 @@ export function ChangeRecordPopover({
               setOpen(false);
             }}
             submitText="Update"
+            keyDescription={description}
           ></RouteForm>
         ) : (
-          <RenameRecordKeyForm
-            parentPath={parentPath}
-            defaultValue={defaultValue}
-            existingKeys={recordKeys}
-            onSubmit={(key) => {
-              onSubmit(key);
-              setOpen(false);
-            }}
-            onCancel={() => {
-              setOpen(false);
-            }}
-          />
+          <>
+            {description && (
+              <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
+            )}
+            <RenameRecordKeyForm
+              parentPath={parentPath}
+              defaultValue={defaultValue}
+              existingKeys={recordKeys}
+              onSubmit={(key) => {
+                onSubmit(key);
+                setOpen(false);
+              }}
+              onCancel={() => {
+                setOpen(false);
+              }}
+            />
+          </>
         )}
       </PopoverContent>
     </Popover>
