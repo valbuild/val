@@ -10,6 +10,14 @@
 
 ## Current state / resume here
 
+> **Phase 6 step 4 DONE (2026-07-31): the load predicate.** `jsonValuesLoadRequirements(schemas, query)`
+> answers "which jsonValues modules must be loaded before a reference scan can be trusted" from the
+> SCHEMAS alone — no sources, no requests. Only root `.jsonValues()` records are candidates; their item
+> schema is walked through object/array/record/union; an unknown schema type answers TRUE, because
+> wrongly reporting "nothing to load" is how a guard starts lying. +9 tests.
+> **Next: step 5 — ref hooks return a status and the destructive popovers gate on it (V10–V13, V17).
+> This is where the data-integrity hole actually closes.**
+
 > **Phase 6 step 3 DONE (2026-07-31): virtualized list + the real bug it exposed.** Reviewing the list
 > view turned up something worse than "N broken previews": every row's `<Preview>` resolves its own path,
 > and `useSchemaAtPathInternal` fires `requestJsonEntry` for any un-loaded marker it walks into — so
@@ -475,8 +483,7 @@ on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of eac
    `@tanstack/react-virtual`, loads the rendered window via `requestJsonEntries`, skeletons for un-loaded
    rows. Also fixed the N-requests-on-open storm it exposed, by coalescing at the engine level. → **V16**
    still to run manually.
-4. **Predicate** — `jsonValuesLoadRequirements` + its unit tests (pure; could be done any time, but it
-   only pays off once the hooks below use it).
+4. ✅ **Predicate** (2026-07-31) — `jsonValuesLoadRequirements` + 9 unit tests. Pays off in step 5.
 5. **Ref hooks + popover gating** — hooks return a status, destructive popovers gate on `success`.
    → **V10–V13, V17**. This is where the data-integrity hole actually closes.
 6. **Search** — first-query trigger, debounced re-index, marker skip in `traverseSchemaSource`, delete
@@ -509,11 +516,18 @@ not a step.
       `applyPatches:false` and errors otherwise — enumerating from the base source would silently omit
       draft-added keys, which is the exact bug class this phase exists to kill. Tests: +9 in
       `ValOpsFS.jsonValues.test.ts`.
-- [ ] **`jsonValuesLoadRequirements(schemas, query)`** — new pure module in `packages/ui/spa`
-      implementing the predicate above. `query` is one of `{kind:"keyOf", module}` /
-      `{kind:"file", module}` / `{kind:"route"}`; returns the `ModuleFilePath[]` whose entries must be
-      loaded. Own unit test file: empty result for the incoming-ref case, non-empty for nested
-      `keyOf`/image/file, `route` over-approximation, transitivity through object/array/record/union.
+- [x] **`jsonValuesLoadRequirements(schemas, query)`** — DONE (2026-07-31).
+      `components/jsonValuesLoadRequirements.ts`: pure, schemas-only, no sources and no fetching. `query`
+      is `{kind:"keyOf"|"file", module}` or `{kind:"route"}`; returns the `ModuleFilePath[]` whose entries
+      must be loaded. Only modules whose ROOT is a `.jsonValues()` record are candidates (root-only,
+      locked decision #7), and their `item` schema is walked through object/array/record/union.
+      An unknown schema type returns TRUE (conservative): wrongly reporting "nothing to load" is exactly
+      how a guard starts lying. `keyOf.path` (branded `SourcePath`) and the query's `ModuleFilePath` are
+      compared as plain strings through a helper, so no type assertion is needed.
+      Tests (+9): empty for the incoming-ref case, empty for a `keyOf` at a different module, empty for
+      the same shape WITHOUT `.jsonValues()`, non-empty through array/nested-record/tagged-union/deep
+      nesting, self-reference, file refs matched by `referencedModule` (and not satisfied by a `keyOf`
+      query), the `route` over-approximation both ways, and multiple modules reported.
 - [x] **`ValSyncEngine.ensureJsonEntries(moduleFilePaths)`** — DONE (2026-07-31). Awaitable,
       whole-module, and it returns `{complete, errors}` rather than plain `void`: a guard that gates a
       delete must be able to tell "loaded everything" from "some entry failed", which is the entire
