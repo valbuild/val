@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "lib": ["es2020"],
+    "types": ["node", "jest"],
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "skipLibCheck": true
+  }
+}

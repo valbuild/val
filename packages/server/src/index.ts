@@ -18,3 +18,37 @@ export {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 export { uploadRemoteFile } from "./uploadRemoteFile";
+
+// Building blocks for editor tooling (see @valbuild/language-server). These are
+// the pieces needed to reproduce a `val validate --fix` decision inside an
+// editor, so that quick fixes take the same code path as the CLI and the Val UI
+// rather than reimplementing metadata extraction and remote-ref checking.
+export { extractImageMetadata, extractFileMetadata } from "./extractMetadata";
+export { validateMetadata } from "./validateMetadata";
+export { getValidationErrorFileRef } from "./getValidationErrorFileRef";
+export {
+  checkRemoteRef,
+  downloadFileFromRemote,
+  getCachedRemoteFileDir,
+  getCachedRemoteFilePath,
+} from "./checkRemoteRef";
+export { hasRemoteFileSchema } from "./hasRemoteFileSchema";
+export { getFileExt } from "./getFileExt";
+export {
+  evalValConfigFile,
+  findAndEvalValConfigFile,
+} from "./evalValConfigFile";
+export {
+  startValLogin,
+  awaitValLoginConfirmation,
+  persistPersonalAccessToken,
+  ValLoginError,
+  DEFAULT_LOGIN_HOST,
+  DEFAULT_LOGIN_MAX_DURATION,
+  DEFAULT_LOGIN_POLL_INTERVAL,
+} from "./login";
+export type {
+  ValLoginErrorCode,
+  ValLoginResult,
+  ValLoginSession,
+} from "./login";

@@ -6,6 +6,7 @@ import { getVersions } from "./getVersions";
 import { connect } from "./connect";
 import chalk from "chalk";
 import { login } from "./login";
+import { lsp } from "./lsp";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -22,7 +23,8 @@ async function main(): Promise<void> {
         files
         connect
         versions
-      
+        lsp
+
       Command: validate
       Description: val-idate val modules
       Options:
@@ -47,14 +49,16 @@ async function main(): Promise<void> {
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: lsp
+      Description: start the Val language server (used by editor integrations)
+      Options:
+        --stdio                  Communicate over stdin/stdout
+        --node-ipc               Communicate over Node IPC
+        --socket=[port]          Communicate over a socket
     `,
     {
       flags: {
-        port: {
-          type: "number",
-          alias: "p",
-          default: 4123,
-        },
         root: {
           type: "string",
           alias: "r",
@@ -94,6 +98,8 @@ async function main(): Promise<void> {
       });
     case "versions":
       return versions();
+    case "lsp":
+      return lsp();
     case "login":
       return login({
         root: flags.root,
