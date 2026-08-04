@@ -1069,6 +1069,81 @@ export class ValSyncEngine {
   }
 
   /**
+   * The synchronous question a reference guard asks on every render: is every
+   * committed entry of these modules loaded and fresh RIGHT NOW?
+   * {@link ensureJsonEntries} is how a caller gets there; this is how the UI
+   * reads the answer without keeping its own copy of it — a copy would go stale
+   * the moment a publish invalidates an entry, and a guard holding a stale
+   * "complete" is the defect this phase exists to fix.
+   *
+   * `error` outranks `incomplete`: a failed entry cannot be waited out, so the
+   * guard must stay blocked and offer a retry rather than spin forever.
+   */
+  getJsonEntriesLoadStatus(moduleFilePaths: ModuleFilePath[]): {
+    status: "complete" | "incomplete" | "error";
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  } {
+    const errors: {
+      moduleFilePath: ModuleFilePath;
+      key: string;
+      message: string;
+    }[] = [];
+    let incomplete = false;
+    for (const moduleFilePath of moduleFilePaths) {
+      const committed = this.committedJsonEntryKeys(moduleFilePath);
+      if (committed === null) {
+        // The module's own source is not (yet) a record we can enumerate, so we
+        // cannot claim its entries are loaded. Reporting `complete` here would be
+        // the lie; boot loads every module's source, so this is transient.
+        incomplete = true;
+        continue;
+      }
+      for (const key of committed) {
+        const loadingKey = `${moduleFilePath}\0${key}`;
+        // In flight FIRST: a refetch (e.g. the post-publish refresh) clears the
+        // stale flag when it starts, so an entry being reloaded looks fresh here
+        // while it still holds pre-publish content. Ignoring that would hand a
+        // guard a "complete" answer computed from content we already know is out
+        // of date.
+        if (this.loadingJsonEntries.has(loadingKey)) {
+          incomplete = true;
+          continue;
+        }
+        const message = this.jsonEntryErrors[moduleFilePath]?.[key];
+        if (message !== undefined) {
+          errors.push({ moduleFilePath, key, message });
+          continue;
+        }
+        if (
+          this.jsonEntryContents[moduleFilePath]?.[key] === undefined ||
+          this.staleJsonEntries.has(loadingKey)
+        ) {
+          incomplete = true;
+        }
+      }
+    }
+    if (errors.length > 0) {
+      return { status: "error", errors };
+    }
+    return { status: incomplete ? "incomplete" : "complete", errors };
+  }
+
+  /**
+   * Clears the memoized failures of these modules' entries and loads them again
+   * — the retry behind a blocked reference guard. Whole-module, because that is
+   * the unit a guard needs: the point is to get back to `complete`.
+   */
+  async retryJsonEntries(moduleFilePaths: ModuleFilePath[]): Promise<{
+    complete: boolean;
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  }> {
+    for (const moduleFilePath of moduleFilePaths) {
+      delete this.jsonEntryErrors[moduleFilePath];
+    }
+    return this.ensureJsonEntries(moduleFilePaths);
+  }
+
+  /**
    * Loads `requests` and re-passes while anything it asked for is still
    * outstanding, then reports whether everything resolved to content.
    *

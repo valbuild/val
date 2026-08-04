@@ -24,13 +24,14 @@ import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
+import { ReferencesResult } from "./useReferenceScanStatus";
 
 export function ChangeRecordPopover({
   defaultValue,
   path,
   parentPath,
   variant,
-  existingKeys,
+  references,
   routePattern,
   size,
   children,
@@ -42,7 +43,12 @@ export function ChangeRecordPopover({
   parentPath: SourcePath | ModuleFilePath;
   variant: "ghost" | "outline" | "default" | "secondary";
   size: "icon" | "sm" | "lg" | "default";
-  existingKeys: SourcePath[];
+  /**
+   * The reference scan whose refs this rename rewrites. Renaming is offered only
+   * when it reports `success`: an incomplete scan means some referrer was not
+   * seen, and renaming anyway leaves it pointing at a key that no longer exists.
+   */
+  references: ReferencesResult;
   children: React.ReactNode;
   routePattern?: RoutePattern[] | null;
   onComplete?: () => void;
@@ -87,6 +93,16 @@ export function ChangeRecordPopover({
     parentSchema.data.jsonValues === true;
   const onSubmit = useCallback(
     async (key: string) => {
+      if (references.status !== "success") {
+        // The form is not rendered in this state; belt and braces, because
+        // renaming on an incomplete ref scan silently breaks the referrers it
+        // did not see.
+        console.error(
+          "Val: refusing to rename: reference scan is not complete",
+          references,
+        );
+        return;
+      }
       if (isJsonValuesRecord) {
         await syncEngine.ensureJsonEntry(moduleFilePath, defaultValue);
       }
@@ -100,7 +116,7 @@ export function ChangeRecordPopover({
         },
       ];
       addPatch(patchOps, "record");
-      for (const ref of existingKeys) {
+      for (const ref of references.refs) {
         const [refModuleFilePath, refModulePath] =
           Internal.splitModuleFilePathAndModulePath(ref);
         const refPatchPath = Internal.createPatchPath(refModulePath);
@@ -137,7 +153,7 @@ export function ChangeRecordPopover({
       syncEngine,
       isJsonValuesRecord,
       defaultValue,
-      existingKeys,
+      references,
     ],
   );
 
@@ -163,7 +179,28 @@ export function ChangeRecordPopover({
         {keyDescription && (
           <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
         )}
-        {routePattern ? (
+        {references.status === "loading" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Checking references</div>
+            <p>
+              Loading content that could reference this key
+              {references.percentage > 0 ? ` (${references.percentage}%)` : ""}.
+            </p>
+            <p className="text-sm text-fg-tertiary">
+              Renaming is disabled until the check completes, so no referring
+              field is left behind.
+            </p>
+          </div>
+        ) : references.status === "error" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Cannot rename</div>
+            <p>References to this key could not be checked.</p>
+            <p className="text-sm text-fg-tertiary">{references.message}</p>
+            <Button variant="secondary" onClick={references.retry}>
+              Try again
+            </Button>
+          </div>
+        ) : routePattern ? (
           <RouteForm
             routePattern={routePattern}
             existingKeys={recordKeys}

@@ -10,13 +10,26 @@
 
 ## Current state / resume here
 
+> **Phase 6 step 5 DONE (2026-08-04): the data-integrity hole is closed.** The three ref hooks
+> (`useKeysOf`, `useEagerRouteReferences`, `useReferencedFiles`) now return a `ReferencesResult`
+> (`loading` + percentage / `success` / `error` + retry) instead of a bare array, and the destructive
+> popovers gate on `status === "success"` rather than on `refs.length`. The new hook
+> `useReferenceScanStatus(query)` runs the step-4 predicate first, so the common case is `success` on the
+> first render with ZERO requests; only an outward-pointing jsonValues item schema triggers
+> `ensureJsonEntries`. Completeness is read from the engine on every render
+> (`getJsonEntriesLoadStatus`) rather than held in component state — a held copy goes stale the moment a
+> publish invalidates an entry, which is the same lie in a new place. That method also treats an entry
+> whose refetch is IN FLIGHT as incomplete: the refetch clears the stale flag when it starts, so
+> "not stale" alone would read as complete while pre-publish content is still in hand (V15). +5 tests
+> (39 in the jsonValues describe).
+> **Next: step 6 — search (lazy first-query trigger, partial results + percentage, marker skip in
+> `traverseSchemaSource`, delete the dead `createSearchIndex.ts`). → V14.**
+
 > **Phase 6 step 4 DONE (2026-07-31): the load predicate.** `jsonValuesLoadRequirements(schemas, query)`
 > answers "which jsonValues modules must be loaded before a reference scan can be trusted" from the
 > SCHEMAS alone — no sources, no requests. Only root `.jsonValues()` records are candidates; their item
 > schema is walked through object/array/record/union; an unknown schema type answers TRUE, because
 > wrongly reporting "nothing to load" is how a guard starts lying. +9 tests.
-> **Next: step 5 — ref hooks return a status and the destructive popovers gate on it (V10–V13, V17).
-> This is where the data-integrity hole actually closes.**
 
 > **Phase 6 step 3 DONE (2026-07-31): virtualized list + the real bug it exposed.** Reviewing the list
 > view turned up something worse than "N broken previews": every row's `<Preview>` resolves its own path,
@@ -484,8 +497,9 @@ on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of eac
    rows. Also fixed the N-requests-on-open storm it exposed, by coalescing at the engine level. → **V16**
    still to run manually.
 4. ✅ **Predicate** (2026-07-31) — `jsonValuesLoadRequirements` + 9 unit tests. Pays off in step 5.
-5. **Ref hooks + popover gating** — hooks return a status, destructive popovers gate on `success`.
-   → **V10–V13, V17**. This is where the data-integrity hole actually closes.
+5. ✅ **Ref hooks + popover gating** (2026-08-04) — the hooks return a `ReferencesResult`, the popovers
+   gate on `success`, completeness is read from the engine (`getJsonEntriesLoadStatus`) rather than held
+   in component state. → **V10–V13, V17** still to run manually.
 6. **Search** — first-query trigger, debounced re-index, marker skip in `traverseSchemaSource`, delete
    the dead `createSearchIndex.ts`. → **V14**.
 7. **`.render()` list layouts (windowed)** → **Phase 7 stage 1** (client-side schema instances), verified
@@ -581,13 +595,33 @@ not a step.
       which the skeleton item above turns into a skeleton. No `render` field on `/json`, no pagination in
       the render path. (Earlier draft of this item assumed only the server could run `select`; wrong — see
       Phase 7.)
-- [ ] **Ref hooks stop lying** — `useEagerRouteReferences` / `useKeysOf` / `useReferencedFiles` return
-      a status (`loading` + progress → `success` with COMPLETE refs → `error`) instead of a bare array.
-      Each hook calls `jsonValuesLoadRequirements` first; empty ⇒ synchronously `success` (today's
-      behaviour, no request). Non-empty ⇒ `ensureJsonEntries` and report progress.
-- [ ] **Popovers gate on completeness** — `DeleteRecordPopover` / `ChangeRecordPopover` render progress
-      and refuse to act until `success`; on `error` they stay blocked with a retry. Never
-      "no refs found, go ahead". This is the actual fix for the defect.
+- [x] **Ref hooks stop lying** — DONE (2026-08-04). `useEagerRouteReferences` / `useKeysOf` /
+      `useReferencedFiles` return a `ReferencesResult` (`loading` + percentage / `success` / `error` +
+      `retry`) instead of a bare array; `refs` is populated in every state (a ref that IS found is real)
+      but only `success` means COMPLETE. All three delegate to the new
+      `useReferenceScanStatus(query)` (`components/useReferenceScanStatus.ts`), which runs
+      `jsonValuesLoadRequirements` first: empty ⇒ `success` on the first render, no request, no effect.
+      Non-empty ⇒ an effect calls `ensureJsonEntries` and the percentage comes off the progress store
+      (0 while the run has not started — an idle store reports 100, which would read as done).
+      `mergeReferences` combines the keyOf and route scans for a router item: refs are the union, the
+      status is the WORSE of the two, since one incomplete scan makes the union incomplete.
+- [x] **Engine: `getJsonEntriesLoadStatus(mfps)` + `retryJsonEntries(mfps)`** — DONE (2026-08-04).
+      Completeness is read from the engine on every render instead of being held in component state: a
+      held copy goes stale the moment a publish invalidates an entry, which is the defect again in a new
+      place. `error` outranks `incomplete` (a failed entry cannot be waited out), and an entry whose
+      refetch is IN FLIGHT counts as incomplete — the refetch clears the stale flag when it STARTS, so
+      "not stale" alone would read as complete while pre-publish content is still in hand (V15).
+      `retryJsonEntries` clears the whole module's memoized failures and reloads, because without that
+      `ensureJsonEntries` skips failed keys forever (by design — that memo is what stops the refetch
+      loop).
+- [x] **Popovers gate on completeness** — DONE (2026-08-04). `DeleteRecordPopover` shows "Checking
+      references (N%)" while loading and a blocked "Cannot delete" + `Try again` on error;
+      `ChangeRecordPopover` replaces the rename FORM with the same two states, so there is nothing to
+      submit, and `onSubmit` re-checks the status as defense in depth. Both take `references:
+    ReferencesResult` instead of `refs`/`existingKeys`, so a caller cannot pass a status that
+      disagrees with the refs. Found refs still win: `refs.length > 0` renders "Cannot delete" whatever
+      the status, because a ref that was found is real. `FilePropertiesModal`'s delete is disabled unless
+      the scan reports `success`, with the reason in its tooltip.
 - [ ] **Search** — trigger `ensureJsonEntries(all jsonValues modules)` **only on user intent**: search
       is lazy, so nothing loads before it is requested. Trigger on the first non-empty query, NOT on
       `SearchField` mount / dialog open (radix mounts the content when the dialog opens, so a
@@ -611,8 +645,9 @@ not a step.
       `requestJsonEntries` in one call, so a publish with hundreds of cached entries is one batch per
       module instead of one request per entry (pinned by a test that counts batches AND per-key
       requests). It feeds the same progress store, so the post-publish refresh is visible.
-      **Still open**: making the consumers re-enter `loading` on that refresh (refs guard, search index,
-      entry detail) — that lands with those consumers in steps 5–6, since they do not exist yet.
+      The refs guard re-enters `loading` on that refresh as of step 5 — `getJsonEntriesLoadStatus`
+      counts stale AND in-flight entries as incomplete. **Still open**: the search index (step 6) and the
+      entry detail view.
 - [ ] **Verify** (Studio running):
   - **V10** rename/delete a key in a jsonValues router while another ORDINARY module holds a
     `keyOf`/`route` ref to it → refs found, delete blocked, rename rewrites the referrer, and **zero**

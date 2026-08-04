@@ -23,7 +23,7 @@ import {
 import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
 import { z } from "zod";
 
 // --- Source override context ---
@@ -746,6 +746,20 @@ export function useAllSources() {
     () => syncEngine.getAllSourcesSnapshot(),
   );
   return sources;
+}
+
+/**
+ * Progress of the current `.jsonValues()` entry load run — spans every module in
+ * flight, so a percentage does not reset at module boundaries. NOTE: `percentage`
+ * is 100 while `status` is `"idle"`, so check the status before showing it.
+ */
+export function useJsonEntriesProgress(): JsonEntriesProgress {
+  const { syncEngine } = useValFieldContext();
+  return useSyncExternalStore(
+    syncEngine.subscribe("json-entries-progress"),
+    () => syncEngine.getJsonEntriesProgressSnapshot(),
+    () => syncEngine.getJsonEntriesProgressSnapshot(),
+  );
 }
 
 export function useAllRenders() {

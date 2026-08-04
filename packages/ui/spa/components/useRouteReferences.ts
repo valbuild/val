@@ -1,4 +1,3 @@
-import { SourcePath } from "@valbuild/core";
 import { useMemo } from "react";
 import {
   useAllSources,
@@ -6,18 +5,35 @@ import {
   useLoadingStatus,
 } from "./ValFieldProvider";
 import { getRouteReferences } from "./getRouteReferences";
+import {
+  ReferencesResult,
+  useReferenceScanStatus,
+  withReferences,
+} from "./useReferenceScanStatus";
 
 /**
- * Hook to get route references for a specific route key
+ * The `s.route()` fields whose value is `routeKey`.
  *
- * Returns an array of SourcePaths for all s.route() fields pointing to this route key.
+ * Returns a {@link ReferencesResult}, not a bare array: the scan is blind to
+ * `.jsonValues()` entry content that is not loaded, so a caller that gates a
+ * delete or a rename must wait for `status === "success"` before believing the
+ * refs are complete.
+ *
+ * Route refs are the over-approximated case — `SerializedRouteSchema` records no
+ * target module, so ANY jsonValues item schema containing a route field has to be
+ * loaded before this can be trusted.
  */
 export function useEagerRouteReferences(
   routeKey: string | undefined,
-): SourcePath[] {
+): ReferencesResult {
   const schemas = useSchemas();
   const loadingStatus = useLoadingStatus();
   const allSources = useAllSources();
+  const query = useMemo(
+    () => (routeKey === undefined ? null : ({ kind: "route" } as const)),
+    [routeKey],
+  );
+  const scan = useReferenceScanStatus(query);
 
   const references = useMemo(() => {
     if (
@@ -30,5 +46,5 @@ export function useEagerRouteReferences(
     return [];
   }, [loadingStatus, allSources, schemas, routeKey]);
 
-  return references;
+  return withReferences(scan, references);
 }

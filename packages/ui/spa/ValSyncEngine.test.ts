@@ -900,6 +900,117 @@ describe("ValSyncEngine", () => {
         ).toEqual({ title: "A edited", order: 1 });
       });
     });
+
+    describe("load status (what a reference guard reads)", () => {
+      test("incomplete until EVERY entry is loaded", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]),
+        ).toEqual({ status: "incomplete", errors: [] });
+
+        // A partially loaded record is still incomplete: a scan over it would
+        // miss whatever the un-loaded entry holds.
+        await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]).status,
+        ).toBe("incomplete");
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]),
+        ).toEqual({ status: "complete", errors: [] });
+      });
+
+      test("no modules to load is complete (the common case: no requests at all)", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        expect(engine.getJsonEntriesLoadStatus([])).toEqual({
+          status: "complete",
+          errors: [],
+        });
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBeUndefined();
+      });
+
+      test("a failed entry is an ERROR, never a quiet 'complete'", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        delete tester.fakeJsonEntries[PAGES]["/b"];
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        const status = engine.getJsonEntriesLoadStatus([
+          toModuleFilePath(PAGES),
+        ]);
+        expect(status.status).toBe("error");
+        expect(status.errors).toHaveLength(1);
+        expect(status.errors[0]).toMatchObject({
+          moduleFilePath: PAGES,
+          key: "/b",
+        });
+      });
+
+      test("retryJsonEntries clears the failures and gets back to complete", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        delete tester.fakeJsonEntries[PAGES]["/b"];
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]).status,
+        ).toBe("error");
+
+        // Without clearing the memo, ensureJsonEntries would skip the failed key
+        // forever (that memo is what stops the refetch loop).
+        expect(
+          await engine.ensureJsonEntries([toModuleFilePath(PAGES)]),
+        ).toMatchObject({ complete: false });
+
+        tester.fakeJsonEntries[PAGES]["/b"] = { title: "B", order: 2 };
+        expect(
+          await engine.retryJsonEntries([toModuleFilePath(PAGES)]),
+        ).toEqual({ complete: true, errors: [] });
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]),
+        ).toEqual({ status: "complete", errors: [] });
+      });
+
+      test("a publish makes it incomplete again until the refetch lands", async () => {
+        // V15: the guard must not answer from content the publish invalidated.
+        // The refetch clears the stale flag when it STARTS, so "not stale" alone
+        // would read as complete while the old content is still in hand.
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]).status,
+        ).toBe("complete");
+
+        engine.addPatch(
+          toSourcePath(PAGES),
+          "record",
+          [{ op: "replace", path: ["/a", "title"], value: "A edited" }],
+          tester.getNextNow(),
+        );
+        tester.simulatePassingOfSeconds(5);
+        await engine.sync(tester.getNextNow());
+        await flush();
+        const patchIds = tester.fakePatches.map((p) => p.patchId);
+        tester.fakeJsonEntries[PAGES]["/a"] = { title: "A edited", order: 1 };
+
+        await engine.publish(patchIds, undefined, tester.getNextNow());
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]).status,
+        ).toBe("incomplete");
+
+        await flush();
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]).status,
+        ).toBe("complete");
+      });
+    });
   });
 });
 

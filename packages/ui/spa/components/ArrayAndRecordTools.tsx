@@ -31,6 +31,7 @@ import {
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
+import { mergeReferences } from "./useReferenceScanStatus";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -115,10 +116,11 @@ export function ArrayAndRecordTools({
   // Get route references eagerly for the delete check (only for router items)
   const routeRefs = useEagerRouteReferences(currentRouteKey);
 
-  // Combine keyOf refs and route refs for delete protection
-  const allRefs = isParentRouter
-    ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
-    : refs;
+  // Combine keyOf refs and route refs for delete protection. The STATUS travels
+  // with them: a delete or rename must not act on the union until both scans are
+  // complete, or it acts on refs it could not see (an un-loaded `.jsonValues()`
+  // entry is opaque to a scan).
+  const allRefs = isParentRouter ? mergeReferences(refs, routeRefs) : refs;
 
   const parentKeyDescription =
     parentSchemaAtPath?.type === "record"
@@ -133,7 +135,7 @@ export function ArrayAndRecordTools({
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
-          <ReferencesPopover refs={allRefs} variant={variant} />
+          <ReferencesPopover refs={allRefs.refs} variant={variant} />
           {canParentChange && (
             <ChangeRecordPopover
               defaultValue={last.text}
@@ -142,7 +144,7 @@ export function ArrayAndRecordTools({
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
-              existingKeys={allRefs}
+              references={allRefs}
               keyDescription={parentKeyDescription}
             >
               <Edit size={getIconSize(variant)} />
@@ -154,7 +156,7 @@ export function ArrayAndRecordTools({
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              refs={allRefs}
+              references={allRefs}
               confirmationMessage={`This will delete the ${last.text} record.`}
             >
               <Trash size={getIconSize(variant)} />
@@ -167,7 +169,7 @@ export function ArrayAndRecordTools({
       )}
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <>
-          <ReferencesPopover refs={refs} variant={variant} />
+          <ReferencesPopover refs={refs.refs} variant={variant} />
           {canAdd && (
             <AddRecordPopover
               path={path}
