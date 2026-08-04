@@ -31,7 +31,7 @@ import {
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
-import { mergeReferences } from "./useReferenceScanStatus";
+import { mergeReferences } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";

@@ -9,7 +9,7 @@ import {
   ReferencesResult,
   useReferenceScanStatus,
   withReferences,
-} from "./useReferenceScanStatus";
+} from "./useJsonValuesLoad";
 
 /**
  * The `s.route()` fields whose value is `routeKey`.

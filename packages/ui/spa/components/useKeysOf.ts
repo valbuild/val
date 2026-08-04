@@ -10,7 +10,7 @@ import {
   ReferencesResult,
   useReferenceScanStatus,
   withReferences,
-} from "./useReferenceScanStatus";
+} from "./useJsonValuesLoad";
 
 /**
  * The `s.keyOf()` fields pointing at `parentPath` (optionally at one specific

@@ -24,7 +24,7 @@ import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
-import { ReferencesResult } from "./useReferenceScanStatus";
+import { ReferencesResult } from "./useJsonValuesLoad";
 
 export function ChangeRecordPopover({
   defaultValue,

@@ -7,7 +7,10 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { jsonValuesLoadRequirements } from "./jsonValuesLoadRequirements";
+import {
+  allJsonValuesModules,
+  jsonValuesLoadRequirements,
+} from "./jsonValuesLoadRequirements";
 
 const { s, c } = initVal();
 
@@ -276,6 +279,47 @@ describe("jsonValuesLoadRequirements", () => {
         module: AUTHORS,
       }).sort(),
     ).toEqual([PAGES, "/posts.val.ts"]);
+  });
+});
+
+describe("allJsonValuesModules", () => {
+  test("every module whose ROOT is a jsonValues record, and nothing else", () => {
+    // Search cannot be scoped by the predicate — it indexes all content — so it
+    // asks for this set instead.
+    const schemas = getSchemas([
+      c.define(
+        PAGES,
+        s.record(s.object({ title: s.string() })).jsonValues(),
+        {},
+      ),
+      c.define(
+        "/posts.val.ts",
+        s.record(s.object({ title: s.string() })).jsonValues(),
+        {},
+      ),
+      // Ordinary record: its content is already in the source.
+      c.define(AUTHORS, s.record(s.object({ name: s.string() })), {
+        ["ada"]: { name: "Ada" },
+      }),
+      c.define("/settings.val.ts", s.object({ title: s.string() }), {
+        title: "Settings",
+      }),
+    ]);
+
+    expect(allJsonValuesModules(schemas).sort()).toEqual([
+      PAGES,
+      "/posts.val.ts",
+    ]);
+  });
+
+  test("empty when no module uses jsonValues (search loads nothing)", () => {
+    const schemas = getSchemas([
+      c.define(AUTHORS, s.record(s.object({ name: s.string() })), {
+        ["ada"]: { name: "Ada" },
+      }),
+    ]);
+
+    expect(allJsonValuesModules(schemas)).toEqual([]);
   });
 });
 

@@ -20,6 +20,14 @@ import { cn } from "./designSystem/cn";
 import { SearchResultsList, type SearchResult } from "./SearchResultsList";
 import { getNavPathFromAll } from "./getNavPath";
 import { useSearchWorker } from "../search/useSearchWorker";
+import { useAllJsonValuesLoad } from "./useJsonValuesLoad";
+
+/**
+ * Minimum time between index rebuilds. Long enough that a multi-batch
+ * `.jsonValues()` load does not rebuild once per batch, short enough that new
+ * content keeps appearing while the user is looking at the dropdown.
+ */
+const INDEX_REBUILD_THROTTLE_MS = 300;
 
 export function Search({ container }: { container?: HTMLElement }) {
   const sources = useAllSources();
@@ -116,9 +124,25 @@ function SearchField({
 }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { buildIndex, search, results: workerResults } = useSearchWorker();
+  const {
+    buildIndex,
+    search,
+    results: workerResults,
+    indexVersion,
+  } = useSearchWorker();
+  const hasQuery = query.trim() !== "";
+  // Search is the one consumer that cannot be scoped — it indexes all content by
+  // definition — so it loads every `.jsonValues()` entry. That happens on user
+  // INTENT (the first non-empty query), never on mount: radix mounts this content
+  // when the dialog opens, so a mount-effect trigger would load on open.
+  const jsonEntriesLoad = useAllJsonValuesLoad(hasQuery);
 
-  // Build index when sources/schemas change
+  // Build the index when sources/schemas change, THROTTLED: jsonValues entry
+  // content lands one batch at a time and every batch changes `sources`, so an
+  // un-throttled effect rebuilds the whole index once per batch. Throttled rather
+  // than debounced on purpose — a debounce would postpone every rebuild until the
+  // load went quiet, and the point is that results grow WHILE it is loading.
+  const lastIndexBuildAtRef = useRef(0);
   useEffect(() => {
     if (!schemas) return;
 
@@ -135,13 +159,29 @@ function SearchField({
       }
     }
 
-    buildIndex(modules);
+    const build = () => {
+      lastIndexBuildAtRef.current = Date.now();
+      buildIndex(modules);
+    };
+    const delay = Math.max(
+      0,
+      INDEX_REBUILD_THROTTLE_MS - (Date.now() - lastIndexBuildAtRef.current),
+    );
+    if (delay === 0) {
+      // Includes the first build (the ref starts at 0), so typing into a
+      // freshly-opened dialog is never waiting on a timer.
+      build();
+      return;
+    }
+    const timeout = setTimeout(build, delay);
+    return () => clearTimeout(timeout);
   }, [sources, schemas, buildIndex]);
 
-  // Trigger search when query changes
+  // Trigger search when the query changes — and again on each new index, since a
+  // jsonValues index grows as batches land and results must grow with it.
   useEffect(() => {
     search(query, 10);
-  }, [query, search]);
+  }, [query, search, indexVersion]);
 
   const results = useMemo((): SearchResult[] => {
     return workerResults;
@@ -200,12 +240,13 @@ function SearchField({
           value={query}
           onValueChange={setQuery}
         />
-        {query.trim() && (
+        {hasQuery && (
           <SearchResultsList
             results={deduplicatedResults}
             sources={sources}
             schemas={schemas}
             onSelect={handleSelect}
+            indexing={jsonEntriesLoad}
           />
         )}
       </Command>

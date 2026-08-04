@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef } from "react";
 import {
   useAllSources,
@@ -8,8 +8,19 @@ import {
 } from "./ValFieldProvider";
 import {
   JsonValuesLoadQuery,
+  allJsonValuesModules,
   jsonValuesLoadRequirements,
 } from "./jsonValuesLoadRequirements";
+
+/**
+ * How a consumer that needs `.jsonValues()` entry CONTENT is doing: `success`
+ * means everything it needs is loaded and fresh, `loading` that it is on its way,
+ * and `error` that it cannot be trusted until a retry succeeds.
+ */
+export type JsonValuesLoadStatus =
+  | { status: "loading"; percentage: number }
+  | { status: "success" }
+  | { status: "error"; message: string; retry: () => void };
 
 /**
  * A reference scan's result. `status` is the part that matters for a destructive
@@ -31,13 +42,9 @@ export type ReferencesResult =
   | { status: "success"; refs: SourcePath[] }
   | { status: "error"; refs: SourcePath[]; message: string; retry: () => void };
 
-/** {@link ReferencesResult} before the refs are known — the loading half alone. */
-export type ReferenceScanStatus =
-  | { status: "loading"; percentage: number }
-  | { status: "success" }
-  | { status: "error"; message: string; retry: () => void };
-
-const SCAN_COMPLETE: ReferenceScanStatus = { status: "success" };
+const LOAD_COMPLETE: JsonValuesLoadStatus = { status: "success" };
+/** Stable empty list, so "nothing to load" does not churn the memo deps. */
+const NOTHING_TO_LOAD: ModuleFilePath[] = [];
 
 /**
  * Loads whatever `.jsonValues()` entry content a reference scan for `query`
@@ -56,16 +63,15 @@ const SCAN_COMPLETE: ReferenceScanStatus = { status: "success" };
  */
 export function useReferenceScanStatus(
   query: JsonValuesLoadQuery | null,
-): ReferenceScanStatus {
-  const syncEngine = useSyncEngine();
+): JsonValuesLoadStatus {
   const schemas = useSchemas();
-  const progress = useJsonEntriesProgress();
-  // Subscribing to sources is what re-renders this hook as batches land: every
-  // load pass ends in an invalidateSource, which emits "all-sources".
-  useAllSources();
-
   const required = useMemo(() => {
-    if (query === null || schemas.status !== "success") {
+    if (query === null) {
+      return NOTHING_TO_LOAD;
+    }
+    if (schemas.status !== "success") {
+      // Scope is unknown until the schemas are in: neither "nothing to load" nor
+      // a module list would be true yet.
       return null;
     }
     return jsonValuesLoadRequirements(schemas.data, query);
@@ -74,45 +80,86 @@ export function useReferenceScanStatus(
     schemas.status,
     schemas.status === "success" ? schemas.data : null,
   ]);
-  // The module list as a primitive, so effects key on its CONTENT: `useSchemas`
-  // rebuilds its record every render, so `required` is a fresh array every render
-  // even when nothing changed.
-  const requiredKey = required === null ? null : required.join("\n");
-  const requiredRef = useRef(required);
-  requiredRef.current = required;
+  const load = useJsonValuesLoad(required);
+  if (query !== null && schemas.status === "error") {
+    return { status: "error", message: schemas.error, retry: noop };
+  }
+  return load;
+}
+
+/**
+ * Loads the content of EVERY `.jsonValues()` entry in the project, for the one
+ * consumer that cannot be scoped: search indexes all content by definition.
+ *
+ * `enabled` is what keeps that honest — pass it on user INTENT (a non-empty
+ * query), not on mount, so opening the search dialog still costs nothing.
+ */
+export function useAllJsonValuesLoad(enabled: boolean): JsonValuesLoadStatus {
+  const schemas = useSchemas();
+  const required = useMemo(() => {
+    if (!enabled) {
+      return NOTHING_TO_LOAD;
+    }
+    if (schemas.status !== "success") {
+      return null;
+    }
+    return allJsonValuesModules(schemas.data);
+  }, [
+    enabled,
+    schemas.status,
+    schemas.status === "success" ? schemas.data : null,
+  ]);
+  return useJsonValuesLoad(required);
+}
+
+/**
+ * The shared machinery: loads `moduleFilePaths`' entries and reports progress.
+ *
+ * `null` means the set is not known yet (schemas still loading) and reports
+ * `loading`; an empty list means nothing needs loading and reports `success`
+ * without touching the network.
+ *
+ * Completeness is read from the ENGINE on every render rather than held in state
+ * here: a held answer goes stale the moment a publish invalidates an entry, and a
+ * consumer acting on a stale "complete" is the class of bug this exists to
+ * prevent.
+ */
+function useJsonValuesLoad(
+  moduleFilePaths: ModuleFilePath[] | null,
+): JsonValuesLoadStatus {
+  const syncEngine = useSyncEngine();
+  const progress = useJsonEntriesProgress();
+  // Subscribing to sources is what re-renders this hook as batches land: every
+  // load pass ends in an invalidateSource, which emits "all-sources".
+  useAllSources();
+
+  // The module list as a primitive, so effects key on its CONTENT: the schema
+  // record is rebuilt every render, so `moduleFilePaths` is a fresh array every
+  // render even when nothing changed.
+  const requiredKey =
+    moduleFilePaths === null ? null : moduleFilePaths.join("\n");
+  const requiredRef = useRef(moduleFilePaths);
+  requiredRef.current = moduleFilePaths;
 
   const loadStatus =
-    required === null || required.length === 0
+    moduleFilePaths === null || moduleFilePaths.length === 0
       ? null
-      : syncEngine.getJsonEntriesLoadStatus(required);
+      : syncEngine.getJsonEntriesLoadStatus(moduleFilePaths);
   const needsLoad = loadStatus?.status === "incomplete";
 
   useEffect(() => {
-    const moduleFilePaths = requiredRef.current;
-    if (!needsLoad || moduleFilePaths === null) {
+    const modules = requiredRef.current;
+    if (!needsLoad || modules === null) {
       return;
     }
-    void syncEngine.ensureJsonEntries(moduleFilePaths);
+    void syncEngine.ensureJsonEntries(modules);
   }, [syncEngine, requiredKey, needsLoad]);
 
-  if (query === null) {
-    return SCAN_COMPLETE;
-  }
-  if (schemas.status === "loading") {
+  if (moduleFilePaths === null) {
     return { status: "loading", percentage: 0 };
   }
-  if (schemas.status === "error") {
-    return {
-      status: "error",
-      message: schemas.error,
-      retry: () => {
-        // Schemas are owned by the sync engine's init/sync loop; there is nothing
-        // for this hook to retry.
-      },
-    };
-  }
   if (loadStatus === null || loadStatus.status === "complete") {
-    return SCAN_COMPLETE;
+    return LOAD_COMPLETE;
   }
   if (loadStatus.status === "error") {
     const { errors } = loadStatus;
@@ -124,9 +171,9 @@ export function useReferenceScanStatus(
           ? `Could not load ${first.key} in ${first.moduleFilePath}: ${first.message}`
           : `Could not load ${errors.length} entries. First failure — ${first.key} in ${first.moduleFilePath}: ${first.message}`,
       retry: () => {
-        const moduleFilePaths = requiredRef.current;
-        if (moduleFilePaths !== null) {
-          void syncEngine.retryJsonEntries(moduleFilePaths);
+        const modules = requiredRef.current;
+        if (modules !== null) {
+          void syncEngine.retryJsonEntries(modules);
         }
       },
     };
@@ -141,7 +188,7 @@ export function useReferenceScanStatus(
 
 /** Attaches the refs a scan found to the status of the load it depended on. */
 export function withReferences(
-  scan: ReferenceScanStatus,
+  scan: JsonValuesLoadStatus,
   refs: SourcePath[],
 ): ReferencesResult {
   if (scan.status === "success") {
@@ -188,4 +235,9 @@ export function mergeReferences(
     return { status: "loading", refs, percentage: Math.min(...percentages) };
   }
   return { status: "success", refs };
+}
+
+function noop() {
+  // Schemas are owned by the sync engine's init/sync loop; there is nothing for
+  // these hooks to retry.
 }

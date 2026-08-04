@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
-import { ReferencesResult } from "./useReferenceScanStatus";
+import { ReferencesResult } from "./useJsonValuesLoad";
 
 export function DeleteRecordPopover({
   path,

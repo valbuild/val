@@ -1,6 +1,7 @@
 import {
   ModuleFilePath,
   SerializedObjectSchema,
+  SerializedRecordSchema,
   SerializedSchema,
 } from "@valbuild/core";
 
@@ -47,13 +48,7 @@ export function jsonValuesLoadRequirements(
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
     const schema = schemas[moduleFilePath];
-    // `.jsonValues()` is root-only (locked decision #7), so only a module whose
-    // ROOT is a jsonValues record can hold un-loaded content.
-    if (
-      schema === undefined ||
-      schema.type !== "record" ||
-      schema.jsonValues !== true
-    ) {
+    if (!isJsonValuesModule(schema)) {
       continue;
     }
     if (containsReferrer(schema.item, query, new Set())) {
@@ -61,6 +56,41 @@ export function jsonValuesLoadRequirements(
     }
   }
   return required;
+}
+
+/**
+ * Every module whose root is a `.jsonValues()` record — i.e. every module that can
+ * hold un-loaded content at all.
+ *
+ * The scoping rule above cannot help a consumer that needs ALL content: search
+ * indexes every value by definition. This is that honest full set, and the reason
+ * search (alone) needs a visible progress indicator.
+ */
+export function allJsonValuesModules(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+): ModuleFilePath[] {
+  const modules: ModuleFilePath[] = [];
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    if (isJsonValuesModule(schemas[moduleFilePath])) {
+      modules.push(moduleFilePath);
+    }
+  }
+  return modules;
+}
+
+/**
+ * `.jsonValues()` is root-only (locked decision #7), so only a module whose ROOT
+ * is a jsonValues record can hold un-loaded content.
+ */
+function isJsonValuesModule(
+  schema: SerializedSchema | undefined,
+): schema is SerializedRecordSchema {
+  return (
+    schema !== undefined &&
+    schema.type === "record" &&
+    schema.jsonValues === true
+  );
 }
 
 /**

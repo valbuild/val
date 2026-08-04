@@ -10,7 +10,7 @@ import {
   ReferencesResult,
   useReferenceScanStatus,
   withReferences,
-} from "./useReferenceScanStatus";
+} from "./useJsonValuesLoad";
 
 /**
  * The image/file fields referencing the gallery module `parentPath` (optionally

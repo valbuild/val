@@ -10,11 +10,28 @@
 
 ## Current state / resume here
 
+> **Phase 6 step 6 DONE (2026-08-04): search over un-loaded entries.** Search is the one consumer the
+> scoping rule cannot help — it indexes all content by definition — so `useAllJsonValuesLoad(enabled)`
+> loads every jsonValues module, gated on user INTENT: the first non-empty query, NOT dialog open (radix
+> mounts the content on open, so a mount effect would load there). Results come from whatever is indexed
+> already and grow as batches land: the index rebuild is THROTTLED, not debounced — a debounce postpones
+> every rebuild until the load goes quiet, which is exactly when partial results stop being useful — and
+> `useSearchWorker` now reports an `indexVersion` so the query is re-run against each new index. The
+> dropdown carries "Searching… N% indexed" off the progress store, suppresses "No results found" while
+> the index is still filling (it would be a lie), and says so if the load failed. `traverseSchemaSource`
+> (the LIVE search path, which never handled markers at all) now skips them, and the dead
+> `createSearchIndex.ts` + `search.test.ts` + `search/index.ts` are gone. The worker's index builder moved
+> to `search/searchIndex.ts` so the live path is testable at all: +3 tests there (incl. one that FAILS
+> without the marker skip), +2 for `allJsonValuesModules`.
+> **Next: all of Phase 6's remaining work is verification — the manual walkthrough (V1–V18; V1–V9 have
+> still never been run) and the Phase 5 CI gate. Step 7 lives in Phase 7 stage 1.**
+
 > **Phase 6 step 5 DONE (2026-08-04): the data-integrity hole is closed.** The three ref hooks
 > (`useKeysOf`, `useEagerRouteReferences`, `useReferencedFiles`) now return a `ReferencesResult`
 > (`loading` + percentage / `success` / `error` + retry) instead of a bare array, and the destructive
 > popovers gate on `status === "success"` rather than on `refs.length`. The new hook
-> `useReferenceScanStatus(query)` runs the step-4 predicate first, so the common case is `success` on the
+> `useReferenceScanStatus(query)` (in `components/useJsonValuesLoad.ts`) runs the step-4 predicate
+> first, so the common case is `success` on the
 > first render with ZERO requests; only an outward-pointing jsonValues item schema triggers
 > `ensureJsonEntries`. Completeness is read from the engine on every render
 > (`getJsonEntriesLoadStatus`) rather than held in component state — a held copy goes stale the moment a
@@ -22,8 +39,6 @@
 > whose refetch is IN FLIGHT as incomplete: the refetch clears the stale flag when it starts, so
 > "not stale" alone would read as complete while pre-publish content is still in hand (V15). +5 tests
 > (39 in the jsonValues describe).
-> **Next: step 6 — search (lazy first-query trigger, partial results + percentage, marker skip in
-> `traverseSchemaSource`, delete the dead `createSearchIndex.ts`). → V14.**
 
 > **Phase 6 step 4 DONE (2026-07-31): the load predicate.** `jsonValuesLoadRequirements(schemas, query)`
 > answers "which jsonValues modules must be loaded before a reference scan can be trusted" from the
@@ -500,8 +515,11 @@ on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of eac
 5. ✅ **Ref hooks + popover gating** (2026-08-04) — the hooks return a `ReferencesResult`, the popovers
    gate on `success`, completeness is read from the engine (`getJsonEntriesLoadStatus`) rather than held
    in component state. → **V10–V13, V17** still to run manually.
-6. **Search** — first-query trigger, debounced re-index, marker skip in `traverseSchemaSource`, delete
-   the dead `createSearchIndex.ts`. → **V14**.
+6. ✅ **Search** (2026-08-04) — first-query trigger, THROTTLED re-index, `indexVersion` so the query
+   re-runs per index, percentage + honest empty state in the dropdown, marker skip in
+   `traverseSchemaSource`, dead `createSearchIndex.ts`/`search.test.ts`/`search/index.ts` deleted, and the
+   worker's index builder extracted to `search/searchIndex.ts` so it is testable. → **V14** still to run
+   manually.
 7. **`.render()` list layouts (windowed)** → **Phase 7 stage 1** (client-side schema instances), verified
    by **V18**. Not gated on anything any more; it is simply a different phase's work. Until it lands,
    step 3's skeleton + `<Preview>` fallback IS the list preview.
@@ -617,37 +635,48 @@ not a step.
 - [x] **Popovers gate on completeness** — DONE (2026-08-04). `DeleteRecordPopover` shows "Checking
       references (N%)" while loading and a blocked "Cannot delete" + `Try again` on error;
       `ChangeRecordPopover` replaces the rename FORM with the same two states, so there is nothing to
-      submit, and `onSubmit` re-checks the status as defense in depth. Both take `references:
-    ReferencesResult` instead of `refs`/`existingKeys`, so a caller cannot pass a status that
+      submit, and `onSubmit` re-checks the status as defense in depth. Both take a `ReferencesResult`
+      (prop `references`) instead of `refs`/`existingKeys`, so a caller cannot pass a status that
       disagrees with the refs. Found refs still win: `refs.length > 0` renders "Cannot delete" whatever
       the status, because a ref that was found is real. `FilePropertiesModal`'s delete is disabled unless
       the scan reports `success`, with the reason in its tooltip.
-- [ ] **Search** — trigger `ensureJsonEntries(all jsonValues modules)` **only on user intent**: search
-      is lazy, so nothing loads before it is requested. Trigger on the first non-empty query, NOT on
-      `SearchField` mount / dialog open (radix mounts the content when the dialog opens, so a
-      mount-effect trigger would load on open). **Debounce the re-index** —
-      [Search.tsx:121-138](../../packages/ui/spa/components/Search.tsx#L121-L138) rebuilds the whole index
-      on every `sources` change and would otherwise rebuild once per batch.
-- [ ] **Search shows partial results + a percentage while loading** — results appear IMMEDIATELY from
-      whatever is already indexed (never a blocked/empty dropdown waiting for a full load), and the
-      dropdown carries a loading indicator with a **percentage** — `Math.round(loaded / total * 100)` off
-      the progress store, e.g. "Searching… 42% indexed". The list re-renders as each batch lands and the
-      indicator disappears at 100%. Two details that matter: the percentage must be over the whole
-      requested set (all jsonValues modules), not per module, or it resets visibly on every module
-      boundary; and results arriving late must not reorder/jump what the user is already looking at more
-      than the new matches require.
-- [ ] **Fix the live search traversal** — add the marker skip to `traverseSchemaSource` (interim
-      correctness + kills the `_type`/`patch_id` edge).
-- [ ] **Delete the dead `createSearchIndex.ts` + `search.test.ts`** and the unused barrel export in
-      `search/index.ts`. The marker skip added there was on unreachable code.
+- [x] **Search** — DONE (2026-08-04). `useAllJsonValuesLoad(enabled)` (same file, same machinery as the
+      refs guard) loads EVERY jsonValues module — the one consumer the scoping rule cannot help — and
+      `enabled` is the first non-empty query, NOT `SearchField` mount / dialog open (radix mounts the
+      content when the dialog opens, so a mount-effect trigger would load on open). The index rebuild is
+      **throttled at 300ms** rather than debounced: a debounce postpones every rebuild until the load goes
+      quiet, which defeats partial results; a throttle rebuilds at most every 300ms AND at least every
+      300ms while batches keep landing. `useSearchWorker` gained `indexVersion` (bumped per completed
+      build) so the query is re-run against each new index — without it, results are frozen at whatever
+      was indexed when the query was typed.
+- [x] **Search shows partial results + a percentage while loading** — DONE (2026-08-04). Results appear
+      immediately from whatever is indexed; `SearchResultsList` takes the `JsonValuesLoadStatus` and
+      renders "Searching… N% indexed" off the progress store (whole requested set, so it does not reset at
+      module boundaries), suppresses **"No results found" while the index is still filling** — it would be
+      a lie — and states plainly that results may be incomplete if the load failed.
+      **Accepted limitation**: FlexSearch re-ranks on each new index, so a late batch can reorder the
+      visible list, not just append to it. Fixing that means holding a stable order client-side; not worth
+      it until someone notices.
+- [x] **Fix the live search traversal** — DONE (2026-08-04). `traverseSchemaSource` skips
+      `{_type:"json"}` markers. This was not merely cosmetic: the marker fell through to whichever branch
+      its ITEM schema selected, so a record/object item walked the MARKER's own keys and indexed
+      `_type: "json"` as content. Pinned by a test that fails without the skip.
+- [x] **Delete the dead `createSearchIndex.ts` + `search.test.ts`** — DONE (2026-08-04), plus
+      `search/index.ts` (its `search()` helper had no caller outside the deleted test). Their coverage was
+      of unreachable code; the LIVE path had none, so `buildIndex`/`performSearch` moved out of
+      `search.worker.ts` into `search/searchIndex.ts` (the worker module runs `self.onmessage` on import
+      and cannot be imported by a test) and `search/searchIndex.test.ts` now covers the real indexer,
+      including partially-loaded jsonValues records. Also dropped a stray per-node `console.log` from the
+      path-cleaning helper.
 - [x] **Fold `markAllJsonEntriesStale` into the batch path** — DONE (2026-07-31).
       `markJsonEntriesStale` now marks the module's loaded keys stale and hands them to
       `requestJsonEntries` in one call, so a publish with hundreds of cached entries is one batch per
       module instead of one request per entry (pinned by a test that counts batches AND per-key
       requests). It feeds the same progress store, so the post-publish refresh is visible.
       The refs guard re-enters `loading` on that refresh as of step 5 — `getJsonEntriesLoadStatus`
-      counts stale AND in-flight entries as incomplete. **Still open**: the search index (step 6) and the
-      entry detail view.
+      counts stale AND in-flight entries as incomplete. The search index re-enters `loading` too, as of
+      step 6 (it reads the same status, and its throttled rebuild picks the refreshed content up).
+      **Still open**: the entry detail view.
 - [ ] **Verify** (Studio running):
   - **V10** rename/delete a key in a jsonValues router while another ORDINARY module holds a
     `keyOf`/`route` ref to it → refs found, delete blocked, rename rewrites the referrer, and **zero**
