@@ -3,6 +3,7 @@ import React, {
   useRef,
   useEffect,
   useCallback,
+  useId,
   useImperativeHandle,
   forwardRef,
 } from "react";
@@ -1461,6 +1462,9 @@ function QuestionCard({
     initialDrafts(questions),
   );
   const [submitted, setSubmitted] = useState(false);
+  // Each group is labelled by its question text, so the ids must be unique
+  // across the several cards a session can accumulate.
+  const baseId = useId();
 
   const canSubmit = drafts.every(
     (d) =>
@@ -1520,6 +1524,40 @@ function QuestionCard({
     );
   };
 
+  // Radio/checkbox navigation. Each question owns options 0..n-1 plus the
+  // free-text row at index n, all addressed by `${qi}:${index}`.
+  const radioRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+  const radioKey = (qi: number, index: number) => `${qi}:${index}`;
+
+  // Single-select groups are radiogroups, so they get the radio keyboard
+  // pattern: arrows move focus AND selection, and only the checked radio is in
+  // the tab order (see checkedIndex below). Multi-select groups are checkboxes,
+  // which are each individually tabbable and toggled with Space — that is the
+  // native button behaviour, so they need no key handling.
+  const handleRadioKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    qi: number,
+    index: number,
+    radioCount: number,
+  ) => {
+    let next: number;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      next = (index + 1) % radioCount;
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      next = (index - 1 + radioCount) % radioCount;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const otherIndex = radioCount - 1;
+    if (next === otherIndex) {
+      selectOther(qi, false);
+    } else {
+      toggleOption(qi, next, false);
+    }
+    radioRefs.current.get(radioKey(qi, next))?.focus();
+  };
+
   const handleSubmit = () => {
     if (submitted || !canSubmit) return;
     setSubmitted(true);
@@ -1552,6 +1590,17 @@ function QuestionCard({
       {questions.map((q, qi) => {
         const multiSelect = q.multiSelect === true;
         const draft = drafts[qi];
+        const otherIndex = q.options.length;
+        const radioCount = otherIndex + 1;
+        const questionLabelId = `${baseId}-q${qi}`;
+        // Roving tabindex for single-select: the checked radio is the group's
+        // single tab stop, falling back to the first control when nothing is
+        // checked yet. Checkboxes are each tabbable, so this is unused there.
+        const checkedIndex = draft.otherSelected
+          ? otherIndex
+          : (Array.from(draft.selected).sort((a, b) => a - b)[0] ?? 0);
+        const tabIndexFor = (index: number) =>
+          multiSelect ? undefined : checkedIndex === index ? 0 : -1;
         return (
           <div key={qi} className="flex flex-col gap-1.5">
             {q.header && (
@@ -1559,17 +1608,35 @@ function QuestionCard({
                 {q.header}
               </div>
             )}
-            <div className="text-sm text-fg-primary">{q.question}</div>
-            <div className="flex flex-col gap-1">
+            <div id={questionLabelId} className="text-sm text-fg-primary">
+              {q.question}
+            </div>
+            {/* The free-text row is the last choice inside the group, so it is
+                reachable by arrow keys and counted in "n of m" announcements. */}
+            <div
+              role={multiSelect ? "group" : "radiogroup"}
+              aria-labelledby={questionLabelId}
+              className="flex flex-col gap-1"
+            >
               {q.options.map((opt, oi) => {
                 const isSelected = draft.selected.has(oi);
                 return (
                   <button
                     key={oi}
+                    ref={(el) => {
+                      radioRefs.current.set(radioKey(qi, oi), el);
+                    }}
                     type="button"
+                    role={multiSelect ? "checkbox" : "radio"}
+                    aria-checked={isSelected}
+                    tabIndex={tabIndexFor(oi)}
                     disabled={submitted}
-                    aria-pressed={isSelected}
                     onClick={() => toggleOption(qi, oi, multiSelect)}
+                    onKeyDown={
+                      multiSelect
+                        ? undefined
+                        : (e) => handleRadioKeyDown(e, qi, oi, radioCount)
+                    }
                     className={cn(
                       "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",
                       isSelected
@@ -1605,49 +1672,59 @@ function QuestionCard({
                   </button>
                 );
               })}
-            </div>
-            <div
-              className={cn(
-                "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
-                draft.otherSelected
-                  ? "border-fg-primary bg-bg-primary"
-                  : "border-border-primary bg-bg-primary",
-                submitted && "opacity-60",
-              )}
-            >
-              <button
-                type="button"
-                disabled={submitted}
-                onClick={() => selectOther(qi, multiSelect)}
-                aria-label="Select Other"
-                aria-pressed={draft.otherSelected}
+              <div
                 className={cn(
-                  "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
-                  multiSelect ? "rounded-sm" : "rounded-full",
+                  "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
                   draft.otherSelected
-                    ? "bg-fg-primary border-fg-primary"
-                    : "border-border-primary",
-                  submitted && "cursor-not-allowed",
+                    ? "border-fg-primary bg-bg-primary"
+                    : "border-border-primary bg-bg-primary",
+                  submitted && "opacity-60",
                 )}
               >
-                {draft.otherSelected && multiSelect && (
-                  <Check className="h-2.5 w-2.5 text-bg-primary" />
-                )}
-                {draft.otherSelected && !multiSelect && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
-                )}
-              </button>
-              <input
-                type="text"
-                disabled={submitted}
-                placeholder="Other (type your own answer)"
-                value={draft.custom}
-                onChange={(e) => setCustom(qi, e.target.value, multiSelect)}
-                className={cn(
-                  "flex-1 bg-transparent text-fg-primary",
-                  "focus:outline-none placeholder:text-fg-tertiary",
-                )}
-              />
+                <button
+                  ref={(el) => {
+                    radioRefs.current.set(radioKey(qi, otherIndex), el);
+                  }}
+                  type="button"
+                  role={multiSelect ? "checkbox" : "radio"}
+                  aria-checked={draft.otherSelected}
+                  aria-label="Other"
+                  tabIndex={tabIndexFor(otherIndex)}
+                  disabled={submitted}
+                  onClick={() => selectOther(qi, multiSelect)}
+                  onKeyDown={
+                    multiSelect
+                      ? undefined
+                      : (e) => handleRadioKeyDown(e, qi, otherIndex, radioCount)
+                  }
+                  className={cn(
+                    "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
+                    multiSelect ? "rounded-sm" : "rounded-full",
+                    draft.otherSelected
+                      ? "bg-fg-primary border-fg-primary"
+                      : "border-border-primary",
+                    submitted && "cursor-not-allowed",
+                  )}
+                >
+                  {draft.otherSelected && multiSelect && (
+                    <Check className="h-2.5 w-2.5 text-bg-primary" />
+                  )}
+                  {draft.otherSelected && !multiSelect && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
+                  )}
+                </button>
+                <input
+                  type="text"
+                  disabled={submitted}
+                  placeholder="Other (type your own answer)"
+                  value={draft.custom}
+                  onChange={(e) => setCustom(qi, e.target.value, multiSelect)}
+                  className={cn(
+                    "flex-1 bg-transparent text-fg-primary",
+                    "focus:outline-none placeholder:text-fg-tertiary",
+                  )}
+                />
+              </div>
             </div>
           </div>
         );
