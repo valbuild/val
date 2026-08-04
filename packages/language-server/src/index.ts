@@ -1,6 +1,17 @@
 export { main, createValLanguageServer, type ValSession } from "./server";
 export { getLanguageServerVersion } from "./version";
 export {
+  createEditorFsHost,
+  mapOpenDocuments,
+  type OpenDocuments,
+} from "./EditorFsHost";
+export {
+  createValProject,
+  type ValProject,
+  type ValProjectInitError,
+  type ValModuleContent,
+} from "./ValProject";
+export {
   PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,
   VAL_FEATURES,

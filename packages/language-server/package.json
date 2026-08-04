@@ -28,7 +28,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "bench": "node scripts/evalLatency.bench.js"
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",

@@ -80,6 +80,9 @@ importers:
       '@valbuild/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@valbuild/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@valbuild/next':
         specifier: workspace:*
         version: link:../../packages/next
