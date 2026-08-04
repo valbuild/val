@@ -15,9 +15,17 @@ export {
 } from "./ValProject";
 export {
   createValDiagnostics,
+  createMissingModuleDiagnostic,
+  severityFor,
   VAL_DIAGNOSTIC_SOURCE,
+  VAL_DIAGNOSTIC_CODES,
+  type ValDiagnosticCode,
   type ValDiagnosticData,
 } from "./diagnostics";
+export {
+  findRegisteredModuleSpecifiers,
+  isModuleRegistered,
+} from "./valModulesRegistry";
 export {
   createModulePathMap,
   getModulePathRange,

@@ -1,4 +1,8 @@
-import { Internal } from "@valbuild/core";
+import fs from "fs";
+import path from "path";
+import ts from "typescript";
+import { Internal, type ModuleFilePath } from "@valbuild/core";
+import type { Diagnostic } from "vscode-languageserver";
 import {
   createConnection,
   ProposedFeatures,
@@ -19,7 +23,11 @@ import {
 } from "./protocol";
 import { getLanguageServerVersion } from "./version";
 import { createValProject, type ValProject } from "./ValProject";
-import { createValDiagnostics } from "./diagnostics";
+import {
+  createValDiagnostics,
+  createMissingModuleDiagnostic,
+} from "./diagnostics";
+import { isModuleRegistered } from "./valModulesRegistry";
 import { isValModuleUri, pathToUri, toModuleFilePath } from "./uri";
 
 /**
@@ -96,6 +104,37 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
  * Split out from {@link main} so it can be driven over a stream pair in tests
  * without spawning a process.
  */
+/**
+ * Report a Val module that `val.modules` does not register.
+ *
+ * Reads `val.modules.{ts,js}` from disk on demand. Returns `undefined` when no
+ * such file exists — that is a project-level problem, not something to blame on
+ * an individual module.
+ */
+function findMissingModuleDiagnostic(
+  valRoot: string,
+  moduleFilePath: ModuleFilePath,
+): Diagnostic | undefined {
+  for (const candidate of ["val.modules.ts", "val.modules.js"]) {
+    const file = path.join(valRoot, candidate);
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const registered = isModuleRegistered({
+      sourceFile: ts.createSourceFile(file, text, ts.ScriptTarget.ES2020),
+      valModulesDir: "",
+      moduleFilePath,
+    });
+    return registered
+      ? undefined
+      : createMissingModuleDiagnostic({ moduleFilePath });
+  }
+  return undefined;
+}
+
 export function createValLanguageServer(connection: Connection): {
   documents: TextDocuments<TextDocument>;
   /** Session state resolved during `initialize`; `undefined` until then. */
@@ -148,14 +187,20 @@ export function createValLanguageServer(connection: Connection): {
         connection.sendDiagnostics({ uri, diagnostics: [] });
         return;
       }
-      connection.sendDiagnostics({
-        uri,
-        diagnostics: createValDiagnostics({
-          moduleFilePath,
-          content: result.content,
-          text: document.getText(),
-        }),
+      const diagnostics = createValDiagnostics({
+        moduleFilePath,
+        content: result.content,
+        text: document.getText(),
+        valRoot: project.valRoot,
       });
+      const unregistered = findMissingModuleDiagnostic(
+        project.valRoot,
+        moduleFilePath,
+      );
+      if (unregistered) {
+        diagnostics.push(unregistered);
+      }
+      connection.sendDiagnostics({ uri, diagnostics });
     } catch (e) {
       // Never let a single bad module take the server down.
       connection.console.error(

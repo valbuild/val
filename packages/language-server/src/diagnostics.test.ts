@@ -34,6 +34,7 @@ type PublishedDiagnostics = {
     message: string;
     severity?: number;
     source?: string;
+    code?: string;
     data?: ValDiagnosticData;
   }[];
 };
@@ -150,21 +151,90 @@ describe("diagnostics over LSP", () => {
     expect(published.diagnostics).toEqual([]);
   });
 
-  test("reports a validation error with structured fix data", async () => {
-    // Known bad image metadata in the example app.
+  test("reports a fixable validation error as a warning", async () => {
+    // Known bad image metadata in the example app. Val's own CLI prints fixable
+    // errors with a warning glyph, so an editor shows them as warnings.
+    const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
+    const uri = `file://${file}`;
+    session.openDocument(uri, fs.readFileSync(file, "utf8"));
+
+    const published = await session.nextDiagnostics(uri);
+    const fixable = published.diagnostics.find(
+      (d) => d.data?.code === "val/validation" && d.data?.fixes?.length,
+    );
+    expect(fixable).toBeDefined();
+    expect(fixable!.source).toBe("val");
+    expect(fixable!.severity).toBe(2); // Warning
+    expect(fixable!.code).toBe("val/validation");
+    expect(fixable!.data?.sourcePath).toContain("/content/media.val.ts");
+    // Fixes travel in `data`, not smuggled through the `code` string.
+    expect(fixable!.data?.fixes?.length).toBeGreaterThan(0);
+  });
+
+  test("reports a missing referenced file as val/file-not-found", async () => {
+    // The example app references public/val/logo_7adc7.png, which is not there.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const uri = `file://${file}`;
+    session.openDocument(uri, fs.readFileSync(file, "utf8"));
+
+    const published = await session.nextDiagnostics(uri);
+    const notFound = published.diagnostics.find(
+      (d) => d.data?.code === "val/file-not-found",
+    );
+    expect(notFound).toBeDefined();
+    // A missing file is not fixable, so it stays an error rather than becoming a
+    // warning about metadata.
+    expect(notFound!.severity).toBe(1);
+    expect(notFound!.message).toMatch(/does not exist/);
+    expect(notFound!.data?.filePath).toMatch(/logo_7adc7\.png$/);
+    // Pointed at the reference argument, not the whole expression.
+    expect(notFound!.range.start.line).toBeGreaterThan(0);
+  });
+
+  test("every diagnostic uses the val/ code convention", async () => {
     const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
     const uri = `file://${file}`;
     session.openDocument(uri, fs.readFileSync(file, "utf8"));
 
     const published = await session.nextDiagnostics(uri);
     expect(published.diagnostics.length).toBeGreaterThan(0);
+    for (const diagnostic of published.diagnostics) {
+      expect(diagnostic.source).toBe("val");
+      expect(diagnostic.code).toMatch(/^val\/[a-z-]+$/);
+      // The code is always mirrored in data, so a client can rely on either.
+      expect(diagnostic.data?.code).toBe(diagnostic.code);
+    }
+  });
 
-    const [first] = published.diagnostics;
-    expect(first.source).toBe("val");
-    expect(first.severity).toBe(1); // Error
-    expect(first.data?.sourcePath).toContain("/content/media.val.ts");
-    // Fixes travel in `data`, not smuggled through the `code` string.
-    expect(first.data?.fixes?.length).toBeGreaterThan(0);
+  test("reports a module that val.modules does not register", async () => {
+    // A file that is not listed in the example app's val.modules.
+    const uri = `file://${path.join(EXAMPLE_APP, "content", "unregistered.val.ts")}`;
+    session.openDocument(
+      uri,
+      `import { s, c } from "../val.config";
+export default c.define("/content/unregistered.val.ts", s.object({ a: s.string() }), { a: "hi" });
+`,
+    );
+
+    const published = await session.nextDiagnostics(uri);
+    const missing = published.diagnostics.find(
+      (d) => d.data?.code === "val/missing-module",
+    );
+    expect(missing).toBeDefined();
+    expect(missing!.message).toMatch(/not registered in val\.modules/);
+  });
+
+  test("does not report missing-module for a registered module", async () => {
+    const file = path.join(EXAMPLE_APP, "content", "authors.val.ts");
+    const uri = `file://${file}`;
+    session.openDocument(uri, fs.readFileSync(file, "utf8"));
+
+    const published = await session.nextDiagnostics(uri);
+    expect(
+      published.diagnostics.filter(
+        (d) => d.data?.code === "val/missing-module",
+      ),
+    ).toEqual([]);
   });
 
   test("validates the editor's buffer, and recovers when it is fixed", async () => {
