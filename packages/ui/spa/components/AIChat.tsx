@@ -74,6 +74,19 @@ export type ToolActivity = {
   cancelled?: boolean;
 };
 
+/**
+ * True while an ask_user_question card is still open, i.e. the user has neither
+ * submitted answers nor cancelled. Such an activity blocks the assistant turn.
+ */
+function isPendingQuestion(activity: ToolActivity): boolean {
+  return (
+    activity.questions !== undefined &&
+    activity.answers === undefined &&
+    !activity.cancelled &&
+    activity.status === "pending"
+  );
+}
+
 export type ChatMessageAttachment = {
   key: string;
   name: string;
@@ -125,14 +138,6 @@ export type AIChatHandle = {
   completeToolCall: (messageId: string, toolCallId: string) => void;
   /** Mark a tool call as errored */
   errorToolCall: (messageId: string, toolCallId: string) => void;
-  /** Record the user's answers to an ask_user_question tool call */
-  recordToolAnswers: (
-    messageId: string,
-    toolCallId: string,
-    answers: AskUserQuestionAnswer[],
-  ) => void;
-  /** Mark an ask_user_question tool call as cancelled by the user */
-  recordToolCancel: (messageId: string, toolCallId: string) => void;
   /** Clear all messages (used when starting a new session) */
   clearMessages: () => void;
   /** Bulk-load historical messages (e.g. when restoring a session) */
@@ -285,9 +290,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, [messages]);
 
-  // 2-minute timeout for in-progress assistant messages
+  // 2-minute timeout for in-progress assistant messages. Suspended while an
+  // ask_user_question card is open: that tool sets timeoutMs: null server-side
+  // precisely because it blocks on the user, so the client must not time out
+  // either. The clock is restarted (startedAt is bumped) once the user submits
+  // or cancels, so it measures server time, not thinking time.
+  const awaitingUserAnswer = (
+    currentMessage?.message.toolActivities ?? []
+  ).some(isPendingQuestion);
   useEffect(() => {
-    if (!currentMessage) return;
+    if (!currentMessage || awaitingUserAnswer) return;
     const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
     if (remaining <= 0) {
       setCompletedMessages((prev) => [
@@ -312,9 +324,39 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       });
     }, remaining);
     return () => clearTimeout(timer);
-  }, [currentMessage]);
+  }, [currentMessage, awaitingUserAnswer]);
 
   // ---- Local state mutators (shared by imperative handle and inline UI) ----
+
+  const updateToolActivity = useCallback(
+    (
+      messageId: string,
+      toolCallId: string,
+      update: (activity: ToolActivity) => ToolActivity,
+    ) => {
+      const mapMessage = (msg: ChatMessage): ChatMessage => ({
+        ...msg,
+        toolActivities: (msg.toolActivities ?? []).map((t) =>
+          t.toolCallId === toolCallId ? update(t) : t,
+        ),
+      });
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        // Restart the in-progress timeout window from the moment the user
+        // acted — see the timeout effect above.
+        return { message: mapMessage(prev.message), startedAt: Date.now() };
+      });
+      // The message may already have been moved to completedMessages (e.g. by
+      // an ai_error) while the question card was still open, in which case the
+      // card renders from there and needs the same update.
+      setCompletedMessages((prev) =>
+        prev.some((m) => m.id === messageId)
+          ? prev.map((m) => (m.id === messageId ? mapMessage(m) : m))
+          : prev,
+      );
+    },
+    [],
+  );
 
   const recordAnswersInState = useCallback(
     (
@@ -322,42 +364,24 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       toolCallId: string,
       answers: AskUserQuestionAnswer[],
     ) => {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== messageId) return prev;
-        return {
-          ...prev,
-          message: {
-            ...prev.message,
-            toolActivities: (prev.message.toolActivities ?? []).map((t) =>
-              t.toolCallId === toolCallId
-                ? { ...t, status: "complete" as const, answers }
-                : t,
-            ),
-          },
-        };
-      });
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        status: "complete",
+        answers,
+      }));
     },
-    [],
+    [updateToolActivity],
   );
 
   const recordCancelInState = useCallback(
     (messageId: string, toolCallId: string) => {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== messageId) return prev;
-        return {
-          ...prev,
-          message: {
-            ...prev.message,
-            toolActivities: (prev.message.toolActivities ?? []).map((t) =>
-              t.toolCallId === toolCallId
-                ? { ...t, status: "error" as const, cancelled: true }
-                : t,
-            ),
-          },
-        };
-      });
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        status: "error",
+        cancelled: true,
+      }));
     },
-    [],
+    [updateToolActivity],
   );
 
   // ---- Imperative handle for WebSocket layer ----
@@ -461,16 +485,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           },
         };
       });
-    },
-    recordToolAnswers(
-      messageId: string,
-      toolCallId: string,
-      answers: AskUserQuestionAnswer[],
-    ) {
-      recordAnswersInState(messageId, toolCallId, answers);
-    },
-    recordToolCancel(messageId: string, toolCallId: string) {
-      recordCancelInState(messageId, toolCallId);
     },
     clearMessages() {
       setCompletedMessages([]);
@@ -1075,7 +1089,7 @@ function MessageBubble({
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
   const hasPendingQuestion = (message.toolActivities ?? []).some(
-    (a) => a.questions && !a.answers && !a.cancelled && a.status === "pending",
+    isPendingQuestion,
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
@@ -1144,7 +1158,6 @@ function MessageBubble({
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator
                 activities={message.toolActivities}
-                messageId={message.id}
                 onSubmitAnswers={onSubmitToolAnswers}
                 onCancel={onCancelToolQuestion}
               />
@@ -1292,12 +1305,10 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
 
 function ToolActivitiesIndicator({
   activities,
-  messageId,
   onSubmitAnswers,
   onCancel,
 }: {
   activities: ToolActivity[];
-  messageId: string;
   onSubmitAnswers: (
     toolCallId: string,
     answers: AskUserQuestionAnswer[],
@@ -1313,12 +1324,7 @@ function ToolActivitiesIndicator({
         };
         const isPending = activity.status === "pending";
         const isError = activity.status === "error";
-        const isQuestionPending =
-          activity.questions &&
-          !activity.answers &&
-          !activity.cancelled &&
-          isPending;
-        if (isQuestionPending && activity.questions) {
+        if (isPendingQuestion(activity) && activity.questions) {
           return (
             <QuestionCard
               key={activity.toolCallId}
@@ -1354,7 +1360,6 @@ function ToolActivitiesIndicator({
         return (
           <div
             key={activity.toolCallId}
-            data-message-id={messageId}
             className={cn(
               "flex items-center gap-1.5 text-xs py-0.5",
               isPending
@@ -1563,6 +1568,7 @@ function QuestionCard({
                     key={oi}
                     type="button"
                     disabled={submitted}
+                    aria-pressed={isSelected}
                     onClick={() => toggleOption(qi, oi, multiSelect)}
                     className={cn(
                       "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",

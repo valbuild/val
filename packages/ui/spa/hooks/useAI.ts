@@ -475,25 +475,19 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             chatRef.current.startAssistantMessage(message.id);
             setIsStreaming(true);
           }
-          // ask_user_question registers itself below with the question payload
-          if (message.name !== "ask_user_question") {
-            chatRef.current.addToolCall(
-              message.id,
-              message.toolCallId,
-              message.name,
-            );
-          }
-        }
-        if (message.name === "ask_user_question") {
-          const args = message.arguments as {
-            questions: AskUserQuestionItem[];
-          };
-          chatRef.current?.addToolCall(
+          chatRef.current.addToolCall(
             message.id,
             message.toolCallId,
             message.name,
-            args.questions,
+            // ask_user_question renders a question card instead of the plain
+            // tool indicator, so it needs the question payload up front.
+            message.name === "ask_user_question"
+              ? (message.arguments as { questions: AskUserQuestionItem[] })
+                  .questions
+              : undefined,
           );
+        }
+        if (message.name === "ask_user_question") {
           pendingQuestionToolCallIdsRef.current.add(message.toolCallId);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
@@ -1516,23 +1510,32 @@ Do not describe what you will do unless you do it for clarification — just do 
     [sendWsMessage],
   );
 
+  // Reject any pending ask_user_question tool calls. ask_user_question sets
+  // timeoutMs: null, so the server waits indefinitely for a result — if we
+  // navigate away from the session without answering, that conversation would
+  // stay blocked forever. Must be called from every session-switch path.
+  const rejectPendingQuestions = useCallback(
+    (reason: string) => {
+      for (const toolCallId of pendingQuestionToolCallIdsRef.current) {
+        sendWsMessage({
+          type: "ai_tool_result",
+          toolCallId,
+          result: { error: reason },
+          isError: true,
+        });
+      }
+      pendingQuestionToolCallIdsRef.current.clear();
+    },
+    [sendWsMessage],
+  );
+
   const newSession = useCallback(() => {
-    // Reject any pending ask_user_question tool calls so the server-side
-    // conversation doesn't keep a dangling tool call open.
-    for (const toolCallId of pendingQuestionToolCallIdsRef.current) {
-      sendWsMessage({
-        type: "ai_tool_result",
-        toolCallId,
-        result: { error: "User started a new session." },
-        isError: true,
-      });
-    }
-    pendingQuestionToolCallIdsRef.current.clear();
+    rejectPendingQuestions("User started a new session.");
     const id = crypto.randomUUID();
     sessionIdRef.current = id;
     setCurrentSessionId(id);
     chatRef.current?.clearMessages();
-  }, [chatRef, sendWsMessage]);
+  }, [chatRef, rejectPendingQuestions]);
 
   const getSessions = useCallback(
     async (opts?: {
@@ -1558,6 +1561,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
+      rejectPendingQuestions("User switched to a different session.");
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
       chatRef.current?.clearMessages();
@@ -1576,7 +1580,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         console.error("Failed to load session messages:", err);
       }
     },
-    [chatRef, aiGetSessionMessages],
+    [chatRef, aiGetSessionMessages, rejectPendingQuestions],
   );
 
   // On mount, restore the most recent session if it was used within the last 24 hours

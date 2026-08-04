@@ -385,7 +385,6 @@ function AskQuestionDemo({ userPrompt, questions }: AskQuestionDemoProps) {
     _toolCallId: string,
     answers: AskUserQuestionAnswer[],
   ) => {
-    console.log("Submitted answers:", answers);
     const messageId = messageIdRef.current;
     if (!messageId || !chatRef.current) return;
     const summary = answers
