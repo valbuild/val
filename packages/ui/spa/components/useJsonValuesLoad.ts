@@ -20,7 +20,16 @@ import {
 export type JsonValuesLoadStatus =
   | { status: "loading"; percentage: number }
   | { status: "success" }
-  | { status: "error"; message: string; retry: () => void };
+  | {
+      status: "error";
+      message: string;
+      /**
+       * Absent when there is nothing the UI could retry (the schemas themselves
+       * failed — the sync engine owns that). A dead "Try again" button is worse
+       * than none.
+       */
+      retry?: () => void;
+    };
 
 /**
  * A reference scan's result. `status` is the part that matters for a destructive
@@ -40,7 +49,12 @@ export type JsonValuesLoadStatus =
 export type ReferencesResult =
   | { status: "loading"; refs: SourcePath[]; percentage: number }
   | { status: "success"; refs: SourcePath[] }
-  | { status: "error"; refs: SourcePath[]; message: string; retry: () => void };
+  | {
+      status: "error";
+      refs: SourcePath[];
+      message: string;
+      retry?: () => void;
+    };
 
 const LOAD_COMPLETE: JsonValuesLoadStatus = { status: "success" };
 /** Stable empty list, so "nothing to load" does not churn the memo deps. */
@@ -82,7 +96,7 @@ export function useReferenceScanStatus(
   ]);
   const load = useJsonValuesLoad(required);
   if (query !== null && schemas.status === "error") {
-    return { status: "error", message: schemas.error, retry: noop };
+    return { status: "error", message: schemas.error };
   }
   return load;
 }
@@ -235,9 +249,4 @@ export function mergeReferences(
     return { status: "loading", refs, percentage: Math.min(...percentages) };
   }
   return { status: "success", refs };
-}
-
-function noop() {
-  // Schemas are owned by the sync engine's init/sync loop; there is nothing for
-  // these hooks to retry.
 }

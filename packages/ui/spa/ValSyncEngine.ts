@@ -1090,12 +1090,19 @@ export class ValSyncEngine {
     }[] = [];
     let incomplete = false;
     for (const moduleFilePath of moduleFilePaths) {
+      if (this.serverSources?.[moduleFilePath] === undefined) {
+        // The module's source has not been synced yet, so its key set is unknown
+        // and we cannot claim its entries are loaded. Transient — boot loads every
+        // module's source.
+        incomplete = true;
+        continue;
+      }
       const committed = this.committedJsonEntryKeys(moduleFilePath);
       if (committed === null) {
-        // The module's own source is not (yet) a record we can enumerate, so we
-        // cannot claim its entries are loaded. Reporting `complete` here would be
-        // the lie; boot loads every module's source, so this is transient.
-        incomplete = true;
+        // The source IS here, it just is not a record to enumerate — a nullable
+        // jsonValues record whose value is null. It has no entries, so it
+        // contributes nothing; reporting `incomplete` would freeze every guard at
+        // "checking references" with no way forward.
         continue;
       }
       for (const key of committed) {
@@ -1139,6 +1146,10 @@ export class ValSyncEngine {
   }> {
     for (const moduleFilePath of moduleFilePaths) {
       delete this.jsonEntryErrors[moduleFilePath];
+      // Emit even if the reload turns out to have nothing to fetch (an entry can
+      // hold both content and a failed refetch): otherwise the caller keeps
+      // rendering the error state it just cleared.
+      this.invalidateSource(moduleFilePath);
     }
     return this.ensureJsonEntries(moduleFilePaths);
   }
@@ -1455,6 +1466,11 @@ export class ValSyncEngine {
       delete this.jsonEntryErrors[moduleFilePath][key];
     }
     this.requestJsonEntry(moduleFilePath, key);
+    // So the retry is visible immediately: subscribers re-read, see the error is
+    // gone and render a loading state instead of the error they just dismissed.
+    // Without this nothing changes until the request settles, and a "try again"
+    // that looks like it did nothing invites a second click.
+    this.invalidateSource(moduleFilePath);
   }
 
   /**

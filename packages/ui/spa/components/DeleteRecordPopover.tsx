@@ -85,9 +85,11 @@ export function DeleteRecordPopover({
             <p className="text-sm text-muted-foreground">
               {references.message}
             </p>
-            <Button variant="secondary" onClick={references.retry}>
-              Try again
-            </Button>
+            {references.retry && (
+              <Button variant="secondary" onClick={references.retry}>
+                Try again
+              </Button>
+            )}
           </>
         ) : (
           <>

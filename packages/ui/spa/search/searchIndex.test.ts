@@ -7,7 +7,7 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { buildSearchIndex, searchIndex } from "./searchIndex";
+import { buildSearchIndex, performSearch } from "./searchIndex";
 
 const { s, c } = initVal();
 
@@ -19,7 +19,7 @@ function find(
   query: string,
 ): string[] {
   const index = buildSearchIndex(modules);
-  return searchIndex(index, query)
+  return performSearch(index, query)
     .results.map((result) => result.path as string)
     .sort();
 }

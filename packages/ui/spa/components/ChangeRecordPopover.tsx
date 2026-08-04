@@ -196,9 +196,11 @@ export function ChangeRecordPopover({
             <div className="font-bold">Cannot rename</div>
             <p>References to this key could not be checked.</p>
             <p className="text-sm text-fg-tertiary">{references.message}</p>
-            <Button variant="secondary" onClick={references.retry}>
-              Try again
-            </Button>
+            {references.retry && (
+              <Button variant="secondary" onClick={references.retry}>
+                Try again
+              </Button>
+            )}
           </div>
         ) : routePattern ? (
           <RouteForm

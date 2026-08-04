@@ -934,6 +934,43 @@ describe("ValSyncEngine", () => {
         expect(tester.jsonBatchRequestCounts[PAGES]).toBeUndefined();
       });
 
+      test("a module whose source has not synced yet is incomplete", async () => {
+        // Its key set is unknown, so "complete" would be a guess. Transient: boot
+        // syncs every module's source.
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+
+        expect(
+          engine.getJsonEntriesLoadStatus([
+            "/not-synced.val.ts" as ModuleFilePath,
+          ]).status,
+        ).toBe("incomplete");
+      });
+
+      test("a NULL jsonValues record has no entries to load (not incomplete forever)", async () => {
+        // A nullable record whose value is null is not a record to enumerate. If
+        // that read as incomplete, every guard depending on this module would sit
+        // at "checking references" with no way to ever finish.
+        const { s, c, config } = initVal();
+        const valModule = c.define(
+          PAGES,
+          s
+            .record(s.object({ title: s.string() }))
+            .jsonValues()
+            .nullable(),
+          null,
+        );
+        const tester = new SyncEngineTester("fs", [valModule], config);
+        const engine = await tester.createInitializedSyncEngine();
+
+        expect(
+          engine.getJsonEntriesLoadStatus([toModuleFilePath(PAGES)]),
+        ).toEqual({ status: "complete", errors: [] });
+        expect(
+          await engine.ensureJsonEntries([toModuleFilePath(PAGES)]),
+        ).toEqual({ complete: true, errors: [] });
+      });
+
       test("a failed entry is an ERROR, never a quiet 'complete'", async () => {
         const { tester } = setupJsonValues();
         const engine = await tester.createInitializedSyncEngine();

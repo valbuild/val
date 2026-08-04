@@ -10,6 +10,18 @@
 
 ## Current state / resume here
 
+> **ALL non-manual Phase 6 work is DONE (2026-08-04), plus the CI gate.** Steps 5 and 6 landed, the two
+> outstanding code items from the step 1–3 self-review are closed (a failed row can be retried instead of
+> pulsing forever; the load-pass bound logs when it is exhausted), a self-review of steps 5–6 found and
+> fixed three real defects (see _Review findings (self-review of steps 5–6)_), and the full six-job CI
+> gate is green — including `packages/cli`, whose "pre-existing" chokidar typecheck failure turned out to
+> be nothing but a stale local install.
+> **What is left in Phase 6 is verification the model cannot do: the manual Studio walkthrough
+> V1–V18 (V1 superseded; V1–V9 have still never been run).** Two decisions are waiting on Fredrik:
+> browser caching for `/json`, and whether to add a jsdom jest project — without one, every UI half of
+> steps 3, 5 and 6 is covered only by that walkthrough. Next code milestone: **Phase 7 stage 1**
+> (renders from the client-side schema instances), which also absorbs old step 7.
+
 > **Phase 6 step 6 DONE (2026-08-04): search over un-loaded entries.** Search is the one consumer the
 > scoping rule cannot help — it indexes all content by definition — so `useAllJsonValuesLoad(enabled)`
 > loads every jsonValues module, gated on user INTENT: the first non-empty query, NOT dialog open (radix
@@ -23,8 +35,6 @@
 > `createSearchIndex.ts` + `search.test.ts` + `search/index.ts` are gone. The worker's index builder moved
 > to `search/searchIndex.ts` so the live path is testable at all: +3 tests there (incl. one that FAILS
 > without the marker skip), +2 for `allJsonValuesModules`.
-> **Next: all of Phase 6's remaining work is verification — the manual walkthrough (V1–V18; V1–V9 have
-> still never been run) and the Phase 5 CI gate. Step 7 lives in Phase 7 stage 1.**
 
 > **Phase 6 step 5 DONE (2026-08-04): the data-integrity hole is closed.** The three ref hooks
 > (`useKeysOf`, `useEagerRouteReferences`, `useReferencedFiles`) now return a `ReferencesResult`
@@ -405,11 +415,17 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
 - [x] Add a `.jsonValues()` router to `examples/next` with a few `*.val.json` entries
       (`app/support/[slug]/page.val.ts` + `content/*.val.json`); consumed via `fetchValRoute`.
 - [x] `cd examples/next && pnpm run build` green (`/support/[slug]` dynamic route builds).
-- [ ] Full CI in one pass: `pnpm run lint`, `pnpm -w run format`, `pnpm run -r typecheck`,
-      `pnpm test`, `pnpm run build` (root preconstruct+ui; remember `pnpm preconstruct dev` after),
+- [x] Full CI in one pass — DONE (2026-08-04), all six jobs green: `pnpm run lint`; `pnpm -w run format`
+      (only the untracked `.claude/settings.local.json` warns, which CI never sees); recursive typecheck;
+      `pnpm test` (1147); `pnpm run build` (root preconstruct + ui, ~6min — `pnpm preconstruct dev` must be
+      run after, from the REPO ROOT, since inside `examples/next` it fails with "no entrypoints"); and
       `cd examples/next && pnpm run build`.
+      **The `packages/cli` chokidar typecheck failure this file has called "pre-existing" since session 1
+      was a stale local install, not a code problem** — `pnpm install --frozen-lockfile` linked
+      `chokidar@5` and `-r typecheck` is now clean across every package, examples included. Do not treat
+      it as expected any more.
 
-## Phase 6 — Reference integrity + search over un-loaded entries — NEXT MILESTONE
+## Phase 6 — Reference integrity + search over un-loaded entries — CODE COMPLETE (manual verify left)
 
 ### The defect (found 2026-07-30, reviewing PR #453)
 
@@ -523,8 +539,9 @@ on it. Steps 1–2 are the only hard prerequisites; 4–6 are independent of eac
 7. **`.render()` list layouts (windowed)** → **Phase 7 stage 1** (client-side schema instances), verified
    by **V18**. Not gated on anything any more; it is simply a different phase's work. Until it lands,
    step 3's skeleton + `<Preview>` fallback IS the list preview.
-8. **Verify + gate** — the full manual walkthrough (V1–V18, noting V1 is superseded; V1–V9 have still
-   never been run) then the Phase 5 CI gate.
+8. **Verify + gate** — the CI gate is ✅ green (2026-08-04, see Phase 5). The full manual walkthrough
+   (V1–V18, noting V1 is superseded; V1–V9 have still never been run) is what remains, and it is the only
+   remaining Phase 6 work.
 
 The caching decision (last item below) is deliberately NOT in this order — it is a question for Fredrik,
 not a step.
@@ -704,6 +721,33 @@ not a step.
     jump, no marker reaching a preview component); scrolling fills them in. Then edit a visible row's
     title WITHOUT publishing → the row updates as you type (the render is computed from the patched
     source on the client).
+
+### Review findings (self-review of steps 5–6, 2026-08-04)
+
+Found and fixed in the pass:
+
+- **A nullable jsonValues record would have frozen every guard.** `getJsonEntriesLoadStatus` treated
+  "the module's source is not a record to enumerate" as incomplete, which is right for a source that has
+  not synced but wrong for a `.jsonValues().nullable()` record whose value IS `null` — there is nothing to
+  load, so the guard could never reach `success` and the delete/rename popover would sit at "Checking
+  references" forever. Now split: source absent from `serverSources` ⇒ incomplete, source present but not
+  a record ⇒ contributes nothing. Both branches pinned by tests.
+- **A retry that looked dead.** `retryJsonEntry`/`retryJsonEntries` cleared the memoized failure without
+  emitting, so nothing re-rendered until the request settled — and if the reload had nothing to fetch (an
+  entry can hold both content and a failed refetch), nothing re-rendered at all. Both now invalidate the
+  module.
+- **A dead "Try again" button.** When the SCHEMAS fail there is nothing the hook can retry, so `retry` is
+  now optional on the error variant and the popovers only render the button when it exists.
+- Cosmetic: the extracted search function was named `searchIndex` with a parameter of the same name
+  shadowing it; renamed to `performSearch` (its original name in the worker).
+
+Considered and deliberately NOT changed:
+
+- **`getJsonEntriesLoadStatus` runs on every render** and is O(entries) with an allocation. Memoizing it
+  on `[sources, progress]` would be correct in every case we could name, but not obviously in all of them
+  (stale-marking without a request, in-flight transitions), and the hooks that call it already run
+  `getKeysOf`/`getRouteReferences` — full traversals of EVERY module's source — on the same renders. Not
+  worth trading correctness margin for a cost that is already dominated.
 
 ### Review findings (self-review of steps 1–3, 2026-07-31; revisited 2026-08-04)
 
@@ -930,6 +974,25 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Changelog
 
+- **Session 8 (2026-08-04)**: Phase 6 steps 5 and 6 — the last of its code — plus a review pass and the
+  CI gate.
+  - Step 5: the three ref hooks return a `ReferencesResult` and the destructive popovers gate on
+    `success`, not on `refs.length`. Engine gained `getJsonEntriesLoadStatus` (completeness read per
+    render, not held in state; `error` outranks `incomplete`; in-flight counts as incomplete) and
+    `retryJsonEntries`.
+  - Step 6: search loads every jsonValues module on the first non-empty query, shows partial results with
+    a percentage, throttles (not debounces) the re-index and re-runs the query per `indexVersion`;
+    `traverseSchemaSource` skips markers; the dead `createSearchIndex.ts`/`search.test.ts`/`search/index.ts`
+    are gone and the live indexer moved to `search/searchIndex.ts` where it can be tested.
+  - Closed two step-1–3 review leftovers: a failed row rendered a skeleton FOREVER (the failure is
+    memoized, so nothing refetched it) and now renders an error + `Try again`; exhausting the load-pass
+    bound is logged and returns `complete: false` explicitly.
+  - Self-review of steps 5–6 caught three real defects, all fixed: a `.jsonValues().nullable()` record
+    whose value is `null` would have frozen every guard at "Checking references" forever; a retry that
+    emitted nothing looked dead; a "Try again" button with nothing to retry when the schemas fail.
+  - CI gate green across all six jobs — and `packages/cli`'s chokidar typecheck failure, called
+    "pre-existing" in this file since session 1, was only a stale local install.
+  - Tests: +5 (step 5), +5 (step 6), +2 (review) = 1147 total.
 - **Session 6 (2026-07-30)**: planning only — NO code. Reviewing PR #453 surfaced the
   reference-integrity defect (the marker skips in `getRouteReferences`/`traverseSchemas` silently make
   the delete gate and rename fixup answer "no references", nondeterministically) and that the live

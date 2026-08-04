@@ -135,7 +135,7 @@ function fastRemoveNonWordChars(str: string): string {
   return result;
 }
 
-export function searchIndex(
+export function performSearch(
   searchIndex: SearchIndex | null,
   query: string,
   limit = 50,

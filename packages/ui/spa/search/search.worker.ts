@@ -1,4 +1,4 @@
-import { buildSearchIndex, searchIndex, SearchIndex } from "./searchIndex";
+import { buildSearchIndex, performSearch, SearchIndex } from "./searchIndex";
 import type { WorkerRequest, WorkerResponse } from "./worker-types";
 
 let index: SearchIndex | null = null;
@@ -19,7 +19,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       };
       self.postMessage(response);
     } else if (request.type === "search") {
-      const { results, total } = searchIndex(
+      const { results, total } = performSearch(
         index,
         request.query,
         request.limit,
