@@ -27,6 +27,11 @@ export {
   isModuleRegistered,
 } from "./valModulesRegistry";
 export {
+  createValCodeActions,
+  isLocalFix,
+  minimalTextEdit,
+} from "./codeActions";
+export {
   createModulePathMap,
   getModulePathRange,
   type ModulePathMap,

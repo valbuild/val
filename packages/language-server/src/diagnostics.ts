@@ -102,6 +102,25 @@ const FALLBACK_RANGE: Range = {
   end: { line: 0, character: 0 },
 };
 
+/**
+ * Fixes whose validation core cannot complete on its own.
+ *
+ * `keyOf` and `route` validation needs to look at *other* modules, so core emits
+ * a placeholder error carrying the fix name and a developer-facing message
+ * ("Did not validate keyOf (record). This error … should typically be
+ * processed…"). Something downstream is expected to resolve it; `val validate`
+ * does, which is why a healthy project reports none of these.
+ *
+ * Surfacing the placeholder verbatim would put unactionable noise on correct
+ * code, so these are suppressed until the server resolves them properly with
+ * `resolveSchemaSourceFixForError` from `@valbuild/shared`. That needs a
+ * project-wide schema/source snapshot, which is why it is not done here yet.
+ */
+const DEFERRED_FIXES: readonly string[] = [
+  "keyof:check-keys",
+  "router:check-route",
+];
+
 /** Fixes that operate on a file or image reference. */
 const FILE_FIXES: readonly string[] = [
   "image:add-metadata",
@@ -177,6 +196,11 @@ export function createValDiagnostics({
   for (const [sourcePath, errors] of Object.entries(validation)) {
     for (const error of errors) {
       const fixes = error.fixes;
+
+      // Placeholders for validation core could not finish; see DEFERRED_FIXES.
+      if (fixes?.length && fixes.every((fix) => DEFERRED_FIXES.includes(fix))) {
+        continue;
+      }
 
       // A file-related fix cannot succeed if the file is not there, and
       // "metadata is incorrect" is a misleading way to say "the file is

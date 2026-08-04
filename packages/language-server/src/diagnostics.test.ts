@@ -1,14 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import fs from "fs";
 import path from "path";
 import {
-  createMessageConnection,
-  StreamMessageReader,
-  StreamMessageWriter,
-  type MessageConnection,
-} from "vscode-jsonrpc/node";
-import { PROTOCOL_VERSION, type ValServerCapabilities } from "./protocol";
-import type { ValDiagnosticData } from "./diagnostics";
+  startLspSession,
+  EXAMPLE_APP,
+  type LspSession,
+} from "./__testHelpers__/lspClient";
 
 /**
  * End-to-end diagnostics: drives the real server as a child process over stdio,
@@ -20,118 +16,11 @@ import type { ValDiagnosticData } from "./diagnostics";
 
 jest.setTimeout(90000);
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
-const EXAMPLE_APP = path.join(REPO_ROOT, "examples", "next");
-const BIN = path.resolve(__dirname, "..", "bin.js");
-
-type PublishedDiagnostics = {
-  uri: string;
-  diagnostics: {
-    range: {
-      start: { line: number; character: number };
-      end: { line: number; character: number };
-    };
-    message: string;
-    severity?: number;
-    source?: string;
-    code?: string;
-    data?: ValDiagnosticData;
-  }[];
-};
-
-type Session = {
-  client: MessageConnection;
-  capabilities: ValServerCapabilities | undefined;
-  /** Resolves with the next publishDiagnostics for `uri`. */
-  nextDiagnostics(uri: string): Promise<PublishedDiagnostics>;
-  openDocument(uri: string, text: string): void;
-  changeDocument(uri: string, version: number, text: string): void;
-  dispose(): void;
-};
-
-async function startSession(): Promise<Session> {
-  let child: ChildProcessWithoutNullStreams | undefined = spawn(
-    process.execPath,
-    [BIN, "--stdio"],
-    { cwd: EXAMPLE_APP, stdio: ["pipe", "pipe", "pipe"] },
-  );
-
-  const client = createMessageConnection(
-    new StreamMessageReader(child.stdout),
-    new StreamMessageWriter(child.stdin),
-  );
-
-  const waiters = new Map<string, ((value: PublishedDiagnostics) => void)[]>();
-  const received = new Map<string, PublishedDiagnostics[]>();
-
-  client.onNotification(
-    "textDocument/publishDiagnostics",
-    (params: PublishedDiagnostics) => {
-      const pending = waiters.get(params.uri);
-      if (pending && pending.length > 0) {
-        pending.shift()!(params);
-        return;
-      }
-      const queue = received.get(params.uri) ?? [];
-      queue.push(params);
-      received.set(params.uri, queue);
-    },
-  );
-  client.onUnhandledNotification(() => {});
-  client.listen();
-
-  const init = await client.sendRequest<{
-    capabilities: { experimental?: { val?: ValServerCapabilities } };
-  }>("initialize", {
-    processId: process.pid,
-    rootUri: `file://${EXAMPLE_APP}`,
-    capabilities: {},
-    initializationOptions: {
-      client: { name: "diagnostics-test", version: "0.0.0" },
-      supportedProtocolVersions: { min: 1, max: PROTOCOL_VERSION },
-      valRoot: EXAMPLE_APP,
-    },
-  });
-  client.sendNotification("initialized", {});
-
-  return {
-    client,
-    capabilities: init.capabilities.experimental?.val,
-    nextDiagnostics(uri) {
-      const queued = received.get(uri);
-      if (queued && queued.length > 0) {
-        return Promise.resolve(queued.shift()!);
-      }
-      return new Promise((resolve) => {
-        const pending = waiters.get(uri) ?? [];
-        pending.push(resolve);
-        waiters.set(uri, pending);
-      });
-    },
-    openDocument(uri, text) {
-      client.sendNotification("textDocument/didOpen", {
-        textDocument: { uri, languageId: "typescript", version: 1, text },
-      });
-    },
-    changeDocument(uri, version, text) {
-      client.sendNotification("textDocument/didChange", {
-        textDocument: { uri, version },
-        contentChanges: [{ text }],
-      });
-    },
-    dispose() {
-      client.dispose();
-      child?.kill();
-      child = undefined;
-    },
-  };
-}
-
 describe("diagnostics over LSP", () => {
-  let session: Session;
+  let session: LspSession;
 
   beforeEach(async () => {
-    session = await startSession();
+    session = await startLspSession();
   });
 
   afterEach(() => {
@@ -252,7 +141,10 @@ export default c.define("/content/unregistered.val.ts", s.object({ a: s.string()
       2,
       onDisk.replace('name: "', 'name: 123, _: "'),
     );
-    const broken = await session.nextDiagnostics(uri);
+    const broken = await session.nextDiagnostics(
+      uri,
+      (d) => d.diagnostics.length > 0,
+    );
     expect(broken.diagnostics.length).toBeGreaterThan(0);
     // Placed somewhere real in the file, not defaulted to the top.
     expect(broken.diagnostics[0].range.start.line).toBeGreaterThan(0);
@@ -261,7 +153,10 @@ export default c.define("/content/unregistered.val.ts", s.object({ a: s.string()
     expect(fs.readFileSync(file, "utf8")).toBe(onDisk);
 
     session.changeDocument(uri, 3, onDisk);
-    expect((await session.nextDiagnostics(uri)).diagnostics).toEqual([]);
+    expect(
+      (await session.nextDiagnostics(uri, (d) => d.diagnostics.length === 0))
+        .diagnostics,
+    ).toEqual([]);
   });
 
   test("clears diagnostics when a document is closed", async () => {
@@ -272,10 +167,11 @@ export default c.define("/content/unregistered.val.ts", s.object({ a: s.string()
       (await session.nextDiagnostics(uri)).diagnostics.length,
     ).toBeGreaterThan(0);
 
-    session.client.sendNotification("textDocument/didClose", {
-      textDocument: { uri },
-    });
-    expect((await session.nextDiagnostics(uri)).diagnostics).toEqual([]);
+    session.closeDocument(uri);
+    expect(
+      (await session.nextDiagnostics(uri, (d) => d.diagnostics.length === 0))
+        .diagnostics,
+    ).toEqual([]);
   });
 
   test("ignores non-Val TypeScript files", async () => {

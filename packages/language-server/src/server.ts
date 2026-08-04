@@ -2,7 +2,11 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import { Internal, type ModuleFilePath } from "@valbuild/core";
-import type { Diagnostic } from "vscode-languageserver";
+import {
+  CodeActionKind,
+  type CodeAction,
+  type Diagnostic,
+} from "vscode-languageserver";
 import {
   createConnection,
   ProposedFeatures,
@@ -27,6 +31,7 @@ import {
   createValDiagnostics,
   createMissingModuleDiagnostic,
 } from "./diagnostics";
+import { createValCodeActions } from "./codeActions";
 import { isModuleRegistered } from "./valModulesRegistry";
 import { isValModuleUri, pathToUri, toModuleFilePath } from "./uri";
 
@@ -248,7 +253,7 @@ export function createValLanguageServer(connection: Connection): {
     // Announce only what this version actually serves: a client hides UI for
     // anything missing here, and ignores anything it does not recognise.
     // Completions and commands land in later phases.
-    const features: ValFeature[] = ["diagnostics"];
+    const features: ValFeature[] = ["diagnostics", "fix/metadata"];
     const commands: string[] = [];
 
     project = createValProject({
@@ -284,10 +289,44 @@ export function createValLanguageServer(connection: Connection): {
     return {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
+        codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
         executeCommandProvider: commands.length > 0 ? { commands } : undefined,
         experimental: { val },
       },
     };
+  });
+
+  connection.onCodeAction(async (params): Promise<CodeAction[]> => {
+    const document = documents.get(params.textDocument.uri);
+    if (!project || !document || !isValModuleUri(params.textDocument.uri)) {
+      return [];
+    }
+    const moduleFilePath = toModuleFilePath(
+      project.valRoot,
+      params.textDocument.uri,
+    );
+    if (!moduleFilePath) {
+      return [];
+    }
+    try {
+      const result = await project.getModule(moduleFilePath);
+      if (result.status === "error") {
+        return [];
+      }
+      return await createValCodeActions({
+        document,
+        diagnostics: params.context.diagnostics,
+        content: result.content,
+        valRoot: project.valRoot,
+      });
+    } catch (e) {
+      connection.console.error(
+        `Val: failed to build code actions for ${params.textDocument.uri}: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return [];
+    }
   });
 
   // Validate when a module is opened and whenever it changes. `didChange` fires
