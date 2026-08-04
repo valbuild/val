@@ -2,6 +2,7 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, ReactNode, useEffect, useMemo, useRef } from "react";
 import { useSyncEngine } from "../ValFieldProvider";
+import { Button } from "../designSystem/button";
 
 /**
  * Records below this many keys render plainly, exactly as before: a nested
@@ -161,6 +162,45 @@ export function RecordRowSkeleton({
     >
       <div className="w-1/3 h-3 rounded bg-bg-secondary" />
       <div className="w-2/3 h-3 rounded bg-bg-secondary" />
+    </div>
+  );
+}
+
+/**
+ * A `.jsonValues()` row whose content FAILED to load.
+ *
+ * It replaces the row entirely rather than sitting inside it: the row is
+ * click-to-navigate, and there is nothing to navigate to until the entry loads.
+ * A failure is memoized by the engine (so it does not refetch on every render),
+ * which means without an explicit retry the row would pulse as a skeleton
+ * forever.
+ */
+export function RecordRowError({
+  path,
+  label,
+  message,
+  height,
+  onRetry,
+}: {
+  path: SourcePath;
+  label: string;
+  message: string;
+  height: number;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      id={path}
+      style={{ minHeight: height }}
+      className="flex flex-col gap-2 justify-center p-4 rounded-md border border-border-error-primary"
+    >
+      <div className="font-semibold text-md">{label}</div>
+      <div className="text-sm text-fg-error-primary">{message}</div>
+      <div>
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
     </div>
   );
 }

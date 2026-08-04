@@ -705,16 +705,21 @@ not a step.
     title WITHOUT publishing → the row updates as you type (the render is computed from the patched
     source on the client).
 
-### Review findings (self-review of steps 1–3, 2026-07-31)
+### Review findings (self-review of steps 1–3, 2026-07-31; revisited 2026-08-04)
 
 Two issues were found and fixed during the pass (a missing React `key` in the un-virtualized branch,
-and an effect that re-fired on every render because `Object.keys` returns a fresh array). What is left:
+and an effect that re-fired on every render because `Object.keys` returns a fresh array). The failed-row
+and 3-pass-logging items were closed on 2026-08-04 with steps 5–6. What is left:
 
-- [ ] **No component tests for `VirtualizedRecordList`** — the jest preset is `testEnvironment: "node"`
-      and `jest-environment-jsdom` is not installed, so nothing in the repo renders React. The
-      virtualization, the window→`requestJsonEntries` wiring and the skeleton swap are therefore covered
-      only by V16 (manual). Either add a jsdom project to the preset (`@testing-library/react` IS already
-      a devDependency of `packages/ui`) or accept manual-only and say so.
+- [ ] **DECISION NEEDED — ask Fredrik: no component tests anywhere in the SPA.** The jest preset is
+      `testEnvironment: "node"` and `jest-environment-jsdom` is not installed, so nothing in the repo
+      renders React. That now leaves a growing amount of Phase 6 logic covered only by the manual
+      walkthrough: `VirtualizedRecordList` (window → `requestJsonEntries`, skeleton/error row swap, V16),
+      the ref hooks' status plumbing and the popover gating (V10–V13), and search's lazy trigger +
+      throttled re-index (V14). Adding a jsdom project to the preset is one devDependency
+      (`@testing-library/react` IS already a devDependency of `packages/ui`) plus a jest projects config —
+      a CI-affecting change, hence a decision rather than a task. The alternative is to accept manual-only
+      and say so here.
 - [ ] **Nested scroll container needs a real look (V16)** — the virtualized branch introduces an
       `overflow-auto` viewport capped at `VIEWPORT_MAX_HEIGHT = 800`, inside the Studio's own scroll
       container. Two things to check on a real screen: that scroll chaining feels right (the inner
@@ -724,13 +729,17 @@ and an effect that re-fired on every render because `Object.keys` returns a fres
       derived from the card's `max-h-[170px]` + padding, not measured. `measureElement` corrects the real
       heights, so the estimate only affects the initial scrollbar and the first window's size; still
       worth checking against V16 so the first window is not visibly wrong.
-- [ ] **Skeleton has no retry affordance** — item (c) of the original skeleton task. A row whose entry
-      FAILED to load falls through to `<Preview>` and renders the existing error state; there is no
-      per-row retry button calling `retryJsonEntry`.
-- [ ] **`loadJsonEntriesSettled`'s 3-pass bound is arbitrary** — it is a backstop against an
-      invalidation loop, not a computed limit. If a pathological case ever exhausts it we return
-      `complete: false` with no errors, which reads as "incomplete for an unknown reason". Consider
-      logging when the bound is hit so it is diagnosable rather than mysterious.
+- [x] **Skeleton has no retry affordance** — DONE (2026-08-04), and the original note UNDERSTATED it: a
+      failed row does NOT fall through to `<Preview>`. Its value is still a marker, so
+      `useUnloadedJsonEntryKeys` counted it as un-loaded and it pulsed as a skeleton forever (the failure
+      is memoized, so nothing ever refetched it). That hook is now `useJsonEntryRowStates`, which splits
+      un-loaded from FAILED (reading `getJsonEntryError`), and a failed row renders `RecordRowError` —
+      key, message and a `Try again` calling `retryJsonEntry`. It replaces the whole row rather than
+      sitting inside it, because the row is click-to-navigate and there is nothing to navigate to (and
+      the `.render()` branch's row is a `<button>`, which must not contain another button).
+- [x] **`loadJsonEntriesSettled`'s 3-pass bound is arbitrary** — DONE (2026-08-04). Still a backstop, but
+      exhausting it now logs the outstanding requests (`JSON_ENTRIES_MAX_LOAD_PASSES`), and that path
+      returns `complete: false` explicitly instead of falling through to "no errors, so complete".
 - [ ] **The un-virtualized path requests up to 50 keys on mount** — for a jsonValues record of 50
       entries, opening it loads all 50 (one batch). That is a deliberate trade (see
       `VIRTUALIZE_THRESHOLD`) but it does mean "zero requests on open" is never true for small

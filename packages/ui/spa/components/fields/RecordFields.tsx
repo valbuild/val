@@ -10,8 +10,10 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
+  useSyncEngine,
 } from "../ValFieldProvider";
 import {
+  RecordRowError,
   RecordRowSkeleton,
   VirtualizedRecordList,
 } from "./VirtualizedRecordList";
@@ -180,8 +182,12 @@ function RecordCardList({
   validationErrors: Record<SourcePath, ValidationError[]>;
 }) {
   const { navigate } = useNavigation();
+  const syncEngine = useSyncEngine();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-  const unloadedKeys = useUnloadedJsonEntryKeys(moduleFilePath, jsonValues);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
   return (
     <VirtualizedRecordList
       moduleFilePath={moduleFilePath}
@@ -189,56 +195,81 @@ function RecordCardList({
       estimatedRowHeight={CARD_ROW_HEIGHT}
       jsonValues={jsonValues}
       className="grid grid-cols-1"
-      renderRow={(key) => (
-        <div className="pb-4">
-          <div
-            onClick={() => navigate(sourcePathOfItem(path, key))}
-            className={classNames(
-              "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-              "hover:bg-bg-secondary-hover",
-            )}
-          >
-            <div className="flex justify-between items-start">
-              <div className="pb-4 font-semibold text-md">{key}</div>
-              {isParentError(sourcePathOfItem(path, key), validationErrors) && (
-                <ErrorIndicator />
-              )}
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
+                path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
+                height={96}
+                onRetry={() => syncEngine.retryJsonEntry(moduleFilePath, key)}
+              />
             </div>
-            <div>
-              {unloadedKeys.has(key) ? (
-                // An un-loaded `.jsonValues()` entry: a preview here would read
-                // the opaque marker, which is what made these lists a wall of
-                // spinners.
-                <RecordRowSkeleton
-                  path={sourcePathOfItem(path, key)}
-                  height={96}
-                />
-              ) : (
-                <PreviewWithRender path={sourcePathOfItem(path, key)} />
+          );
+        }
+        return (
+          <div className="pb-4">
+            <div
+              onClick={() => navigate(sourcePathOfItem(path, key))}
+              className={classNames(
+                "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                "hover:bg-bg-secondary-hover",
               )}
+            >
+              <div className="flex justify-between items-start">
+                <div className="pb-4 font-semibold text-md">{key}</div>
+                {isParentError(
+                  sourcePathOfItem(path, key),
+                  validationErrors,
+                ) && <ErrorIndicator />}
+              </div>
+              <div>
+                {unloadedKeys.has(key) ? (
+                  // An un-loaded `.jsonValues()` entry: a preview here would read
+                  // the opaque marker, which is what made these lists a wall of
+                  // spinners.
+                  <RecordRowSkeleton
+                    path={sourcePathOfItem(path, key)}
+                    height={96}
+                  />
+                ) : (
+                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     />
   );
 }
 
 /**
- * The record keys of a `.jsonValues()` module whose entry content has not been
- * loaded yet — i.e. whose value in the patched source is still a lazy marker.
+ * Which rows of a `.jsonValues()` record cannot render a preview yet: the ones
+ * whose value in the patched source is still a lazy marker, split by whether the
+ * load merely has not happened (`unloadedKeys` → skeleton) or FAILED
+ * (`errorByKey` → error + retry). A failure is memoized by the engine, so
+ * without the split a failed row pulses as a skeleton forever.
  *
  * Computed once for the whole list rather than per row: one source subscription
  * instead of one per visible row.
  */
-function useUnloadedJsonEntryKeys(
+function useJsonEntryRowStates(
   moduleFilePath: ModuleFilePath,
   jsonValues: boolean,
-): ReadonlySet<string> {
+): {
+  unloadedKeys: ReadonlySet<string>;
+  errorByKey: ReadonlyMap<string, string>;
+} {
+  const syncEngine = useSyncEngine();
   const moduleSource = useSourceAtPath(moduleFilePath);
   const data = "data" in moduleSource ? moduleSource.data : undefined;
   return useMemo(() => {
-    const unloaded = new Set<string>();
+    const unloadedKeys = new Set<string>();
+    const errorByKey = new Map<string, string>();
     if (
       !jsonValues ||
       data === undefined ||
@@ -246,15 +277,23 @@ function useUnloadedJsonEntryKeys(
       typeof data !== "object" ||
       Array.isArray(data)
     ) {
-      return unloaded;
+      return { unloadedKeys, errorByKey };
     }
     for (const [key, value] of Object.entries(data)) {
-      if (Internal.isJson(value)) {
-        unloaded.add(key);
+      if (!Internal.isJson(value)) {
+        continue;
+      }
+      const error = syncEngine.getJsonEntryError(moduleFilePath, key);
+      if (error !== null) {
+        errorByKey.set(key, error);
+      } else {
+        unloadedKeys.add(key);
       }
     }
-    return unloaded;
-  }, [jsonValues, data]);
+    return { unloadedKeys, errorByKey };
+    // The engine sets an entry's error BEFORE it invalidates the source, so the
+    // source change that re-runs this memo already reflects the failure.
+  }, [jsonValues, data, syncEngine, moduleFilePath]);
 }
 
 function ListRecordRenderComponent({
@@ -267,8 +306,12 @@ function ListRecordRenderComponent({
   jsonValues: boolean;
 }) {
   const { navigate } = useNavigation();
+  const syncEngine = useSyncEngine();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-  const unloadedKeys = useUnloadedJsonEntryKeys(moduleFilePath, jsonValues);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
   const keys = useMemo(() => items.map(([key]) => key), [items]);
   return (
     <VirtualizedRecordList
@@ -277,26 +320,42 @@ function ListRecordRenderComponent({
       estimatedRowHeight={RENDER_ROW_HEIGHT}
       jsonValues={jsonValues}
       className="flex flex-col w-full"
-      renderRow={(key) => (
-        <div className="pb-4">
-          <button
-            onClick={() => navigate(sourcePathOfItem(path, key))}
-            className={classNames(
-              "w-full hover:bg-bg-secondary-hover",
-              "border rounded-lg cursor-pointer border-border-primary",
-            )}
-          >
-            {unloadedKeys.has(key) ? (
-              <RecordRowSkeleton
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
                 path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
                 height={72}
+                onRetry={() => syncEngine.retryJsonEntry(moduleFilePath, key)}
               />
-            ) : (
-              <PreviewWithRender path={sourcePathOfItem(path, key)} />
-            )}
-          </button>
-        </div>
-      )}
+            </div>
+          );
+        }
+        return (
+          <div className="pb-4">
+            <button
+              onClick={() => navigate(sourcePathOfItem(path, key))}
+              className={classNames(
+                "w-full hover:bg-bg-secondary-hover",
+                "border rounded-lg cursor-pointer border-border-primary",
+              )}
+            >
+              {unloadedKeys.has(key) ? (
+                <RecordRowSkeleton
+                  path={sourcePathOfItem(path, key)}
+                  height={72}
+                />
+              ) : (
+                <PreviewWithRender path={sourcePathOfItem(path, key)} />
+              )}
+            </button>
+          </div>
+        );
+      }}
     />
   );
 }

@@ -1164,24 +1164,34 @@ export class ValSyncEngine {
       key: string;
       message: string;
     }[] = [];
-    for (let pass = 0; pass < 3; pass++) {
+    let outstanding = false;
+    for (let pass = 0; pass < JSON_ENTRIES_MAX_LOAD_PASSES; pass++) {
       const res = await this.loadJsonEntries(requests);
       errors = res.errors;
-      const outstanding = res.requestedBaseKeys.some(
-        ({ moduleFilePath, keys }) =>
-          keys.some((key) => {
-            if (this.staleJsonEntries.has(`${moduleFilePath}\0${key}`)) {
-              return true;
-            }
-            return (
-              this.jsonEntryContents[moduleFilePath]?.[key] === undefined &&
-              this.jsonEntryErrors[moduleFilePath]?.[key] === undefined
-            );
-          }),
+      outstanding = res.requestedBaseKeys.some(({ moduleFilePath, keys }) =>
+        keys.some((key) => {
+          if (this.staleJsonEntries.has(`${moduleFilePath}\0${key}`)) {
+            return true;
+          }
+          return (
+            this.jsonEntryContents[moduleFilePath]?.[key] === undefined &&
+            this.jsonEntryErrors[moduleFilePath]?.[key] === undefined
+          );
+        }),
       );
       if (!outstanding) {
         break;
       }
+    }
+    if (outstanding) {
+      // Reported so "incomplete for no stated reason" is diagnosable: the bound is
+      // a backstop against an invalidation loop, not a computed limit, and hitting
+      // it means something kept re-invalidating faster than we could load.
+      console.error(
+        `Val: SyncEngine: json entries still outstanding after ${JSON_ENTRIES_MAX_LOAD_PASSES} load passes`,
+        { requests },
+      );
+      return { complete: false, errors };
     }
     return { complete: errors.length === 0, errors };
   }
@@ -3983,6 +3993,13 @@ const globalNamespace = "global";
  * (each landed chunk re-renders the rows it covers).
  */
 const JSON_ENTRIES_CHUNK_SIZE = Math.min(50, JSON_ENTRIES_BATCH_MAX);
+/**
+ * How many times `loadJsonEntriesSettled` re-passes while entries it asked for are
+ * still outstanding. A backstop against an invalidation that keeps landing
+ * mid-flight, not a computed limit — exhausting it is logged, since "incomplete"
+ * with no errors is otherwise a mystery.
+ */
+const JSON_ENTRIES_MAX_LOAD_PASSES = 3;
 
 /** Progress of the current `.jsonValues()` entry load run. */
 export type JsonEntriesProgress = {
