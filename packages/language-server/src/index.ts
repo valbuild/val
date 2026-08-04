@@ -32,6 +32,21 @@ export {
   minimalTextEdit,
 } from "./codeActions";
 export {
+  createValCompletions,
+  resolveValCompletion,
+  type ValCompletionItemData,
+} from "./completions";
+export {
+  getValCompletionContext,
+  type ValCompletionContext,
+} from "./completionContext";
+export {
+  createPublicValFiles,
+  DEFAULT_FILES_DIRECTORY,
+  type PublicValFile,
+  type PublicValFiles,
+} from "./publicValFiles";
+export {
   createModulePathMap,
   getModulePathRange,
   type ModulePathMap,

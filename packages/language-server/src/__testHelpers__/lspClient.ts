@@ -45,6 +45,16 @@ export type LspTextEdit = {
   newText: string;
 };
 
+export type LspCompletionItem = {
+  label: string;
+  kind?: number;
+  detail?: string;
+  sortText?: string;
+  textEdit?: LspTextEdit;
+  additionalTextEdits?: LspTextEdit[];
+  data?: unknown;
+};
+
 export type LspCodeAction = {
   title: string;
   kind?: string;
@@ -72,6 +82,11 @@ export type LspSession = {
     uri: string,
     diagnostics: PublishedDiagnostic[],
   ): Promise<LspCodeAction[]>;
+  requestCompletions(
+    uri: string,
+    position: { line: number; character: number },
+  ): Promise<LspCompletionItem[]>;
+  resolveCompletion(item: LspCompletionItem): Promise<LspCompletionItem>;
   dispose(): void;
 };
 
@@ -171,6 +186,19 @@ export async function startLspSession({
         },
         context: { diagnostics },
       });
+    },
+    requestCompletions(uri, position) {
+      return client
+        .sendRequest<
+          LspCompletionItem[] | { items: LspCompletionItem[] }
+        >("textDocument/completion", { textDocument: { uri }, position })
+        .then((res) => (Array.isArray(res) ? res : res.items));
+    },
+    resolveCompletion(item) {
+      return client.sendRequest<LspCompletionItem>(
+        "completionItem/resolve",
+        item,
+      );
     },
     dispose() {
       client.dispose();

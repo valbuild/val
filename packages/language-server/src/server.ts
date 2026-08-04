@@ -5,6 +5,7 @@ import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   CodeActionKind,
   type CodeAction,
+  type CompletionItem,
   type Diagnostic,
 } from "vscode-languageserver";
 import {
@@ -32,6 +33,8 @@ import {
   createMissingModuleDiagnostic,
 } from "./diagnostics";
 import { createValCodeActions } from "./codeActions";
+import { createValCompletions, resolveValCompletion } from "./completions";
+import { createPublicValFiles, type PublicValFiles } from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
 import { isValModuleUri, pathToUri, toModuleFilePath } from "./uri";
 
@@ -104,12 +107,6 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
 }
 
 /**
- * Wire up a Val language server on an existing connection.
- *
- * Split out from {@link main} so it can be driven over a stream pair in tests
- * without spawning a process.
- */
-/**
  * Report a Val module that `val.modules` does not register.
  *
  * Reads `val.modules.{ts,js}` from disk on demand. Returns `undefined` when no
@@ -140,6 +137,11 @@ function findMissingModuleDiagnostic(
   return undefined;
 }
 
+/**
+ * Wire up a Val language server on an existing connection.
+ *
+ * Split out from {@link main} so `main` stays a thin transport choice.
+ */
 export function createValLanguageServer(connection: Connection): {
   documents: TextDocuments<TextDocument>;
   /** Session state resolved during `initialize`; `undefined` until then. */
@@ -148,6 +150,7 @@ export function createValLanguageServer(connection: Connection): {
   const documents = new TextDocuments(TextDocument);
   let session: ValSession | undefined;
   let project: ValProject | undefined;
+  let publicFiles: PublicValFiles | undefined;
   const pending = new Map<string, NodeJS.Timeout>();
 
   /**
@@ -253,9 +256,14 @@ export function createValLanguageServer(connection: Connection): {
     // Announce only what this version actually serves: a client hides UI for
     // anything missing here, and ignores anything it does not recognise.
     // Completions and commands land in later phases.
-    const features: ValFeature[] = ["diagnostics", "fix/metadata"];
+    const features: ValFeature[] = [
+      "diagnostics",
+      "fix/metadata",
+      "completions/mediaPath",
+    ];
     const commands: string[] = [];
 
+    publicFiles = createPublicValFiles({ valRoot: options.valRoot });
     project = createValProject({
       valRoot: options.valRoot,
       open: {
@@ -290,10 +298,48 @@ export function createValLanguageServer(connection: Connection): {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
+        completionProvider: {
+          resolveProvider: true,
+          // Completing a path involves "/" and "." characters.
+          triggerCharacters: ["/", "."],
+        },
         executeCommandProvider: commands.length > 0 ? { commands } : undefined,
         experimental: { val },
       },
     };
+  });
+
+  connection.onCompletion((params): CompletionItem[] => {
+    const document = documents.get(params.textDocument.uri);
+    if (!publicFiles || !document || !isValModuleUri(params.textDocument.uri)) {
+      return [];
+    }
+    try {
+      return createValCompletions({
+        document,
+        offset: document.offsetAt(params.position),
+        files: publicFiles,
+      });
+    } catch (e) {
+      connection.console.error(
+        `Val: failed to build completions: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return [];
+    }
+  });
+
+  connection.onCompletionResolve(async (item): Promise<CompletionItem> => {
+    if (!project) {
+      return item;
+    }
+    try {
+      return await resolveValCompletion({ item, documents });
+    } catch (e) {
+      connection.console.error(
+        `Val: failed to resolve completion: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return item;
+    }
   });
 
   connection.onCodeAction(async (params): Promise<CodeAction[]> => {
@@ -353,6 +399,7 @@ export function createValLanguageServer(connection: Connection): {
     pending.clear();
     void project?.dispose();
     project = undefined;
+    publicFiles = undefined;
     session = undefined;
   });
 
