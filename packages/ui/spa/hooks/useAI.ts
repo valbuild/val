@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
-  AskUserQuestionItem,
   ChatMessageAttachment,
 } from "../components/AIChat";
 import {
@@ -39,6 +38,7 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "./resolveValidationErrors";
 import { readImageFromFile } from "../utils/readImage";
+import { z } from "zod";
 import {
   buildImageGalleryPatch,
   buildRemoveImageGalleryEntryPatch,
@@ -399,6 +399,32 @@ const ASK_USER_QUESTION_TOOL: AITool = {
   // 30s timeout so the call doesn't get aborted while the user is deciding.
   timeoutMs: null,
 };
+// ask_user_question is the one tool whose arguments drive an interactive
+// render rather than a lookup, so a malformed payload is not recoverable the
+// way a bad argument to a read tool is: with no questions there is no card to
+// submit, and since the tool intentionally sends no immediate result the turn
+// would sit on a spinner forever. Validate before rendering and report the
+// problem back instead — the tool description tells the model to fall back to
+// plain text when it gets an error.
+const AskUserQuestionArgs = z.object({
+  questions: z
+    .array(
+      z.object({
+        question: z.string(),
+        header: z.string().optional(),
+        options: z.array(
+          z.object({
+            label: z.string(),
+            description: z.string().optional(),
+          }),
+        ),
+        multiSelect: z.boolean().optional(),
+        defaults: z.array(z.number()).optional(),
+      }),
+    )
+    .min(1),
+});
+
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -468,6 +494,28 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
         activeIdRef.current = null;
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
+        // ask_user_question renders a question card instead of the plain tool
+        // indicator, so it needs a validated question payload up front.
+        const questionsRes =
+          message.name === "ask_user_question"
+            ? AskUserQuestionArgs.safeParse(message.arguments)
+            : null;
+        if (questionsRes && !questionsRes.success) {
+          console.error(
+            "Received malformed ask_user_question arguments",
+            questionsRes.error,
+          );
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error: `Malformed ask_user_question arguments: ${questionsRes.error.message}. Ask the user in plain text instead.`,
+            },
+            isError: true,
+          });
+          return;
+        }
         // Ensure assistant message is active so tool indicators can be shown
         if (chatRef.current) {
           if (activeIdRef.current !== message.id) {
@@ -479,12 +527,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             message.id,
             message.toolCallId,
             message.name,
-            // ask_user_question renders a question card instead of the plain
-            // tool indicator, so it needs the question payload up front.
-            message.name === "ask_user_question"
-              ? (message.arguments as { questions: AskUserQuestionItem[] })
-                  .questions
-              : undefined,
+            questionsRes?.data.questions,
           );
         }
         if (message.name === "ask_user_question") {
