@@ -471,8 +471,10 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
-  // Track pending ask_user_question tool calls so we can reject them on session change
-  const pendingQuestionToolCallIdsRef = useRef<Set<string>>(new Set());
+  // Pending ask_user_question tool calls, as toolCallId -> the id of the
+  // assistant message that opened the card. Needed to reject them on session
+  // change, and to fail that specific turn if the result cannot be delivered.
+  const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -531,7 +533,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
           );
         }
         if (message.name === "ask_user_question") {
-          pendingQuestionToolCallIdsRef.current.add(message.toolCallId);
+          pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
@@ -1528,38 +1530,66 @@ Do not describe what you will do unless you do it for clarification — just do 
     [sendWsMessage],
   );
 
+  // A question card keeps the turn open (and the composer disabled) until a
+  // result is delivered, so a socket that dropped while the user was deciding
+  // would otherwise leave the chat wedged with no way out but a reload. Fail
+  // that turn locally instead: this clears currentMessage, which re-enables
+  // the composer and offers a retry.
+  const failUndeliveredQuestion = useCallback(
+    (messageId: string | undefined) => {
+      if (messageId) {
+        chatRef.current?.errorAssistantMessage(
+          messageId,
+          "Lost the connection to the AI service, so your response was not delivered. Please try again.",
+        );
+      }
+      activeIdRef.current = null;
+      setIsStreaming(false);
+    },
+    [chatRef],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
-      pendingQuestionToolCallIdsRef.current.delete(toolCallId);
-      sendWsMessage({
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const sent = sendWsMessage({
         type: "ai_tool_result",
         toolCallId,
         result: { answers },
       });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+      }
     },
-    [sendWsMessage],
+    [sendWsMessage, failUndeliveredQuestion],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
-      pendingQuestionToolCallIdsRef.current.delete(toolCallId);
-      sendWsMessage({
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const sent = sendWsMessage({
         type: "ai_tool_result",
         toolCallId,
         result: { error: "User declined to answer the question(s)." },
         isError: true,
       });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+      }
     },
-    [sendWsMessage],
+    [sendWsMessage, failUndeliveredQuestion],
   );
 
   // Reject any pending ask_user_question tool calls. ask_user_question sets
   // timeoutMs: null, so the server waits indefinitely for a result — if we
   // navigate away from the session without answering, that conversation would
   // stay blocked forever. Must be called from every session-switch path.
+  // No local recovery needed here: both callers clear the messages anyway.
   const rejectPendingQuestions = useCallback(
     (reason: string) => {
-      for (const toolCallId of pendingQuestionToolCallIdsRef.current) {
+      for (const toolCallId of pendingQuestionsRef.current.keys()) {
         sendWsMessage({
           type: "ai_tool_result",
           toolCallId,
@@ -1567,7 +1597,7 @@ Do not describe what you will do unless you do it for clarification — just do 
           isError: true,
         });
       }
-      pendingQuestionToolCallIdsRef.current.clear();
+      pendingQuestionsRef.current.clear();
     },
     [sendWsMessage],
   );
