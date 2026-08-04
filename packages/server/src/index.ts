@@ -9,6 +9,10 @@ export type { IValFSHost } from "./ValFSHost";
 export type { ValFS } from "./ValFS";
 export { patchSourceFile } from "./patchValFile";
 export { formatSyntaxErrorTree } from "./patch/ts/syntax";
+// Locates the schema/source expressions of a `c.define(...)` module. Needed by
+// editor tooling to map module paths back onto source positions.
+export { analyzeValModule } from "./patch/ts/valModule";
+export type { ValModuleAnalysis } from "./patch/ts/valModule";
 export { createFixPatch } from "./createFixPatch";
 export * from "./jwt";
 export type { ValServer } from "./ValServer";

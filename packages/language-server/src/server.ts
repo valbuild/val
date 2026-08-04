@@ -18,6 +18,17 @@ import {
   type ValServerCapabilities,
 } from "./protocol";
 import { getLanguageServerVersion } from "./version";
+import { createValProject, type ValProject } from "./ValProject";
+import { createValDiagnostics } from "./diagnostics";
+import { isValModuleUri, pathToUri, toModuleFilePath } from "./uri";
+
+/**
+ * How long to wait after an edit before re-evaluating.
+ *
+ * Evaluation is ~15ms per module (see scripts/evalLatency.bench.js), so this is
+ * about avoiding pointless work mid-keystroke rather than about hiding latency.
+ */
+const VALIDATION_DEBOUNCE_MS = 200;
 
 /**
  * Everything resolved during `initialize` that the rest of the server needs.
@@ -92,6 +103,66 @@ export function createValLanguageServer(connection: Connection): {
 } {
   const documents = new TextDocuments(TextDocument);
   let session: ValSession | undefined;
+  let project: ValProject | undefined;
+  const pending = new Map<string, NodeJS.Timeout>();
+
+  /**
+   * Re-evaluate a module and publish its diagnostics.
+   *
+   * Evaluation costs ~15ms, so this is debounced rather than run on every
+   * keystroke, and a newer edit supersedes an in-flight timer for the same file.
+   */
+  function scheduleValidation(uri: string): void {
+    const existing = pending.get(uri);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    pending.set(
+      uri,
+      setTimeout(() => {
+        pending.delete(uri);
+        void validate(uri);
+      }, VALIDATION_DEBOUNCE_MS),
+    );
+  }
+
+  async function validate(uri: string): Promise<void> {
+    const document = documents.get(uri);
+    if (!project || !document || !isValModuleUri(uri)) {
+      return;
+    }
+    const moduleFilePath = toModuleFilePath(project.valRoot, uri);
+    if (!moduleFilePath) {
+      return;
+    }
+    try {
+      // The module's own content changed, so any cached result is stale.
+      project.invalidate(moduleFilePath);
+      const result = await project.getModule(moduleFilePath);
+      if (result.status === "error") {
+        // A project-level problem (no tsconfig, missing @valbuild/core) is not a
+        // property of this file: report it once rather than on every module.
+        connection.console.warn(
+          `Val: ${result.error.code}: ${result.error.message}`,
+        );
+        connection.sendDiagnostics({ uri, diagnostics: [] });
+        return;
+      }
+      connection.sendDiagnostics({
+        uri,
+        diagnostics: createValDiagnostics({
+          moduleFilePath,
+          content: result.content,
+          text: document.getText(),
+        }),
+      });
+    } catch (e) {
+      // Never let a single bad module take the server down.
+      connection.console.error(
+        `Val: failed to validate ${uri}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
 
   connection.onInitialize((params): InitializeResult => {
     const options = parseInitializationOptions(params);
@@ -129,11 +200,20 @@ export function createValLanguageServer(connection: Connection): {
           | undefined
       )?.val ?? {};
 
-    // Phase 0: the handshake is in place but no language features are served
-    // yet. Diagnostics, completions and commands are added in later phases and
-    // announced here as they land.
-    const features: ValFeature[] = [];
+    // Announce only what this version actually serves: a client hides UI for
+    // anything missing here, and ignores anything it does not recognise.
+    // Completions and commands land in later phases.
+    const features: ValFeature[] = ["diagnostics"];
     const commands: string[] = [];
+
+    project = createValProject({
+      valRoot: options.valRoot,
+      open: {
+        // Prefer the editor's buffer; fall back to disk for files the user has
+        // not opened.
+        read: (fsPath) => documents.get(pathToUri(fsPath))?.getText(),
+      },
+    });
 
     session = {
       valRoot: options.valRoot,
@@ -165,7 +245,30 @@ export function createValLanguageServer(connection: Connection): {
     };
   });
 
+  // Validate when a module is opened and whenever it changes. `didChange` fires
+  // per keystroke, which scheduleValidation debounces.
+  documents.onDidOpen(({ document }) => scheduleValidation(document.uri));
+  documents.onDidChangeContent(({ document }) =>
+    scheduleValidation(document.uri),
+  );
+
+  documents.onDidClose(({ document }) => {
+    const timer = pending.get(document.uri);
+    if (timer) {
+      clearTimeout(timer);
+      pending.delete(document.uri);
+    }
+    // Clear our diagnostics so they do not linger for a file the user closed.
+    connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
+  });
+
   connection.onShutdown(() => {
+    for (const timer of pending.values()) {
+      clearTimeout(timer);
+    }
+    pending.clear();
+    void project?.dispose();
+    project = undefined;
     session = undefined;
   });
 

@@ -7,10 +7,25 @@ export {
 } from "./EditorFsHost";
 export {
   createValProject,
+  defaultCoreResolver,
+  type CoreResolver,
   type ValProject,
   type ValProjectInitError,
   type ValModuleContent,
 } from "./ValProject";
+export {
+  createValDiagnostics,
+  VAL_DIAGNOSTIC_SOURCE,
+  type ValDiagnosticData,
+} from "./diagnostics";
+export {
+  createModulePathMap,
+  getModulePathRange,
+  type ModulePathMap,
+  type ModulePathRange,
+  type ModulePosition,
+} from "./modulePathMap";
+export { isValModuleUri, pathToUri, toModuleFilePath, uriToPath } from "./uri";
 export {
   PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,
