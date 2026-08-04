@@ -74,6 +74,65 @@ export function getModulePathRange(
 }
 
 /**
+ * Find the module path of the innermost entry whose range contains `position`.
+ *
+ * The inverse of the map's normal use: given where the cursor is, work out which
+ * part of the module it addresses, so the schema there can be looked up. Used by
+ * schema-driven completions.
+ *
+ * Segments are encoded with `Internal.patchPathToModulePath`, so the result is
+ * addressable by the same functions that consume validation error paths.
+ */
+export function findModulePathAtPosition(
+  modulePathMap: ModulePathMap,
+  position: ModulePosition,
+): ModulePath | undefined {
+  const segments: string[] = [];
+
+  function descend(map: ModulePathMap): boolean {
+    for (const [segment, entry] of Object.entries(map)) {
+      // `val` is synthetic (it marks where a property's value sits) and `""`
+      // marks a bare literal. Both have no children, and `val` spans the entire
+      // value — so descending into either would match first and stop the walk
+      // before it reached the real nested key. They are skipped as descent
+      // targets, and used only for containment below.
+      if (segment === "val" || segment === "") {
+        continue;
+      }
+      // An entry's own range covers only its key, so also accept a cursor inside
+      // its value; otherwise nothing nested would ever match its parents.
+      const valChild = entry.children?.val;
+      if (
+        !contains(entry, position) &&
+        !(valChild && contains(valChild, position))
+      ) {
+        continue;
+      }
+      segments.push(segment);
+      descend(entry.children);
+      return true;
+    }
+    return false;
+  }
+  if (!descend(modulePathMap)) {
+    return undefined;
+  }
+  return Internal.patchPathToModulePath(segments);
+}
+
+function contains(range: ModulePathRange, position: ModulePosition): boolean {
+  const afterStart =
+    position.line > range.start.line ||
+    (position.line === range.start.line &&
+      position.character >= range.start.character);
+  const beforeEnd =
+    position.line < range.end.line ||
+    (position.line === range.end.line &&
+      position.character <= range.end.character);
+  return afterStart && beforeEnd;
+}
+
+/**
  * Build a {@link ModulePathMap} for a Val module source file.
  *
  * Returns `undefined` when the file is not a recognisable Val module (no

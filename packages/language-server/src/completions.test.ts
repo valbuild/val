@@ -24,8 +24,14 @@ describe("getValCompletionContext", () => {
     );
   }
 
+  /** As above, but only when the cursor is in a file reference. */
+  function fileRefAt(source: string) {
+    const context = contextAt(source);
+    return context?.kind === "file-ref" ? context : undefined;
+  }
+
   test("detects the cursor inside c.image()'s reference argument", () => {
-    const context = contextAt(`export default c.define("/x", schema, {
+    const context = fileRefAt(`export default c.define("/x", schema, {
   image: c.image("/public/val/|"),
 });`);
     expect(context?.kind).toBe("file-ref");
@@ -34,17 +40,17 @@ describe("getValCompletionContext", () => {
   });
 
   test("detects c.file() as well", () => {
-    expect(contextAt(`const a = c.file("|");`)?.subType).toBe("file");
+    expect(fileRefAt(`const a = c.file("|");`)?.subType).toBe("file");
   });
 
   test("works on an empty string and at both quote edges", () => {
-    expect(contextAt(`const a = c.image("|");`)?.subType).toBe("image");
-    expect(contextAt(`const a = c.image("|abc");`)?.currentText).toBe("abc");
-    expect(contextAt(`const a = c.image("abc|");`)?.currentText).toBe("abc");
+    expect(fileRefAt(`const a = c.image("|");`)?.subType).toBe("image");
+    expect(fileRefAt(`const a = c.image("|abc");`)?.currentText).toBe("abc");
+    expect(fileRefAt(`const a = c.image("abc|");`)?.currentText).toBe("abc");
   });
 
   test("reports an existing metadata argument so it can be replaced", () => {
-    const context = contextAt(
+    const context = fileRefAt(
       `const a = c.image("|/p.png", { width: 1, height: 2 });`,
     );
     expect(context?.metadataStart).toBeDefined();
@@ -52,22 +58,26 @@ describe("getValCompletionContext", () => {
   });
 
   test("reports no metadata argument when there is none", () => {
-    const context = contextAt(`const a = c.image("|/p.png");`);
+    const context = fileRefAt(`const a = c.image("|/p.png");`);
     expect(context?.metadataStart).toBeUndefined();
   });
 
-  test("returns undefined outside a file reference", () => {
+  test("reports no file reference outside one", () => {
+    // Outside any string there is no context at all.
     expect(contextAt(`const a = c.image("/p.png")|;`)).toBeUndefined();
-    expect(contextAt(`const a = "|just a string";`)).toBeUndefined();
-    expect(contextAt(`const a = somethingElse("|/p.png");`)).toBeUndefined();
+    // Inside a plain string there is a context, but not a file reference:
+    // schema-driven completions decide whether they apply there.
+    expect(contextAt(`const a = "|just a string";`)?.kind).toBe("string-value");
+    expect(fileRefAt(`const a = "|just a string";`)).toBeUndefined();
+    expect(fileRefAt(`const a = somethingElse("|/p.png");`)).toBeUndefined();
     // The metadata argument is not the reference argument.
     expect(
-      contextAt(`const a = c.image("/p.png", { width: |1 });`),
+      fileRefAt(`const a = c.image("/p.png", { width: |1 });`),
     ).toBeUndefined();
   });
 
   test("handles a multi-line call", () => {
-    const context = contextAt(`const a = c.image(
+    const context = fileRefAt(`const a = c.image(
   "|/public/val/logo.png",
   { width: 1, height: 2, mimeType: "image/png" },
 );`);
@@ -78,7 +88,7 @@ describe("getValCompletionContext", () => {
   test("picks the innermost call when nested", () => {
     // Contrived, but proves the walk descends rather than stopping at the outer
     // call expression.
-    const context = contextAt(`const a = wrap(c.file("|/a.pdf"));`);
+    const context = fileRefAt(`const a = wrap(c.file("|/a.pdf"));`);
     expect(context?.subType).toBe("file");
   });
 });
@@ -237,6 +247,42 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     // Inserted after the reference argument, not replacing it.
     expect(edit.newText.startsWith(", {")).toBe(true);
     expect(edit.range.start).toEqual(edit.range.end);
+  });
+
+  test("advertises the keyOf completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/keyOf");
+  });
+
+  test("offers the referenced record's keys for an s.keyOf field", async () => {
+    // page.val.ts declares `author: s.keyOf(authorsVal)`, so the candidates are
+    // the keys of /content/authors.val.ts -- a different module, which is why
+    // this needs the project-wide snapshot.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const pageUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(pageUri, original);
+    await session.nextDiagnostics(pageUri);
+
+    const match = original.match(/author:\s*"([^"]*)"/);
+    expect(match).not.toBeNull();
+    const document = TextDocument.create(pageUri, "typescript", 1, original);
+    // Put the cursor just inside the opening quote of the author value.
+    const offset =
+      original.indexOf(match![0]) +
+      match![0].indexOf('"', "author:".length) +
+      1;
+
+    const items = await session.requestCompletions(
+      pageUri,
+      document.positionAt(offset),
+    );
+    const labels = items.map((i) => i.label);
+
+    // Real author keys from the other module.
+    expect(labels).toContain("freekh");
+    expect(labels.length).toBeGreaterThan(1);
+    // Replaces the string contents rather than inserting.
+    expect(items[0].textEdit).toBeDefined();
   });
 
   test("offers nothing outside a file reference", async () => {

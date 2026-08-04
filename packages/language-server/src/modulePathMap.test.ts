@@ -1,5 +1,9 @@
 import ts from "typescript";
-import { createModulePathMap, getModulePathRange } from "./modulePathMap";
+import {
+  createModulePathMap,
+  findModulePathAtPosition,
+  getModulePathRange,
+} from "./modulePathMap";
 
 function parse(fileName: string, text: string): ts.SourceFile {
   return ts.createSourceFile(fileName, text, ts.ScriptTarget.ES2015);
@@ -200,6 +204,63 @@ export default c.define('/content', schema, {
     expect(ref?.start.line).toBe(3);
     expect(metadata?.start.line).toBe(3);
     expect(ref!.start.character).toBeLessThan(metadata!.start.character);
+  });
+
+  describe("findModulePathAtPosition", () => {
+    const source = `import { s, c } from '../val.config';
+
+export default c.define('/content', schema, {
+  first: 'hello',
+  nested: { inner: 'world' },
+  list: ['a', 'b'],
+});
+`;
+    const map = mapOf("./content.val.ts", source);
+
+    /** Position of the character just after `marker` in the source. */
+    function positionAfter(marker: string) {
+      const offset = source.indexOf(marker) + marker.length;
+      const before = source.slice(0, offset);
+      const lines = before.split("\n");
+      return {
+        line: lines.length - 1,
+        character: lines[lines.length - 1].length,
+      };
+    }
+
+    test("finds a top-level key from a position inside its value", () => {
+      expect(findModulePathAtPosition(map, positionAfter("first: '"))).toBe(
+        '"first"',
+      );
+    });
+
+    test("finds a nested key", () => {
+      // The synthetic `val` child spans the whole value, so the walk must step
+      // past it to reach the nested key rather than stopping at the parent.
+      expect(findModulePathAtPosition(map, positionAfter("inner: '"))).toBe(
+        '"nested"."inner"',
+      );
+    });
+
+    test("finds an array element by index", () => {
+      expect(findModulePathAtPosition(map, positionAfter("list: ['"))).toBe(
+        '"list".0',
+      );
+    });
+
+    test("returns undefined outside the content", () => {
+      expect(
+        findModulePathAtPosition(map, { line: 0, character: 0 }),
+      ).toBeUndefined();
+    });
+
+    test("round-trips with getModulePathRange", () => {
+      // A path found at a position must map back to a range containing it.
+      const position = positionAfter("inner: '");
+      const modulePath = findModulePathAtPosition(map, position)!;
+      const range = getModulePathRange(modulePath, map);
+      expect(range).toBeDefined();
+    });
   });
 
   describe("modules that are not Val modules", () => {

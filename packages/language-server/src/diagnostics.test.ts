@@ -174,6 +174,61 @@ export default c.define("/content/unregistered.val.ts", s.object({ a: s.string()
     ).toEqual([]);
   });
 
+  describe("keyOf and route resolution", () => {
+    // Core cannot finish validating keyOf/route on its own -- it has to look at
+    // other modules -- so it emits a placeholder with developer-facing text.
+    // With a project-wide snapshot these are resolved properly: valid ones drop
+    // out, invalid ones become actionable.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const uri = `file://${file}`;
+
+    test("resolves valid keys and routes away entirely", async () => {
+      session.openDocument(uri, fs.readFileSync(file, "utf8"));
+      const published = await session.nextDiagnostics(uri);
+
+      // No leaked placeholder text.
+      for (const diagnostic of published.diagnostics) {
+        expect(diagnostic.message).not.toMatch(/should typically be processed/);
+        expect(diagnostic.message).not.toMatch(/^Did not validate/);
+      }
+      // And no lingering unresolved fixes of either kind.
+      const deferred = published.diagnostics.filter((d) =>
+        d.data?.fixes?.some(
+          (f) => f === "keyof:check-keys" || f === "router:check-route",
+        ),
+      );
+      expect(deferred).toEqual([]);
+    });
+
+    test("reports an invalid keyOf key with suggestions", async () => {
+      const original = fs.readFileSync(file, "utf8");
+      const broken = original.replace(
+        /author:\s*"[^"]*"/,
+        'author: "nope-not-a-key"',
+      );
+      // Guard against the fixture changing shape under us.
+      expect(broken).not.toBe(original);
+
+      session.openDocument(uri, original);
+      await session.nextDiagnostics(uri);
+      session.changeDocument(uri, 2, broken);
+
+      const published = await session.nextDiagnostics(uri, (d) =>
+        d.diagnostics.some((x) => x.message.includes("nope-not-a-key")),
+      );
+      const keyError = published.diagnostics.find((d) =>
+        d.message.includes("nope-not-a-key"),
+      )!;
+
+      // Names the module the keys come from, and suggests near matches -- from
+      // shared's findSimilar, not a vendored copy.
+      expect(keyError.message).toContain("/content/authors.val.ts");
+      expect(keyError.message).toMatch(/Closest match/);
+      // Resolved into a real error, so no fix is offered for it any more.
+      expect(keyError.data?.fixes).toBeUndefined();
+    });
+  });
+
   test("ignores non-Val TypeScript files", async () => {
     const uri = `file://${path.join(EXAMPLE_APP, "val.config.ts")}`;
     session.openDocument(uri, "export const x = 1;\n");

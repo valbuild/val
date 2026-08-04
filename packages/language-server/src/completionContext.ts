@@ -8,7 +8,17 @@ import ts from "typescript";
  * user most wants help.
  */
 
-export type ValCompletionContext = {
+export type ValCompletionContext = ValFileRefContext | ValStringValueContext;
+
+/** The cursor is inside a plain string in the module's content. */
+export type ValStringValueContext = {
+  kind: "string-value";
+  currentText: string;
+  contentStart: number;
+  contentEnd: number;
+};
+
+export type ValFileRefContext = {
   kind: "file-ref";
   /** Which constructor: `c.image(...)` or `c.file(...)`. */
   subType: "image" | "file";
@@ -33,6 +43,7 @@ export function getValCompletionContext(
   offset: number,
 ): ValCompletionContext | undefined {
   let found: ValCompletionContext | undefined;
+  let innermostString: ts.StringLiteralLike | undefined;
 
   function visit(node: ts.Node): void {
     if (offset < node.getStart(sourceFile) || offset > node.getEnd()) {
@@ -67,11 +78,31 @@ export function getValCompletionContext(
         };
       }
     }
+    if (
+      ts.isStringLiteralLike(node) &&
+      offset >= node.getStart(sourceFile) + 1 &&
+      offset <= node.getEnd() - 1
+    ) {
+      innermostString = node;
+    }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
 
-  return found;
+  if (found) {
+    return found;
+  }
+  // Not a file reference, but still inside a string: schema-driven completions
+  // (keyOf keys, route paths) decide whether they apply.
+  if (innermostString) {
+    return {
+      kind: "string-value",
+      currentText: innermostString.text,
+      contentStart: innermostString.getStart(sourceFile) + 1,
+      contentEnd: innermostString.getEnd() - 1,
+    };
+  }
+  return undefined;
 }
 
 function fileConstructorSubType(

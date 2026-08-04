@@ -5,8 +5,14 @@ import {
   FILE_REF_PROP,
   Internal,
   type ModuleFilePath,
+  type SourcePath,
+  type ValidationError,
   type ValidationFix,
 } from "@valbuild/core";
+import {
+  resolveSchemaSourceFixes,
+  type SchemaSourceSnapshot,
+} from "@valbuild/shared/internal";
 import {
   Diagnostic,
   DiagnosticSeverity,
@@ -102,25 +108,6 @@ const FALLBACK_RANGE: Range = {
   end: { line: 0, character: 0 },
 };
 
-/**
- * Fixes whose validation core cannot complete on its own.
- *
- * `keyOf` and `route` validation needs to look at *other* modules, so core emits
- * a placeholder error carrying the fix name and a developer-facing message
- * ("Did not validate keyOf (record). This error … should typically be
- * processed…"). Something downstream is expected to resolve it; `val validate`
- * does, which is why a healthy project reports none of these.
- *
- * Surfacing the placeholder verbatim would put unactionable noise on correct
- * code, so these are suppressed until the server resolves them properly with
- * `resolveSchemaSourceFixForError` from `@valbuild/shared`. That needs a
- * project-wide schema/source snapshot, which is why it is not done here yet.
- */
-const DEFERRED_FIXES: readonly string[] = [
-  "keyof:check-keys",
-  "router:check-route",
-];
-
 /** Fixes that operate on a file or image reference. */
 const FILE_FIXES: readonly string[] = [
   "image:add-metadata",
@@ -155,6 +142,7 @@ export function createValDiagnostics({
   content,
   text,
   valRoot,
+  snapshot,
 }: {
   moduleFilePath: ModuleFilePath;
   content: ValModuleContent;
@@ -165,6 +153,17 @@ export function createValDiagnostics({
    * not checked.
    */
   valRoot?: string;
+  /**
+   * Project-wide schemas and sources.
+   *
+   * `keyOf` and `route` validation cannot be completed by core alone — it has to
+   * look at other modules — so core emits a placeholder error carrying the fix
+   * name and a developer-facing message. Given a snapshot, those are resolved
+   * here: valid references drop out, invalid ones become real messages. Without
+   * one they are suppressed, since showing the placeholder would put
+   * unactionable noise on correct code.
+   */
+  snapshot?: SchemaSourceSnapshot;
 }): Diagnostic[] {
   if (content.errors === false) {
     return [];
@@ -183,10 +182,17 @@ export function createValDiagnostics({
     );
   }
 
-  const validation = content.errors.validation;
-  if (!validation) {
+  const rawValidation = content.errors.validation;
+  if (!rawValidation) {
     return diagnostics;
   }
+
+  // Resolve the deferred keyOf/route placeholders against the rest of the
+  // project. This is the same call `val validate` and the Val UI make, so all
+  // three agree on which references are actually broken.
+  const validation = snapshot
+    ? resolveSchemaSourceFixes(rawValidation, snapshot)
+    : dropDeferredPlaceholders(rawValidation);
 
   // Only parse the source file if there is something to place in it.
   const modulePathMap = createModulePathMap(
@@ -196,11 +202,6 @@ export function createValDiagnostics({
   for (const [sourcePath, errors] of Object.entries(validation)) {
     for (const error of errors) {
       const fixes = error.fixes;
-
-      // Placeholders for validation core could not finish; see DEFERRED_FIXES.
-      if (fixes?.length && fixes.every((fix) => DEFERRED_FIXES.includes(fix))) {
-        continue;
-      }
 
       // A file-related fix cannot succeed if the file is not there, and
       // "metadata is incorrect" is a misleading way to say "the file is
@@ -334,4 +335,36 @@ function rangeOf(
   }
   const range = getModulePathRange(modulePath, modulePathMap);
   return range ? { start: range.start, end: range.end } : FALLBACK_RANGE;
+}
+
+/** Fixes core cannot resolve without a project-wide snapshot. */
+const DEFERRED_FIXES: readonly string[] = [
+  "keyof:check-keys",
+  "router:check-route",
+];
+
+/**
+ * Fallback for when no snapshot is available: drop the placeholders rather than
+ * show their developer-facing text.
+ */
+function dropDeferredPlaceholders(
+  validation: Record<SourcePath, ValidationError[]>,
+): Record<SourcePath, ValidationError[]> {
+  const out: Record<SourcePath, ValidationError[]> = {};
+  for (const [sourcePath, errors] of Object.entries(validation) as [
+    SourcePath,
+    ValidationError[],
+  ][]) {
+    const kept = errors.filter(
+      (error) =>
+        !(
+          error.fixes?.length &&
+          error.fixes.every((fix) => DEFERRED_FIXES.includes(fix))
+        ),
+    );
+    if (kept.length > 0) {
+      out[sourcePath] = kept;
+    }
+  }
+  return out;
 }

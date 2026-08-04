@@ -195,11 +195,17 @@ export function createValLanguageServer(connection: Connection): {
         connection.sendDiagnostics({ uri, diagnostics: [] });
         return;
       }
+      // Needed to resolve keyOf/route validation, which has to look at other
+      // modules. Built once and refreshed per changed module.
+      const snapshotResult = await project.getSnapshot();
       const diagnostics = createValDiagnostics({
         moduleFilePath,
         content: result.content,
         text: document.getText(),
         valRoot: project.valRoot,
+        ...(snapshotResult.status === "ok"
+          ? { snapshot: snapshotResult.snapshot }
+          : {}),
       });
       const unregistered = findMissingModuleDiagnostic(
         project.valRoot,
@@ -260,6 +266,7 @@ export function createValLanguageServer(connection: Connection): {
       "diagnostics",
       "fix/metadata",
       "completions/mediaPath",
+      "completions/keyOf",
     ];
     const commands: string[] = [];
 
@@ -309,16 +316,31 @@ export function createValLanguageServer(connection: Connection): {
     };
   });
 
-  connection.onCompletion((params): CompletionItem[] => {
+  connection.onCompletion(async (params): Promise<CompletionItem[]> => {
     const document = documents.get(params.textDocument.uri);
-    if (!publicFiles || !document || !isValModuleUri(params.textDocument.uri)) {
+    if (
+      !publicFiles ||
+      !project ||
+      !document ||
+      !isValModuleUri(params.textDocument.uri)
+    ) {
       return [];
     }
     try {
+      const moduleFilePath = toModuleFilePath(
+        project.valRoot,
+        params.textDocument.uri,
+      );
+      // Only needed for schema-driven completions; file references do not use it.
+      const snapshotResult = await project.getSnapshot();
       return createValCompletions({
         document,
         offset: document.offsetAt(params.position),
         files: publicFiles,
+        ...(moduleFilePath ? { moduleFilePath } : {}),
+        ...(snapshotResult.status === "ok"
+          ? { snapshot: snapshotResult.snapshot }
+          : {}),
       });
     } catch (e) {
       connection.console.error(

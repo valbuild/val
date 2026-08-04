@@ -39,6 +39,8 @@ export {
 export {
   getValCompletionContext,
   type ValCompletionContext,
+  type ValFileRefContext,
+  type ValStringValueContext,
 } from "./completionContext";
 export {
   createPublicValFiles,
@@ -48,6 +50,7 @@ export {
 } from "./publicValFiles";
 export {
   createModulePathMap,
+  findModulePathAtPosition,
   getModulePathRange,
   type ModulePathMap,
   type ModulePathRange,

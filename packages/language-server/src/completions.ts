@@ -1,5 +1,7 @@
 import fs from "fs";
 import ts from "typescript";
+import { Internal, type ModulePath, type SourcePath } from "@valbuild/core";
+import type { SchemaSourceSnapshot } from "@valbuild/shared/internal";
 import { extractFileMetadata, extractImageMetadata } from "@valbuild/server";
 import {
   CompletionItem,
@@ -9,6 +11,7 @@ import {
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { getValCompletionContext } from "./completionContext";
+import { createModulePathMap, findModulePathAtPosition } from "./modulePathMap";
 import type { PublicValFiles } from "./publicValFiles";
 
 /**
@@ -39,10 +42,16 @@ export function createValCompletions({
   document,
   offset,
   files,
+  moduleFilePath,
+  snapshot,
 }: {
   document: TextDocument;
   offset: number;
   files: PublicValFiles;
+  /** This module's path, needed to look its schema up in the snapshot. */
+  moduleFilePath?: string;
+  /** Project-wide schemas and sources, for schema-driven completions. */
+  snapshot?: SchemaSourceSnapshot;
 }): CompletionItem[] {
   const sourceFile = ts.createSourceFile(
     document.uri,
@@ -52,6 +61,21 @@ export function createValCompletions({
   const context = getValCompletionContext(sourceFile, offset);
   if (!context) {
     return [];
+  }
+
+  if (context.kind === "string-value") {
+    if (!moduleFilePath || !snapshot) {
+      return [];
+    }
+    return createKeyOfCompletions({
+      document,
+      sourceFile,
+      offset,
+      moduleFilePath,
+      snapshot,
+      contentStart: context.contentStart,
+      contentEnd: context.contentEnd,
+    });
   }
 
   // `c.image()` only accepts images; `c.file()` accepts anything.
@@ -174,5 +198,117 @@ async function readMetadata(
   } catch {
     // An unreadable or unrecognised file just means no metadata to offer.
     return undefined;
+  }
+}
+
+/**
+ * Keys of the record or object a `s.keyOf(...)` field points at.
+ *
+ * The schema at the cursor is found by mapping the cursor position back to a
+ * module path, then resolving the schema there. A serialized `keyOf` either
+ * lists its `values` directly (object targets) or says `"string"` (record
+ * targets), in which case the keys come from the target module's source in the
+ * snapshot.
+ */
+function createKeyOfCompletions({
+  document,
+  sourceFile,
+  offset,
+  moduleFilePath,
+  snapshot,
+  contentStart,
+  contentEnd,
+}: {
+  document: TextDocument;
+  sourceFile: ts.SourceFile;
+  offset: number;
+  moduleFilePath: string;
+  snapshot: SchemaSourceSnapshot;
+  contentStart: number;
+  contentEnd: number;
+}): CompletionItem[] {
+  const schema = snapshot.schemas[moduleFilePath as never];
+  const source = snapshot.sources[moduleFilePath as never];
+  if (!schema || source === undefined) {
+    return [];
+  }
+
+  const modulePathMap = createModulePathMap(sourceFile);
+  if (!modulePathMap) {
+    return [];
+  }
+  const modulePath = findModulePathAtPosition(
+    modulePathMap,
+    document.positionAt(offset),
+  );
+  if (modulePath === undefined) {
+    return [];
+  }
+
+  let fieldSchema;
+  try {
+    // Val's own resolver, rather than a hand-rolled serialized-schema walker.
+    fieldSchema = Internal.resolvePath(
+      modulePath,
+      source as never,
+      schema,
+    ).schema;
+  } catch {
+    return [];
+  }
+  if (
+    !fieldSchema ||
+    typeof fieldSchema !== "object" ||
+    !("type" in fieldSchema) ||
+    fieldSchema.type !== "keyOf"
+  ) {
+    return [];
+  }
+
+  const keys = keysOfKeyOf(fieldSchema, snapshot);
+  const range: Range = {
+    start: document.positionAt(contentStart),
+    end: document.positionAt(contentEnd),
+  };
+  return keys.map((key, index) => ({
+    label: key,
+    kind: CompletionItemKind.EnumMember,
+    textEdit: { range, newText: key },
+    sortText: String(index).padStart(5, "0"),
+  }));
+}
+
+function keysOfKeyOf(
+  schema: { values?: "string" | string[]; path?: string },
+  snapshot: SchemaSourceSnapshot,
+): string[] {
+  // Object targets serialize their keys directly.
+  if (Array.isArray(schema.values)) {
+    return schema.values;
+  }
+  // Record targets say "string"; the keys are whatever the target module holds.
+  if (!schema.path) {
+    return [];
+  }
+  try {
+    const [targetModuleFilePath, targetModulePath] =
+      Internal.splitModuleFilePathAndModulePath(schema.path as SourcePath);
+    const targetSchema = snapshot.schemas[targetModuleFilePath];
+    const targetSource = snapshot.sources[targetModuleFilePath];
+    if (!targetSchema || targetSource === undefined) {
+      return [];
+    }
+    const resolved = Internal.resolvePath(
+      targetModulePath as ModulePath,
+      targetSource as never,
+      targetSchema,
+    );
+    const value = resolved.source;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+    return Object.keys(value);
+  } catch {
+    return [];
   }
 }

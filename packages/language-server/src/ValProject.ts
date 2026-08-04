@@ -1,7 +1,9 @@
 import crypto from "crypto";
+import fs from "fs";
 import path from "path";
 import { createRequire } from "node:module";
-import type { ModuleFilePath, ModulePath } from "@valbuild/core";
+import type { Json, ModuleFilePath, ModulePath } from "@valbuild/core";
+import type { SchemaSourceSnapshot } from "@valbuild/shared/internal";
 import { createService, type Service } from "@valbuild/server";
 import { createEditorFsHost, type OpenDocuments } from "./EditorFsHost";
 
@@ -40,6 +42,19 @@ export type ValProject = {
     | { status: "ok"; content: ValModuleContent; cached: boolean }
     | { status: "error"; error: ValProjectInitError }
   >;
+  /**
+   * Schemas and sources for every Val module in the project.
+   *
+   * Needed for anything that has to look across modules: resolving `keyOf` and
+   * `route` validation, and offering route/key completions. Built once and then
+   * updated per module, so an edit costs one re-evaluation rather than N.
+   */
+  getSnapshot(): Promise<
+    | { status: "ok"; snapshot: SchemaSourceSnapshot }
+    | { status: "error"; error: ValProjectInitError }
+  >;
+  /** Val module file paths found under the Val root. */
+  listModuleFilePaths(): ModuleFilePath[];
   /** Drop cached results. Pass a path to invalidate one module. */
   invalidate(moduleFilePath?: ModuleFilePath): void;
   /** Number of cached module results — for tests and diagnostics. */
@@ -106,6 +121,39 @@ function checkCoreIsResolvable(
   };
 }
 
+/**
+ * Find every Val module under the Val root.
+ *
+ * Globs rather than reading `val.modules`, matching what the CLI does: it is a
+ * superset, and it keeps working while `val.modules` is mid-edit or broken.
+ */
+function findValModuleFilePaths(valRoot: string): ModuleFilePath[] {
+  const found: ModuleFilePath[] = [];
+  function walk(dir: string): void {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
+        continue;
+      }
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+      } else if (/\.val\.(ts|js|tsx|jsx)$/.test(entry.name)) {
+        found.push(
+          `/${path.relative(valRoot, absolute).split(path.sep).join("/")}` as ModuleFilePath,
+        );
+      }
+    }
+  }
+  walk(valRoot);
+  return found.sort();
+}
+
 export function createValProject({
   valRoot,
   open,
@@ -169,6 +217,11 @@ export function createValProject({
     { fingerprint: string; optionsKey: string; content: ValModuleContent }
   >();
 
+  // Snapshot entries are kept across edits and refreshed individually: a
+  // keystroke should cost one module evaluation, not one per module.
+  const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
+  let snapshotStale: Set<ModuleFilePath> | undefined;
+
   return {
     valRoot,
 
@@ -204,11 +257,58 @@ export function createValProject({
       return { status: "ok", content, cached: false };
     },
 
+    listModuleFilePaths: () => findValModuleFilePaths(valRoot),
+
+    async getSnapshot() {
+      const resolved = await getService();
+      if (resolved.status === "error") {
+        return { status: "error", error: resolved.error };
+      }
+      // First call: everything is stale. Later calls: only what changed.
+      if (snapshotStale === undefined) {
+        snapshotStale = new Set(findValModuleFilePaths(valRoot));
+      }
+      for (const moduleFilePath of snapshotStale) {
+        const content = await resolved.service.get(
+          moduleFilePath,
+          "" as ModulePath,
+          // Validation is not needed to answer "what keys/routes exist", and
+          // skipping it keeps the snapshot cheap.
+          { source: true, schema: true, validate: false },
+        );
+        if (content.schema) {
+          snapshot.schemas[moduleFilePath] = content.schema;
+        } else {
+          delete snapshot.schemas[moduleFilePath];
+        }
+        if (content.source !== undefined) {
+          // Same conversion the CLI does when building its snapshot; Source is
+          // JSON-shaped once serialized.
+          snapshot.sources[moduleFilePath] = content.source as Json;
+        } else {
+          delete snapshot.sources[moduleFilePath];
+        }
+      }
+      snapshotStale.clear();
+      return { status: "ok", snapshot };
+    },
+
     invalidate(moduleFilePath) {
       if (moduleFilePath === undefined) {
         cache.clear();
+        snapshotStale = undefined;
+        for (const key of Object.keys(snapshot.schemas)) {
+          delete snapshot.schemas[key as ModuleFilePath];
+        }
+        for (const key of Object.keys(snapshot.sources)) {
+          delete snapshot.sources[key as ModuleFilePath];
+        }
       } else {
         cache.delete(moduleFilePath);
+        // Refresh just this module in the snapshot next time it is read.
+        if (snapshotStale !== undefined) {
+          snapshotStale.add(moduleFilePath);
+        }
       }
     },
 
