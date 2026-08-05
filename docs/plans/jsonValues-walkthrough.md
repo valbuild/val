@@ -1,4 +1,4 @@
-# `.jsonValues()` manual walkthrough (V1–V18)
+# `.jsonValues()` manual walkthrough (V1–V20)
 
 The verification checklist for `s.record(...).jsonValues()` / `s.router(...).jsonValues()`. The
 implementation tracker is [jsonValues.md](./jsonValues.md); this file is the part a person has to run,
@@ -71,21 +71,23 @@ V16), so counting from page load instead of from a cleared counter will mislead 
 
 ## What the fixtures are for
 
-| Module                             | Kind                                                                              | Steps            |
-| ---------------------------------- | --------------------------------------------------------------------------------- | ---------------- |
-| `/app/support/[slug]/page.val.ts`  | jsonValues **router**, 2 hand-authored entries under `content/`                   | V1–V7            |
-| `/content/kb.val.ts`               | jsonValues **record**, 120 generated entries; item schema holds `keyOf` + `route` | V8, V10, V13–V18 |
-| `/content/featuredContent.val.ts`  | **ordinary** module: `keyOf(kb)`, `keyOf(support)`, `route`, `keyOf(tags)`        | V10, V12         |
-| `/content/tags.val.ts`             | **ordinary** record no jsonValues schema references                               | V12              |
-| `/content/authors.val.ts`          | **ordinary** record that `kb`'s item schema references via `keyOf`                | V11, V13, V17    |
-| `/content/nestedJsonValues.val.ts` | invalid on purpose — added by `pnpm fixtures nested on`                           | V9               |
+| Module                             | Kind                                                                             | Steps            |
+| ---------------------------------- | -------------------------------------------------------------------------------- | ---------------- |
+| `/app/support/[slug]/page.val.ts`  | jsonValues **router**, 2 hand-authored entries; RECORD-level custom validator    | V1–V7, V20       |
+| `/content/kb.val.ts`               | jsonValues **record**, 120 generated entries; `keyOf` + `route` + item validator | V8, V10, V13–V19 |
+| `/content/featuredContent.val.ts`  | **ordinary** module: `keyOf(kb)`, `keyOf(support)`, `route`, `keyOf(tags)`       | V10, V12         |
+| `/content/tags.val.ts`             | **ordinary** record no jsonValues schema references                              | V12              |
+| `/content/authors.val.ts`          | **ordinary** record that `kb`'s item schema references via `keyOf`               | V11, V13, V17    |
+| `/content/nestedJsonValues.val.ts` | invalid on purpose — added by `pnpm fixtures nested on`                          | V9               |
 
-Two facts about `kb` matter for the reference steps:
+Four facts about `kb` matter:
 
 - Its item schema has `author: s.keyOf(authorsVal)`, so renaming an **author** is the case where the guard
   MUST load every entry first (an un-loaded entry could be the referrer).
 - Its item schema has `related: s.route()`, and a route schema records no target module, so renaming ANY
   route key over-approximates to "load `kb`".
+- Its `title` declares a custom validator (it rejects "forbidden"), which can only ever run from the real
+  schema instance — so it is how V19 checks that path works. Every checked-in entry passes it.
 - Entry **`kb-113`** is the only referrer of author `kimmid` and of route `/support/faq`, and it is far
   enough down the list that you have to scroll to it. Every other entry points `related` at `/generic`
   deliberately: if all 120 referenced a support page, deleting that page would report 120 references and no
@@ -289,17 +291,52 @@ pnpm fixtures corrupt 3     # spread across the record; then reload the Studio
       → `kb-113`'s `author` is rewritten even though you never opened that entry.
 - [ ] `pnpm fixtures reset` + restart.
 
-### V18 — `.render({ as: "list" })` on a jsonValues record — EXPECTED TO FAIL TODAY
+### V18 — `.render({ as: "list" })` on a jsonValues record
 
-`kb`'s schema declares a list render, but Studio renders are computed server-side only when
-`apply_patches` is true, which the Studio never sends — so renders are null Studio-wide right now. This
-step passes only once **Phase 7 stage 1** (renders from the client-side schema instances) lands.
+`kb` declares a list render, and as of **Phase 7 stage 1** renders are computed client-side from the
+user's own schema instances against the PATCHED source. This step should now PASS. (Before that, renders
+were null Studio-wide and every list layout fell back to the default card.)
 
-- [ ] **Today:** rows fall back to the default card preview (title/keys), un-loaded rows are skeletons.
-      No marker reaches a preview component, nothing crashes.
-- [ ] **After Phase 7 stage 1:** visible rows show the schema's `title`/`subtitle`; rows below the fold are
-      skeletons of the same height; scrolling fills them in; and editing a visible row's title WITHOUT
-      publishing updates the row as you type.
+- [ ] Open `/content/kb.val.ts` → visible rows show the schema's own `title`/`subtitle` (from `select`),
+      not the generic card.
+- [ ] Rows below the fold are skeletons of the same height — no measurement jump as they fill in, and no
+      marker ever reaches a preview component.
+- [ ] Scroll → the rows fill in with real titles as their batches land.
+- [ ] Edit a visible row's title WITHOUT publishing → **the row's title updates as you type.** This is the
+      part the server render path could never do: the render is computed from the patched source.
+- [ ] `pnpm fixtures reset` + restart.
+
+### V19 — a custom validator runs client-side (Phase 7 stage 2)
+
+`schema.validate(fn)` never ran in the Studio before Phase 7: client validation happens in a worker
+holding a deserialized schema, and a function cannot survive serialization. `kb`'s `title` declares one
+(it rejects the word "forbidden"), and every checked-in entry passes it.
+
+- [ ] Open any `kb` entry and type `forbidden` into `title` → the error
+      **"the word 'forbidden' is not allowed in a title"** appears as you type, next to the field.
+- [ ] Shorten the title to one character as well → BOTH errors show (the structural `minLength(2)` and the
+      custom one). The custom result must not replace the structural one, or vice versa.
+- [ ] Try to publish → publish is blocked while the error stands.
+- [ ] Fix the title → both errors clear.
+- [ ] Open a module with no custom validators (e.g. `/content/tags.val.ts`) and edit it → nothing about the
+      behaviour changes; the gate means those modules pay nothing.
+- [ ] `pnpm fixtures reset` + restart.
+
+### V20 — a record-level validator loads the entries it needs (needs-keys)
+
+The support router declares a RECORD-level validator (a key-count rule). A record-level validator is a
+statement about ALL entries, so the client cannot run it against un-loaded markers — it loads them first.
+That cost is inherent, and it is why validators belong on the ITEM schema where possible.
+
+- [ ] Reload the Studio, open `/app/support/[slug]/page.val.ts`, clear timings.
+- [ ] Edit one entry's `title` → the entries get loaded (`jsonCount()` >= 1) before validation settles, and
+      no error appears (2 entries is under the limit of 50).
+- [ ] Nothing loops: `jsonCount()` stops climbing once the entries are in. A repeated needs-keys round
+      would show up as requests that never stop.
+- [ ] Break one support entry by hand (edit `app/support/[slug]/content/faq.val.json` to invalid JSON, then
+      reload) and edit the OTHER entry → the console logs _"skipping custom validation — could not load the
+      json entries it needs"_ ONCE and does not spin. Restore the file afterwards.
+- [ ] `pnpm fixtures reset` + restart.
 
 ### C1 — `val validate` and jsonValues (KNOWN GAP, expected to fail)
 
@@ -348,6 +385,8 @@ walkthrough" — re-run this step once they are fixed.
 | V16  |        |       |
 | V17  |        |       |
 | V18  |        |       |
+| V19  |        |       |
+| V20  |        |       |
 | C1   |        |       |
 
 When you are done: `pnpm fixtures reset`, restart the dev server, and record the outcome in

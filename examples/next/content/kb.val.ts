@@ -16,7 +16,18 @@ import authorsVal from "./authors.val";
  *   records no target module, so renaming ANY route key has to load this module.
  */
 export const kbArticleSchema = s.object({
-  title: s.string().minLength(2),
+  // The custom validator is here for the walkthrough's custom-validation steps:
+  // it can only ever run CLIENT-SIDE from the real schema instance (a serialized
+  // schema cannot carry a function), so it is how you see whether that path works.
+  // Every generated entry passes it; the walkthrough breaks one on purpose.
+  title: s
+    .string()
+    .minLength(2)
+    .validate((src) =>
+      src.toLowerCase().includes("forbidden")
+        ? "the word 'forbidden' is not allowed in a title"
+        : false,
+    ),
   body: s.string().render({ as: "textarea" }),
   order: s.number(),
   author: s.keyOf(authorsVal),
