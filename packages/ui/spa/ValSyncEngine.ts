@@ -35,6 +35,11 @@ import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
 import {
+  collectCustomValidateTargets,
+  hasCustomValidate,
+} from "./validation/customValidate";
+import { yieldToBackground } from "./utils/yieldToBackground";
+import {
   ValidationWorkerClient,
   type ValidationWorkerFactory,
 } from "./validation/ValidationWorkerClient";
@@ -2234,8 +2239,14 @@ export class ValSyncEngine {
   private ensureValidationWorker(): ValidationWorkerClient {
     if (!this.validationWorker) {
       this.validationWorker = new ValidationWorkerClient(
-        (moduleFilePath, errors) => {
-          this.applyValidationResult(moduleFilePath, errors);
+        (moduleFilePath, result) => {
+          this.applyValidationResult(moduleFilePath, result.errors);
+          if (result.customValidate) {
+            void this.runCustomValidation(
+              moduleFilePath,
+              result.customValidate,
+            );
+          }
         },
         this.createValidationWorker,
       );
@@ -2243,7 +2254,16 @@ export class ValSyncEngine {
     return this.validationWorker;
   }
 
-  private requestModuleValidation(moduleFilePath: ModuleFilePath): void {
+  /**
+   * @param custom Also run the module's custom validate functions. Deliberately
+   * opt-in per call: custom validation is triggered by UPDATES (and pre-publish),
+   * never by the load path, so booting or HMR-ing a project does not execute
+   * arbitrary user code for every module.
+   */
+  private requestModuleValidation(
+    moduleFilePath: ModuleFilePath,
+    options?: { custom?: boolean },
+  ): void {
     // Validate against whatever schema is currently loaded, regardless of
     // whether it came from local `ValModules` or the server's `/schema`.
     // `/sources/~` is always called with `validate_sources=false`, so this
@@ -2254,11 +2274,20 @@ export class ValSyncEngine {
     if (!serializedSchema) return;
     const source = this.getPatchedSource(moduleFilePath);
     if (source === undefined) return;
+    // Every structural pass replaces the module's whole error slice, so any custom
+    // run still in flight is now working from a superseded source: bump the
+    // generation and its results will be dropped.
+    this.customValidationGeneration.set(
+      moduleFilePath,
+      (this.customValidationGeneration.get(moduleFilePath) ?? 0) + 1,
+    );
     this.ensureValidationWorker().validate(
       moduleFilePath,
       source as Source,
       serializedSchema,
       schemaSha,
+      options?.custom === true &&
+        this.moduleHasCustomValidate(moduleFilePath, serializedSchema),
     );
   }
 
@@ -2266,9 +2295,325 @@ export class ValSyncEngine {
     const schemas = this.schemas;
     if (!schemas) return;
     for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
+      // Structural only: this fires on boot and on every HMR.
       this.requestModuleValidation(moduleFilePath);
     }
   }
+
+  // #region Custom validation (client-side, main thread)
+  /**
+   * Bumped on every structural validation request. A custom run captures the
+   * value it started with and throws its results away if it no longer matches —
+   * publishing errors computed from a source that has since moved is how a
+   * validation store starts lying.
+   */
+  private customValidationGeneration: Map<ModuleFilePath, number> = new Map();
+  /**
+   * The `needs-keys` set the last custom-validation attempt asked for, per
+   * module. If an attempt asks for the same set twice, the load did not help
+   * (entries failed), and continuing would spin.
+   */
+  private lastCustomValidateNeedsKeys: Map<ModuleFilePath, string> = new Map();
+  /** Memoized answer to "does this module declare any custom validator?" */
+  private customValidateGate: {
+    schemaSha: string;
+    byModule: Map<ModuleFilePath, boolean>;
+  } | null = null;
+
+  /**
+   * Whether the module declares any custom validate function, from the SERIALIZED
+   * schema (which carries a `customValidate: true` flag per node).
+   *
+   * This is the gate for the entire feature: in the common case no module
+   * declares one, so nothing extra is walked in the worker, nothing is posted
+   * back and nothing runs on the main thread.
+   */
+  private moduleHasCustomValidate(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+  ): boolean {
+    const schemaSha = this.clientSideSchemaSha;
+    if (schemaSha === null) {
+      return false;
+    }
+    if (this.customValidateGate?.schemaSha !== schemaSha) {
+      this.customValidateGate = { schemaSha, byModule: new Map() };
+    }
+    const cached = this.customValidateGate.byModule.get(moduleFilePath);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const computed = hasCustomValidate(serializedSchema);
+    this.customValidateGate.byModule.set(moduleFilePath, computed);
+    return computed;
+  }
+
+  /**
+   * Runs the custom validators the worker located, loading `.jsonValues()` entry
+   * content first if any of them would otherwise see an opaque marker.
+   */
+  private async runCustomValidation(
+    moduleFilePath: ModuleFilePath,
+    targets: { paths: SourcePath[]; needsJsonKeys: string[] },
+  ): Promise<void> {
+    const generation = this.customValidationGeneration.get(moduleFilePath) ?? 0;
+    if (targets.needsJsonKeys.length > 0) {
+      const signature = [...targets.needsJsonKeys].sort().join("\0");
+      if (this.lastCustomValidateNeedsKeys.get(moduleFilePath) === signature) {
+        // We already loaded (or tried to load) exactly this set and the walk still
+        // wants it, which means the load failed. Skipping is the honest outcome:
+        // running a validator against markers would invent errors, and claiming
+        // the module is clean would hide real ones. The server validates every
+        // entry on publish regardless.
+        console.error(
+          "Val: skipping custom validation — could not load the json entries it needs",
+          { moduleFilePath, keys: targets.needsJsonKeys },
+        );
+        this.lastCustomValidateNeedsKeys.delete(moduleFilePath);
+        return;
+      }
+      this.lastCustomValidateNeedsKeys.set(moduleFilePath, signature);
+      await this.ensureJsonEntries([moduleFilePath]);
+      if (
+        (this.customValidationGeneration.get(moduleFilePath) ?? 0) !==
+        generation
+      ) {
+        return; // superseded while loading
+      }
+      // The source changed, so the WALK has to be redone (a loaded entry may hold
+      // more flagged nodes). This bumps the generation, so the current run ends
+      // here.
+      this.requestModuleValidation(moduleFilePath, { custom: true });
+      return;
+    }
+    this.lastCustomValidateNeedsKeys.delete(moduleFilePath);
+    await this.executeCustomValidations(
+      moduleFilePath,
+      generation,
+      targets.paths,
+    );
+  }
+
+  /**
+   * Executes each flagged node's validators, yielding to the browser every
+   * {@link CUSTOM_VALIDATION_SLICE_MS} so a module with many of them cannot block
+   * interaction. Results are merged as they are produced, so the first errors show
+   * up before the last node has run.
+   */
+  private async executeCustomValidations(
+    moduleFilePath: ModuleFilePath,
+    generation: number,
+    paths: SourcePath[],
+  ): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (!instance) {
+      // No instances (the host app does not render <ValModulesClient>): custom
+      // validation is not possible client-side at all. Documented, not silent.
+      console.warn(
+        "Val: cannot run custom validation without local val modules",
+        moduleFilePath,
+      );
+      return;
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return;
+    }
+    const errors: Record<SourcePath, ValidationError[]> = {};
+    let sliceDeadline = Date.now() + CUSTOM_VALIDATION_SLICE_MS;
+    for (const path of paths) {
+      if (
+        (this.customValidationGeneration.get(moduleFilePath) ?? 0) !==
+        generation
+      ) {
+        return;
+      }
+      const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+      try {
+        const resolved = Internal.resolvePath(
+          modulePath,
+          source as Source,
+          instance,
+        );
+        const nodeErrors = resolved.schema["executeCustomValidateAt"](
+          path,
+          resolved.source as SelectorSource,
+        );
+        if (nodeErrors.length > 0) {
+          errors[path] = nodeErrors;
+        }
+      } catch (e) {
+        // A path the walk reported but we cannot resolve is a bug in the walk, not
+        // a content error: log it and keep going rather than losing the rest.
+        console.error("Val: could not run custom validation at", path, e);
+      }
+      if (Date.now() > sliceDeadline) {
+        this.mergeCustomValidationErrors(moduleFilePath, generation, errors);
+        await this.yieldToBackground();
+        sliceDeadline = Date.now() + CUSTOM_VALIDATION_SLICE_MS;
+      }
+    }
+    this.mergeCustomValidationErrors(moduleFilePath, generation, errors);
+  }
+
+  /**
+   * Merges custom errors into the module's slice.
+   *
+   * MERGE, not replace: the structural result was published first (fast feedback)
+   * and a wholesale replace would erase it. Stale generations are dropped.
+   */
+  private mergeCustomValidationErrors(
+    moduleFilePath: ModuleFilePath,
+    generation: number,
+    errors: Record<SourcePath, ValidationError[]>,
+  ): void {
+    if (
+      (this.customValidationGeneration.get(moduleFilePath) ?? 0) !== generation
+    ) {
+      return;
+    }
+    const paths = Object.keys(errors) as SourcePath[];
+    if (paths.length === 0) {
+      return;
+    }
+    if (!this.errors.validationErrors) {
+      this.errors.validationErrors = {};
+    }
+    for (const path of paths) {
+      const existing = this.errors.validationErrors[path];
+      const merged = existing ? [...existing] : [];
+      for (const error of errors[path]) {
+        // The same custom error can arrive twice: a later slice re-merges the
+        // accumulated map. Dedupe on the message so the UI does not repeat it.
+        if (!merged.some((prev) => prev.message === error.message)) {
+          merged.push(error);
+        }
+      }
+      this.errors.validationErrors[path] = merged;
+      this.invalidateValidationError(path);
+    }
+    this.invalidateAllValidationErrors();
+  }
+
+  /**
+   * Runs a module's custom validators start to finish, resolving when they have
+   * all executed (or when it is established that they cannot).
+   *
+   * The awaitable variant of {@link runCustomValidation}: the worker-driven path
+   * is fire-and-forget, which is right for typing but not for the two callers that
+   * must not proceed until the answer is in — the pre-publish pass and
+   * {@link validateAll}. The (schema, source) walk runs on the main thread here;
+   * it is cheap next to the validators themselves.
+   */
+  private async runCustomValidationNow(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<void> {
+    const serializedSchema = this.schemas?.[moduleFilePath];
+    if (!serializedSchema) {
+      return;
+    }
+    if (!this.moduleHasCustomValidate(moduleFilePath, serializedSchema)) {
+      return; // the common case: nothing to do, nothing paid
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return;
+    }
+    let targets = collectCustomValidateTargets(
+      moduleFilePath,
+      serializedSchema,
+      source as Source,
+    );
+    if (targets.needsJsonKeys.length > 0) {
+      await this.ensureJsonEntries([moduleFilePath]);
+      const loadedSource = this.getPatchedSource(moduleFilePath);
+      if (loadedSource === undefined) {
+        return;
+      }
+      targets = collectCustomValidateTargets(
+        moduleFilePath,
+        serializedSchema,
+        loadedSource as Source,
+      );
+      if (targets.needsJsonKeys.length > 0) {
+        // Same reasoning as in runCustomValidation: an entry that will not load
+        // makes this pass incomplete, and inventing errors from markers (or
+        // reporting "clean") would both be lies. The server validates every entry
+        // on publish, so publishing is still gated by something.
+        console.error(
+          "Val: skipping custom validation — could not load the json entries it needs",
+          { moduleFilePath, keys: targets.needsJsonKeys },
+        );
+        return;
+      }
+    }
+    await this.executeCustomValidations(
+      moduleFilePath,
+      this.customValidationGeneration.get(moduleFilePath) ?? 0,
+      targets.paths,
+    );
+  }
+
+  /**
+   * Validates everything, on demand: for dev, CI and debugging.
+   *
+   * `custom` also executes user validate functions; `loadAllJsonEntries` loads
+   * every `.jsonValues()` entry first (reported through the json-entries progress
+   * store) so nothing is skipped for being un-loaded. Neither happens on any
+   * normal code path — that is the point of having a switch.
+   */
+  async validateAll(options?: {
+    custom?: boolean;
+    loadAllJsonEntries?: boolean;
+  }): Promise<void> {
+    const schemas = this.schemas;
+    if (!schemas) {
+      return;
+    }
+    const moduleFilePaths = Object.keys(schemas) as ModuleFilePath[];
+    if (options?.loadAllJsonEntries) {
+      await this.ensureJsonEntries(moduleFilePaths);
+    }
+    for (const moduleFilePath of moduleFilePaths) {
+      this.requestModuleValidation(moduleFilePath);
+    }
+    if (options?.custom) {
+      for (const moduleFilePath of moduleFilePaths) {
+        await this.runCustomValidationNow(moduleFilePath);
+      }
+    }
+  }
+
+  /**
+   * Runs custom validation for every module the given patches touch, and resolves
+   * once it has finished. Called before publish: structural errors are already
+   * continuously up to date (every update re-validates), but custom validators
+   * only run on update of THEIR module, so a module edited before a validator was
+   * added — or edited in another session — has never had them run.
+   */
+  private async runCustomValidationForPatches(
+    patchIds: PatchId[],
+  ): Promise<void> {
+    const moduleFilePaths = new Set<ModuleFilePath>();
+    for (const patchId of patchIds) {
+      const moduleFilePath = this.patchDataByPatchId[patchId]?.moduleFilePath;
+      if (moduleFilePath !== undefined) {
+        moduleFilePaths.add(moduleFilePath);
+      }
+    }
+    for (const moduleFilePath of moduleFilePaths) {
+      await this.runCustomValidationNow(moduleFilePath);
+    }
+  }
+
+  /** Overridable in tests, where yielding to a real scheduler is not wanted. */
+  protected yieldToBackground(): Promise<void> {
+    return yieldToBackground();
+  }
+  // #endregion Custom validation
 
   private applyValidationResult(
     moduleFilePath: ModuleFilePath,
@@ -2412,7 +2757,7 @@ export class ValSyncEngine {
     this.invalidateAllPatches();
     this.invalidatePendingClientSidePatchIds();
     this.invalidateSource(moduleFilePath);
-    this.requestModuleValidation(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath, { custom: true });
     const addOp: AddPatchOp = {
       type: "add-patches",
       data: {
@@ -2450,7 +2795,7 @@ export class ValSyncEngine {
     }
     // Cleanup happened in executeAddPatches's failure path; just invalidate.
     this.invalidateSource(moduleFilePath);
-    this.requestModuleValidation(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath, { custom: true });
     return {
       status: "patch-sync-error",
       message: "Could not sync patch. Tried 3 times.",
@@ -2516,7 +2861,7 @@ export class ValSyncEngine {
         // (maxLength, regex, ...) surface within a worker round-trip — no
         // waiting for the next sync tick. The worker dedups stale requests
         // when the user keeps typing.
-        this.requestModuleValidation(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath, { custom: true });
 
         return {
           status: "patch-merged",
@@ -2553,7 +2898,7 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
-        this.requestModuleValidation(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath, { custom: true });
 
         return {
           status: "patch-added",
@@ -2589,7 +2934,7 @@ export class ValSyncEngine {
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
-      this.requestModuleValidation(moduleFilePath);
+      this.requestModuleValidation(moduleFilePath, { custom: true });
 
       return {
         status: "patch-added",
@@ -3863,6 +4208,12 @@ export class ValSyncEngine {
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
 
+      // Custom validators only run on update of their own module, so a module
+      // edited before a validator existed (or edited in another session) has never
+      // had them run. Do it now, before the gate below reads the errors — that is
+      // what makes the pre-publish check complete rather than merely recent.
+      await this.runCustomValidationForPatches(patchIds);
+
       const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
       const hasValidationError =
         Object.values(surfacedValidationErrors || {}).flatMap(
@@ -4098,6 +4449,13 @@ const JSON_ENTRIES_CHUNK_SIZE = Math.min(50, JSON_ENTRIES_BATCH_MAX);
  * with no errors is otherwise a mystery.
  */
 const JSON_ENTRIES_MAX_LOAD_PASSES = 3;
+
+/**
+ * How long a custom-validation run may hold the main thread before yielding.
+ * ~5ms keeps it well inside a frame; the user's own slow validator can still
+ * overrun a slice, which is theirs to fix.
+ */
+const CUSTOM_VALIDATION_SLICE_MS = 5;
 
 /** Progress of the current `.jsonValues()` entry load run. */
 export type JsonEntriesProgress = {

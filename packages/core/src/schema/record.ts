@@ -735,6 +735,17 @@ export class RecordSchema<
     return false;
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedRecordSchema {
     const result: SerializedRecordSchema = {
       type: "record",

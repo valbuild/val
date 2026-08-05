@@ -513,6 +513,205 @@ describe("ValSyncEngine", () => {
     });
   });
 
+  describe("custom validation (client-side, from schema instances)", () => {
+    const CONTENT = "/content.val.ts" as const;
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    /** A module with BOTH a structural rule and a custom validator on one field. */
+    function setupCustom() {
+      const { s, c, config } = initVal();
+      const valModule = c.define(
+        CONTENT,
+        s.object({
+          title: s
+            .string()
+            .minLength(20)
+            .validate((src) =>
+              src.includes("forbidden")
+                ? "the word forbidden is banned"
+                : false,
+            ),
+        }),
+        { title: "a long enough title" },
+      );
+      const tester = new SyncEngineTester("fs", [valModule], config);
+      return { tester, config, valModule };
+    }
+
+    const messagesAt = (engine: ValSyncEngine, path: string) =>
+      (engine.getAllValidationErrorsSnapshot()?.[path as SourcePath] ?? []).map(
+        (error) => error.message,
+      );
+
+    test("does NOT run on boot: loading a project must not execute user code", async () => {
+      // The trigger policy: custom validation is for updates (and pre-publish),
+      // never the load path — otherwise every boot and every HMR runs arbitrary
+      // user functions for every module.
+      const { tester, config } = setupCustom();
+      const { s, c } = initVal();
+      const alreadyBad = c.define(
+        CONTENT,
+        s.object({
+          title: s
+            .string()
+            .validate((src) =>
+              src.includes("forbidden")
+                ? "the word forbidden is banned"
+                : false,
+            ),
+        }),
+        { title: "forbidden content" },
+      );
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [alreadyBad]));
+      await flush();
+
+      expect(messagesAt(engine, `${CONTENT}?p="title"`)).toEqual([]);
+    });
+
+    test("runs on update, and MERGES with the structural errors", async () => {
+      const { tester, config, valModule } = setupCustom();
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      // "forbidden words" is BOTH too short (minLength 20) and banned by the
+      // user's validator, so both errors must end up at the same path: structural
+      // comes from the worker and publishes first, custom is merged in after, and
+      // a merge that replaced instead would drop one of them.
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [{ op: "replace", path: ["title"], value: "forbidden words" }],
+        tester.getNextNow(),
+      );
+      await flush();
+      const bothErrors = messagesAt(engine, `${CONTENT}?p="title"`);
+      expect(bothErrors).toHaveLength(2);
+      expect(bothErrors).toEqual(
+        expect.arrayContaining([
+          "the word forbidden is banned",
+          expect.stringContaining("20"),
+        ]),
+      );
+
+      // Fixing the custom violation leaves the structural one behind...
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [{ op: "replace", path: ["title"], value: "short" }],
+        tester.getNextNow(),
+      );
+      await flush();
+      expect(messagesAt(engine, `${CONTENT}?p="title"`)).toEqual([
+        expect.stringContaining("20"),
+      ]);
+
+      // ...and fixing both clears the path entirely.
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [
+          {
+            op: "replace",
+            path: ["title"],
+            value: "a perfectly fine title",
+          },
+        ],
+        tester.getNextNow(),
+      );
+      await flush();
+      expect(messagesAt(engine, `${CONTENT}?p="title"`)).toEqual([]);
+    });
+
+    test("validateAll({custom}) surfaces errors with no edit at all", async () => {
+      const { tester, config } = setupCustom();
+      const { s, c } = initVal();
+      const alreadyBad = c.define(
+        CONTENT,
+        s.object({
+          title: s
+            .string()
+            .validate((src) =>
+              src.includes("forbidden")
+                ? "the word forbidden is banned"
+                : false,
+            ),
+        }),
+        { title: "forbidden content" },
+      );
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [alreadyBad]));
+
+      await engine.validateAll({ custom: true });
+      expect(messagesAt(engine, `${CONTENT}?p="title"`)).toEqual([
+        "the word forbidden is banned",
+      ]);
+    });
+
+    test("a validator on a .jsonValues() item loads the entries it needs", async () => {
+      // The needs-keys round: a validator cannot run against an opaque marker, so
+      // the walk reports the keys and the engine loads them before executing.
+      const { s, c, config } = initVal();
+      const PAGES = "/pages.val.ts" as const;
+      const valModule = c.define(
+        PAGES,
+        s
+          .record(
+            s.object({
+              title: s
+                .string()
+                .validate((src) =>
+                  src.includes("forbidden") ? "banned title" : false,
+                ),
+            }),
+          )
+          .jsonValues(),
+        {
+          "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
+          "/b": c.json(() =>
+            Promise.resolve({ default: { title: "forbidden" } }),
+          ),
+        },
+      );
+      const tester = new SyncEngineTester("fs", [valModule], config);
+      tester.fakeJsonEntries[PAGES] = {
+        "/a": { title: "ok" },
+        "/b": { title: "forbidden" },
+      };
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      await engine.validateAll({ custom: true });
+      await flush();
+
+      // The offending entry was never opened by a user: it was loaded because the
+      // validator could not be trusted without it.
+      expect(messagesAt(engine, `${PAGES}?p="/b"."title"`)).toEqual([
+        "banned title",
+      ]);
+      expect(messagesAt(engine, `${PAGES}?p="/a"."title"`)).toEqual([]);
+    });
+
+    test("no instances (no <ValModulesClient>) ⇒ no custom validation, no crash", async () => {
+      const { tester } = setupCustom();
+      const engine = await tester.createInitializedSyncEngine();
+
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [{ op: "replace", path: ["title"], value: "forbidden words" }],
+        tester.getNextNow(),
+      );
+      await flush();
+
+      // Structural validation still works (the serialized schema is enough for
+      // it), but the user's function cannot run without the real instance.
+      const messages = messagesAt(engine, `${CONTENT}?p="title"`);
+      expect(messages).toEqual([expect.stringContaining("20")]);
+      expect(messages).not.toContain("the word forbidden is banned");
+    });
+  });
+
   test("schemaOutOfDate disables publish and is cleared when falling back to server", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
