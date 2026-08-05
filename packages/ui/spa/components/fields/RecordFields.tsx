@@ -1,9 +1,4 @@
-import {
-  Internal,
-  ListRecordRender as ListRecordRender,
-  ModuleFilePath,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useMemo } from "react";
 import {
   useRenderOverrideAtPath,
@@ -146,11 +141,16 @@ export function RecordFields({
       {renderAtPath?.status === "error" && (
         <PreviewError error={renderAtPath.message} path={path} />
       )}
-      {renderListAtPathData && (
+      {renderListAtPathData && source && (
         <ListRecordRenderComponent
           path={path}
+          // The KEYS come from the source, not from the render's `items`: for a
+          // `.jsonValues()` record `items` covers only the loaded entries, and a
+          // list that rendered just those could never scroll far enough to load
+          // the rest. Each row looks its own item up by key (resolveRefPreview),
+          // so a key with no item falls back to a skeleton or the default preview.
+          keys={Object.keys(source)}
           jsonValues={schema.jsonValues === true}
-          {...renderListAtPathData}
         />
       )}
       {!renderListAtPathData && source && (
@@ -298,11 +298,12 @@ function useJsonEntryRowStates(
 
 function ListRecordRenderComponent({
   path,
-  items,
+  keys,
   jsonValues,
 }: {
   path: SourcePath;
-  items: ListRecordRender["items"];
+  /** Every key of the record, in source order — see the call site. */
+  keys: string[];
   jsonValues: boolean;
 }) {
   const { navigate } = useNavigation();
@@ -312,7 +313,6 @@ function ListRecordRenderComponent({
     moduleFilePath,
     jsonValues,
   );
-  const keys = useMemo(() => items.map(([key]) => key), [items]);
   return (
     <VirtualizedRecordList
       moduleFilePath={moduleFilePath}

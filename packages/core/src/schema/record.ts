@@ -5,7 +5,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { RenderSelector, ReifiedRender } from "../render";
+import { ListRecordRender, RenderSelector, ReifiedRender } from "../render";
 import { splitModuleFilePathAndModulePath } from "../module";
 import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
@@ -792,14 +792,16 @@ export class RecordSchema<
     if (src === null) {
       return res;
     }
-    if (this.isJsonValues) {
-      // jsonValues entries are not inlined, so there is no per-entry source to
-      // render at the record level. Rendering happens per entry once loaded.
-      return res;
-    }
     for (const key in src) {
       const itemSrc = src[key as unknown as SelectorOfSchema<K>];
       if (itemSrc === null || itemSrc === undefined) {
+        continue;
+      }
+      if (isJson(itemSrc)) {
+        // An un-loaded `.jsonValues()` entry: an opaque marker, not the item this
+        // schema describes. Skipping it is what makes rendering a partially
+        // loaded record work — the result comes out covering exactly the loaded
+        // keys, and the caller renders a placeholder for the rest.
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
@@ -817,28 +819,35 @@ export class RecordSchema<
           message: "Unknown layout type: " + layout,
         };
       }
-      try {
-        res[sourcePath] = {
-          status: "success",
-          data: {
-            layout: "list",
-            parent: "record",
-            items: Object.entries(src).map(([key, val]) => {
-              // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = prepare({
-                key,
-                val: val as SelectorOfSchema<T>,
-              });
-              return [key, { title, subtitle, image }];
-            }),
-          },
-        };
-      } catch (e) {
-        res[sourcePath] = {
-          status: "error",
-          message: e instanceof Error ? e.message : "Unknown error",
-        };
+      const items: ListRecordRender["items"] = [];
+      for (const [key, val] of Object.entries(src)) {
+        if (isJson(val)) {
+          continue; // as above: nothing to select from an un-loaded entry
+        }
+        // Per KEY, not per record: `select` is user code, and one entry whose
+        // data trips it up must not take out the whole list.
+        try {
+          // NB NB: display is actually defined by the user
+          const { title, subtitle, image } = prepare({
+            key,
+            val: val as SelectorOfSchema<T>,
+          });
+          items.push([key, { title, subtitle, image }]);
+        } catch (e) {
+          res[unsafeCreateSourcePath(sourcePath, key)] = {
+            status: "error",
+            message: e instanceof Error ? e.message : "Unknown error",
+          };
+        }
       }
+      res[sourcePath] = {
+        status: "success",
+        data: {
+          layout: "list",
+          parent: "record",
+          items,
+        },
+      };
     }
     return res;
   }

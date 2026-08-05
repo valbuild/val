@@ -388,6 +388,131 @@ describe("ValSyncEngine", () => {
     expect(Object.keys(errors).length).toBeGreaterThan(0);
   });
 
+  describe("renders from client-side schema instances", () => {
+    const PAGES = "/pages.val.ts" as const;
+
+    function setupRenderModule() {
+      const { s, c, config } = initVal();
+      const valModule = c.define(
+        PAGES,
+        s.record(s.object({ title: s.string() })).render({
+          as: "list",
+          select: ({ val }) => ({ title: val.title.toUpperCase() }),
+        }),
+        { a: { title: "first" }, b: { title: "second" } },
+      );
+      const tester = new SyncEngineTester("fs", [valModule], config);
+      return { tester, config, valModule };
+    }
+
+    function itemsOf(engine: ValSyncEngine) {
+      const render = engine.getRenderSnapshot(toModuleFilePath(PAGES));
+      const atModule = render?.[PAGES as unknown as SourcePath];
+      if (!atModule || atModule.status !== "success") {
+        return null;
+      }
+      const data = atModule.data;
+      return data.layout === "list" && data.parent === "record"
+        ? data.items
+        : null;
+    }
+
+    test("the user's select runs: renders exist without any server render", async () => {
+      // Regression: the SPA threw the schema INSTANCES away in setValModules and
+      // re-derived a deserializeSchema copy, which has no `select` — so renders
+      // were null Studio-wide and every list layout silently fell back.
+      const { tester, config, valModule } = setupRenderModule();
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      expect(itemsOf(engine)).toEqual([
+        ["a", { title: "FIRST", subtitle: undefined, image: undefined }],
+        ["b", { title: "SECOND", subtitle: undefined, image: undefined }],
+      ]);
+    });
+
+    test("renders follow the PATCHED source, so a row updates as you type", async () => {
+      const { tester, config, valModule } = setupRenderModule();
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "replace", path: ["a", "title"], value: "edited" }],
+        tester.getNextNow(),
+      );
+
+      // Recomputed from the patched source — something the server render path
+      // could never do, since the Studio always sends apply_patches:false.
+      expect(itemsOf(engine)).toEqual([
+        ["a", { title: "EDITED", subtitle: undefined, image: undefined }],
+        ["b", { title: "SECOND", subtitle: undefined, image: undefined }],
+      ]);
+    });
+
+    test("without local modules, renders fall back to what the server sent", async () => {
+      const { tester } = setupRenderModule();
+      const engine = await tester.createInitializedSyncEngine();
+      // No setValModules → no instances. The server sends none either, so this is
+      // today's behaviour: nothing to render, and nothing crashes.
+      expect(engine.getRenderSnapshot(toModuleFilePath(PAGES))).toBe(null);
+
+      const serverRender: ReifiedRender = {
+        [PAGES as unknown as SourcePath]: {
+          status: "success",
+          data: { layout: "list", parent: "record", items: [] },
+        },
+      };
+      engine.setRenders({ [toModuleFilePath(PAGES)]: serverRender });
+      expect(engine.getRenderSnapshot(toModuleFilePath(PAGES))).toEqual(
+        serverRender,
+      );
+    });
+
+    test("a .jsonValues() record renders the entries that are loaded", async () => {
+      const { s, c, config } = initVal();
+      const valModule = c.define(
+        PAGES,
+        s
+          .record(s.object({ title: s.string() }))
+          .jsonValues()
+          .render({
+            as: "list",
+            select: ({ val }) => ({ title: val.title }),
+          }),
+        {
+          "/a": c.json(() => Promise.resolve({ default: { title: "A" } })),
+          "/b": c.json(() => Promise.resolve({ default: { title: "B" } })),
+        },
+      );
+      const tester = new SyncEngineTester("fs", [valModule], config);
+      tester.fakeJsonEntries[PAGES] = {
+        "/a": { title: "A" },
+        "/b": { title: "B" },
+      };
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      // Nothing loaded: every value is still an opaque marker, so there is
+      // nothing to select from — but the render must not throw or bail out.
+      expect(itemsOf(engine)).toEqual([]);
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      // Partial by construction: exactly the loaded key. The list renders the
+      // remaining keys as skeletons, which is what makes windowing free.
+      expect(itemsOf(engine)).toEqual([
+        ["/a", { title: "A", subtitle: undefined, image: undefined }],
+      ]);
+
+      await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+      expect(itemsOf(engine)).toEqual([
+        ["/a", { title: "A", subtitle: undefined, image: undefined }],
+        ["/b", { title: "B", subtitle: undefined, image: undefined }],
+      ]);
+    });
+  });
+
   test("schemaOutOfDate disables publish and is cleared when falling back to server", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(

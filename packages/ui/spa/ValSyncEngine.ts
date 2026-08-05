@@ -199,6 +199,24 @@ export class ValSyncEngine {
   private localSchemas: Record<ModuleFilePath, SerializedSchema> | null;
   private localSchemaSha: string | null;
   /**
+   * The user's REAL `Schema` instances, straight from the ValModules registry —
+   * not a `deserializeSchema` copy of the serialized form.
+   *
+   * They exist only when the host app renders `<ValModulesClient>`; without it
+   * this stays null and everything falls back to the serialized behaviour. What
+   * they carry that serialization cannot: the render `select` functions, the
+   * custom validate functions and the router. Anything needing schema BEHAVIOUR
+   * (rather than shape) has to read these.
+   *
+   * Cross-bundle identity is a non-issue: the identity symbols use `Symbol.for`,
+   * and protected methods are reached by bracket access (`schema["executeX"]()`)
+   * precisely because `instanceof` is unreliable across two copies of core.
+   */
+  private localSchemaInstances: Record<
+    ModuleFilePath,
+    Schema<SelectorSource>
+  > | null;
+  /**
    * Un-patched sources extracted client-side from a ValModules registry.
    * Used to seed `serverSources` immediately (before /sources/~ resolves)
    * when no server response has landed yet. Patches are layered on top via
@@ -306,6 +324,7 @@ export class ValSyncEngine {
     this.clientSideSchemaSha = null;
     this.localSchemas = null;
     this.localSchemaSha = null;
+    this.localSchemaInstances = null;
     this.localSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
@@ -436,6 +455,7 @@ export class ValSyncEngine {
     this.clientSideSchemaSha = null;
     this.localSchemas = null;
     this.localSchemaSha = null;
+    this.localSchemaInstances = null;
     this.localSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
@@ -671,6 +691,10 @@ export class ValSyncEngine {
     this.emit(this.listeners["source"]?.[moduleFilePath]);
     this.emit(this.listeners["all-sources"]?.[globalNamespace]);
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
+    // Renders are computed FROM the source (see computeRender), so a source that
+    // moved has renders that moved with it — including a `.jsonValues()` entry
+    // that just finished loading, whose row can now render for real.
+    this.invalidateRenders(moduleFilePath);
   }
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
@@ -684,7 +708,8 @@ export class ValSyncEngine {
     }
     this.cachedRenderSnapshots = {
       ...this.cachedRenderSnapshots,
-      [moduleFilePath]: null,
+      // undefined = "recompute on next read"; see getRenderSnapshot.
+      [moduleFilePath]: undefined,
     };
     this.cachedAllRendersSnapshot = null;
     this.emit(this.listeners["render"]?.[moduleFilePath]);
@@ -845,17 +870,62 @@ export class ValSyncEngine {
 
   private cachedRenderSnapshots: Record<
     ModuleFilePath,
-    ReifiedRender | null
+    ReifiedRender | null | undefined
   > | null;
-  getRenderSnapshot(moduleFilePath: ModuleFilePath) {
+  getRenderSnapshot(moduleFilePath: ModuleFilePath): ReifiedRender | null {
     if (this.cachedRenderSnapshots === null) {
       this.cachedRenderSnapshots = {};
     }
-    if (this.cachedRenderSnapshots[moduleFilePath] === null) {
-      this.cachedRenderSnapshots[moduleFilePath] =
-        this.renders?.[moduleFilePath] || null;
+    const cached = this.cachedRenderSnapshots[moduleFilePath];
+    // `undefined` means "not computed", `null` means "computed: nothing to
+    // render". Conflating them would re-run every module's `select` on every
+    // read, which for a large record is O(entries) per render pass.
+    if (cached !== undefined) {
+      return cached;
     }
-    return this.cachedRenderSnapshots[moduleFilePath];
+    const computed =
+      this.computeRender(moduleFilePath) ??
+      this.renders?.[moduleFilePath] ??
+      null;
+    this.cachedRenderSnapshots[moduleFilePath] = computed;
+    return computed;
+  }
+
+  /**
+   * Renders a module from the user's own schema INSTANCE against the PATCHED
+   * source — which is the whole point: `select` is a user function that only the
+   * instance carries, and running it on the patched source means a row's title
+   * updates as the user types, something the server render path could never do.
+   *
+   * Returns null when there is nothing to compute from (no instances, because the
+   * host app does not render `<ValModulesClient>`; or no source yet), and the
+   * caller falls back to whatever the server sent.
+   *
+   * Lazy + cached by `cachedRenderSnapshots`: `invalidateSource` drops the cache
+   * entry, so this recomputes on the next read rather than on every patch.
+   */
+  private computeRender(
+    moduleFilePath: ModuleFilePath,
+  ): ReifiedRender | undefined {
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (!instance) {
+      return undefined;
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return undefined;
+    }
+    try {
+      return instance["executeRender"](
+        moduleFilePath,
+        source as SelectorSource,
+      );
+    } catch (e) {
+      // A render is decoration: a schema whose render throws at the module level
+      // must not take the module's fields down with it.
+      console.error("Val: could not render module", moduleFilePath, e);
+      return undefined;
+    }
   }
 
   /**
@@ -1783,12 +1853,16 @@ export class ValSyncEngine {
   getAllRendersSnapshot(): Record<ModuleFilePath, ReifiedRender | null> {
     if (this.cachedAllRendersSnapshot === null) {
       this.cachedAllRendersSnapshot = {};
-      if (this.renders) {
-        for (const moduleFilePathS in this.renders) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          this.cachedAllRendersSnapshot[moduleFilePath] =
-            this.renders[moduleFilePath];
-        }
+      // Every module we have a SCHEMA for, not just the ones the server sent a
+      // render for: with client-side instances the render is computed here, and
+      // the server sends none (the Studio always asks for apply_patches:false).
+      const moduleFilePaths = new Set<ModuleFilePath>([
+        ...(Object.keys(this.localSchemaInstances ?? {}) as ModuleFilePath[]),
+        ...(Object.keys(this.renders ?? {}) as ModuleFilePath[]),
+      ]);
+      for (const moduleFilePath of moduleFilePaths) {
+        this.cachedAllRendersSnapshot[moduleFilePath] =
+          this.getRenderSnapshot(moduleFilePath);
       }
     }
     return this.cachedAllRendersSnapshot;
@@ -3007,6 +3081,7 @@ export class ValSyncEngine {
     if (!valModules) {
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = { type: "absent" };
@@ -3027,6 +3102,7 @@ export class ValSyncEngine {
       console.debug("setValModules: extractValModules threw", e);
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
@@ -3046,6 +3122,7 @@ export class ValSyncEngine {
       );
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
@@ -3058,6 +3135,11 @@ export class ValSyncEngine {
     }
     this.localSchemas = extracted.serializedSchemas;
     this.localSchemaSha = extracted.schemaSha;
+    // Keep the INSTANCES: this is the only place they are available, and
+    // discarding them is what made renders (and custom validators) dead in the
+    // Studio — everything downstream re-derived a `deserializeSchema` copy that
+    // has neither.
+    this.localSchemaInstances = extracted.schemas;
     this.localSources = extracted.sources;
     this.localSourcesSha = extracted.sourcesSha;
     this.localModulesStatus = {
