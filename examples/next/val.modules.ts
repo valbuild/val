@@ -9,4 +9,8 @@ export default modules(config, [
   { def: () => import("./content/media.val") },
   { def: () => import("./app/page.val") },
   { def: () => import("./app/external.val") },
+  // Fixtures for the .jsonValues() walkthrough (docs/plans/jsonValues-walkthrough.md)
+  { def: () => import("./content/kb.val") },
+  { def: () => import("./content/tags.val") },
+  { def: () => import("./content/featuredContent.val") },
 ]);

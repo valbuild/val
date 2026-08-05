@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fixtures": "node scripts/jsonvalues-fixtures.mjs"
   },
   "dependencies": {
     "@preconstruct/next": "^4.0.0",

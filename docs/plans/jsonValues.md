@@ -424,6 +424,35 @@ JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJson
       was a stale local install, not a code problem** — `pnpm install --frozen-lockfile` linked
       `chokidar@5` and `-r typecheck` is now clean across every package, examples included. Do not treat
       it as expected any more.
+- [x] Walkthrough fixtures + helper script + checklist — DONE (2026-08-05). See
+      [jsonValues-walkthrough.md](./jsonValues-walkthrough.md). `examples/next` gained a 120-entry
+      jsonValues RECORD (`/content/kb.val.ts`, generated, item schema holds `keyOf(authors)` + `route()` so
+      both the outgoing-ref and the route over-approximation cases are reachable), an ordinary module
+      holding refs INTO the jsonValues modules (`/content/featuredContent.val.ts`, the zero-request case),
+      and an ordinary record nothing jsonValues references (`/content/tags.val.ts`, the instant case).
+      `pnpm fixtures <generate|corrupt|restore|nested|reset|status>` produces the states that cannot be
+      checked in (a corrupt entry, a deliberately nested `.jsonValues()` module) and resets the app after a
+      step has renamed/deleted/published something.
+
+### Known gaps found while building the walkthrough (2026-08-05, PRE-EXISTING)
+
+Both are in `val validate` (the CLI), which is a THIRD entry point next to `/sources/~` and the commit
+flow — and it has never known about `.jsonValues()`: `packages/cli/src/runValidation.ts` and `validate.ts`
+contain no reference to `jsonValues`/`getJsonImport`/`isJson`. It goes through `createService` →
+`Service.get`, not `ValOps.initSources`/`validateSources`, so neither guard that this feature relies on
+runs there. Verified against `examples/next`:
+
+- [ ] **Entry CONTENT is never validated.** With `content/kb/entry-005.val.json` edited to
+      `order: "not a number"` and `author: "does-not-exist"`, `npx val validate` reports
+      `content/kb.val.ts valid (0ms)` — the 0ms is the tell: it validates the record's MARKERS (which is all
+      `RecordSchema.validate` does when `isJsonValues`, by design) and never loads an entry. So a broken
+      `*.val.json` passes CI in any project that gates on `val validate`, and only shows up in the Studio.
+      Fix direction: wire `validateJsonValuesEntries` (already written, already used by
+      `ValOps.validateSources`) into the CLI path. The cost is the accepted one from locked decision #3 —
+      validation loads every entry, since there is no revalidation token.
+- [ ] **Nested `.jsonValues()` is not rejected.** `pnpm fixtures nested on` + `npx val validate` reports
+      `content/nestedJsonValues.val.ts valid` while the Studio refuses to load the project (locked decision
+      #7). Same root cause; `findNestedJsonValuesRecords` lives in `ValOps.initSources` only.
 
 ## Phase 6 — Reference integrity + search over un-loaded entries — CODE COMPLETE (manual verify left)
 
