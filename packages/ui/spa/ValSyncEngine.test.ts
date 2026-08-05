@@ -692,6 +692,29 @@ describe("ValSyncEngine", () => {
       expect(messagesAt(engine, `${PAGES}?p="/a"."title"`)).toEqual([]);
     });
 
+    test("validatePatchResult catches a custom-only violation, synchronously", async () => {
+      // `executeValidate` on a real instance runs the node's custom validators
+      // too, so the main thread's "would this patch validate?" check gets them for
+      // free — where a deserialized copy would have said the patch is fine.
+      const { tester, config, valModule } = setupCustom();
+      const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+      await engine.setValModules(makeValModules(config, [valModule]));
+
+      const res = engine.validatePatchResult(toModuleFilePath(CONTENT), [
+        {
+          op: "replace",
+          path: ["title"],
+          value: "a forbidden but long enough title",
+        },
+      ]);
+      expect(res).not.toBe(false);
+      expect(
+        Object.values(res as Record<string, { message: string }[]>)
+          .flat()
+          .map((error) => error.message),
+      ).toContain("the word forbidden is banned");
+    });
+
     test("no instances (no <ValModulesClient>) ⇒ no custom validation, no crash", async () => {
       const { tester } = setupCustom();
       const engine = await tester.createInitializedSyncEngine();

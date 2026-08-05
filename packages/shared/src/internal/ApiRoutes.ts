@@ -864,7 +864,6 @@ export const Api = {
             modules: z.record(
               ModuleFilePath,
               z.object({
-                render: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
                 baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
                 patches: z

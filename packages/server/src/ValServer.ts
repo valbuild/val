@@ -48,7 +48,6 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedRender } from "@valbuild/core";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
@@ -1525,10 +1524,6 @@ export const ValServer = (
             },
           };
         }
-        const renderRes = applyPatches
-          ? await serverOps.getRenders(schemasRes, sourcesRes.sources)
-          : { renders: {} as Record<ModuleFilePath, ReifiedRender | null> };
-
         let sourcesValidation: {
           errors: Record<
             ModuleFilePath,
@@ -1573,7 +1568,6 @@ export const ValServer = (
           {
             source: Json;
             baseSource?: Json;
-            render: ReifiedRender | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1617,7 +1611,6 @@ export const ValServer = (
                 applyPatches && hasPatches
                   ? unpatchedSources[moduleFilePath]
                   : undefined,
-              render: renderRes.renders[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||

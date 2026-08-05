@@ -56,7 +56,6 @@ import {
   resolveSchemaSourceFixForError,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
-import { ReifiedRender } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -544,21 +543,6 @@ export abstract class ValOps {
       patchesByModule,
       fileLastUpdatedByPatchId,
     };
-  }
-
-  // #region getRenders
-  async getRenders(
-    schemas: Schemas,
-    sources: Sources,
-  ): Promise<{
-    renders: Record<ModuleFilePath, ReifiedRender | null>;
-  }> {
-    const renders: Record<ModuleFilePath, ReifiedRender | null> = {};
-    for (const [pathS, schema] of Object.entries(schemas)) {
-      const path = pathS as ModuleFilePath;
-      renders[path] = schema["executeRender"](path, sources[path]);
-    }
-    return { renders };
   }
 
   // #region getSources

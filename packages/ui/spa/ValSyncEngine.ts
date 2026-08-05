@@ -1901,10 +1901,43 @@ export class ValSyncEngine {
     ModuleFilePath,
     SerializedSchema
   > | null;
+  /**
+   * Deserialized schemas, used ONLY as the fallback for apps that do not register
+   * a client-side ValModules registry. See {@link behaviourSchema}.
+   */
   private cachedDeserializedSchemas: Record<
     ModuleFilePath,
     Schema<SelectorSource>
   > | null;
+
+  /**
+   * The schema to run BEHAVIOUR against on the main thread — validation,
+   * rendering, anything that executes rather than inspects.
+   *
+   * Prefers the user's own instance, which is the whole point of Phase 7: a
+   * `deserializeSchema` copy silently drops the render `select`, the custom
+   * validate functions and the router, so behaviour derived from it is a
+   * lobotomised approximation. The copy remains the fallback because
+   * `<ValModulesClient>` is optional — an app that does not render it has no
+   * instances, and a partly-working schema beats none.
+   */
+  private behaviourSchema(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+  ): Schema<SelectorSource> {
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (instance) {
+      return instance;
+    }
+    if (!this.cachedDeserializedSchemas) {
+      this.cachedDeserializedSchemas = {};
+    }
+    if (!this.cachedDeserializedSchemas[moduleFilePath]) {
+      this.cachedDeserializedSchemas[moduleFilePath] =
+        deserializeSchema(serializedSchema);
+    }
+    return this.cachedDeserializedSchemas[moduleFilePath];
+  }
   getAllSchemasSnapshot() {
     if (this.cachedAllSchemasSnapshot === null) {
       this.cachedAllSchemasSnapshot = {};
@@ -2686,18 +2719,12 @@ export class ValSyncEngine {
         message: patchRes.error.message,
       };
     }
-    if (!this.cachedDeserializedSchemas) {
-      this.cachedDeserializedSchemas = {};
-    }
-    if (!this.cachedDeserializedSchemas[moduleFilePath]) {
-      this.cachedDeserializedSchemas[moduleFilePath] =
-        deserializeSchema(serializedSchema);
-    }
-    const schema = this.cachedDeserializedSchemas[moduleFilePath];
-    return schema["executeValidate"](
-      moduleFilePath as string as SourcePath,
-      patchRes.value,
-    );
+    // With the user's instance this also runs their custom validate functions:
+    // every schema class's `executeValidate` calls its own, so a patch that only
+    // violates a custom rule is now caught here too.
+    return this.behaviourSchema(moduleFilePath, serializedSchema)[
+      "executeValidate"
+    ](moduleFilePath as string as SourcePath, patchRes.value);
   }
 
   /**
@@ -4084,12 +4111,9 @@ export class ValSyncEngine {
               // stale pre-edit content is re-substituted and the edit looks
               // like it reverted.
               this.markJsonEntriesStale(moduleFilePath);
-              // render is always null in the new mode; keep the renders map
-              // up-to-date for any downstream code that still subscribes.
-              if (this.renders === null) {
-                this.renders = {};
-              }
-              this.renders[moduleFilePath] = valModule.render || null;
+              // Renders are computed client-side from the schema instances, so
+              // there is nothing to read off the response any more — but the
+              // source moved, so they have to be recomputed.
               this.invalidateRenders(moduleFilePath);
               // Drop any cached patched view for this module; the next read
               // rebuilds from the fresh un-patched source.
