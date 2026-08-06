@@ -285,6 +285,51 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     expect(items[0].textEdit).toBeDefined();
   });
 
+  test("advertises the route completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/route");
+  });
+
+  test("offers the project's routes for an s.route field", async () => {
+    // page.val.ts declares `link: s.route()`. The candidates are the keys of the
+    // project's router modules, so this also needs the snapshot.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const pageUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(pageUri, original);
+    await session.nextDiagnostics(pageUri);
+
+    const match = original.match(/\n\s+link:\s*"([^"]*)"/);
+    expect(match).not.toBeNull();
+    const document = TextDocument.create(pageUri, "typescript", 1, original);
+    const offset =
+      original.indexOf(match![0]) + match![0].indexOf('"', "link:".length) + 1;
+
+    const items = await session.requestCompletions(
+      pageUri,
+      document.positionAt(offset),
+    );
+    const labels = items.map((i) => i.label);
+    expect(labels.length).toBeGreaterThan(0);
+
+    // Internal pages: the root page exists in the example app.
+    expect(labels).toContain("/");
+    expect(labels.some((l) => l.startsWith("/blogs/"))).toBe(true);
+
+    // External URLs are valid route values too -- the example app registers them
+    // through a router module using externalPageRouter -- so they belong in the
+    // candidate list rather than being filtered out.
+    const external = items.filter((i) => i.label.startsWith("https://"));
+    expect(external.length).toBeGreaterThan(0);
+    expect(external[0].detail).toBe("/app/external.val.ts");
+
+    // Every item says which module defines it, so an internal page and an
+    // external link are distinguishable in the list.
+    for (const item of items) {
+      expect(item.detail).toMatch(/\.val\.ts$/);
+      expect(item.textEdit).toBeDefined();
+    }
+  });
+
   test("offers nothing outside a file reference", async () => {
     const text = `import { s, c } from "../val.config";
 export default c.define("/content/fixtureCompletion.val.ts", s.object({ a: s.string() }), {

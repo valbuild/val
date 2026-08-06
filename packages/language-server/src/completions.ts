@@ -1,7 +1,10 @@
 import fs from "fs";
 import ts from "typescript";
 import { Internal, type ModulePath, type SourcePath } from "@valbuild/core";
-import type { SchemaSourceSnapshot } from "@valbuild/shared/internal";
+import {
+  getRoutesWithModulePaths,
+  type SchemaSourceSnapshot,
+} from "@valbuild/shared/internal";
 import { extractFileMetadata, extractImageMetadata } from "@valbuild/server";
 import {
   CompletionItem,
@@ -67,7 +70,7 @@ export function createValCompletions({
     if (!moduleFilePath || !snapshot) {
       return [];
     }
-    return createKeyOfCompletions({
+    return createSchemaDrivenCompletions({
       document,
       sourceFile,
       offset,
@@ -202,15 +205,17 @@ async function readMetadata(
 }
 
 /**
- * Keys of the record or object a `s.keyOf(...)` field points at.
+ * Completions whose candidates come from the schema at the cursor.
+ *
+ * Handles `keyOf` (the keys of the record or object it points at) and `route`
+ * (the pages that exist in the project). Both need to look at other modules,
+ * hence the snapshot.
  *
  * The schema at the cursor is found by mapping the cursor position back to a
- * module path, then resolving the schema there. A serialized `keyOf` either
- * lists its `values` directly (object targets) or says `"string"` (record
- * targets), in which case the keys come from the target module's source in the
- * snapshot.
+ * module path and resolving the schema there with `Internal.resolvePath`, rather
+ * than walking the serialized schema by hand.
  */
-function createKeyOfCompletions({
+function createSchemaDrivenCompletions({
   document,
   sourceFile,
   offset,
@@ -259,21 +264,52 @@ function createKeyOfCompletions({
   if (
     !fieldSchema ||
     typeof fieldSchema !== "object" ||
-    !("type" in fieldSchema) ||
-    fieldSchema.type !== "keyOf"
+    !("type" in fieldSchema)
   ) {
     return [];
   }
 
-  const keys = keysOfKeyOf(fieldSchema, snapshot);
   const range: Range = {
     start: document.positionAt(contentStart),
     end: document.positionAt(contentEnd),
   };
-  return keys.map((key, index) => ({
-    label: key,
-    kind: CompletionItemKind.EnumMember,
-    textEdit: { range, newText: key },
+
+  if (fieldSchema.type === "keyOf") {
+    return items(
+      keysOfKeyOf(fieldSchema, snapshot),
+      CompletionItemKind.EnumMember,
+      range,
+    );
+  }
+
+  if (fieldSchema.type === "route") {
+    // The routes that exist are the keys of the project's router modules, which
+    // is exactly what getRoutesWithModulePaths reads out of the snapshot.
+    const routes = getRoutesWithModulePaths(snapshot.schemas, snapshot.sources);
+    return routes.map((route, index) => ({
+      label: route.route,
+      kind: CompletionItemKind.Value,
+      // Say which module defines the page, so an ambiguous route is
+      // distinguishable.
+      detail: route.moduleFilePath,
+      textEdit: { range, newText: route.route },
+      sortText: String(index).padStart(5, "0"),
+    }));
+  }
+
+  return [];
+}
+
+function items(
+  labels: string[],
+  kind: CompletionItemKind,
+  range: Range,
+): CompletionItem[] {
+  return labels.map((label, index) => ({
+    label,
+    kind,
+    textEdit: { range, newText: label },
+    // Preserve the source ordering rather than letting the client re-sort.
     sortText: String(index).padStart(5, "0"),
   }));
 }

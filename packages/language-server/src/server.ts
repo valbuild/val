@@ -267,6 +267,7 @@ export function createValLanguageServer(connection: Connection): {
       "fix/metadata",
       "completions/mediaPath",
       "completions/keyOf",
+      "completions/route",
     ];
     const commands: string[] = [];
 
