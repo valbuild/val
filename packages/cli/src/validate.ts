@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { glob } from "fast-glob";
 import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 
 export async function validate({
@@ -16,9 +16,7 @@ export async function validate({
 }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
 
   const resolvedValConfigFile = valConfigFile
     ? {

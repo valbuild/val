@@ -3,6 +3,7 @@ packages:
   - packages/ui
   - packages/shared
   - packages/server
+  - packages/language-server
   - packages/next
   - packages/react
   - packages/cli
