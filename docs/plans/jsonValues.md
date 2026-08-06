@@ -40,8 +40,9 @@
 >    client hooks (`useValKey`/`useValRoute`) still render COMMITTED content in draft mode, because
 >    `overlayEmitter` is handed the raw `/sources/~` source; and draft-added routes are not reachable
 >    through `fetchValRoute`.
-> 3. **Two PRE-EXISTING `val validate` gaps** found while building the walkthrough (Phase 5): it never
->    validates `.jsonValues()` entry CONTENT, and it does not reject a nested `.jsonValues()`.
+> 3. ~~Two PRE-EXISTING `val validate` gaps~~ — **FIXED 2026-08-06** (see Phase 5): entry content is
+>    validated, nested `.jsonValues()` is rejected, and errors point into the entry's `*.val.json` with a
+>    code frame.
 > 4. **A release note** for custom-validation errors that were invisible before and can now block publish.
 > 5. **Two decisions for Fredrik**: browser caching for `/json`, and whether to add a jsdom jest project
 >    (without one, every UI behaviour in Phases 6–7 is covered by the walkthrough and nothing else).
@@ -466,25 +467,32 @@ corrected here (2026-08-06) after re-verifying each against the code.
       checked in (a corrupt entry, a deliberately nested `.jsonValues()` module) and resets the app after a
       step has renamed/deleted/published something.
 
-### Known gaps found while building the walkthrough (2026-08-05, PRE-EXISTING)
+### `val validate` gaps — FOUND 2026-08-05, FIXED 2026-08-06
 
-Both are in `val validate` (the CLI), which is a THIRD entry point next to `/sources/~` and the commit
-flow — and it has never known about `.jsonValues()`: `packages/cli/src/runValidation.ts` and `validate.ts`
-contain no reference to `jsonValues`/`getJsonImport`/`isJson`. It goes through `createService` →
-`Service.get`, not `ValOps.initSources`/`validateSources`, so neither guard that this feature relies on
-runs there. Verified against `examples/next`:
+Both were PRE-EXISTING: `val validate` is a THIRD entry point next to `/sources/~` and the commit flow,
+and it never knew about `.jsonValues()` — it goes through `createService` → `Service.get`, not
+`ValOps.initSources`/`validateSources`, so neither guard the feature relies on ran there.
 
-- [ ] **Entry CONTENT is never validated.** With `content/kb/entry-005.val.json` edited to
-      `order: "not a number"` and `author: "does-not-exist"`, `npx val validate` reports
-      `content/kb.val.ts valid (0ms)` — the 0ms is the tell: it validates the record's MARKERS (which is all
-      `RecordSchema.validate` does when `isJsonValues`, by design) and never loads an entry. So a broken
-      `*.val.json` passes CI in any project that gates on `val validate`, and only shows up in the Studio.
-      Fix direction: wire `validateJsonValuesEntries` (already written, already used by
-      `ValOps.validateSources`) into the CLI path. The cost is the accepted one from locked decision #3 —
-      validation loads every entry, since there is no revalidation token.
-- [ ] **Nested `.jsonValues()` is not rejected.** `pnpm fixtures nested on` + `npx val validate` reports
-      `content/nestedJsonValues.val.ts valid` while the Studio refuses to load the project (locked decision
-      #7). Same root cause; `findNestedJsonValuesRecords` lives in `ValOps.initSources` only.
+- [x] **Entry CONTENT is now validated.** `Service.get` (the choke point every Service-based caller goes
+      through) runs `validateJsonValuesEntries` when `validate: true`. Before: an entry with
+      `order: "not a number"` reported `content/kb.val.ts valid (0ms)` — the 0ms being the tell that it
+      validated the record's MARKERS and never loaded an entry. After: the errors are reported, and the
+      duration jumps because it now loads every entry (the accepted cost of having no revalidation token,
+      locked decision #3).
+- [x] **Nested `.jsonValues()` is now rejected**, as a fatal error naming the offending path — the same
+      contract `ValOps.initSources` enforces for the Studio. The two entry points no longer disagree.
+- [x] **Errors point INTO the entry's `*.val.json`.** Reporting the errors was not enough: the CLI's
+      source-path → location resolver only ever looked at the `.val.ts`, where a jsonValues value does not
+      exist, so it fell back to printing the bare message — for a 120-entry record, "something in here is
+      wrong". The resolver now follows the entry's `c.json(() => import(...))` thunk
+      (`findJsonEntryFilePath`) and resolves the rest of the path against the JSON with
+      `createJsonEntryPathMap` (`ts.parseJsonText` through the same traversal `createModulePathMap` uses),
+      so you get `content/kb/entry-005.val.json:5:13` plus a code frame.
+      Verified on `examples/next`, and pinned by two CLI tests that fail without the `Service.get` change.
+- Note for fixture authors: with `resolveJsonModule` on, **tsc catches type-level mistakes in a
+  hand-authored `*.val.json` by itself** — a deliberately broken fixture has to violate a CONSTRAINT
+  (`minLength`, `keyOf`, …), not a type. That is also the honest scope of this fix: validation catches what
+  the type system cannot, and entries written by the Studio at runtime never went through tsc at all.
 
 ## Phase 6 — Reference integrity + search over un-loaded entries — CODE COMPLETE (manual verify left)
 

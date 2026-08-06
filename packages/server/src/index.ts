@@ -18,5 +18,10 @@ export {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 export { uploadRemoteFile } from "./uploadRemoteFile";
-export { createModulePathMap, getModulePathRange } from "./modulePathMap";
+export {
+  createModulePathMap,
+  createJsonEntryPathMap,
+  getModulePathRange,
+} from "./modulePathMap";
+export { findJsonEntryFilePath } from "./jsonEntryLocation";
 export type { ModulePathMap } from "./modulePathMap";

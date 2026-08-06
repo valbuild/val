@@ -89,6 +89,25 @@ export function createModulePathMap(
   }
 }
 
+/**
+ * The {@link createModulePathMap} equivalent for a `.jsonValues()` entry's
+ * backing `*.val.json`.
+ *
+ * The file IS the entry's value, so the map is rooted at the JSON document
+ * rather than at a `c.define` argument — but everything below is the same shape,
+ * which means a module path like `"title"` (the part after the entry key)
+ * resolves against it exactly as it would inside a `.val.ts`.
+ */
+export function createJsonEntryPathMap(
+  jsonSourceFile: ts.JsonSourceFile,
+): ModulePathMap | undefined {
+  const statement = jsonSourceFile.statements[0];
+  if (!statement) {
+    return undefined;
+  }
+  return traverse(statement.expression, jsonSourceFile);
+}
+
 function traverse(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
