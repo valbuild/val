@@ -341,8 +341,11 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     }
   });
 
-  test("advertises the gallery key completion feature", () => {
+  test("advertises the gallery key and richtext link features", () => {
     expect(session.capabilities?.features).toContain("completions/galleryKey");
+    expect(session.capabilities?.features).toContain(
+      "completions/richtextLink",
+    );
   });
 
   test("offers files from the gallery's own directory as record keys", async () => {
@@ -371,6 +374,70 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     for (const label of labels) {
       expect(label.startsWith("/public/val/images/")).toBe(true);
     }
+  });
+
+  test("offers routes for a route field nested deep inside a router record", async () => {
+    // link.href is `s.route()` inside an object, inside a record keyed by route.
+    // Exercises the position -> module path walk at depth.
+    const file = path.join(
+      EXAMPLE_APP,
+      "app",
+      "blogs",
+      "[blog]",
+      "page.val.ts",
+    );
+    const blogUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(blogUri, original);
+    await session.nextDiagnostics(blogUri);
+
+    const document = TextDocument.create(blogUri, "typescript", 1, original);
+    const offset = original.indexOf('href: "') + 'href: "'.length;
+    const items = await session.requestCompletions(
+      blogUri,
+      document.positionAt(offset),
+    );
+
+    expect(items.map((i) => i.label)).toContain("/");
+    expect(items.length).toBeGreaterThan(1);
+  });
+
+  test("offers routes for a richtext inline link href", async () => {
+    // A richtext link is a plain `{ tag: "a", href }` node, which Val does not
+    // describe with a schema, so the candidates come from the enclosing
+    // richtext's `inline.a` instead.
+    const file = path.join(
+      EXAMPLE_APP,
+      "app",
+      "blogs",
+      "[blog]",
+      "page.val.ts",
+    );
+    const blogUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+
+    // The example app's richtext content has only `tag: "p"` nodes, so add a link
+    // in the buffer. The file exists on disk, so the snapshot picks up the edit.
+    const withLink = original.replace(
+      '          tag: "p",\n          children: ["Blog 2 content"],',
+      '          tag: "p",\n          children: [{ tag: "a", href: "", children: ["x"] }],',
+    );
+    expect(withLink).not.toBe(original);
+
+    session.openDocument(blogUri, original);
+    await session.nextDiagnostics(blogUri);
+    session.changeDocument(blogUri, 2, withLink);
+    await session.nextDiagnostics(blogUri);
+
+    const document = TextDocument.create(blogUri, "typescript", 1, withLink);
+    const offset = withLink.indexOf('href: ""') + 'href: "'.length;
+    const items = await session.requestCompletions(
+      blogUri,
+      document.positionAt(offset),
+    );
+
+    expect(items.map((i) => i.label)).toContain("/");
+    expect(items.length).toBeGreaterThan(1);
   });
 
   test("offers nothing outside a file reference", async () => {

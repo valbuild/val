@@ -78,6 +78,7 @@ export function createValCompletions({
       snapshot,
       files,
       isPropertyName: context.isPropertyName,
+      valueOfProperty: context.valueOfProperty,
       contentStart: context.contentStart,
       contentEnd: context.contentEnd,
     });
@@ -225,6 +226,7 @@ function createSchemaDrivenCompletions({
   snapshot,
   files,
   isPropertyName,
+  valueOfProperty,
   contentStart,
   contentEnd,
 }: {
@@ -235,6 +237,7 @@ function createSchemaDrivenCompletions({
   snapshot: SchemaSourceSnapshot;
   files: PublicValFiles;
   isPropertyName: boolean;
+  valueOfProperty?: string;
   contentStart: number;
   contentEnd: number;
 }): CompletionItem[] {
@@ -295,6 +298,19 @@ function createSchemaDrivenCompletions({
   }
 
   const fieldSchema = resolveSchemaAt(modulePath, source, schema);
+
+  // Checked before the schema is required, because Val describes richtext content
+  // as a whole rather than node by node: a link is a plain
+  // `{ tag: "a", href: ... }` object, so resolving the href's own path fails and
+  // there is no field schema to branch on. Walk out to the enclosing richtext and
+  // check that it permits inline links instead.
+  if (valueOfProperty === "href") {
+    const richtext = findEnclosingRichtext(modulePath, source, schema);
+    if (richtext && permitsInlineLinks(richtext)) {
+      return routeItems(snapshot, range);
+    }
+  }
+
   if (
     !fieldSchema ||
     typeof fieldSchema !== "object" ||
@@ -312,21 +328,77 @@ function createSchemaDrivenCompletions({
   }
 
   if (fieldSchema.type === "route") {
-    // The routes that exist are the keys of the project's router modules, which
-    // is exactly what getRoutesWithModulePaths reads out of the snapshot.
-    const routes = getRoutesWithModulePaths(snapshot.schemas, snapshot.sources);
-    return routes.map((route, index) => ({
-      label: route.route,
-      kind: CompletionItemKind.Value,
-      // Say which module defines the page, so an ambiguous route is
-      // distinguishable.
-      detail: route.moduleFilePath,
-      textEdit: { range, newText: route.route },
-      sortText: String(index).padStart(5, "0"),
-    }));
+    return routeItems(snapshot, range);
   }
 
   return [];
+}
+
+/** The routes the project defines, as completion items. */
+function routeItems(
+  snapshot: SchemaSourceSnapshot,
+  range: Range,
+): CompletionItem[] {
+  // The routes that exist are the keys of the project's router modules, which is
+  // exactly what getRoutesWithModulePaths reads out of the snapshot.
+  const routes = getRoutesWithModulePaths(snapshot.schemas, snapshot.sources);
+  return routes.map((route, index) => ({
+    label: route.route,
+    kind: CompletionItemKind.Value,
+    // Say which module defines the page, so an ambiguous route is
+    // distinguishable.
+    detail: route.moduleFilePath,
+    textEdit: { range, newText: route.route },
+    sortText: String(index).padStart(5, "0"),
+  }));
+}
+
+/**
+ * Walk out from a module path until a richtext schema is found.
+ *
+ * Resolving a path *inside* richtext content fails, since Val does not describe
+ * individual nodes with schemas, so the walk drops segments until it lands on the
+ * richtext field itself.
+ */
+function findEnclosingRichtext(
+  modulePath: ModulePath,
+  source: unknown,
+  schema: Parameters<typeof Internal.resolvePath>[2],
+) {
+  let segments = Internal.splitModulePath(modulePath);
+  // Tests the cursor's own path first, then walks outwards: the path may already
+  // be the richtext field if the cursor is not inside a nested node.
+  for (;;) {
+    const candidate = resolveSchemaAt(
+      Internal.patchPathToModulePath(segments),
+      source,
+      schema,
+    );
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      "type" in candidate &&
+      candidate.type === "richtext"
+    ) {
+      return candidate;
+    }
+    if (segments.length === 0) {
+      return undefined;
+    }
+    segments = segments.slice(0, -1);
+  }
+}
+
+/** Whether a richtext schema allows inline `a` links. */
+function permitsInlineLinks(richtext: object): boolean {
+  if (!("options" in richtext)) {
+    return false;
+  }
+  const options = (richtext as { options?: { inline?: { a?: unknown } } })
+    .options;
+  // `inline.a` is either `true` or the schema the href must satisfy; both mean
+  // links are allowed.
+  return Boolean(options?.inline?.a);
 }
 
 /** Schema at a module path, or undefined when it cannot be resolved. */

@@ -114,6 +114,7 @@ export const VAL_FEATURES = [
   "completions/keyOf",
   "completions/mediaPath",
   "completions/galleryKey",
+  "completions/richtextLink",
   "fix/metadata",
   "fix/upload-remote",
   "fix/download-remote",

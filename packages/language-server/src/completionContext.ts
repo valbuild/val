@@ -24,6 +24,13 @@ export type ValStringValueContext = {
    * gallery record, for instance, is keyed by file reference.
    */
   isPropertyName: boolean;
+  /**
+   * Name of the property this string is the value of, when it is one.
+   *
+   * Used for structures Val treats as opaque: a richtext link node is a plain
+   * object with `href`, so there is no schema at that path to consult.
+   */
+  valueOfProperty?: string;
 };
 
 export type ValFileRefContext = {
@@ -119,6 +126,13 @@ export function getValCompletionContext(
         ts.isPropertyAssignment(innermostStringParent) &&
         innermostStringParent.name === innermostString,
       ),
+      ...(innermostStringParent &&
+      ts.isPropertyAssignment(innermostStringParent) &&
+      innermostStringParent.name !== innermostString &&
+      (ts.isIdentifier(innermostStringParent.name) ||
+        ts.isStringLiteral(innermostStringParent.name))
+        ? { valueOfProperty: innermostStringParent.name.text }
+        : {}),
     };
   }
   return undefined;

@@ -270,6 +270,7 @@ export function createValLanguageServer(connection: Connection): {
       "completions/route",
       "fix/gallery",
       "completions/galleryKey",
+      "completions/richtextLink",
     ];
     const commands: string[] = [];
 
