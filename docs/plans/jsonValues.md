@@ -31,11 +31,23 @@
 > `deserializeSchema` cannot leave the SPA while `<ValModulesClient>` is optional; it is the fallback now,
 > not the primary path.
 >
-> **What is left across the whole feature is verification: the manual walkthrough
-> ([jsonValues-walkthrough.md](./jsonValues-walkthrough.md)), which V18 and the new custom-validation
-> steps now cover.** Also open: a release note for newly-surfaced custom-validation errors (projects may
-> light up with errors that were invisible before, and some will block publish), and the two standing
-> decisions for Fredrik (browser caching for `/json`; whether to add a jsdom jest project).
+> **Everything the `.jsonValues()` feature itself needs is now built.** What remains, in full
+> (re-checked 2026-08-06 — four stale Phase 3/6 checkboxes were corrected in the same pass):
+>
+> 1. **The manual walkthrough** — [jsonValues-walkthrough.md](./jsonValues-walkthrough.md), V1–V20 + C1.
+>    Nothing here has ever been run.
+> 2. **Two runtime gaps that predate Phase 6 and were always scoped as their own change** (Phase 4):
+>    client hooks (`useValKey`/`useValRoute`) still render COMMITTED content in draft mode, because
+>    `overlayEmitter` is handed the raw `/sources/~` source; and draft-added routes are not reachable
+>    through `fetchValRoute`.
+> 3. **Two PRE-EXISTING `val validate` gaps** found while building the walkthrough (Phase 5): it never
+>    validates `.jsonValues()` entry CONTENT, and it does not reject a nested `.jsonValues()`.
+> 4. **A release note** for custom-validation errors that were invisible before and can now block publish.
+> 5. **Two decisions for Fredrik**: browser caching for `/json`, and whether to add a jsdom jest project
+>    (without one, every UI behaviour in Phases 6–7 is covered by the walkthrough and nothing else).
+>
+> Everything else still unchecked in this file is a watch-list note or something V16 answers on a real
+> screen (the nested scroll container, the row-height estimates).
 
 > **ALL non-manual Phase 6 work is DONE (2026-08-04), plus the CI gate.** Steps 5 and 6 landed, the two
 > outstanding code items from the step 1–3 self-review are closed (a failed row can be retried instead of
@@ -353,26 +365,19 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
 
 ## Phase 3 — UI (`packages/ui/spa`) — NEXT MILESTONE (do with Studio running)
 
-The Studio currently throws the (intentional) `resolvePath` guard when opening a jsonValues entry,
-because entry content is never loaded into the client source tree. Concrete integration points
-(all in the 3376-line `ValSyncEngine.ts` unless noted):
+This phase's integration points (all in `ValSyncEngine.ts` unless noted). The first three describe how
+it was BUILT — they landed in the 2026-06-30 lazy-load session and were never ticked; the checkboxes are
+corrected here (2026-08-06) after re-verifying each against the code.
 
-- [ ] **Content cache + fetch**: add `private jsonEntryContents: Record<ModuleFilePath, Record<key,
-JSONValue>>` and `private loadingJsonEntries: Set<"mfp\0key">`. Add `requestJsonEntry(mfp, key)`
-      that, if not loaded/loading, calls `this.client("/json", "GET", { query: { path: mfp, key } })`,
-      stores `content`, then `invalidatePatchedSourcesCache(mfp)` + clears `cachedSourceSnapshots`
-      for the module + `emit(this.listeners["source"]?.[mfp])` / `["sources"]` so subscribers
-      re-render. (Mirror the existing `requestModuleValidation` side-effect pattern.)
-- [ ] **Substitution before patches**: in `getPatchedSource(mfp)`, build the effective base by
-      replacing each loaded json marker at `baseSource[key]` with `jsonEntryContents[mfp][key]`
-      BEFORE applying patches (so field-level patches at `?p="key"."field"` apply on top). Markers
-      without loaded content stay as-is (list view only reads keys). Invalidate the patched cache on
-      load (above) since the effective base changed.
-- [ ] **Trigger on open**: the field component that renders a navigated-to entry path must call
-      `requestJsonEntry(mfp, key)` (effect on mount, keyed by path). Find the entry detail renderer
-      (AnyField/Field at a path); when the path's parent schema is a `jsonValues` record and the
-      marker isn't loaded, request it and render a loading state until `getSourceSnapshot` returns
-      content. `useShallowSourceAtPath(path, "record")` already returns keys only (list is fine).
+- [x] **Content cache + fetch** — `jsonEntryContents` / `loadingJsonEntries` / `requestJsonEntry`. Since
+      Phase 6 the fetch is batched and coalesced (`loadJsonEntries`), so the single-entry `/json?key=` shape
+      is now used only by the RSC runtime, not the Studio.
+- [x] **Substitution before patches** — `applyJsonEntryContents` builds the effective base inside
+      `getPatchedSource`, so field-level patches at `?p="key"."field"` apply on top of loaded content and
+      un-loaded markers pass through untouched.
+- [x] **Trigger on open** — `useSchemaAtPathInternal` (`ValFieldProvider.tsx`) calls `requestJsonEntry` for
+      any un-loaded marker a path walks into. That is also what made a record list fire one request per row
+      until Phase 6 step 3 coalesced them.
 - [x] **Per-entry patches**: editing an entry field produces a normal patch at the entry path; on
       commit the server commit-flow writes the `*.val.json` (Phase 2 commit flow). Add/remove entry =
       add/remove the record key (commit flow emits/removes thunk + file). **Rename** (`move`) and
@@ -675,9 +680,9 @@ not a step.
       set ONCE per list rather than subscribing per row.
       **Still open**: (c) from the original item — a per-row retry affordance for the `errored` case.
       A failed row currently falls through to `<Preview>`, which renders the existing error state.
-- [ ] **`.render()` list layouts for jsonValues records (windowed)** — **moved to Phase 7 stage 1**; it is
-      a client-side-instance change, not a transport one. Summary: replace the `isJsonValues` early return
-      in `RecordSchema.executeRender` with a per-key `isJson(itemSrc) → continue`, then call
+- [x] **`.render()` list layouts for jsonValues records (windowed)** — DONE in **Phase 7 stage 1**
+      (2026-08-05); it was a client-side-instance change, not a transport one. What the plan said, and what
+      landed: replace the `isJsonValues` early return in `RecordSchema.executeRender` with a per-key `isJson(itemSrc) → continue`, then call
       `executeRender(mfp, patchedSource)` on the CLIENT instance. Because `executeRender` iterates
       `Object.entries(src)` and un-loaded entries are still markers, the resulting
       `ListRecordRender.items` ([render.ts:9](../../packages/core/src/render.ts#L9)) is naturally
