@@ -230,19 +230,19 @@ const initFetchValRouteStega =
       } catch {
         // not in a server context where draftMode is readable — treat as disabled
       }
-      let content: unknown = undefined;
+      let draft: DraftJsonEntry = { status: "unavailable" };
       if (enabled && path) {
         SET_AUTO_TAG_JSX_ENABLED(true);
-        content = await loadDraftJsonEntry(
+        draft = await loadDraftJsonEntry(
           valServerPromise,
           getCookies,
           path as unknown as ModuleFilePath,
           url,
         );
       }
-      if (content === undefined) {
-        content = await loadJsonEntryContent(source, url);
-      }
+      const content = await resolveDraftOrCommittedEntry(draft, () =>
+        loadJsonEntryContent(source, url),
+      );
       if (content === undefined) {
         return null as FetchValRouteReturnType<T>;
       }
@@ -299,20 +299,65 @@ async function loadJsonEntryContent(
  * entry has no draft content to serve — the caller then falls back to the
  * locally-bundled committed content.
  */
+/**
+ * What the draft state says about an entry.
+ *
+ * The three cases have to stay distinct: `absent` is an ANSWER — the entry is not
+ * there in the draft state, e.g. a pending patch removed it — while `unavailable`
+ * means we could not ask. Collapsing them into `undefined` is what made a
+ * draft-deleted entry keep rendering its committed content: the caller could not
+ * tell "it is gone" from "ask the committed source instead".
+ */
+/**
+ * The slice of `ValServer` the single-entry readers actually use. Narrower than
+ * `ValServer` on purpose: it says what the dependency IS, and it lets a test
+ * drive these readers with a one-route fake instead of casting a partial object
+ * to the whole server type.
+ */
+export type JsonEntryValServer = Pick<ValServer, "/json">;
+
+export type DraftJsonEntry =
+  | { status: "content"; content: unknown }
+  | { status: "absent" }
+  | { status: "unavailable" };
+
+/**
+ * Picks the content a draft-aware single-entry read should render.
+ *
+ * The rule the two callers share: the draft state WINS when it has an answer —
+ * including the answer "this entry is gone" — and the committed content is used
+ * only when there is no draft answer to be had (Val disabled, or we could not
+ * ask). Returning `undefined` means "render nothing"; both callers turn that into
+ * a null/undefined result.
+ */
+export async function resolveDraftOrCommittedEntry(
+  draft: DraftJsonEntry,
+  loadCommitted: () => Promise<unknown | undefined>,
+): Promise<unknown | undefined> {
+  if (draft.status === "content") {
+    return draft.content;
+  }
+  if (draft.status === "absent") {
+    // Falling back here would render an entry the editor has just deleted.
+    return undefined;
+  }
+  return loadCommitted();
+}
+
 async function loadDraftJsonEntry(
-  valServerPromise: Promise<ValServer>,
+  valServerPromise: Promise<JsonEntryValServer>,
   getCookies: () => Promise<{
     get(name: string): { name: string; value: string } | undefined;
   }>,
   moduleFilePath: ModuleFilePath,
   key: string,
-): Promise<unknown | undefined> {
+): Promise<DraftJsonEntry> {
   let cookies;
   try {
     cookies = await getCookies();
   } catch {
     // not in a server context where cookies are readable
-    return undefined;
+    return { status: "unavailable" };
   }
   const valServer = await valServerPromise;
   const res = await valServer["/json"]["GET"]({
@@ -329,21 +374,22 @@ async function loadDraftJsonEntry(
     },
   });
   if (res.status === 200 && "content" in res.json) {
-    return res.json.content;
+    return { status: "content", content: res.json.content };
   }
   if (res.status === 401) {
     console.warn("Val: authentication error: ", res.json.message);
-    return undefined;
+    return { status: "unavailable" };
   }
   if (res.status === 404) {
-    // No such entry in the draft state (e.g. removed by a pending patch).
-    return undefined;
+    // Authoritative: the draft state has no such entry (removed by a pending
+    // patch, or never existed). Not a reason to fall back to committed content.
+    return { status: "absent" };
   }
   console.error(
     "Val: could not load draft JSON entry: ",
     "message" in res.json ? res.json.message : `status ${res.status}`,
   );
-  return undefined;
+  return { status: "unavailable" };
 }
 
 // The (loosened) content type a single `.jsonValues()` entry resolves to.
@@ -367,9 +413,9 @@ type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
  * patches, so uncommitted Studio edits show up. Falls back to the local thunk if
  * the draft read yields nothing.
  */
-const initFetchValKeyStega =
+export const initFetchValKeyStega =
   (
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<JsonEntryValServer>,
     isEnabled: () => Promise<boolean>,
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
@@ -388,21 +434,22 @@ const initFetchValKeyStega =
     const source = selector && Internal.getSource(selector);
     const moduleFilePath =
       selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
-    let content: unknown = undefined;
+    let draft: DraftJsonEntry = { status: "unavailable" };
     if (enabled && moduleFilePath) {
       SET_AUTO_TAG_JSX_ENABLED(true);
-      content = await loadDraftJsonEntry(
+      draft = await loadDraftJsonEntry(
         valServerPromise,
         getCookies,
         moduleFilePath,
         key,
       );
     }
+    const content = await resolveDraftOrCommittedEntry(draft, () =>
+      loadJsonEntryContent(source, key),
+    );
     if (content === undefined) {
-      content = await loadJsonEntryContent(source, key);
-    }
-    if (content === undefined) {
-      // missing key, or transport marker without a runtime thunk
+      // deleted in the draft state, a missing key, or a transport marker with no
+      // runtime thunk
       return undefined;
     }
     return stegaEncode(content, {
