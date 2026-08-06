@@ -388,6 +388,118 @@ describe("ValSyncEngine", () => {
     expect(Object.keys(errors).length).toBeGreaterThan(0);
   });
 
+  describe("overlay emissions (what the host app's client components see)", () => {
+    const CONTENT = "/content.val.ts" as const;
+    /** Longer than OVERLAY_EMIT_DEBOUNCE_MS. */
+    const flushOverlay = () =>
+      new Promise((resolve) => setTimeout(resolve, 150));
+
+    function setupOverlay() {
+      const { s, c, config } = initVal();
+      const valModule = c.define(CONTENT, s.object({ title: s.string() }), {
+        title: "published",
+      });
+      const tester = new SyncEngineTester("fs", [valModule], config);
+      const emitted: { moduleFilePath: string; source: unknown }[] = [];
+      // 2nd arg is the overlay emitter (3rd is the validation worker factory).
+      const engine = new ValSyncEngine(
+        tester.createMockClient(),
+        (moduleFilePath, source) => {
+          emitted.push({ moduleFilePath, source });
+        },
+      );
+      return { tester, engine, emitted };
+    }
+
+    test("emits the PATCHED source, not the committed one", async () => {
+      // Regression: the emitter was handed the raw `/sources/~` module, which the
+      // Studio requests with apply_patches:false — so every client component in
+      // the host app rendered committed content while the server components on the
+      // same page rendered drafts.
+      const { tester, engine, emitted } = setupOverlay();
+      await engine.init(
+        "fs",
+        tester.getBaseSha(),
+        tester.getSchemasSha(),
+        tester.getSourcesSha(),
+        [],
+        null,
+        tester.getCommitSha(),
+        tester.getNextNow(),
+      );
+      emitted.length = 0;
+
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [{ op: "replace", path: ["title"], value: "edited" }],
+        tester.getNextNow(),
+      );
+      await flushOverlay();
+
+      expect(emitted).toEqual([
+        { moduleFilePath: CONTENT, source: { title: "edited" } },
+      ]);
+    });
+
+    test("a burst of edits is ONE emission", async () => {
+      // Every keystroke invalidates the source, and every emission clones a whole
+      // module and re-renders every subscribed client component.
+      const { tester, engine, emitted } = setupOverlay();
+      await engine.init(
+        "fs",
+        tester.getBaseSha(),
+        tester.getSchemasSha(),
+        tester.getSourcesSha(),
+        [],
+        null,
+        tester.getCommitSha(),
+        tester.getNextNow(),
+      );
+      emitted.length = 0;
+
+      for (const value of ["a", "ab", "abc", "abcd"]) {
+        engine.addPatch(
+          toSourcePath(CONTENT),
+          "object",
+          [{ op: "replace", path: ["title"], value }],
+          tester.getNextNow(),
+        );
+      }
+      await flushOverlay();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].source).toEqual({ title: "abcd" });
+    });
+
+    test("the emitted source is a copy, not the engine's own object", async () => {
+      const { tester, engine, emitted } = setupOverlay();
+      await engine.init(
+        "fs",
+        tester.getBaseSha(),
+        tester.getSchemasSha(),
+        tester.getSourcesSha(),
+        [],
+        null,
+        tester.getCommitSha(),
+        tester.getNextNow(),
+      );
+      emitted.length = 0;
+      engine.addPatch(
+        toSourcePath(CONTENT),
+        "object",
+        [{ op: "replace", path: ["title"], value: "edited" }],
+        tester.getNextNow(),
+      );
+      await flushOverlay();
+
+      (emitted[0].source as { title: string }).title = "mutated by the host";
+      expect(engine.getSourceSnapshot(toModuleFilePath(CONTENT)).data).toEqual({
+        title: "edited",
+      });
+    });
+  });
+
   describe("renders from client-side schema instances", () => {
     const PAGES = "/pages.val.ts" as const;
 

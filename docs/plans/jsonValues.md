@@ -36,16 +36,19 @@
 >
 > 1. **The manual walkthrough** — [jsonValues-walkthrough.md](./jsonValues-walkthrough.md), V1–V20 + C1.
 >    Nothing here has ever been run.
-> 2. **Two runtime gaps that predate Phase 6 and were always scoped as their own change** (Phase 4):
->    client hooks (`useValKey`/`useValRoute`) still render COMMITTED content in draft mode, because
->    `overlayEmitter` is handed the raw `/sources/~` source; and draft-added routes are not reachable
->    through `fetchValRoute`.
+> 2. ~~Two Phase 4 runtime gaps~~ — **FIXED 2026-08-06**: client components now render drafts (the
+>    overlay emits the patched source, debounced), and a draft-deleted entry no longer renders its
+>    committed content. Draft-ADDED routes turned out to already work.
 > 3. ~~Two PRE-EXISTING `val validate` gaps~~ — **FIXED 2026-08-06** (see Phase 5): entry content is
 >    validated, nested `.jsonValues()` is rejected, and errors point into the entry's `*.val.json` with a
 >    code frame.
 > 4. **A release note** for custom-validation errors that were invisible before and can now block publish.
-> 5. **Two decisions for Fredrik**: browser caching for `/json`, and whether to add a jsdom jest project
->    (without one, every UI behaviour in Phases 6–7 is covered by the walkthrough and nothing else).
+> 5. **Two decisions for Fredrik**: browser caching for `/json`, and whether to test the SPA in jsdom.
+>    NOTE (2026-08-06): the second is cheaper than this file previously claimed. jsdom is NOT missing from
+>    the repo — `packages/next` and `packages/react` both have `jest-environment-jsdom`, and a per-file
+>    `@jest-environment jsdom` docblock is an established pattern there (`useValStega.suspense.test.ts`,
+>    and now `useValKey.draft.test.tsx`). Only `packages/ui` lacks the devDependency; adding it needs no
+>    jest `projects` config at all.
 >
 > Everything else still unchecked in this file is a watch-list note or something V16 answers on a real
 > screen (the nested scroll container, the row-height estimates).
@@ -432,16 +435,32 @@ corrected here (2026-08-06) after re-verifying each against the code.
 - [x] RSC draft path (2026-07-28): `fetchValKey` + the jsonValues branch of `fetchValRoute` read
       through the in-process `/json` (`loadDraftJsonEntry`) when enabled, falling back to the local
       committed thunk. `initFetchValKeyStega` now takes `valServerPromise` + `getCookies`. ✅
-- [ ] **Client hooks draft path**: `useValKey`/`useValRoute` have the stega tags but still render
-      COMMITTED content in draft mode — the same limitation `useValStega` has today. The blocker is
-      that `overlayEmitter` is handed the raw `/sources/~` module (`apply_patches:false`, json entries
-      still markers), so reading `valOverlayContext.store` would be a no-op. Fixing that means
-      emitting `getPatchedSource(...)` (ideally from `invalidateSource`, the single choke point) and
-      having the overlay's engine proactively `requestJsonEntry` for entries that have drafts. That
-      changes `useValStega` behaviour for ALL client components, so it wants its own change.
-- [ ] Draft-added routes are not reachable via `fetchValRoute` (params → key is resolved from the
-      LOCAL source), and draft-removed routes still route, then 404 → `null`. Revisit by resolving the
-      key set from `/sources/~` now that `getSources` keeps it correct for drafts.
+- [x] **Client hooks draft path** — DONE (2026-08-06), and it was a pre-existing gap on `main`, not
+      something jsonValues introduced: `apply_patches:false` for the Studio predates this branch, and the
+      overlay kept emitting the raw `/sources/~` module — so EVERY client component rendered committed
+      content while the server components on the same page rendered drafts.
+      The engine now emits `getPatchedSource(...)` from `invalidateSource` (the single choke point), so
+      drafts appear as the user types rather than only when a sync lands. Debounced at
+      `OVERLAY_EMIT_DEBOUNCE_MS = 100`, because that trigger fires per keystroke-patch and per landing
+      json batch, and each emission clones a module and re-renders every subscribed client component. The
+      clone is deliberate: handing the host a live reference to the engine's cached source invites action
+      at a distance.
+      `requestDraftedJsonEntries` asks for any `.jsonValues()` entry a pending patch touches but that is
+      not loaded — otherwise an entry edited before a reload would still be a marker, and the overlay
+      would fall back to committed content. The batch landing re-invalidates and the emission repeats with
+      real content.
+      On the client, `useValKey`/`useValRoute` read the overlay's draft view FIRST and fall back to the
+      bundled thunk, using the same rule as the RSC readers: a draft view that has an answer wins,
+      including the answer "this entry is gone". +8 tests (3 engine, 5 React) — jsdom already works in
+      `packages/next` via a per-file docblock, which is how the existing suspense test runs.
+- [x] Draft-added / draft-removed routes — DONE (2026-08-06). Half the item was already stale: Session
+      5's draft-aware `/json` serves a key that exists only in a pending patch (`applyJsonValuesEntryPatches`
+      applies the `add` over an absent base) and the route resolver never gated on key existence, so
+      draft-ADDED routes worked — there is now a test that says so rather than a note that guesses.
+      The real bug was the other half: `loadDraftJsonEntry` returned `undefined` for both "the draft state
+      has no such entry" and "we could not ask", so a draft-DELETED entry fell back to its committed
+      content and kept rendering. It now returns a three-way result and both readers share
+      `resolveDraftOrCommittedEntry`. +8 tests.
 
 ## Phase 5 — Example + CI gate
 

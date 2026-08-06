@@ -525,6 +525,11 @@ export class ValSyncEngine {
     // getValidationWorker() lazily recreates it on next use.
     this.validationWorker?.dispose();
     this.validationWorker = null;
+    if (this.overlayEmitTimeout !== null) {
+      clearTimeout(this.overlayEmitTimeout);
+      this.overlayEmitTimeout = null;
+    }
+    this.pendingOverlayEmits.clear();
 
     this.invalidateInitializedAt();
   }
@@ -700,7 +705,89 @@ export class ValSyncEngine {
     // moved has renders that moved with it — including a `.jsonValues()` entry
     // that just finished loading, whose row can now render for real.
     this.invalidateRenders(moduleFilePath);
+    // The host app's client components read through the overlay, so they need the
+    // new source too — see scheduleOverlayEmit.
+    this.scheduleOverlayEmit(moduleFilePath);
   }
+
+  // #region Overlay
+  /** Modules whose new source the overlay has not been told about yet. */
+  private pendingOverlayEmits: Set<ModuleFilePath> = new Set();
+  private overlayEmitTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Tells the host app's overlay that a module's source moved, so its client
+   * components re-render with the PATCHED view — what the editor is actually
+   * looking at, rather than what is committed.
+   *
+   * Debounced, because the trigger is `invalidateSource`: that fires on every
+   * keystroke-patch and once per landing json-entry batch, and each emission
+   * clones a whole module source and re-renders every subscribed client
+   * component. One emission per burst is enough — the host already throttles its
+   * own `router.refresh()` to 500ms.
+   */
+  private scheduleOverlayEmit(moduleFilePath: ModuleFilePath): void {
+    if (!this.overlayEmitter) {
+      return;
+    }
+    this.pendingOverlayEmits.add(moduleFilePath);
+    if (this.overlayEmitTimeout !== null) {
+      return;
+    }
+    this.overlayEmitTimeout = setTimeout(() => {
+      this.overlayEmitTimeout = null;
+      const moduleFilePaths = Array.from(this.pendingOverlayEmits);
+      this.pendingOverlayEmits.clear();
+      for (const path of moduleFilePaths) {
+        this.emitOverlaySource(path);
+      }
+    }, OVERLAY_EMIT_DEBOUNCE_MS);
+  }
+
+  private emitOverlaySource(moduleFilePath: ModuleFilePath): void {
+    const patched = this.getPatchedSource(moduleFilePath);
+    if (patched === undefined) {
+      return;
+    }
+    // A `.jsonValues()` entry the user has edited but never opened this session
+    // is still a marker here, so the overlay would fall back to the committed
+    // content and the edit would look lost. Load those; the batch landing
+    // invalidates the source again and this runs once more with real content.
+    this.requestDraftedJsonEntries(moduleFilePath);
+    // Cloned: this is the engine's cached patched source, and handing the host
+    // app a live reference to it invites action at a distance.
+    this.overlayEmitter?.(moduleFilePath, deepClone(patched));
+  }
+
+  /**
+   * Requests the content of any `.jsonValues()` entry that a pending patch
+   * touches but that is not loaded yet. Cheap: the key set comes from the patch
+   * ops, and the engine skips keys it already has.
+   */
+  private requestDraftedJsonEntries(moduleFilePath: ModuleFilePath): void {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (
+      baseSource === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource)
+    ) {
+      return;
+    }
+    const keys = new Set<string>();
+    for (const patchId of this.orderedPatchIdsForModule(moduleFilePath)) {
+      for (const op of this.patchDataByPatchId[patchId]?.patch ?? []) {
+        const key = op.op !== "file" ? op.path[0] : undefined;
+        if (key !== undefined && Internal.isJson(baseSource[key])) {
+          keys.add(key);
+        }
+      }
+    }
+    if (keys.size > 0) {
+      this.requestJsonEntries(moduleFilePath, Array.from(keys));
+    }
+  }
+  // #endregion Overlay
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
     this.cachedPatchErrorsSnapshot = null;
@@ -4124,8 +4211,12 @@ export class ValSyncEngine {
                 };
               }
               console.debug("Invalidating source", moduleFilePath);
+              // invalidateSource schedules the overlay emission itself, with the
+              // PATCHED source. Emitting `valModule.source` here would push the
+              // committed content — this endpoint is called with
+              // apply_patches:false — and the host's client components would
+              // render the editor's unpublished work away.
               this.invalidateSource(moduleFilePath);
-              this.overlayEmitter?.(moduleFilePath, valModule.source);
               this.invalidatePatchErrors(moduleFilePath);
               if (valModule.patches?.errors) {
                 if (this.errors.patchErrors === undefined) {
@@ -4473,6 +4564,14 @@ const JSON_ENTRIES_CHUNK_SIZE = Math.min(50, JSON_ENTRIES_BATCH_MAX);
  * with no errors is otherwise a mystery.
  */
 const JSON_ENTRIES_MAX_LOAD_PASSES = 3;
+
+/**
+ * How long to coalesce overlay emissions. Long enough that a burst of keystrokes
+ * is one emission, short enough that the host app's client components feel live.
+ * The host's own `router.refresh()` loop runs at 500ms, so this is not the
+ * bottleneck.
+ */
+const OVERLAY_EMIT_DEBOUNCE_MS = 100;
 
 /**
  * How long a custom-validation run may hold the main thread before yielding.
