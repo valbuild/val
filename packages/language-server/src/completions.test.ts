@@ -76,6 +76,17 @@ describe("getValCompletionContext", () => {
     ).toBeUndefined();
   });
 
+  test("distinguishes an object key from a value", () => {
+    // Which schema describes the string depends on this: a value is described by
+    // the schema at its own path, a key by its container's.
+    expect(
+      contextAt(`export default c.define("/x", schema, { "|/a.png": {} });`),
+    ).toMatchObject({ kind: "string-value", isPropertyName: true });
+    expect(
+      contextAt(`export default c.define("/x", schema, { a: "|value" });`),
+    ).toMatchObject({ kind: "string-value", isPropertyName: false });
+  });
+
   test("handles a multi-line call", () => {
     const context = fileRefAt(`const a = c.image(
   "|/public/val/logo.png",
@@ -327,6 +338,38 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     for (const item of items) {
       expect(item.detail).toMatch(/\.val\.ts$/);
       expect(item.textEdit).toBeDefined();
+    }
+  });
+
+  test("advertises the gallery key completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/galleryKey");
+  });
+
+  test("offers files from the gallery's own directory as record keys", async () => {
+    // media.val.ts is `s.images({ directory: "/public/val/images" })`, keyed by
+    // file reference. A key is described by its container, so the candidates come
+    // from the record's declared directory -- not the project-wide files dir.
+    const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
+    const galleryUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(galleryUri, original);
+    await session.nextDiagnostics(galleryUri);
+
+    const document = TextDocument.create(galleryUri, "typescript", 1, original);
+    // Cursor just inside the opening quote of the existing entry key.
+    const keyOffset = original.indexOf('"/public/val/images/logo.png"') + 1;
+    const items = await session.requestCompletions(
+      galleryUri,
+      document.positionAt(keyOffset),
+    );
+
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("/public/val/images/logo.png");
+    // Scoped to the gallery's directory: the webm sits in /public/val, not
+    // /public/val/images, so it must not be offered.
+    expect(labels.some((l) => l.endsWith(".webm"))).toBe(false);
+    for (const label of labels) {
+      expect(label.startsWith("/public/val/images/")).toBe(true);
     }
   });
 

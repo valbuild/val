@@ -16,6 +16,14 @@ export type ValStringValueContext = {
   currentText: string;
   contentStart: number;
   contentEnd: number;
+  /**
+   * True when the string is an object key rather than a value.
+   *
+   * The distinction decides which schema to consult: a value is described by the
+   * schema at its own path, whereas a key is described by its *container* — a
+   * gallery record, for instance, is keyed by file reference.
+   */
+  isPropertyName: boolean;
 };
 
 export type ValFileRefContext = {
@@ -42,10 +50,13 @@ export function getValCompletionContext(
   sourceFile: ts.SourceFile,
   offset: number,
 ): ValCompletionContext | undefined {
-  let found: ValCompletionContext | undefined;
+  let found: ValFileRefContext | undefined;
   let innermostString: ts.StringLiteralLike | undefined;
+  // Tracked explicitly: `ts.createSourceFile` does not set parent pointers
+  // unless asked, so `node.parent` cannot be relied on here.
+  let innermostStringParent: ts.Node | undefined;
 
-  function visit(node: ts.Node): void {
+  function visit(node: ts.Node, parent: ts.Node | undefined): void {
     if (offset < node.getStart(sourceFile) || offset > node.getEnd()) {
       return;
     }
@@ -84,10 +95,11 @@ export function getValCompletionContext(
       offset <= node.getEnd() - 1
     ) {
       innermostString = node;
+      innermostStringParent = parent;
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => visit(child, node));
   }
-  visit(sourceFile);
+  visit(sourceFile, undefined);
 
   if (found) {
     return found;
@@ -100,6 +112,13 @@ export function getValCompletionContext(
       currentText: innermostString.text,
       contentStart: innermostString.getStart(sourceFile) + 1,
       contentEnd: innermostString.getEnd() - 1,
+      // Uses the parent tracked during the walk, not `node.parent`, which
+      // `ts.createSourceFile` leaves unset unless asked to populate it.
+      isPropertyName: Boolean(
+        innermostStringParent &&
+        ts.isPropertyAssignment(innermostStringParent) &&
+        innermostStringParent.name === innermostString,
+      ),
     };
   }
   return undefined;

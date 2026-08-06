@@ -34,9 +34,10 @@ export type PublicValFile = {
 type CacheEntry = { at: number; files: PublicValFile[] };
 
 export type PublicValFiles = {
-  list(): PublicValFile[];
-  /** Only files whose mime type starts with `image/`. */
-  images(): PublicValFile[];
+  /** Files under `directory`, defaulting to the project's files directory. */
+  list(directory?: string): PublicValFile[];
+  /** As {@link list}, but only files whose mime type starts with `image/`. */
+  images(directory?: string): PublicValFile[];
   invalidate(): void;
 };
 
@@ -49,9 +50,11 @@ export function createPublicValFiles({
   directory?: string;
   now?: () => number;
 }): PublicValFiles {
-  let cache: CacheEntry | undefined;
+  // Keyed by directory: a project has one files directory, but each gallery
+  // declares its own, and completions need whichever one is in scope.
+  const cache = new Map<string, CacheEntry>();
 
-  function read(): PublicValFile[] {
+  function read(directory: string): PublicValFile[] {
     const root = path.join(valRoot, directory);
     const files: PublicValFile[] = [];
 
@@ -91,20 +94,22 @@ export function createPublicValFiles({
     return files;
   }
 
-  function list(): PublicValFile[] {
+  function list(dir: string = directory): PublicValFile[] {
     const at = now();
-    if (cache && at - cache.at < CACHE_TTL_MS) {
-      return cache.files;
+    const hit = cache.get(dir);
+    if (hit && at - hit.at < CACHE_TTL_MS) {
+      return hit.files;
     }
-    cache = { at, files: read() };
-    return cache.files;
+    const files = read(dir);
+    cache.set(dir, { at, files });
+    return files;
   }
 
   return {
     list,
-    images: () => list().filter((f) => f.mimeType?.startsWith("image/")),
+    images: (dir) => list(dir).filter((f) => f.mimeType?.startsWith("image/")),
     invalidate: () => {
-      cache = undefined;
+      cache.clear();
     },
   };
 }

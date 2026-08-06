@@ -74,11 +74,22 @@ already has it — users do not install anything. A project on an older Val does
 have it at all, which is a Val upgrade, not a missing dependency. That distinction
 drives the failure messaging in Task 5.
 
-`0.98.0` completes an `initialize` handshake and serves **no language features**
-(`features: []`). Diagnostics, completions and commands arrive in later Val
-releases. That is deliberate, and it is what makes this preparation work safe:
-nothing you build here changes behaviour until Val starts advertising features, so
-you can ship it long before Val is ready.
+`0.98.0` serves diagnostics, quick fixes and completions. It advertises:
+
+| Feature flag            | What it covers                                                                                                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `diagnostics`           | Validation and schema errors, fatal module errors, missing file references, modules absent from `val.modules`. Includes `keyOf`/`route` resolution with did-you-mean suggestions. |
+| `fix/metadata`          | Quick fixes for image/file metadata, computed by the same pipeline as `val validate --fix`.                                                                                       |
+| `completions/mediaPath` | File and image paths in `c.image()` / `c.file()`, with the metadata argument filled in on accept.                                                                                 |
+| `completions/keyOf`     | Keys of the record or object an `s.keyOf()` field points at.                                                                                                                      |
+| `completions/route`     | Routes the project defines, internal pages and registered external URLs alike.                                                                                                    |
+
+Not yet served, so keep the extension's own implementations of these for now:
+media galleries, remote upload/download (needs the login flow and the `val/pick`
+primitive), and richtext inline-link completions.
+
+Read the advertised `features` array rather than this table — it is the source of
+truth for the version actually installed, and it will grow.
 
 ### The handshake
 
@@ -538,8 +549,9 @@ Manual checks that matter:
 
 ## Explicitly out of scope
 
-`@valbuild/language-server@0.98.0` being on npm does **not** mean it serves any
-language features yet — it advertises `features: []`. So do not do these:
+`@valbuild/language-server@0.98.0` serves diagnostics, quick fixes and
+completions, but **not everything the extension does** — galleries, remote
+upload/download and richtext links are still missing. So do not do these:
 
 - Deleting `server/`, or removing any duplicated code
   (`mimeType/all.ts`, `routeValidation.ts`, `evalValConfigFile.ts`,

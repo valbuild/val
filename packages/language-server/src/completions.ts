@@ -76,6 +76,8 @@ export function createValCompletions({
       offset,
       moduleFilePath,
       snapshot,
+      files,
+      isPropertyName: context.isPropertyName,
       contentStart: context.contentStart,
       contentEnd: context.contentEnd,
     });
@@ -221,6 +223,8 @@ function createSchemaDrivenCompletions({
   offset,
   moduleFilePath,
   snapshot,
+  files,
+  isPropertyName,
   contentStart,
   contentEnd,
 }: {
@@ -229,6 +233,8 @@ function createSchemaDrivenCompletions({
   offset: number;
   moduleFilePath: string;
   snapshot: SchemaSourceSnapshot;
+  files: PublicValFiles;
+  isPropertyName: boolean;
   contentStart: number;
   contentEnd: number;
 }): CompletionItem[] {
@@ -250,17 +256,45 @@ function createSchemaDrivenCompletions({
     return [];
   }
 
-  let fieldSchema;
-  try {
-    // Val's own resolver, rather than a hand-rolled serialized-schema walker.
-    fieldSchema = Internal.resolvePath(
-      modulePath,
-      source as never,
+  const range: Range = {
+    start: document.positionAt(contentStart),
+    end: document.positionAt(contentEnd),
+  };
+
+  // A key is described by its container, not by itself: a gallery record is
+  // keyed by file reference, so the candidates come from the record's schema.
+  if (isPropertyName) {
+    const container = resolveSchemaAt(
+      parentModulePath(modulePath),
+      source,
       schema,
-    ).schema;
-  } catch {
-    return [];
+    );
+    if (
+      !container ||
+      typeof container !== "object" ||
+      !("type" in container) ||
+      container.type !== "record" ||
+      !("mediaType" in container) ||
+      !container.mediaType
+    ) {
+      return [];
+    }
+    const directory =
+      "directory" in container && typeof container.directory === "string"
+        ? container.directory
+        : undefined;
+    const galleryFiles =
+      container.mediaType === "images"
+        ? files.images(directory)
+        : files.list(directory);
+    return items(
+      galleryFiles.map((file) => file.ref),
+      CompletionItemKind.File,
+      range,
+    );
   }
+
+  const fieldSchema = resolveSchemaAt(modulePath, source, schema);
   if (
     !fieldSchema ||
     typeof fieldSchema !== "object" ||
@@ -268,11 +302,6 @@ function createSchemaDrivenCompletions({
   ) {
     return [];
   }
-
-  const range: Range = {
-    start: document.positionAt(contentStart),
-    end: document.positionAt(contentEnd),
-  };
 
   if (fieldSchema.type === "keyOf") {
     return items(
@@ -298,6 +327,26 @@ function createSchemaDrivenCompletions({
   }
 
   return [];
+}
+
+/** Schema at a module path, or undefined when it cannot be resolved. */
+function resolveSchemaAt(
+  modulePath: ModulePath,
+  source: unknown,
+  schema: Parameters<typeof Internal.resolvePath>[2],
+) {
+  try {
+    // Val's own resolver, rather than a hand-rolled serialized-schema walker.
+    return Internal.resolvePath(modulePath, source as never, schema).schema;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Drop the last segment of a module path; `""` is the module root. */
+function parentModulePath(modulePath: ModulePath): ModulePath {
+  const segments = Internal.splitModulePath(modulePath);
+  return Internal.patchPathToModulePath(segments.slice(0, -1));
 }
 
 function items(

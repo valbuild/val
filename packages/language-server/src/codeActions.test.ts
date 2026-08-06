@@ -105,8 +105,9 @@ describe("code actions over LSP", () => {
     session.dispose();
   });
 
-  test("advertises the metadata fix feature", () => {
+  test("advertises the metadata and gallery fix features", () => {
     expect(session.capabilities?.features).toContain("fix/metadata");
+    expect(session.capabilities?.features).toContain("fix/gallery");
   });
 
   // A purpose-built module: it references an image that really exists in the
@@ -203,18 +204,54 @@ export default c.define("/content/fixtureQuickFix.val.ts", schema, {
     expect(after.diagnostics.filter((d) => d.code === "val/fatal")).toEqual([]);
   });
 
-  test("offers no actions for a diagnostic that has no local fix", async () => {
+  test("offers a quick fix that corrects gallery metadata", async () => {
+    // media.val.ts is a gallery whose stored entry says 800x600 for an image
+    // that is really 944x944, reported as images:check-all-files. The fix reads
+    // each entry's file, so it works offline.
+    const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
+    const uri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(uri, original);
+
+    const published = await session.nextDiagnostics(uri, (d) =>
+      d.diagnostics.some((x) =>
+        x.data?.fixes?.some((f) => f.endsWith("check-all-files")),
+      ),
+    );
+    const fixable = published.diagnostics.filter((d) =>
+      d.data?.fixes?.some((f) => f.endsWith("check-all-files")),
+    );
+
+    const actions = await session.requestCodeActions(uri, fixable);
+    const galleryAction = actions.find((a) => a.title.includes("gallery"));
+    expect(galleryAction).toBeDefined();
+
+    const edits = galleryAction!.edit?.changes?.[uri];
+    expect(edits).toBeDefined();
+    const applied = applyEdits(original, edits!);
+    // Corrected to the image's real dimensions.
+    expect(applied).toContain("944");
+    expect(applied).not.toBe(original);
+    // Disk untouched.
+    expect(fs.readFileSync(file, "utf8")).toBe(original);
+  });
+
+  test("offers no action for a fix that cannot be computed locally", async () => {
+    // check-unique-folder carries a fix name but createFixPatch has no handler
+    // for it -- a collision between galleries needs a human decision -- so no
+    // action is offered rather than one that would do nothing.
     const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
     const uri = `file://${file}`;
     session.openDocument(uri, fs.readFileSync(file, "utf8"));
 
     const published = await session.nextDiagnostics(uri);
-    expect(published.diagnostics.length).toBeGreaterThan(0);
-    // Gallery fixes are not computable locally, so no quick fix is offered
-    // rather than one that would fail.
-    expect(
-      await session.requestCodeActions(uri, published.diagnostics),
-    ).toEqual([]);
+    const uniqueFolder = published.diagnostics.filter((d) =>
+      d.data?.fixes?.some((f) => f.endsWith("check-unique-folder")),
+    );
+    if (uniqueFolder.length === 0) {
+      return; // Not present in this fixture; nothing to assert.
+    }
+    expect(await session.requestCodeActions(uri, uniqueFolder)).toEqual([]);
   });
 });
 

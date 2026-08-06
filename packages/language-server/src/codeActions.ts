@@ -40,6 +40,10 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   "image:check-metadata",
   "file:add-metadata",
   "file:check-metadata",
+  // Gallery metadata: createFixPatch reads each entry's file and corrects the
+  // stored metadata, dropping entries whose file has gone. Filesystem only.
+  "images:check-all-files",
+  "files:check-all-files",
 ];
 
 /** Human-readable titles; falls back to the fix name for anything unknown. */
@@ -48,6 +52,8 @@ const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "image:check-metadata": "Val: update image metadata",
   "file:add-metadata": "Val: add file metadata",
   "file:check-metadata": "Val: update file metadata",
+  "images:check-all-files": "Val: update gallery image metadata",
+  "files:check-all-files": "Val: update gallery file metadata",
 };
 
 export function isLocalFix(fix: string): fix is ValidationFix {
