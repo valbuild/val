@@ -403,27 +403,30 @@ const ASK_USER_QUESTION_TOOL: AITool = {
 // render rather than a lookup, so a malformed payload is not recoverable the
 // way a bad argument to a read tool is: with no questions there is no card to
 // submit, and since the tool intentionally sends no immediate result the turn
-// would sit on a spinner forever. Validate before rendering and report the
-// problem back instead — the tool description tells the model to fall back to
-// plain text when it gets an error.
+// would sit on a spinner forever.
+//
+// Only the fields the card cannot render without are strict. The cosmetic ones
+// use .catch so a wrong type drops just that field rather than rejecting an
+// otherwise perfectly answerable question.
 const AskUserQuestionArgs = z.object({
   questions: z
     .array(
       z.object({
         question: z.string(),
-        header: z.string().optional(),
+        header: z.string().optional().catch(undefined),
         options: z.array(
           z.object({
             label: z.string(),
-            description: z.string().optional(),
+            description: z.string().optional().catch(undefined),
           }),
         ),
-        multiSelect: z.boolean().optional(),
-        defaults: z.array(z.number()).optional(),
+        multiSelect: z.boolean().optional().catch(undefined),
+        defaults: z.array(z.number()).optional().catch(undefined),
       }),
     )
     .min(1),
 });
+type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
@@ -498,25 +501,34 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
-        const questionsRes =
-          message.name === "ask_user_question"
-            ? AskUserQuestionArgs.safeParse(message.arguments)
-            : null;
-        if (questionsRes && !questionsRes.success) {
-          console.error(
-            "Received malformed ask_user_question arguments",
-            questionsRes.error,
-          );
-          sendWsMessage({
-            type: "ai_tool_result",
-            toolCallId: message.toolCallId,
-            result: {
-              success: false,
-              error: `Malformed ask_user_question arguments: ${questionsRes.error.message}. Ask the user in plain text instead.`,
-            },
-            isError: true,
-          });
-          return;
+        let askQuestions: AskUserQuestions | undefined;
+        if (message.name === "ask_user_question") {
+          const parsed = AskUserQuestionArgs.safeParse(message.arguments);
+          // Anything that stops the card from rendering has to be reported
+          // back: the tool sends no result of its own, and timeoutMs: null
+          // means the server would otherwise wait for one forever.
+          let blockedReason: string | null = null;
+          if (!parsed.success) {
+            blockedReason = `Malformed arguments: ${z.prettifyError(parsed.error)}`;
+          } else if (!chatRef.current) {
+            blockedReason =
+              "The chat UI is not available to show the question.";
+          } else {
+            askQuestions = parsed.data.questions;
+          }
+          if (blockedReason) {
+            console.error("Cannot show ask_user_question card:", blockedReason);
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `${blockedReason} Ask the user in plain text instead.`,
+              },
+              isError: true,
+            });
+            return;
+          }
         }
         // Ensure assistant message is active so tool indicators can be shown
         if (chatRef.current) {
@@ -529,7 +541,7 @@ export function useAI(chatRef: React.RefObject<AIChatHandle | null>) {
             message.id,
             message.toolCallId,
             message.name,
-            questionsRes?.data.questions,
+            askQuestions,
           );
         }
         if (message.name === "ask_user_question") {
