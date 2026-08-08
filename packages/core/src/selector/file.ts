@@ -9,8 +9,8 @@ export type FileSelector<Metadata extends FileMetadata | undefined> =
     url: string;
   }> & {
     readonly url: UnknownSelector<string>;
-  } & Metadata extends undefined
-    ? {}
-    : Metadata extends Source
-      ? { readonly metadata: UnknownSelector<Metadata> }
-      : {};
+  } & (Metadata extends undefined
+      ? {}
+      : Metadata extends Source
+        ? { readonly metadata: UnknownSelector<Metadata> }
+        : {});

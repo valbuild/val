@@ -9,7 +9,6 @@ import {
 } from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import { derefPatch } from "@valbuild/core";
-import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";
 import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
 
@@ -26,8 +25,6 @@ export const patchValFile = async (
   rootDir: string,
   patch: Patch,
   sourceFileHandler: ValSourceFileHandler,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  runtime: QuickJSRuntime,
 ): Promise<void> => {
   // const timeId = randomUUID();
   // console.time("patchValFile" + timeId);

@@ -62,6 +62,8 @@ export type ValidationError = {
   message: string;
   value?: unknown;
   fixes?: ValidationFix[];
+  // True when the error is about an object/record key rather than its value.
+  keyError?: boolean;
 };
 
 export type FixHandlerContext = {
@@ -109,14 +111,26 @@ export type ValidationEvent =
       errorCount: number;
       durationMs: number;
     }
-  | { type: "validation-error"; sourcePath: string; message: string }
+  | {
+      type: "validation-error";
+      sourcePath: string;
+      message: string;
+      keyError?: boolean;
+    }
   | {
       type: "validation-fixable-error";
       sourcePath: string;
       message: string;
       fixable: boolean;
+      keyError?: boolean;
     }
-  | { type: "unknown-fix"; sourcePath: string; fixes: string[] }
+  | {
+      type: "unknown-fix";
+      sourcePath: string;
+      fixes: string[];
+      keyError?: boolean;
+    }
+  | { type: "unregistered-module"; file: string }
   | { type: "fix-applied"; file: string; sourcePath: string }
   | { type: "fatal-error"; file: string; message: string }
   | { type: "remote-uploading"; ref: string }
@@ -443,7 +457,7 @@ export async function handleUniqueFolderCheck(
     const otherModule = await ctx.service.get(
       otherModuleFilePath,
       "" as ModulePath,
-      { source: false, schema: true, validate: false },
+      { validate: false },
     );
     const schema = otherModule.schema as
       | { type?: string; directory?: string; mediaType?: string }
@@ -604,17 +618,19 @@ export async function* runValidation({
 
   const service = await createService(projectRoot, {}, fs);
 
+  // Modules registered in the project's val.modules. Files found on disk that
+  // are not registered here are not validated (a warning is emitted instead).
+  const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
+
   let errors = 0;
 
   // Build a single schema/source snapshot up front so the shared resolver
   // can resolve keyof:check-keys / router:check-route references that span
-  // multiple val files.
+  // multiple val files. Use the full registry so cross-module references
+  // resolve even against modules not in the validated subset.
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
-  for (const file of valFiles) {
-    const moduleFilePath = `/${file}` as ModuleFilePath;
+  for (const moduleFilePath of registered) {
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: false,
     });
     if (valModule.schema) {
@@ -627,10 +643,12 @@ export async function* runValidation({
 
   async function* validateFile(file: string): AsyncGenerator<ValidationEvent> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
+    if (!registered.has(moduleFilePath)) {
+      yield { type: "unregistered-module", file };
+      return;
+    }
     const start = Date.now();
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: true,
     });
     const remoteFiles: Record<
@@ -670,6 +688,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: v.message,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 continue;
               }
@@ -683,6 +702,7 @@ export async function* runValidation({
                   type: "unknown-fix",
                   sourcePath,
                   fixes: v.fixes,
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -728,6 +748,7 @@ export async function* runValidation({
                   type: "validation-error",
                   sourcePath,
                   message: result.errorMessage ?? "Unknown error",
+                  ...(v.keyError ? { keyError: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -760,6 +781,7 @@ export async function* runValidation({
                     sourcePath,
                     message: v.message,
                     fixable: true,
+                    ...(v.keyError ? { keyError: true } : {}),
                   };
                 }
 
@@ -767,9 +789,12 @@ export async function* runValidation({
                   fileErrors += 1;
                   yield {
                     type: "validation-fixable-error",
-                    sourcePath,
+                    // Gallery checks expand into per-entry errors that point at
+                    // the individual entry; fall back to the record sourcePath.
+                    sourcePath: e.sourcePath ?? sourcePath,
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
+                    ...(e.keyError ? { keyError: true } : {}),
                   };
                 }
               }

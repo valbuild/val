@@ -270,7 +270,7 @@ describe("runValidation", () => {
       const result = await service.get(
         "/content/basic-gallery-missing-tracked.val.ts" as ModuleFilePath,
         "" as ModulePath,
-        { source: true, schema: true, validate: true },
+        { validate: true },
       );
       expect(result.source).not.toHaveProperty(
         "/public/val/images4/missing.png",
@@ -327,7 +327,7 @@ describe("runValidation", () => {
       const result = await service.get(
         "/content/basic-gallery-wrong-metadata.val.ts" as ModuleFilePath,
         "" as ModulePath,
-        { source: true, schema: true, validate: true },
+        { validate: true },
       );
       expect(result.source).toMatchObject({
         "/public/val/images3/image.png": {
@@ -361,7 +361,7 @@ describe("runValidation", () => {
       const result = await service.get(
         "/content/basic-image.val.ts" as ModuleFilePath,
         "" as ModulePath,
-        { source: true, schema: true, validate: true },
+        { validate: true },
       );
       // The schema always emits image:check-metadata when metadata exists
       // (actual metadata verification happens in the fix handler).
