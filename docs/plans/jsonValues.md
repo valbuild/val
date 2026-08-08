@@ -1052,7 +1052,7 @@ unconditionally (accepted "validation takes more time" tradeoff).
 
 ## Follow-ups (found while running the walkthrough)
 
-### A hand-edited `*.val.json` does not hot-reload into an open Studio (2026-08-08)
+### A hand-edited `*.val.json` does not hot-reload into an open Studio — FIXED (2026-08-08)
 
 Editing an entry file on disk leaves the Studio showing the old value until the page is reloaded.
 Diagnosed against a running dev server: **the server is fine** — `/json` returns the new content on the
@@ -1067,18 +1067,28 @@ next request, immediately. The client is never told to ask again, and two things
 
 Workaround (documented in the walkthrough): reload the Studio.
 
-Fix shape, if we want it — roughly 60–100 lines plus tests:
+Fixed exactly as scoped:
 
-1. Add `.val.json` to the watcher's `isChange` test (one line) so the long-poll wakes.
-2. Give `/stat` an FS-only `jsonEntriesSha`, computed from the entry files' mtime+size (cheap — no content
-   read, so it does not undo the point of `.jsonValues()`).
-   **Not** by extending `sourcesSha`: that lives in core's `extractValModules`, is computed by BOTH client
-   and server, and the client has no entry content — divergence would trip the `schemaOutOfDate` machinery.
-3. On a changed `jsonEntriesSha`, the client calls `markAllJsonEntriesStale()` — which already exists and
-   is exactly what publish uses, so the refetch-and-rerender chain is already built and tested.
+1. `.val.json` added to the watcher's `isChange` test, so the long-poll wakes.
+2. `/stat` carries an FS-only `jsonEntriesSha` from `JsonEntryFilesFingerprint` — each entry file's size +
+   **nanosecond** mtime, never its content. Nanosecond because size + millisecond would miss two writes
+   inside the same millisecond that preserve the size, and a silently-missed edit is the bug being fixed.
+   The entry LIST is parsed out of the `.val.ts` (that is where the thunk paths live) and memoized on that
+   file's mtime.
+   **Not** folded into `sourcesSha`, as planned: the client computes that too, from a registry with no
+   entry content, so the two would diverge and trip the `schemaOutOfDate` machinery.
+3. The client echoes the fingerprint back and calls `markAllJsonEntriesStale()` when it moves — the same
+   path publish uses, so the refetch-and-rerender chain was already built and tested.
 
-Dev-only ergonomics: it does not affect editing in the Studio (a patch, not a file write), publishing, or
-the runtime. Worth doing because hand-authoring entry files is a supported workflow (locked decision #2).
+**Measured** (synthetic projects, warm path = what every `/stat` pays): 120 entries 0.27ms, 1 000 entries
+2.3ms, 5 000 entries 14ms, 10 000 entries 28ms — linear at ~2.9µs per entry, one `statSync` each. The stat
+long-poll returns every ~20s per open Studio tab, so 10K entries costs ~0.15% of a core; for comparison the
+pre-existing watcher polls every `.val.ts` every 250ms. The cold path (parsing the `.val.ts`, 48ms at 10K)
+only runs when that file changes. A project with no `.jsonValues()` modules pays nothing — pinned by a test.
+Re-serializing the schemas per stat, which this added, measured 0.06ms for 20 modules.
+
+http mode is untouched: `ValOpsHttp` has no fingerprint, and the field is declared optional through the
+abstract `getStat` contract so its absence is part of the type, not an accident. +9 tests.
 
 ## Open questions / watch-list
 

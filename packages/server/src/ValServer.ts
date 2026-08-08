@@ -903,6 +903,8 @@ export const ValServer = (
           schemaSha: SchemaSha;
           patches: PatchId[];
           profileId?: AuthorId;
+          // FS mode only; http never sends or returns it.
+          jsonEntriesSha?: string;
         } | null);
         if (currentStat.type === "error" && currentStat.networkError) {
           return {

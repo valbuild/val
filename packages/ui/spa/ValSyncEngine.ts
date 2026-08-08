@@ -246,6 +246,11 @@ export class ValSyncEngine {
   private commitSha: string | null;
   private baseSha: string | null; // TODO: Currently only used for headBaseSha in head patches - we think we should replace headBaseSha with headSourcesSha
   private sourcesSha: string | null;
+  /**
+   * Last seen fingerprint of the `.jsonValues()` entry files (FS mode only). See
+   * syncWithUpdatedStat.
+   */
+  private jsonEntriesSha: string | undefined;
   private syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   private pendingOps: PendingOp[];
   private errors: Partial<{
@@ -3227,6 +3232,13 @@ export class ValSyncEngine {
     authorId: string | null,
     commitSha: string | null,
     now: number,
+    /**
+     * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. It is
+     * the only signal that a hand-edited `*.val.json` changed — `sourcesSha` and
+     * `baseSha` hash the module source, which for a jsonValues module is markers
+     * with the content behind a thunk `JSON.stringify` drops.
+     */
+    jsonEntriesSha?: string,
   ): Promise<
     | {
         status: "done";
@@ -3238,6 +3250,20 @@ export class ValSyncEngine {
   > {
     const haveLocal = this.localModulesStatus.type === "loaded";
     const sourcesShaDidChange = this.sourcesSha !== sourcesSha;
+    // An entry file changed on disk (someone hand-edited a `*.val.json`). The
+    // module source is byte-identical either way, so nothing below would notice:
+    // mark the loaded entries stale and let the batch loader refetch them.
+    // Skipped on the FIRST stat, where there is nothing cached to invalidate.
+    if (
+      jsonEntriesSha !== undefined &&
+      this.jsonEntriesSha !== undefined &&
+      this.jsonEntriesSha !== jsonEntriesSha
+    ) {
+      this.markAllJsonEntriesStale();
+    }
+    if (jsonEntriesSha !== undefined) {
+      this.jsonEntriesSha = jsonEntriesSha;
+    }
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
     this.mode = mode;

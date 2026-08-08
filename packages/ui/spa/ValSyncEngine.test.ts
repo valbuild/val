@@ -1360,6 +1360,83 @@ describe("ValSyncEngine", () => {
       });
     });
 
+    describe("hand-edited entry files (jsonEntriesSha)", () => {
+      /**
+       * A `*.val.json` edited on disk changes nothing the client can otherwise
+       * see: the module source is markers, and both sourcesSha and baseSha hash
+       * that source. FS mode therefore reports a separate fingerprint of the entry
+       * FILES, and a change in it means "refetch what you have cached".
+       */
+      // Real shas: only the entry-file fingerprint may differ, or the engine takes
+      // the reset+init path and there is nothing cached left to invalidate.
+      const statArgs = (tester: SyncEngineTester, jsonEntriesSha?: string) =>
+        [
+          "fs" as const,
+          tester.getBaseSha(),
+          tester.getSchemasSha(),
+          tester.getSourcesSha(),
+          tester.fakePatches.map((p) => p.patchId),
+          null,
+          tester.getCommitSha(),
+          tester.getNextNow(),
+          jsonEntriesSha,
+        ] as const;
+
+      test("a changed fingerprint refetches the cached entries", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        const batchesBefore = tester.jsonBatchRequestCounts[PAGES] ?? 0;
+
+        // First stat carrying a fingerprint: nothing to invalidate yet.
+        await engine.syncWithUpdatedStat(...statArgs(tester, "fingerprint-1"));
+        await flush();
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(batchesBefore);
+
+        // Someone edits an entry file on disk → the fingerprint moves.
+        tester.fakeJsonEntries[PAGES]["/a"] = {
+          title: "edited on disk",
+          order: 1,
+        };
+        await engine.syncWithUpdatedStat(...statArgs(tester, "fingerprint-2"));
+        await flush();
+
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(batchesBefore + 1);
+        expect(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+        ).toEqual({ title: "edited on disk", order: 1 });
+      });
+
+      test("an unchanged fingerprint refetches nothing", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+
+        await engine.syncWithUpdatedStat(...statArgs(tester, "fingerprint-1"));
+        await flush();
+        const batchesAfterFirst = tester.jsonBatchRequestCounts[PAGES] ?? 0;
+
+        await engine.syncWithUpdatedStat(...statArgs(tester, "fingerprint-1"));
+        await engine.syncWithUpdatedStat(...statArgs(tester, "fingerprint-1"));
+        await flush();
+
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(batchesAfterFirst);
+      });
+
+      test("no fingerprint at all (http mode) changes nothing", async () => {
+        const { tester } = setupJsonValues();
+        const engine = await tester.createInitializedSyncEngine();
+        await engine.ensureJsonEntries([toModuleFilePath(PAGES)]);
+        const batchesBefore = tester.jsonBatchRequestCounts[PAGES] ?? 0;
+
+        await engine.syncWithUpdatedStat(...statArgs(tester, undefined));
+        await engine.syncWithUpdatedStat(...statArgs(tester, undefined));
+        await flush();
+
+        expect(tester.jsonBatchRequestCounts[PAGES]).toBe(batchesBefore);
+      });
+    });
+
     describe("load status (what a reference guard reads)", () => {
       test("incomplete until EVERY entry is loaded", async () => {
         const { tester } = setupJsonValues();

@@ -168,6 +168,12 @@ export abstract class ValOps {
       schemaSha: SchemaSha;
       patches?: PatchId[];
       profileId?: AuthorId;
+      /**
+       * FS mode only (see ValOpsFS): the fingerprint of the `.jsonValues()` entry
+       * FILES the client last saw. Absent in http mode, where content does not
+       * change under a running server — a deploy restarts it.
+       */
+      jsonEntriesSha?: string;
       // TODO: deployments: Record<DeploymentId, "deployed" | "deploying" | "failed">
     } | null,
   ): Promise<
@@ -177,6 +183,8 @@ export abstract class ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        /** FS mode only — see the `params` counterpart. */
+        jsonEntriesSha?: string;
       }
     | {
         type: "use-websocket";

@@ -96,29 +96,21 @@ Notes:
 
 ---
 
-## Known limitation: editing a `*.val.json` on disk does not hot-reload
+## Hand-editing a `*.val.json` while the Studio is open
 
-If you edit an entry file by hand while the Studio is open — say `content/faq.val.json` — **the Studio
-keeps showing the old value until you reload the page.** Several steps below have you edit entry files
-directly, so expect it.
+Several steps below edit entry files directly. That now reaches an open Studio on its own: the value
+updates within a stat cycle, no reload needed.
 
-The server is not the problem: it serves the new content on the next request, immediately. The client is
-simply never told to ask again, for two reasons that compound:
+It needs its own mechanism because nothing else can see such an edit — `sourcesSha` and `baseSha` hash the
+module source, and a `.jsonValues()` module's source is just markers, with the content behind a thunk that
+`JSON.stringify` drops. So FS mode fingerprints the entry FILES (size + nanosecond mtime, never content)
+and reports it on `/stat`; when it moves, the Studio marks its cached entries stale and refetches.
 
-- The FS watcher that drives the `/stat` long-poll only treats `.val.ts`, `.val.js`, `val.config.*`,
-  `val.modules.*` and the patches directory as changes — `.val.json` is not in that list, so the poll does
-  not even wake up.
-- Nothing the client compares would differ anyway. Both `sourcesSha` and `baseSha` hash
-  `JSON.stringify(source)`, and a `.jsonValues()` module's source is just markers — the entry content is
-  behind a thunk, and `JSON.stringify` drops functions. An entry edit is invisible to every sha that
-  exists today.
-
-**Workaround: reload the Studio.** The client starts with an empty entry cache, so it refetches and you
-get the new content.
-
-This does not affect editing in the Studio itself (that is a patch, not a file edit), nor publishing, nor
-the runtime — only hand-edits to entry files with the Studio already open. Recorded as a follow-up in
-[jsonValues.md](./jsonValues.md).
+- **FS/dev mode only.** In http mode the content comes from the remote and a deploy restarts the server,
+  so there is nothing to detect — the field is never sent and the client ignores its absence.
+- If an edit does NOT show up, the likely cause is a stale Studio bundle: the client half of this lives in
+  the built SPA, so `pnpm --filter @valbuild/ui build` after pulling.
+- Editing in the Studio itself was never affected (that is a patch, not a file write).
 
 ---
 

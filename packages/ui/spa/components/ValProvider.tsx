@@ -551,6 +551,7 @@ export function ValProvider({
         stat.data.profileId,
         stat.data.commitSha ?? null,
         Date.now(),
+        stat.data.jsonEntriesSha,
       );
     }
   }, [stat, syncEngine, initializedAt]);

@@ -545,6 +545,13 @@ export const Api = {
             schemaSha: z.string(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
+            /**
+             * Fingerprint of the `.jsonValues()` entry files the client last saw.
+             * FS mode only: no other sha can see an entry file change, since a
+             * jsonValues module's source is markers and the content sits behind a
+             * thunk that `JSON.stringify` drops.
+             */
+            jsonEntriesSha: z.string().optional(),
           })
           .nullable(),
         cookies: {
@@ -580,6 +587,7 @@ export const Api = {
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
+              jsonEntriesSha: z.string().optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
