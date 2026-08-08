@@ -221,6 +221,17 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     return {
       type: "date",

@@ -25,6 +25,7 @@ import {
   JSONValue,
 } from "@valbuild/core/patch";
 import {
+  JSON_ENTRIES_BATCH_MAX,
   ParentRef,
   ValClient,
   Patch,
@@ -33,7 +34,15 @@ import {
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 import { ReifiedRender } from "@valbuild/core";
-import { ValidationWorkerClient } from "./validation/ValidationWorkerClient";
+import {
+  collectCustomValidateTargets,
+  hasCustomValidate,
+} from "./validation/customValidate";
+import { yieldToBackground } from "./utils/yieldToBackground";
+import {
+  ValidationWorkerClient,
+  type ValidationWorkerFactory,
+} from "./validation/ValidationWorkerClient";
 import { partitionValidationErrors } from "./validation/partitionValidationErrors";
 
 /**
@@ -135,6 +144,53 @@ export class ValSyncEngine {
       }
     | undefined
   > | null;
+  /**
+   * Loaded content for `.jsonValues()` record entries, keyed by module then
+   * entry key. The on-disk source only carries lazy `{ _type:"json" }`
+   * markers; the Studio fetches an entry's content on demand via
+   * `requestJsonEntry` (GET /json) and `getPatchedSource` substitutes it in so
+   * field resolution/rendering works.
+   */
+  private jsonEntryContents: Record<ModuleFilePath, Record<string, JSONValue>> =
+    {};
+  /** In-flight json entry loads, keyed `${moduleFilePath}\0${key}`. */
+  private loadingJsonEntries: Map<string, Promise<void>> = new Map();
+  /**
+   * Entries whose last load failed, keyed by module then entry key. Memoizing
+   * the failure is what stops a permanently-failing entry from being refetched
+   * on every field remount (and from rendering a spinner forever): the field
+   * hooks surface this as an error state instead. Cleared by `retryJsonEntry`
+   * and whenever the module's server source is replaced.
+   */
+  private jsonEntryErrors: Record<ModuleFilePath, Record<string, string>> = {};
+  /**
+   * Loaded entries whose committed content may now be out of date (the module's
+   * server source was replaced, e.g. after publish), keyed
+   * `${moduleFilePath}\0${key}`. They keep rendering their old content until the
+   * refetch lands, so there is no loading flash — but they MUST be refetched, or
+   * a published edit appears to revert to the pre-edit content.
+   */
+  private staleJsonEntries: Set<string> = new Set();
+  /**
+   * Progress of the CURRENT json-entry load run, spanning every module and every
+   * batch in flight — deliberately not per module, so a UI percentage does not
+   * visibly reset at each module boundary. Counts up as keys resolve (loaded,
+   * missing or failed all count as resolved) and resets to zero once nothing is
+   * in flight.
+   */
+  private jsonEntriesProgress: { requested: number; resolved: number } = {
+    requested: 0,
+    resolved: 0,
+  };
+  /**
+   * Keys queued by {@link requestJsonEntry} / {@link requestJsonEntries} for the
+   * next coalesced flush. A record list renders one `<Preview>` per key and each
+   * asks for its own entry, so without this a record with N entries fires N
+   * requests; with it, one render pass costs one request per module.
+   */
+  private pendingJsonEntryRequests: Map<ModuleFilePath, Set<string>> =
+    new Map();
+  private jsonEntryFlushScheduled = false;
   private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
@@ -147,6 +203,24 @@ export class ValSyncEngine {
    */
   private localSchemas: Record<ModuleFilePath, SerializedSchema> | null;
   private localSchemaSha: string | null;
+  /**
+   * The user's REAL `Schema` instances, straight from the ValModules registry —
+   * not a `deserializeSchema` copy of the serialized form.
+   *
+   * They exist only when the host app renders `<ValModulesClient>`; without it
+   * this stays null and everything falls back to the serialized behaviour. What
+   * they carry that serialization cannot: the render `select` functions, the
+   * custom validate functions and the router. Anything needing schema BEHAVIOUR
+   * (rather than shape) has to read these.
+   *
+   * Cross-bundle identity is a non-issue: the identity symbols use `Symbol.for`,
+   * and protected methods are reached by bracket access (`schema["executeX"]()`)
+   * precisely because `instanceof` is unreliable across two copies of core.
+   */
+  private localSchemaInstances: Record<
+    ModuleFilePath,
+    Schema<SelectorSource>
+  > | null;
   /**
    * Un-patched sources extracted client-side from a ValModules registry.
    * Used to seed `serverSources` immediately (before /sources/~ resolves)
@@ -172,6 +246,11 @@ export class ValSyncEngine {
   private commitSha: string | null;
   private baseSha: string | null; // TODO: Currently only used for headBaseSha in head patches - we think we should replace headBaseSha with headSourcesSha
   private sourcesSha: string | null;
+  /**
+   * Last seen fingerprint of the `.jsonValues()` entry files (FS mode only). See
+   * syncWithUpdatedStat.
+   */
+  private jsonEntriesSha: string | undefined;
   private syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   private pendingOps: PendingOp[];
   private errors: Partial<{
@@ -238,6 +317,12 @@ export class ValSyncEngine {
     private readonly overlayEmitter:
       | typeof defaultOverlayEmitter
       | undefined = undefined,
+    // Injected by the composition root (ValProvider). Kept out of this file so
+    // the worker's import.meta reference never reaches the Jest-compiled core.
+    // When undefined (tests / SSR / stories) validation runs on the main thread.
+    private readonly createValidationWorker:
+      | ValidationWorkerFactory
+      | undefined = undefined,
   ) {
     this.initializedAt = null;
     this.forceSyncAllModules = true;
@@ -249,6 +334,7 @@ export class ValSyncEngine {
     this.clientSideSchemaSha = null;
     this.localSchemas = null;
     this.localSchemaSha = null;
+    this.localSchemaInstances = null;
     this.localSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
@@ -379,6 +465,7 @@ export class ValSyncEngine {
     this.clientSideSchemaSha = null;
     this.localSchemas = null;
     this.localSchemaSha = null;
+    this.localSchemaInstances = null;
     this.localSources = null;
     this.localSourcesSha = null;
     this.localModulesStatus = { type: "absent" };
@@ -386,6 +473,16 @@ export class ValSyncEngine {
     this.sourcesSha = null;
     this.serverSources = null;
     this.patchedSourcesCache = null;
+    this.jsonEntryContents = {};
+    this.loadingJsonEntries = new Map();
+    this.jsonEntryErrors = {};
+    this.staleJsonEntries = new Set();
+    this.jsonEntriesProgress = { requested: 0, resolved: 0 };
+    this.cachedJsonEntriesProgressSnapshot = null;
+    this.pendingJsonEntryRequests = new Map();
+    // Deliberately NOT clearing jsonEntryFlushScheduled: a flush may already be
+    // queued, and it must find an empty pending map rather than a second flush
+    // being scheduled behind it.
     this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
@@ -433,6 +530,11 @@ export class ValSyncEngine {
     // getValidationWorker() lazily recreates it on next use.
     this.validationWorker?.dispose();
     this.validationWorker = null;
+    if (this.overlayEmitTimeout !== null) {
+      clearTimeout(this.overlayEmitTimeout);
+      this.overlayEmitTimeout = null;
+    }
+    this.pendingOverlayEmits.clear();
 
     this.invalidateInitializedAt();
   }
@@ -466,6 +568,9 @@ export class ValSyncEngine {
     type: "all-validation-errors",
   ): (listener: () => void) => () => void;
   subscribe(type: "initialized-at"): (listener: () => void) => () => void;
+  subscribe(
+    type: "json-entries-progress",
+  ): (listener: () => void) => () => void;
   subscribe(
     type: "sync-status",
     path: SourcePath,
@@ -554,6 +659,11 @@ export class ValSyncEngine {
     this.emit(this.listeners["initialized-at"]?.[globalNamespace]);
   }
 
+  private invalidateJsonEntriesProgress() {
+    this.cachedJsonEntriesProgressSnapshot = null;
+    this.emit(this.listeners["json-entries-progress"]?.[globalNamespace]);
+  }
+
   private invalidateSource(moduleFilePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots !== null) {
       const keysToRemove: string[] = [];
@@ -596,7 +706,93 @@ export class ValSyncEngine {
     this.emit(this.listeners["source"]?.[moduleFilePath]);
     this.emit(this.listeners["all-sources"]?.[globalNamespace]);
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
+    // Renders are computed FROM the source (see computeRender), so a source that
+    // moved has renders that moved with it — including a `.jsonValues()` entry
+    // that just finished loading, whose row can now render for real.
+    this.invalidateRenders(moduleFilePath);
+    // The host app's client components read through the overlay, so they need the
+    // new source too — see scheduleOverlayEmit.
+    this.scheduleOverlayEmit(moduleFilePath);
   }
+
+  // #region Overlay
+  /** Modules whose new source the overlay has not been told about yet. */
+  private pendingOverlayEmits: Set<ModuleFilePath> = new Set();
+  private overlayEmitTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Tells the host app's overlay that a module's source moved, so its client
+   * components re-render with the PATCHED view — what the editor is actually
+   * looking at, rather than what is committed.
+   *
+   * Debounced, because the trigger is `invalidateSource`: that fires on every
+   * keystroke-patch and once per landing json-entry batch, and each emission
+   * clones a whole module source and re-renders every subscribed client
+   * component. One emission per burst is enough — the host already throttles its
+   * own `router.refresh()` to 500ms.
+   */
+  private scheduleOverlayEmit(moduleFilePath: ModuleFilePath): void {
+    if (!this.overlayEmitter) {
+      return;
+    }
+    this.pendingOverlayEmits.add(moduleFilePath);
+    if (this.overlayEmitTimeout !== null) {
+      return;
+    }
+    this.overlayEmitTimeout = setTimeout(() => {
+      this.overlayEmitTimeout = null;
+      const moduleFilePaths = Array.from(this.pendingOverlayEmits);
+      this.pendingOverlayEmits.clear();
+      for (const path of moduleFilePaths) {
+        this.emitOverlaySource(path);
+      }
+    }, OVERLAY_EMIT_DEBOUNCE_MS);
+  }
+
+  private emitOverlaySource(moduleFilePath: ModuleFilePath): void {
+    const patched = this.getPatchedSource(moduleFilePath);
+    if (patched === undefined) {
+      return;
+    }
+    // A `.jsonValues()` entry the user has edited but never opened this session
+    // is still a marker here, so the overlay would fall back to the committed
+    // content and the edit would look lost. Load those; the batch landing
+    // invalidates the source again and this runs once more with real content.
+    this.requestDraftedJsonEntries(moduleFilePath);
+    // Cloned: this is the engine's cached patched source, and handing the host
+    // app a live reference to it invites action at a distance.
+    this.overlayEmitter?.(moduleFilePath, deepClone(patched));
+  }
+
+  /**
+   * Requests the content of any `.jsonValues()` entry that a pending patch
+   * touches but that is not loaded yet. Cheap: the key set comes from the patch
+   * ops, and the engine skips keys it already has.
+   */
+  private requestDraftedJsonEntries(moduleFilePath: ModuleFilePath): void {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (
+      baseSource === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource)
+    ) {
+      return;
+    }
+    const keys = new Set<string>();
+    for (const patchId of this.orderedPatchIdsForModule(moduleFilePath)) {
+      for (const op of this.patchDataByPatchId[patchId]?.patch ?? []) {
+        const key = op.op !== "file" ? op.path[0] : undefined;
+        if (key !== undefined && Internal.isJson(baseSource[key])) {
+          keys.add(key);
+        }
+      }
+    }
+    if (keys.size > 0) {
+      this.requestJsonEntries(moduleFilePath, Array.from(keys));
+    }
+  }
+  // #endregion Overlay
 
   private invalidatePatchErrors(moduleFilePath: ModuleFilePath) {
     this.cachedPatchErrorsSnapshot = null;
@@ -609,7 +805,8 @@ export class ValSyncEngine {
     }
     this.cachedRenderSnapshots = {
       ...this.cachedRenderSnapshots,
-      [moduleFilePath]: null,
+      // undefined = "recompute on next read"; see getRenderSnapshot.
+      [moduleFilePath]: undefined,
     };
     this.cachedAllRendersSnapshot = null;
     this.emit(this.listeners["render"]?.[moduleFilePath]);
@@ -770,17 +967,62 @@ export class ValSyncEngine {
 
   private cachedRenderSnapshots: Record<
     ModuleFilePath,
-    ReifiedRender | null
+    ReifiedRender | null | undefined
   > | null;
-  getRenderSnapshot(moduleFilePath: ModuleFilePath) {
+  getRenderSnapshot(moduleFilePath: ModuleFilePath): ReifiedRender | null {
     if (this.cachedRenderSnapshots === null) {
       this.cachedRenderSnapshots = {};
     }
-    if (this.cachedRenderSnapshots[moduleFilePath] === null) {
-      this.cachedRenderSnapshots[moduleFilePath] =
-        this.renders?.[moduleFilePath] || null;
+    const cached = this.cachedRenderSnapshots[moduleFilePath];
+    // `undefined` means "not computed", `null` means "computed: nothing to
+    // render". Conflating them would re-run every module's `select` on every
+    // read, which for a large record is O(entries) per render pass.
+    if (cached !== undefined) {
+      return cached;
     }
-    return this.cachedRenderSnapshots[moduleFilePath];
+    const computed =
+      this.computeRender(moduleFilePath) ??
+      this.renders?.[moduleFilePath] ??
+      null;
+    this.cachedRenderSnapshots[moduleFilePath] = computed;
+    return computed;
+  }
+
+  /**
+   * Renders a module from the user's own schema INSTANCE against the PATCHED
+   * source — which is the whole point: `select` is a user function that only the
+   * instance carries, and running it on the patched source means a row's title
+   * updates as the user types, something the server render path could never do.
+   *
+   * Returns null when there is nothing to compute from (no instances, because the
+   * host app does not render `<ValModulesClient>`; or no source yet), and the
+   * caller falls back to whatever the server sent.
+   *
+   * Lazy + cached by `cachedRenderSnapshots`: `invalidateSource` drops the cache
+   * entry, so this recomputes on the next read rather than on every patch.
+   */
+  private computeRender(
+    moduleFilePath: ModuleFilePath,
+  ): ReifiedRender | undefined {
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (!instance) {
+      return undefined;
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return undefined;
+    }
+    try {
+      return instance["executeRender"](
+        moduleFilePath,
+        source as SelectorSource,
+      );
+    } catch (e) {
+      // A render is decoration: a schema whose render throws at the module level
+      // must not take the module's fields down with it.
+      console.error("Val: could not render module", moduleFilePath, e);
+      return undefined;
+    }
   }
 
   /**
@@ -816,11 +1058,663 @@ export class ValSyncEngine {
    * Otherwise we rebuild from `serverSources`, which covers patch deletion,
    * server-side reorder, and any other non-append change.
    */
+  /**
+   * Lazily loads the content of a single `.jsonValues()` entry and folds it into
+   * the source view (re-rendering subscribers). No-op if the entry is already
+   * loaded or a load is in flight. Called by the field hooks when the Studio
+   * renders a path that descends into an un-loaded json marker.
+   *
+   * COALESCED: every call in the same tick becomes ONE `/json` request per
+   * module. That matters because a record list renders a `<Preview>` per key and
+   * each one asks for its own entry — before coalescing, opening a record with
+   * N entries fired N requests.
+   */
+  requestJsonEntry(moduleFilePath: ModuleFilePath, key: string): void {
+    this.coalesceJsonEntryRequests(moduleFilePath, [key]);
+  }
+
+  /**
+   * Queues keys for the next coalesced flush. The flush is a microtask, so all
+   * the field effects of one render pass land in a single request per module.
+   */
+  private coalesceJsonEntryRequests(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+  ): void {
+    let pending = this.pendingJsonEntryRequests.get(moduleFilePath);
+    if (pending === undefined) {
+      pending = new Set();
+      this.pendingJsonEntryRequests.set(moduleFilePath, pending);
+    }
+    for (const key of keys) {
+      pending.add(key);
+    }
+    if (this.jsonEntryFlushScheduled) {
+      return;
+    }
+    this.jsonEntryFlushScheduled = true;
+    queueMicrotask(() => {
+      this.jsonEntryFlushScheduled = false;
+      const requests = Array.from(
+        this.pendingJsonEntryRequests,
+        ([path, requestedKeys]) => ({
+          moduleFilePath: path,
+          keys: Array.from(requestedKeys),
+        }),
+      );
+      this.pendingJsonEntryRequests.clear();
+      void this.loadJsonEntriesSettled(requests);
+    });
+  }
+
+  /**
+   * Maps an entry key as it appears in the PATCHED source back to the key it
+   * has in the committed base source, by undoing pending whole-entry renames.
+   *
+   * `/json` can only resolve keys that exist in the committed source, so a
+   * pending rename would 404 on the new key. Loading the content under the
+   * BASE key instead is also what makes it render: `applyJsonEntryContents`
+   * substitutes into the base source, and the `move` patch then relocates the
+   * content to the new key on its own.
+   */
+  private resolveBaseJsonEntryKey(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): string {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (
+      baseSource === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource) ||
+      key in baseSource
+    ) {
+      return key;
+    }
+    // Walk the pending ops newest-first, undoing renames until we land on a key
+    // the base source actually has.
+    const patchIds = this.orderedPatchIdsForModule(moduleFilePath);
+    let current = key;
+    for (let i = patchIds.length - 1; i >= 0; i--) {
+      const patchData = this.patchDataByPatchId[patchIds[i]];
+      if (!patchData) {
+        continue;
+      }
+      const ops = patchData.patch;
+      for (let j = ops.length - 1; j >= 0; j--) {
+        const op = ops[j];
+        if (
+          (op.op === "move" || op.op === "copy") &&
+          op.path.length === 1 &&
+          op.path[0] === current &&
+          op.from.length === 1
+        ) {
+          current = op.from[0];
+          if (current in baseSource) {
+            return current;
+          }
+          break;
+        }
+      }
+    }
+    return current;
+  }
+
+  /**
+   * Resolves once a `.jsonValues()` entry's content is loaded — or immediately
+   * if it already is, or if its load previously failed. Awaited before emitting
+   * a patch that moves a whole entry, so the patch carries real content rather
+   * than an opaque marker. {@link requestJsonEntry} is the fire-and-forget
+   * variant used by the field hooks.
+   */
+  async ensureJsonEntry(
+    moduleFilePath: ModuleFilePath,
+    requestedKey: string,
+  ): Promise<void> {
+    await this.loadJsonEntriesSettled([
+      { moduleFilePath, keys: [requestedKey] },
+    ]);
+  }
+
+  /**
+   * The committed entry keys of a `.jsonValues()` module — i.e. the keys whose
+   * base-source value is still a lazy `{_type:"json"}` marker. `null` when the
+   * module's source is not (yet) a record.
+   *
+   * Keys that exist ONLY in a pending patch are deliberately excluded: they have
+   * no committed content to fetch (their value is the patch's own), so asking
+   * `/json` for them would 404 and poison them with an error state.
+   */
+  private committedJsonEntryKeys(
+    moduleFilePath: ModuleFilePath,
+  ): string[] | null {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (
+      baseSource === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource)
+    ) {
+      return null;
+    }
+    return Object.keys(baseSource).filter((key) =>
+      Internal.isJson(baseSource[key]),
+    );
+  }
+
+  /**
+   * Loads the content of an explicit set of `.jsonValues()` entries, batched.
+   * Fire-and-forget: this is what a virtualized list calls for the window it just
+   * rendered. Already-loaded, in-flight and previously-failed keys are skipped,
+   * so re-rendering the same window costs nothing.
+   */
+  requestJsonEntries(moduleFilePath: ModuleFilePath, keys: string[]): void {
+    this.coalesceJsonEntryRequests(moduleFilePath, keys);
+  }
+
+  /**
+   * Resolves once EVERY committed entry of the given modules is loaded (or has
+   * failed). This is the completeness-critical variant: the reference guards and
+   * search must not answer from a partially-loaded record, so they await this and
+   * read `complete`.
+   *
+   * Never called on Studio boot — only when something is about to need the
+   * content (a destructive action's reference check, a search query, or an
+   * explicit "validate everything").
+   */
+  async ensureJsonEntries(moduleFilePaths: ModuleFilePath[]): Promise<{
+    /** True when every requested key resolved to content. */
+    complete: boolean;
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  }> {
+    return this.loadJsonEntriesSettled(
+      moduleFilePaths.map((moduleFilePath) => ({
+        moduleFilePath,
+        keys: this.committedJsonEntryKeys(moduleFilePath) ?? [],
+      })),
+    );
+  }
+
+  /**
+   * The synchronous question a reference guard asks on every render: is every
+   * committed entry of these modules loaded and fresh RIGHT NOW?
+   * {@link ensureJsonEntries} is how a caller gets there; this is how the UI
+   * reads the answer without keeping its own copy of it — a copy would go stale
+   * the moment a publish invalidates an entry, and a guard holding a stale
+   * "complete" is the defect this phase exists to fix.
+   *
+   * `error` outranks `incomplete`: a failed entry cannot be waited out, so the
+   * guard must stay blocked and offer a retry rather than spin forever.
+   */
+  getJsonEntriesLoadStatus(moduleFilePaths: ModuleFilePath[]): {
+    status: "complete" | "incomplete" | "error";
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  } {
+    const errors: {
+      moduleFilePath: ModuleFilePath;
+      key: string;
+      message: string;
+    }[] = [];
+    let incomplete = false;
+    for (const moduleFilePath of moduleFilePaths) {
+      if (this.serverSources?.[moduleFilePath] === undefined) {
+        // The module's source has not been synced yet, so its key set is unknown
+        // and we cannot claim its entries are loaded. Transient — boot loads every
+        // module's source.
+        incomplete = true;
+        continue;
+      }
+      const committed = this.committedJsonEntryKeys(moduleFilePath);
+      if (committed === null) {
+        // The source IS here, it just is not a record to enumerate — a nullable
+        // jsonValues record whose value is null. It has no entries, so it
+        // contributes nothing; reporting `incomplete` would freeze every guard at
+        // "checking references" with no way forward.
+        continue;
+      }
+      for (const key of committed) {
+        const loadingKey = `${moduleFilePath}\0${key}`;
+        // In flight FIRST: a refetch (e.g. the post-publish refresh) clears the
+        // stale flag when it starts, so an entry being reloaded looks fresh here
+        // while it still holds pre-publish content. Ignoring that would hand a
+        // guard a "complete" answer computed from content we already know is out
+        // of date.
+        if (this.loadingJsonEntries.has(loadingKey)) {
+          incomplete = true;
+          continue;
+        }
+        const message = this.jsonEntryErrors[moduleFilePath]?.[key];
+        if (message !== undefined) {
+          errors.push({ moduleFilePath, key, message });
+          continue;
+        }
+        if (
+          this.jsonEntryContents[moduleFilePath]?.[key] === undefined ||
+          this.staleJsonEntries.has(loadingKey)
+        ) {
+          incomplete = true;
+        }
+      }
+    }
+    if (errors.length > 0) {
+      return { status: "error", errors };
+    }
+    return { status: incomplete ? "incomplete" : "complete", errors };
+  }
+
+  /**
+   * Clears the memoized failures of these modules' entries and loads them again
+   * — the retry behind a blocked reference guard. Whole-module, because that is
+   * the unit a guard needs: the point is to get back to `complete`.
+   */
+  async retryJsonEntries(moduleFilePaths: ModuleFilePath[]): Promise<{
+    complete: boolean;
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  }> {
+    for (const moduleFilePath of moduleFilePaths) {
+      delete this.jsonEntryErrors[moduleFilePath];
+      // Emit even if the reload turns out to have nothing to fetch (an entry can
+      // hold both content and a failed refetch): otherwise the caller keeps
+      // rendering the error state it just cleared.
+      this.invalidateSource(moduleFilePath);
+    }
+    return this.ensureJsonEntries(moduleFilePaths);
+  }
+
+  /**
+   * Loads `requests` and re-passes while anything it asked for is still
+   * outstanding, then reports whether everything resolved to content.
+   *
+   * The re-pass exists because an invalidation that lands mid-flight marks
+   * entries stale again: the response we were waiting for predates it, so
+   * reporting `complete` on the strength of it would be exactly the lie this
+   * method exists to prevent. Bounded, so a pathological invalidation loop
+   * cannot spin here forever.
+   */
+  private async loadJsonEntriesSettled(
+    requests: { moduleFilePath: ModuleFilePath; keys: string[] }[],
+  ): Promise<{
+    complete: boolean;
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  }> {
+    let errors: {
+      moduleFilePath: ModuleFilePath;
+      key: string;
+      message: string;
+    }[] = [];
+    let outstanding = false;
+    for (let pass = 0; pass < JSON_ENTRIES_MAX_LOAD_PASSES; pass++) {
+      const res = await this.loadJsonEntries(requests);
+      errors = res.errors;
+      outstanding = res.requestedBaseKeys.some(({ moduleFilePath, keys }) =>
+        keys.some((key) => {
+          if (this.staleJsonEntries.has(`${moduleFilePath}\0${key}`)) {
+            return true;
+          }
+          return (
+            this.jsonEntryContents[moduleFilePath]?.[key] === undefined &&
+            this.jsonEntryErrors[moduleFilePath]?.[key] === undefined
+          );
+        }),
+      );
+      if (!outstanding) {
+        break;
+      }
+    }
+    if (outstanding) {
+      // Reported so "incomplete for no stated reason" is diagnosable: the bound is
+      // a backstop against an invalidation loop, not a computed limit, and hitting
+      // it means something kept re-invalidating faster than we could load.
+      console.error(
+        `Val: SyncEngine: json entries still outstanding after ${JSON_ENTRIES_MAX_LOAD_PASSES} load passes`,
+        { requests },
+      );
+      return { complete: false, errors };
+    }
+    return { complete: errors.length === 0, errors };
+  }
+
+  /**
+   * ONE load pass: filters each module's requested keys down to the ones worth
+   * fetching, chunks them, and resolves when every chunk has settled. Reports the
+   * keys it actually took responsibility for, so the caller can tell "resolved"
+   * from "deliberately skipped".
+   */
+  private async loadJsonEntries(
+    requests: { moduleFilePath: ModuleFilePath; keys: string[] }[],
+  ): Promise<{
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+    requestedBaseKeys: { moduleFilePath: ModuleFilePath; keys: string[] }[];
+  }> {
+    const waits: Promise<void>[] = [];
+    const requestedBaseKeys: {
+      moduleFilePath: ModuleFilePath;
+      keys: string[];
+    }[] = [];
+    for (const { moduleFilePath, keys } of requests) {
+      const committed = this.committedJsonEntryKeys(moduleFilePath);
+      if (committed === null) {
+        continue;
+      }
+      const committedKeys = new Set(committed);
+      const patchedSource = this.getPatchedSource(moduleFilePath);
+      const draftedKeys =
+        patchedSource !== undefined &&
+        patchedSource !== null &&
+        typeof patchedSource === "object" &&
+        !Array.isArray(patchedSource)
+          ? new Set(Object.keys(patchedSource))
+          : new Set<string>();
+      const baseKeys: string[] = [];
+      const wanted: string[] = [];
+      const seen = new Set<string>();
+      for (const requestedKey of keys) {
+        const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
+        if (seen.has(key)) {
+          continue;
+        }
+        // A key the committed source does not have, but the PATCHED source does,
+        // exists only in a pending patch: its value comes from that patch, so
+        // there is nothing to fetch and asking would 404 and wrongly mark it
+        // errored. A key in neither is a genuine miss and IS requested, so the
+        // caller gets a real error instead of silence.
+        if (!committedKeys.has(key) && draftedKeys.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        baseKeys.push(key);
+        const loadingKey = `${moduleFilePath}\0${key}`;
+        const inFlight = this.loadingJsonEntries.get(loadingKey);
+        if (inFlight !== undefined) {
+          waits.push(inFlight);
+          continue;
+        }
+        const isStale = this.staleJsonEntries.has(loadingKey);
+        if (isStale) {
+          wanted.push(key);
+          continue;
+        }
+        if (this.jsonEntryContents[moduleFilePath]?.[key] !== undefined) {
+          continue;
+        }
+        // A memoized failure stops the refetch loop (see `jsonEntryErrors`);
+        // `retryJsonEntry` clears it.
+        if (this.jsonEntryErrors[moduleFilePath]?.[key] !== undefined) {
+          continue;
+        }
+        wanted.push(key);
+      }
+      requestedBaseKeys.push({ moduleFilePath, keys: baseKeys });
+      for (let i = 0; i < wanted.length; i += JSON_ENTRIES_CHUNK_SIZE) {
+        waits.push(
+          this.loadJsonEntryChunk(
+            moduleFilePath,
+            wanted.slice(i, i + JSON_ENTRIES_CHUNK_SIZE),
+          ),
+        );
+      }
+    }
+    await Promise.all(waits);
+    const errors: {
+      moduleFilePath: ModuleFilePath;
+      key: string;
+      message: string;
+    }[] = [];
+    for (const { moduleFilePath, keys } of requestedBaseKeys) {
+      for (const key of keys) {
+        const message = this.jsonEntryErrors[moduleFilePath]?.[key];
+        if (message !== undefined) {
+          errors.push({ moduleFilePath, key, message });
+        }
+      }
+    }
+    return { errors, requestedBaseKeys };
+  }
+
+  /** Loads ONE batch of entries: a single `/json` request for many keys. */
+  private loadJsonEntryChunk(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+  ): Promise<void> {
+    const setJsonEntryError = (key: string, message: string) => {
+      if (this.jsonEntryErrors[moduleFilePath] === undefined) {
+        this.jsonEntryErrors[moduleFilePath] = {};
+      }
+      this.jsonEntryErrors[moduleFilePath][key] = message;
+    };
+    // Cleared at request START, not on success: anything that marks an entry
+    // stale while this request is in flight must win, since the response we are
+    // about to get was produced before that invalidation.
+    for (const key of keys) {
+      this.staleJsonEntries.delete(`${moduleFilePath}\0${key}`);
+    }
+    this.noteJsonEntriesRequested(keys.length);
+    const promise = this.client("/json", "GET", {
+      // apply_patches=false: we own in-flight client patches the server has not
+      // seen yet and apply them ourselves in `getPatchedSource`. Letting the
+      // server apply them too would double-apply.
+      query: {
+        path: moduleFilePath,
+        key: undefined,
+        keys,
+        offset: undefined,
+        limit: undefined,
+        apply_patches: false,
+      },
+    })
+      .then((res) => {
+        if (res.status === 200 && "entries" in res.json) {
+          if (this.jsonEntryContents[moduleFilePath] === undefined) {
+            this.jsonEntryContents[moduleFilePath] = {};
+          }
+          for (const entry of res.json.entries) {
+            this.jsonEntryContents[moduleFilePath][entry.key] =
+              entry.content ?? null;
+            if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
+              delete this.jsonEntryErrors[moduleFilePath][entry.key];
+            }
+          }
+          // A committed key that the server cannot resolve (deleted on disk
+          // between our source sync and this request) is an error, not silence.
+          for (const key of res.json.missing) {
+            setJsonEntryError(
+              key,
+              `Entry not found: ${key} in ${moduleFilePath}`,
+            );
+          }
+          for (const { key, message } of res.json.errors) {
+            setJsonEntryError(key, message);
+          }
+        } else {
+          const message =
+            "message" in res.json
+              ? res.json.message
+              : `Request failed with status ${res.status}`;
+          console.error("Val: SyncEngine: failed to load json entries", {
+            moduleFilePath,
+            keys,
+            res,
+          });
+          for (const key of keys) {
+            setJsonEntryError(key, message);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Val: SyncEngine: error loading json entries", {
+          moduleFilePath,
+          keys,
+          err,
+        });
+        const message = err instanceof Error ? err.message : String(err);
+        for (const key of keys) {
+          setJsonEntryError(key, message);
+        }
+      })
+      .finally(() => {
+        for (const key of keys) {
+          this.loadingJsonEntries.delete(`${moduleFilePath}\0${key}`);
+        }
+        // ONE invalidation for the whole batch, not one per entry.
+        this.invalidateSource(moduleFilePath);
+        // After the in-flight deletes above, so "nothing left in flight" is
+        // accurate and the run can reset.
+        this.noteJsonEntriesResolved(keys.length);
+      });
+    for (const key of keys) {
+      this.loadingJsonEntries.set(`${moduleFilePath}\0${key}`, promise);
+    }
+    return promise;
+  }
+
+  private noteJsonEntriesRequested(count: number): void {
+    if (count <= 0) {
+      return;
+    }
+    this.jsonEntriesProgress = {
+      requested: this.jsonEntriesProgress.requested + count,
+      resolved: this.jsonEntriesProgress.resolved,
+    };
+    this.invalidateJsonEntriesProgress();
+  }
+
+  private noteJsonEntriesResolved(count: number): void {
+    if (count <= 0) {
+      return;
+    }
+    const { requested, resolved } = this.jsonEntriesProgress;
+    this.jsonEntriesProgress =
+      this.loadingJsonEntries.size === 0
+        ? // The run is over — reset so the next one starts from 0%.
+          { requested: 0, resolved: 0 }
+        : { requested, resolved: Math.min(resolved + count, requested) };
+    this.invalidateJsonEntriesProgress();
+  }
+
+  private cachedJsonEntriesProgressSnapshot: JsonEntriesProgress | null = null;
+  /**
+   * Progress of the current json-entry load run, for UI that must show it rather
+   * than pretend it has a complete answer. Spans every module in flight, so the
+   * percentage does not reset at module boundaries.
+   */
+  getJsonEntriesProgressSnapshot(): JsonEntriesProgress {
+    if (this.cachedJsonEntriesProgressSnapshot === null) {
+      const { requested, resolved } = this.jsonEntriesProgress;
+      this.cachedJsonEntriesProgressSnapshot = {
+        status: requested === 0 ? "idle" : "loading",
+        loaded: resolved,
+        total: requested,
+        // 100 while idle: check `status` first if "nothing requested yet" and
+        // "everything done" must look different.
+        percentage:
+          requested === 0 ? 100 : Math.round((resolved / requested) * 100),
+      };
+    }
+    return this.cachedJsonEntriesProgressSnapshot;
+  }
+
+  /**
+   * The error message of the last failed load of a `.jsonValues()` entry, or
+   * `null`. Returns a primitive so it is safe to read from a
+   * `useSyncExternalStore` snapshot getter.
+   */
+  getJsonEntryError(
+    moduleFilePath: ModuleFilePath,
+    requestedKey: string,
+  ): string | null {
+    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
+    return this.jsonEntryErrors[moduleFilePath]?.[key] ?? null;
+  }
+
+  /** Clears a memoized json entry failure and loads it again. */
+  retryJsonEntry(moduleFilePath: ModuleFilePath, requestedKey: string): void {
+    const key = this.resolveBaseJsonEntryKey(moduleFilePath, requestedKey);
+    if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
+      delete this.jsonEntryErrors[moduleFilePath][key];
+    }
+    this.requestJsonEntry(moduleFilePath, key);
+    // So the retry is visible immediately: subscribers re-read, see the error is
+    // gone and render a loading state instead of the error they just dismissed.
+    // Without this nothing changes until the request settles, and a "try again"
+    // that looks like it did nothing invites a second click.
+    this.invalidateSource(moduleFilePath);
+  }
+
+  /**
+   * Marks every loaded entry of a module stale, so the next request refetches
+   * its committed content. Called when the module's server source is replaced
+   * (e.g. after publish): without this the pre-edit content is re-substituted
+   * and a published edit looks like it reverted.
+   */
+  private markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
+    const contents = this.jsonEntryContents[moduleFilePath];
+    delete this.jsonEntryErrors[moduleFilePath];
+    if (contents === undefined) {
+      return;
+    }
+    const keys = Object.keys(contents);
+    for (const key of keys) {
+      this.staleJsonEntries.add(`${moduleFilePath}\0${key}`);
+    }
+    // Batched: with hundreds of entries cached, refetching one-by-one made a
+    // publish a request storm.
+    this.requestJsonEntries(moduleFilePath, keys);
+  }
+
+  /**
+   * Marks every loaded `.jsonValues()` entry of every module stale.
+   *
+   * Needed on publish: a content-only edit rewrites the entry's `*.val.json`
+   * but NOT the `.val.ts`, so the module source (bare `{_type:"json"}` markers)
+   * is byte-identical and `sourcesSha` does not change — no `/sources/~`
+   * refresh is triggered. Without this the just-published content is served
+   * from the pre-edit cache and the edit looks like it reverted.
+   */
+  private markAllJsonEntriesStale(): void {
+    for (const moduleFilePathS of Object.keys(this.jsonEntryContents)) {
+      this.markJsonEntriesStale(moduleFilePathS as ModuleFilePath);
+    }
+  }
+
+  /**
+   * Returns `baseSource` with any loaded `.jsonValues()` entry content
+   * substituted in place of its lazy marker, so downstream resolution/patching
+   * sees real content. Markers without loaded content are left untouched.
+   */
+  private applyJsonEntryContents(
+    moduleFilePath: ModuleFilePath,
+    baseSource: JSONValue,
+  ): JSONValue {
+    const contents = this.jsonEntryContents[moduleFilePath];
+    if (
+      contents === undefined ||
+      baseSource === null ||
+      typeof baseSource !== "object" ||
+      Array.isArray(baseSource)
+    ) {
+      return baseSource;
+    }
+    let result: Record<string, JSONValue> | null = null;
+    for (const key in contents) {
+      if (Internal.isJson(baseSource[key])) {
+        if (result === null) {
+          result = { ...baseSource };
+        }
+        result[key] = contents[key];
+      }
+    }
+    return result ?? baseSource;
+  }
+
   private getPatchedSource(
     moduleFilePath: ModuleFilePath,
   ): JSONValue | undefined {
-    const baseSource = this.serverSources?.[moduleFilePath];
-    if (baseSource === undefined) return undefined;
+    const rawBaseSource = this.serverSources?.[moduleFilePath];
+    if (rawBaseSource === undefined) return undefined;
+    const baseSource = this.applyJsonEntryContents(
+      moduleFilePath,
+      rawBaseSource,
+    );
     const nextIds = this.orderedPatchIdsForModule(moduleFilePath);
     if (nextIds.length === 0) return baseSource;
 
@@ -1056,12 +1950,16 @@ export class ValSyncEngine {
   getAllRendersSnapshot(): Record<ModuleFilePath, ReifiedRender | null> {
     if (this.cachedAllRendersSnapshot === null) {
       this.cachedAllRendersSnapshot = {};
-      if (this.renders) {
-        for (const moduleFilePathS in this.renders) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          this.cachedAllRendersSnapshot[moduleFilePath] =
-            this.renders[moduleFilePath];
-        }
+      // Every module we have a SCHEMA for, not just the ones the server sent a
+      // render for: with client-side instances the render is computed here, and
+      // the server sends none (the Studio always asks for apply_patches:false).
+      const moduleFilePaths = new Set<ModuleFilePath>([
+        ...(Object.keys(this.localSchemaInstances ?? {}) as ModuleFilePath[]),
+        ...(Object.keys(this.renders ?? {}) as ModuleFilePath[]),
+      ]);
+      for (const moduleFilePath of moduleFilePaths) {
+        this.cachedAllRendersSnapshot[moduleFilePath] =
+          this.getRenderSnapshot(moduleFilePath);
       }
     }
     return this.cachedAllRendersSnapshot;
@@ -1095,10 +1993,43 @@ export class ValSyncEngine {
     ModuleFilePath,
     SerializedSchema
   > | null;
+  /**
+   * Deserialized schemas, used ONLY as the fallback for apps that do not register
+   * a client-side ValModules registry. See {@link behaviourSchema}.
+   */
   private cachedDeserializedSchemas: Record<
     ModuleFilePath,
     Schema<SelectorSource>
   > | null;
+
+  /**
+   * The schema to run BEHAVIOUR against on the main thread — validation,
+   * rendering, anything that executes rather than inspects.
+   *
+   * Prefers the user's own instance, which is the whole point of Phase 7: a
+   * `deserializeSchema` copy silently drops the render `select`, the custom
+   * validate functions and the router, so behaviour derived from it is a
+   * lobotomised approximation. The copy remains the fallback because
+   * `<ValModulesClient>` is optional — an app that does not render it has no
+   * instances, and a partly-working schema beats none.
+   */
+  private behaviourSchema(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+  ): Schema<SelectorSource> {
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (instance) {
+      return instance;
+    }
+    if (!this.cachedDeserializedSchemas) {
+      this.cachedDeserializedSchemas = {};
+    }
+    if (!this.cachedDeserializedSchemas[moduleFilePath]) {
+      this.cachedDeserializedSchemas[moduleFilePath] =
+        deserializeSchema(serializedSchema);
+    }
+    return this.cachedDeserializedSchemas[moduleFilePath];
+  }
   getAllSchemasSnapshot() {
     if (this.cachedAllSchemasSnapshot === null) {
       this.cachedAllSchemasSnapshot = {};
@@ -1433,15 +2364,31 @@ export class ValSyncEngine {
   private ensureValidationWorker(): ValidationWorkerClient {
     if (!this.validationWorker) {
       this.validationWorker = new ValidationWorkerClient(
-        (moduleFilePath, errors) => {
-          this.applyValidationResult(moduleFilePath, errors);
+        (moduleFilePath, result) => {
+          this.applyValidationResult(moduleFilePath, result.errors);
+          if (result.customValidate) {
+            void this.runCustomValidation(
+              moduleFilePath,
+              result.customValidate,
+            );
+          }
         },
+        this.createValidationWorker,
       );
     }
     return this.validationWorker;
   }
 
-  private requestModuleValidation(moduleFilePath: ModuleFilePath): void {
+  /**
+   * @param custom Also run the module's custom validate functions. Deliberately
+   * opt-in per call: custom validation is triggered by UPDATES (and pre-publish),
+   * never by the load path, so booting or HMR-ing a project does not execute
+   * arbitrary user code for every module.
+   */
+  private requestModuleValidation(
+    moduleFilePath: ModuleFilePath,
+    options?: { custom?: boolean },
+  ): void {
     // Validate against whatever schema is currently loaded, regardless of
     // whether it came from local `ValModules` or the server's `/schema`.
     // `/sources/~` is always called with `validate_sources=false`, so this
@@ -1452,11 +2399,20 @@ export class ValSyncEngine {
     if (!serializedSchema) return;
     const source = this.getPatchedSource(moduleFilePath);
     if (source === undefined) return;
+    // Every structural pass replaces the module's whole error slice, so any custom
+    // run still in flight is now working from a superseded source: bump the
+    // generation and its results will be dropped.
+    this.customValidationGeneration.set(
+      moduleFilePath,
+      (this.customValidationGeneration.get(moduleFilePath) ?? 0) + 1,
+    );
     this.ensureValidationWorker().validate(
       moduleFilePath,
       source as Source,
       serializedSchema,
       schemaSha,
+      options?.custom === true &&
+        this.moduleHasCustomValidate(moduleFilePath, serializedSchema),
     );
   }
 
@@ -1464,9 +2420,325 @@ export class ValSyncEngine {
     const schemas = this.schemas;
     if (!schemas) return;
     for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
+      // Structural only: this fires on boot and on every HMR.
       this.requestModuleValidation(moduleFilePath);
     }
   }
+
+  // #region Custom validation (client-side, main thread)
+  /**
+   * Bumped on every structural validation request. A custom run captures the
+   * value it started with and throws its results away if it no longer matches —
+   * publishing errors computed from a source that has since moved is how a
+   * validation store starts lying.
+   */
+  private customValidationGeneration: Map<ModuleFilePath, number> = new Map();
+  /**
+   * The `needs-keys` set the last custom-validation attempt asked for, per
+   * module. If an attempt asks for the same set twice, the load did not help
+   * (entries failed), and continuing would spin.
+   */
+  private lastCustomValidateNeedsKeys: Map<ModuleFilePath, string> = new Map();
+  /** Memoized answer to "does this module declare any custom validator?" */
+  private customValidateGate: {
+    schemaSha: string;
+    byModule: Map<ModuleFilePath, boolean>;
+  } | null = null;
+
+  /**
+   * Whether the module declares any custom validate function, from the SERIALIZED
+   * schema (which carries a `customValidate: true` flag per node).
+   *
+   * This is the gate for the entire feature: in the common case no module
+   * declares one, so nothing extra is walked in the worker, nothing is posted
+   * back and nothing runs on the main thread.
+   */
+  private moduleHasCustomValidate(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+  ): boolean {
+    const schemaSha = this.clientSideSchemaSha;
+    if (schemaSha === null) {
+      return false;
+    }
+    if (this.customValidateGate?.schemaSha !== schemaSha) {
+      this.customValidateGate = { schemaSha, byModule: new Map() };
+    }
+    const cached = this.customValidateGate.byModule.get(moduleFilePath);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const computed = hasCustomValidate(serializedSchema);
+    this.customValidateGate.byModule.set(moduleFilePath, computed);
+    return computed;
+  }
+
+  /**
+   * Runs the custom validators the worker located, loading `.jsonValues()` entry
+   * content first if any of them would otherwise see an opaque marker.
+   */
+  private async runCustomValidation(
+    moduleFilePath: ModuleFilePath,
+    targets: { paths: SourcePath[]; needsJsonKeys: string[] },
+  ): Promise<void> {
+    const generation = this.customValidationGeneration.get(moduleFilePath) ?? 0;
+    if (targets.needsJsonKeys.length > 0) {
+      const signature = [...targets.needsJsonKeys].sort().join("\0");
+      if (this.lastCustomValidateNeedsKeys.get(moduleFilePath) === signature) {
+        // We already loaded (or tried to load) exactly this set and the walk still
+        // wants it, which means the load failed. Skipping is the honest outcome:
+        // running a validator against markers would invent errors, and claiming
+        // the module is clean would hide real ones. The server validates every
+        // entry on publish regardless.
+        console.error(
+          "Val: skipping custom validation — could not load the json entries it needs",
+          { moduleFilePath, keys: targets.needsJsonKeys },
+        );
+        this.lastCustomValidateNeedsKeys.delete(moduleFilePath);
+        return;
+      }
+      this.lastCustomValidateNeedsKeys.set(moduleFilePath, signature);
+      await this.ensureJsonEntries([moduleFilePath]);
+      if (
+        (this.customValidationGeneration.get(moduleFilePath) ?? 0) !==
+        generation
+      ) {
+        return; // superseded while loading
+      }
+      // The source changed, so the WALK has to be redone (a loaded entry may hold
+      // more flagged nodes). This bumps the generation, so the current run ends
+      // here.
+      this.requestModuleValidation(moduleFilePath, { custom: true });
+      return;
+    }
+    this.lastCustomValidateNeedsKeys.delete(moduleFilePath);
+    await this.executeCustomValidations(
+      moduleFilePath,
+      generation,
+      targets.paths,
+    );
+  }
+
+  /**
+   * Executes each flagged node's validators, yielding to the browser every
+   * {@link CUSTOM_VALIDATION_SLICE_MS} so a module with many of them cannot block
+   * interaction. Results are merged as they are produced, so the first errors show
+   * up before the last node has run.
+   */
+  private async executeCustomValidations(
+    moduleFilePath: ModuleFilePath,
+    generation: number,
+    paths: SourcePath[],
+  ): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    const instance = this.localSchemaInstances?.[moduleFilePath];
+    if (!instance) {
+      // No instances (the host app does not render <ValModulesClient>): custom
+      // validation is not possible client-side at all. Documented, not silent.
+      console.warn(
+        "Val: cannot run custom validation without local val modules",
+        moduleFilePath,
+      );
+      return;
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return;
+    }
+    const errors: Record<SourcePath, ValidationError[]> = {};
+    let sliceDeadline = Date.now() + CUSTOM_VALIDATION_SLICE_MS;
+    for (const path of paths) {
+      if (
+        (this.customValidationGeneration.get(moduleFilePath) ?? 0) !==
+        generation
+      ) {
+        return;
+      }
+      const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+      try {
+        const resolved = Internal.resolvePath(
+          modulePath,
+          source as Source,
+          instance,
+        );
+        const nodeErrors = resolved.schema["executeCustomValidateAt"](
+          path,
+          resolved.source as SelectorSource,
+        );
+        if (nodeErrors.length > 0) {
+          errors[path] = nodeErrors;
+        }
+      } catch (e) {
+        // A path the walk reported but we cannot resolve is a bug in the walk, not
+        // a content error: log it and keep going rather than losing the rest.
+        console.error("Val: could not run custom validation at", path, e);
+      }
+      if (Date.now() > sliceDeadline) {
+        this.mergeCustomValidationErrors(moduleFilePath, generation, errors);
+        await this.yieldToBackground();
+        sliceDeadline = Date.now() + CUSTOM_VALIDATION_SLICE_MS;
+      }
+    }
+    this.mergeCustomValidationErrors(moduleFilePath, generation, errors);
+  }
+
+  /**
+   * Merges custom errors into the module's slice.
+   *
+   * MERGE, not replace: the structural result was published first (fast feedback)
+   * and a wholesale replace would erase it. Stale generations are dropped.
+   */
+  private mergeCustomValidationErrors(
+    moduleFilePath: ModuleFilePath,
+    generation: number,
+    errors: Record<SourcePath, ValidationError[]>,
+  ): void {
+    if (
+      (this.customValidationGeneration.get(moduleFilePath) ?? 0) !== generation
+    ) {
+      return;
+    }
+    const paths = Object.keys(errors) as SourcePath[];
+    if (paths.length === 0) {
+      return;
+    }
+    if (!this.errors.validationErrors) {
+      this.errors.validationErrors = {};
+    }
+    for (const path of paths) {
+      const existing = this.errors.validationErrors[path];
+      const merged = existing ? [...existing] : [];
+      for (const error of errors[path]) {
+        // The same custom error can arrive twice: a later slice re-merges the
+        // accumulated map. Dedupe on the message so the UI does not repeat it.
+        if (!merged.some((prev) => prev.message === error.message)) {
+          merged.push(error);
+        }
+      }
+      this.errors.validationErrors[path] = merged;
+      this.invalidateValidationError(path);
+    }
+    this.invalidateAllValidationErrors();
+  }
+
+  /**
+   * Runs a module's custom validators start to finish, resolving when they have
+   * all executed (or when it is established that they cannot).
+   *
+   * The awaitable variant of {@link runCustomValidation}: the worker-driven path
+   * is fire-and-forget, which is right for typing but not for the two callers that
+   * must not proceed until the answer is in — the pre-publish pass and
+   * {@link validateAll}. The (schema, source) walk runs on the main thread here;
+   * it is cheap next to the validators themselves.
+   */
+  private async runCustomValidationNow(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<void> {
+    const serializedSchema = this.schemas?.[moduleFilePath];
+    if (!serializedSchema) {
+      return;
+    }
+    if (!this.moduleHasCustomValidate(moduleFilePath, serializedSchema)) {
+      return; // the common case: nothing to do, nothing paid
+    }
+    const source = this.getPatchedSource(moduleFilePath);
+    if (source === undefined) {
+      return;
+    }
+    let targets = collectCustomValidateTargets(
+      moduleFilePath,
+      serializedSchema,
+      source as Source,
+    );
+    if (targets.needsJsonKeys.length > 0) {
+      await this.ensureJsonEntries([moduleFilePath]);
+      const loadedSource = this.getPatchedSource(moduleFilePath);
+      if (loadedSource === undefined) {
+        return;
+      }
+      targets = collectCustomValidateTargets(
+        moduleFilePath,
+        serializedSchema,
+        loadedSource as Source,
+      );
+      if (targets.needsJsonKeys.length > 0) {
+        // Same reasoning as in runCustomValidation: an entry that will not load
+        // makes this pass incomplete, and inventing errors from markers (or
+        // reporting "clean") would both be lies. The server validates every entry
+        // on publish, so publishing is still gated by something.
+        console.error(
+          "Val: skipping custom validation — could not load the json entries it needs",
+          { moduleFilePath, keys: targets.needsJsonKeys },
+        );
+        return;
+      }
+    }
+    await this.executeCustomValidations(
+      moduleFilePath,
+      this.customValidationGeneration.get(moduleFilePath) ?? 0,
+      targets.paths,
+    );
+  }
+
+  /**
+   * Validates everything, on demand: for dev, CI and debugging.
+   *
+   * `custom` also executes user validate functions; `loadAllJsonEntries` loads
+   * every `.jsonValues()` entry first (reported through the json-entries progress
+   * store) so nothing is skipped for being un-loaded. Neither happens on any
+   * normal code path — that is the point of having a switch.
+   */
+  async validateAll(options?: {
+    custom?: boolean;
+    loadAllJsonEntries?: boolean;
+  }): Promise<void> {
+    const schemas = this.schemas;
+    if (!schemas) {
+      return;
+    }
+    const moduleFilePaths = Object.keys(schemas) as ModuleFilePath[];
+    if (options?.loadAllJsonEntries) {
+      await this.ensureJsonEntries(moduleFilePaths);
+    }
+    for (const moduleFilePath of moduleFilePaths) {
+      this.requestModuleValidation(moduleFilePath);
+    }
+    if (options?.custom) {
+      for (const moduleFilePath of moduleFilePaths) {
+        await this.runCustomValidationNow(moduleFilePath);
+      }
+    }
+  }
+
+  /**
+   * Runs custom validation for every module the given patches touch, and resolves
+   * once it has finished. Called before publish: structural errors are already
+   * continuously up to date (every update re-validates), but custom validators
+   * only run on update of THEIR module, so a module edited before a validator was
+   * added — or edited in another session — has never had them run.
+   */
+  private async runCustomValidationForPatches(
+    patchIds: PatchId[],
+  ): Promise<void> {
+    const moduleFilePaths = new Set<ModuleFilePath>();
+    for (const patchId of patchIds) {
+      const moduleFilePath = this.patchDataByPatchId[patchId]?.moduleFilePath;
+      if (moduleFilePath !== undefined) {
+        moduleFilePaths.add(moduleFilePath);
+      }
+    }
+    for (const moduleFilePath of moduleFilePaths) {
+      await this.runCustomValidationNow(moduleFilePath);
+    }
+  }
+
+  /** Overridable in tests, where yielding to a real scheduler is not wanted. */
+  protected yieldToBackground(): Promise<void> {
+    return yieldToBackground();
+  }
+  // #endregion Custom validation
 
   private applyValidationResult(
     moduleFilePath: ModuleFilePath,
@@ -1539,18 +2811,12 @@ export class ValSyncEngine {
         message: patchRes.error.message,
       };
     }
-    if (!this.cachedDeserializedSchemas) {
-      this.cachedDeserializedSchemas = {};
-    }
-    if (!this.cachedDeserializedSchemas[moduleFilePath]) {
-      this.cachedDeserializedSchemas[moduleFilePath] =
-        deserializeSchema(serializedSchema);
-    }
-    const schema = this.cachedDeserializedSchemas[moduleFilePath];
-    return schema["executeValidate"](
-      moduleFilePath as string as SourcePath,
-      patchRes.value,
-    );
+    // With the user's instance this also runs their custom validate functions:
+    // every schema class's `executeValidate` calls its own, so a patch that only
+    // violates a custom rule is now caught here too.
+    return this.behaviourSchema(moduleFilePath, serializedSchema)[
+      "executeValidate"
+    ](moduleFilePath as string as SourcePath, patchRes.value);
   }
 
   /**
@@ -1610,7 +2876,7 @@ export class ValSyncEngine {
     this.invalidateAllPatches();
     this.invalidatePendingClientSidePatchIds();
     this.invalidateSource(moduleFilePath);
-    this.requestModuleValidation(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath, { custom: true });
     const addOp: AddPatchOp = {
       type: "add-patches",
       data: {
@@ -1648,7 +2914,7 @@ export class ValSyncEngine {
     }
     // Cleanup happened in executeAddPatches's failure path; just invalidate.
     this.invalidateSource(moduleFilePath);
-    this.requestModuleValidation(moduleFilePath);
+    this.requestModuleValidation(moduleFilePath, { custom: true });
     return {
       status: "patch-sync-error",
       message: "Could not sync patch. Tried 3 times.",
@@ -1714,7 +2980,7 @@ export class ValSyncEngine {
         // (maxLength, regex, ...) surface within a worker round-trip — no
         // waiting for the next sync tick. The worker dedups stale requests
         // when the user keeps typing.
-        this.requestModuleValidation(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath, { custom: true });
 
         return {
           status: "patch-merged",
@@ -1751,7 +3017,7 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
-        this.requestModuleValidation(moduleFilePath);
+        this.requestModuleValidation(moduleFilePath, { custom: true });
 
         return {
           status: "patch-added",
@@ -1787,7 +3053,7 @@ export class ValSyncEngine {
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
-      this.requestModuleValidation(moduleFilePath);
+      this.requestModuleValidation(moduleFilePath, { custom: true });
 
       return {
         status: "patch-added",
@@ -1966,6 +3232,13 @@ export class ValSyncEngine {
     authorId: string | null,
     commitSha: string | null,
     now: number,
+    /**
+     * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. It is
+     * the only signal that a hand-edited `*.val.json` changed — `sourcesSha` and
+     * `baseSha` hash the module source, which for a jsonValues module is markers
+     * with the content behind a thunk `JSON.stringify` drops.
+     */
+    jsonEntriesSha?: string,
   ): Promise<
     | {
         status: "done";
@@ -1977,6 +3250,20 @@ export class ValSyncEngine {
   > {
     const haveLocal = this.localModulesStatus.type === "loaded";
     const sourcesShaDidChange = this.sourcesSha !== sourcesSha;
+    // An entry file changed on disk (someone hand-edited a `*.val.json`). The
+    // module source is byte-identical either way, so nothing below would notice:
+    // mark the loaded entries stale and let the batch loader refetch them.
+    // Skipped on the FIRST stat, where there is nothing cached to invalidate.
+    if (
+      jsonEntriesSha !== undefined &&
+      this.jsonEntriesSha !== undefined &&
+      this.jsonEntriesSha !== jsonEntriesSha
+    ) {
+      this.markAllJsonEntriesStale();
+    }
+    if (jsonEntriesSha !== undefined) {
+      this.jsonEntriesSha = jsonEntriesSha;
+    }
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
     this.mode = mode;
@@ -2279,6 +3566,7 @@ export class ValSyncEngine {
     if (!valModules) {
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = { type: "absent" };
@@ -2299,6 +3587,7 @@ export class ValSyncEngine {
       console.debug("setValModules: extractValModules threw", e);
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
@@ -2318,6 +3607,7 @@ export class ValSyncEngine {
       );
       this.localSchemas = null;
       this.localSchemaSha = null;
+      this.localSchemaInstances = null;
       this.localSources = null;
       this.localSourcesSha = null;
       this.localModulesStatus = {
@@ -2330,6 +3620,11 @@ export class ValSyncEngine {
     }
     this.localSchemas = extracted.serializedSchemas;
     this.localSchemaSha = extracted.schemaSha;
+    // Keep the INSTANCES: this is the only place they are available, and
+    // discarding them is what made renders (and custom validators) dead in the
+    // Studio — everything downstream re-derived a `deserializeSchema` copy that
+    // has neither.
+    this.localSchemaInstances = extracted.schemas;
     this.localSources = extracted.sources;
     this.localSourcesSha = extracted.sourcesSha;
     this.localModulesStatus = {
@@ -2924,12 +4219,14 @@ export class ValSyncEngine {
               // the un-patched source. The patched view is computed by
               // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
-              // render is always null in the new mode; keep the renders map
-              // up-to-date for any downstream code that still subscribes.
-              if (this.renders === null) {
-                this.renders = {};
-              }
-              this.renders[moduleFilePath] = valModule.render || null;
+              // The committed content of any loaded `.jsonValues()` entry may
+              // have changed with it (e.g. after publish) — refetch, or the
+              // stale pre-edit content is re-substituted and the edit looks
+              // like it reverted.
+              this.markJsonEntriesStale(moduleFilePath);
+              // Renders are computed client-side from the schema instances, so
+              // there is nothing to read off the response any more — but the
+              // source moved, so they have to be recomputed.
               this.invalidateRenders(moduleFilePath);
               // Drop any cached patched view for this module; the next read
               // rebuilds from the fresh un-patched source.
@@ -2940,8 +4237,12 @@ export class ValSyncEngine {
                 };
               }
               console.debug("Invalidating source", moduleFilePath);
+              // invalidateSource schedules the overlay emission itself, with the
+              // PATCHED source. Emitting `valModule.source` here would push the
+              // committed content — this endpoint is called with
+              // apply_patches:false — and the host's client components would
+              // render the editor's unpublished work away.
               this.invalidateSource(moduleFilePath);
-              this.overlayEmitter?.(moduleFilePath, valModule.source);
               this.invalidatePatchErrors(moduleFilePath);
               if (valModule.patches?.errors) {
                 if (this.errors.patchErrors === undefined) {
@@ -2989,17 +4290,10 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds &&
         this.globalServerSidePatchIds.length > 0
       ) {
-        let hasValidationError = false;
-        for (const sourcePathS in this.errors.validationErrors || {}) {
-          const sourcePath = sourcePathS as SourcePath;
-          if (
-            this.errors?.validationErrors?.[sourcePath] &&
-            this.errors?.validationErrors?.[sourcePath]!.length > 0
-          ) {
-            hasValidationError = true;
-            break;
-          }
-        }
+        const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
+        const hasValidationError = Object.values(
+          surfacedValidationErrors || {},
+        ).some((errors) => errors && errors.length > 0);
         if (!hasValidationError) {
           await this.publish(
             this.globalServerSidePatchIds.concat(
@@ -3012,7 +4306,7 @@ export class ValSyncEngine {
         } else {
           console.debug(
             "Skip auto-publish since there's validation errors",
-            this.errors.validationErrors,
+            surfacedValidationErrors,
           );
         }
       }
@@ -3055,14 +4349,21 @@ export class ValSyncEngine {
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
 
+      // Custom validators only run on update of their own module, so a module
+      // edited before a validator existed (or edited in another session) has never
+      // had them run. Do it now, before the gate below reads the errors — that is
+      // what makes the pre-publish check complete rather than merely recent.
+      await this.runCustomValidationForPatches(patchIds);
+
+      const surfacedValidationErrors = this.getAllValidationErrorsSnapshot();
       const hasValidationError =
-        Object.values(this.errors.validationErrors || {}).flatMap(
+        Object.values(surfacedValidationErrors || {}).flatMap(
           (errors) => errors || [],
         ).length > 0;
       if (hasValidationError) {
         console.debug(
           "Skipping publish since there's validation errors",
-          this.errors.validationErrors,
+          surfacedValidationErrors,
         );
         this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",
@@ -3118,6 +4419,9 @@ export class ValSyncEngine {
         this.patchIdsByModuleFilePath = new Map();
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
+        // The published content is now the committed content: any loaded
+        // `.jsonValues()` entry must be refetched (see markAllJsonEntriesStale).
+        this.markAllJsonEntriesStale();
         const fullReset = true;
         await this.syncPatches(fullReset, now);
         this.invalidatePatchSets();
@@ -3274,6 +4578,45 @@ export class ValSyncEngine {
 const ops = new JSONOps();
 const globalNamespace = "global";
 /**
+ * How many `.jsonValues()` entries one `/json` request asks for. Smaller than
+ * the server's hard cap so a chunk stays a modest URL and lands incrementally
+ * (each landed chunk re-renders the rows it covers).
+ */
+const JSON_ENTRIES_CHUNK_SIZE = Math.min(50, JSON_ENTRIES_BATCH_MAX);
+/**
+ * How many times `loadJsonEntriesSettled` re-passes while entries it asked for are
+ * still outstanding. A backstop against an invalidation that keeps landing
+ * mid-flight, not a computed limit — exhausting it is logged, since "incomplete"
+ * with no errors is otherwise a mystery.
+ */
+const JSON_ENTRIES_MAX_LOAD_PASSES = 3;
+
+/**
+ * How long to coalesce overlay emissions. Long enough that a burst of keystrokes
+ * is one emission, short enough that the host app's client components feel live.
+ * The host's own `router.refresh()` loop runs at 500ms, so this is not the
+ * bottleneck.
+ */
+const OVERLAY_EMIT_DEBOUNCE_MS = 100;
+
+/**
+ * How long a custom-validation run may hold the main thread before yielding.
+ * ~5ms keeps it well inside a frame; the user's own slow validator can still
+ * overrun a slice, which is theirs to fix.
+ */
+const CUSTOM_VALIDATION_SLICE_MS = 5;
+
+/** Progress of the current `.jsonValues()` entry load run. */
+export type JsonEntriesProgress = {
+  status: "idle" | "loading";
+  /** Keys resolved so far — loaded, missing or failed all count as resolved. */
+  loaded: number;
+  /** Keys requested in this run; 0 when idle. */
+  total: number;
+  /** 0-100, and 100 when idle. */
+  percentage: number;
+};
+/**
  * These are types where we can be 100% certain that a change in this type, will not result in validations failing in some other module.
  * We use this to determine if syncing 1 module is enough or if we need to sync all modules.
  */
@@ -3350,6 +4693,7 @@ type SyncEngineListenerType =
   | "schema-out-of-date"
   | "local-modules-status"
   | "pending-ops-count"
+  | "json-entries-progress"
   | "all-sources"
   | "all-renders"
   | "render"

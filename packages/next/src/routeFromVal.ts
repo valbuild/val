@@ -6,6 +6,48 @@ import {
   RoutePattern,
 } from "@valbuild/shared/internal";
 
+/**
+ * True when the module's schema is a `.jsonValues()` record/router — i.e. each
+ * entry value is a lazily-loaded `c.json(() => import(...))` marker. Used by the
+ * route helpers to load ONLY the matched entry instead of the whole record.
+ */
+export function isJsonValuesRecordSchema(schema: unknown): boolean {
+  return (
+    schema instanceof RecordSchema &&
+    schema["executeSerialize"]().jsonValues === true
+  );
+}
+
+/**
+ * Builds the `stegaEncode` `root` seed for a single `.jsonValues()` entry, so its
+ * strings get edit tags. Without a seed, `stegaEncode` on raw entry content is an
+ * identity transform (the content carries no selector path/schema).
+ *
+ * Yields e.g. `/app/support/[slug]/page.val.ts?p="/support/faq"`, so a `title`
+ * field is tagged `…?p="/support/faq"."title"` — the shape the Studio's
+ * `findUnloadedJsonEntryKey` walks, so click-to-edit + lazy load line up.
+ */
+export function getJsonEntryStegaRoot(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  key: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): { path: any; schema: any } | undefined {
+  const modulePath = selector && Internal.getValPath(selector);
+  if (!modulePath) {
+    return undefined;
+  }
+  const schema = selector && Internal.getSchema(selector);
+  if (!(schema instanceof RecordSchema)) {
+    return undefined;
+  }
+  const path = Internal.createValPathOfItem(modulePath, key);
+  if (!path) {
+    return undefined;
+  }
+  return { path, schema: schema["executeSerialize"]().item };
+}
+
 export function getValRouteUrlFromVal(
   resolvedParams: Record<string, string | string[]> | unknown,
   methodName: string,

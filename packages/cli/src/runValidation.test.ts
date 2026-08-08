@@ -383,4 +383,71 @@ describe("runValidation", () => {
       service.dispose();
     }
   });
+
+  describe("jsonValues", () => {
+    const runOn = async (valFiles: string[]) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles,
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("validates entry CONTENT, which lives outside the .val.ts", async () => {
+      // Regression: `val validate` reported a jsonValues module as valid no matter
+      // what its entries contained. The record-level schema only asserts the
+      // marker shape — deep validation is deferred to whoever loads the entry, and
+      // the CLI never did. Any project gating CI on `val validate` was blind to it.
+      //
+      // The violation here is a VALUE one (minLength), like the other fixtures in
+      // this directory: with `resolveJsonModule` on, tsc catches type-level
+      // mistakes in a hand-authored entry by itself — constraints are what only
+      // validation can see.
+      const events = await runOn(["content/basic-json-values.val.ts"]);
+      const errors = events.filter((e) => e.type === "validation-error");
+
+      // The path names the ENTRY, not just the module: for a record with
+      // hundreds of entries, "something in here is wrong" is not a report.
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sourcePath: '/content/basic-json-values.val.ts?p="/broken"."title"',
+            message: expect.stringContaining("2 characters"),
+          }),
+        ]),
+      );
+      // ...and the entry that IS valid produces nothing.
+      expect(
+        errors.filter(
+          (e) => "sourcePath" in e && e.sourcePath.includes('"/ok"'),
+        ),
+      ).toHaveLength(0);
+    });
+
+    test("rejects a nested .jsonValues() instead of reporting it valid", async () => {
+      // Root-only is a hard contract: a nested one would silently get NO content
+      // validation. The Studio refuses to load such a project, so the CLI saying
+      // "valid" was the two entry points disagreeing.
+      const events = await runOn(["content/basic-nested-json-values.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            message: expect.stringContaining(
+              "Nested .jsonValues() records are not supported",
+            ),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).not.toEqual({ type: "summary-success" });
+    });
+  });
 });

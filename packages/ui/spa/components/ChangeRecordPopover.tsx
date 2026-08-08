@@ -1,7 +1,12 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSyncEngine,
+} from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -19,13 +24,14 @@ import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
+import { ReferencesResult } from "./useJsonValuesLoad";
 
 export function ChangeRecordPopover({
   defaultValue,
   path,
   parentPath,
   variant,
-  existingKeys,
+  references,
   routePattern,
   size,
   children,
@@ -37,7 +43,12 @@ export function ChangeRecordPopover({
   parentPath: SourcePath | ModuleFilePath;
   variant: "ghost" | "outline" | "default" | "secondary";
   size: "icon" | "sm" | "lg" | "default";
-  existingKeys: SourcePath[];
+  /**
+   * The reference scan whose refs this rename rewrites. Renaming is offered only
+   * when it reports `success`: an incomplete scan means some referrer was not
+   * seen, and renaming anyway leaves it pointing at a key that no longer exists.
+   */
+  references: ReferencesResult;
   children: React.ReactNode;
   routePattern?: RoutePattern[] | null;
   onComplete?: () => void;
@@ -70,8 +81,31 @@ export function ChangeRecordPopover({
     }
     return [];
   }, [parentSource]);
+  const syncEngine = useSyncEngine();
+  const parentSchema = useSchemaAtPath(parentPath);
+  // A `.jsonValues()` entry's content is lazily loaded. If we move an entry that
+  // is still an opaque marker, the marker (not the content) lands on the new key
+  // and opening it would fetch `/json?key=<newKey>` — which 404s, since the base
+  // source still only has the old key. Load it first.
+  const isJsonValuesRecord =
+    parentSchema.status === "success" &&
+    parentSchema.data.type === "record" &&
+    parentSchema.data.jsonValues === true;
   const onSubmit = useCallback(
-    (key: string) => {
+    async (key: string) => {
+      if (references.status !== "success") {
+        // The form is not rendered in this state; belt and braces, because
+        // renaming on an incomplete ref scan silently breaks the referrers it
+        // did not see.
+        console.error(
+          "Val: refusing to rename: reference scan is not complete",
+          references,
+        );
+        return;
+      }
+      if (isJsonValuesRecord) {
+        await syncEngine.ensureJsonEntry(moduleFilePath, defaultValue);
+      }
       const patchOps: Patch = [
         {
           op: "move",
@@ -82,7 +116,7 @@ export function ChangeRecordPopover({
         },
       ];
       addPatch(patchOps, "record");
-      for (const ref of existingKeys) {
+      for (const ref of references.refs) {
         const [refModuleFilePath, refModulePath] =
           Internal.splitModuleFilePathAndModulePath(ref);
         const refPatchPath = Internal.createPatchPath(refModulePath);
@@ -116,6 +150,10 @@ export function ChangeRecordPopover({
       parentPatchPath,
       navigate,
       onComplete,
+      syncEngine,
+      isJsonValuesRecord,
+      defaultValue,
+      references,
     ],
   );
 
@@ -141,7 +179,30 @@ export function ChangeRecordPopover({
         {keyDescription && (
           <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
         )}
-        {routePattern ? (
+        {references.status === "loading" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Checking references</div>
+            <p>
+              Loading content that could reference this key
+              {references.percentage > 0 ? ` (${references.percentage}%)` : ""}.
+            </p>
+            <p className="text-sm text-fg-tertiary">
+              Renaming is disabled until the check completes, so no referring
+              field is left behind.
+            </p>
+          </div>
+        ) : references.status === "error" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Cannot rename</div>
+            <p>References to this key could not be checked.</p>
+            <p className="text-sm text-fg-tertiary">{references.message}</p>
+            {references.retry && (
+              <Button variant="secondary" onClick={references.retry}>
+                Try again
+              </Button>
+            )}
+          </div>
+        ) : routePattern ? (
           <RouteForm
             routePattern={routePattern}
             existingKeys={recordKeys}

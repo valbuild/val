@@ -22,6 +22,12 @@ export interface UseSearchWorkerReturn {
   isIndexing: boolean;
   isSearching: boolean;
   error: string | null;
+  /**
+   * Bumped every time an index finishes building. A `.jsonValues()` index grows as
+   * entry batches land, so a caller must re-run its query on each new index —
+   * otherwise results are stuck on whatever was indexed when the query was typed.
+   */
+  indexVersion: number;
 }
 
 export function useSearchWorker(): UseSearchWorkerReturn {
@@ -33,6 +39,7 @@ export function useSearchWorker(): UseSearchWorkerReturn {
   const [isIndexing, setIsIndexing] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [indexVersion, setIndexVersion] = useState(0);
 
   // Keep track of request IDs and their callbacks
   const requestIdCounter = useRef(0);
@@ -57,6 +64,7 @@ export function useSearchWorker(): UseSearchWorkerReturn {
 
       if (response.type === "index-ready") {
         setIsIndexing(false);
+        setIndexVersion((version) => version + 1);
         // Convert array back to Map
         setPathToLabel(new Map(response.pathToLabel));
         const pending = pendingRequests.current.get(response.id);
@@ -152,5 +160,6 @@ export function useSearchWorker(): UseSearchWorkerReturn {
     isIndexing,
     isSearching,
     error,
+    indexVersion,
   };
 }

@@ -12,6 +12,7 @@ import {
   RemoteSource,
   Schema,
   SelectorSource,
+  SerializedSchema,
   Source,
   SourcePath,
   VAL_EXTENSION,
@@ -21,10 +22,11 @@ import {
   ValidationErrors,
   extractValModules,
 } from "@valbuild/core";
-import { pipe, result } from "@valbuild/core/fp";
+import { array, pipe, result } from "@valbuild/core/fp";
 import {
   JSONOps,
   JSONValue,
+  Operation,
   ParentRef,
   Patch,
   PatchError,
@@ -32,8 +34,18 @@ import {
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
-import { TSOps } from "./patch/ts/ops";
+import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
+import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
+import {
+  applyJsonValuesEntryPatches,
+  classifyJsonValuesOp,
+  findNestedJsonValuesRecords,
+  getNewJsonEntryPaths,
+  rebaseContentOp,
+  resolveExistingJsonPath,
+} from "./patch/jsonValuesPatch";
+import { validateJsonValuesEntries } from "./validateJsonValues";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -44,7 +56,6 @@ import {
   resolveSchemaSourceFixForError,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
-import { ReifiedRender } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -69,6 +80,40 @@ const tsOps = new TSOps((document) => {
     result.map(({ source }) => source),
   );
 });
+
+/**
+ * `.jsonValues()` is only supported on a module's ROOT record/router. A nested
+ * one is broken end to end (the `/json` endpoint keys entries by a single
+ * string, the Studio substitutes at the top level, and content validation
+ * silently skips it), so reject it up front as a module error — `/sources/~`
+ * then fails with "Val is not correctly setup" naming the module.
+ */
+function findNestedJsonValuesModuleErrors(schemas: Schemas): ModulesError[] {
+  const errors: ModulesError[] = [];
+  for (const moduleFilePathS of Object.keys(schemas)) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    const schema = schemas[moduleFilePath];
+    if (!schema) {
+      continue;
+    }
+    let serialized: SerializedSchema;
+    try {
+      serialized = schema["executeSerialize"]();
+    } catch {
+      // Serialization errors are reported elsewhere (e.g. by extractValModules).
+      continue;
+    }
+    for (const nestedPath of findNestedJsonValuesRecords(serialized)) {
+      errors.push({
+        path: moduleFilePath,
+        message: `Nested .jsonValues() records are not supported: '${nestedPath.join(
+          ".",
+        )}' in ${moduleFilePath}. Use .jsonValues() only on a module's root record/router.`,
+      });
+    }
+  }
+  return errors;
+}
 
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
@@ -123,6 +168,12 @@ export abstract class ValOps {
       schemaSha: SchemaSha;
       patches?: PatchId[];
       profileId?: AuthorId;
+      /**
+       * FS mode only (see ValOpsFS): the fingerprint of the `.jsonValues()` entry
+       * FILES the client last saw. Absent in http mode, where content does not
+       * change under a running server — a deploy restarts it.
+       */
+      jsonEntriesSha?: string;
       // TODO: deployments: Record<DeploymentId, "deployed" | "deploying" | "failed">
     } | null,
   ): Promise<
@@ -132,6 +183,8 @@ export abstract class ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        /** FS mode only — see the `params` counterpart. */
+        jsonEntriesSha?: string;
       }
     | {
         type: "use-websocket";
@@ -171,13 +224,16 @@ export abstract class ValOps {
       this.modulesErrors === null
     ) {
       const extracted = await extractValModules(this.valModules);
+      const moduleErrors = extracted.moduleErrors.concat(
+        findNestedJsonValuesModuleErrors(extracted.schemas),
+      );
       this.sources = extracted.sources;
       this.schemas = extracted.schemas;
       this.baseSha = extracted.baseSha as BaseSha;
       this.schemaSha = extracted.schemaSha as SchemaSha;
       this.sourcesSha = extracted.sourcesSha as SourcesSha;
       this.configSha = extracted.configSha as ConfigSha;
-      this.modulesErrors = extracted.moduleErrors;
+      this.modulesErrors = moduleErrors;
       return {
         baseSha: this.baseSha,
         schemaSha: this.schemaSha,
@@ -185,7 +241,7 @@ export abstract class ValOps {
         configSha: this.configSha,
         sources: extracted.sources,
         schemas: extracted.schemas,
-        moduleErrors: extracted.moduleErrors,
+        moduleErrors,
       };
     }
     return {
@@ -206,6 +262,220 @@ export abstract class ValOps {
 
   async getBaseSources(): Promise<Sources> {
     return this.initSources().then((result) => result.sources);
+  }
+
+  /**
+   * Resolves the content of ONE `.jsonValues()` entry.
+   *
+   * The committed content comes from the entry's import thunk on the base
+   * source (so it works in both fs and http mode, with no extra I/O). With
+   * `applyPatches` (the default) any pending patches for that entry are then
+   * replayed on top, which is what makes draft edits visible to the runtime.
+   *
+   * Callers that apply patches themselves (the Studio, which owns
+   * in-flight client patches the server has not seen) must pass
+   * `applyPatches: false` or the same edits would be applied twice.
+   */
+  async getJsonEntry(
+    moduleFilePath: ModuleFilePath,
+    entryKey: string,
+    opts?: { applyPatches?: boolean },
+  ): Promise<
+    | { status: "success"; content: JSONValue | null }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+    | { status: "unauthorized"; message: string }
+  > {
+    const res = await this.getJsonEntries(
+      moduleFilePath,
+      { keys: [entryKey] },
+      opts,
+    );
+    if (res.status !== "success") {
+      return res;
+    }
+    const entry = res.entries[0];
+    if (entry !== undefined) {
+      return { status: "success", content: entry.content };
+    }
+    const error = res.errors[0];
+    if (error !== undefined) {
+      return { status: "error", message: error.message };
+    }
+    return {
+      status: "not-found",
+      message: `Entry not found: ${entryKey} in ${moduleFilePath}`,
+    };
+  }
+
+  /**
+   * Resolves the content of MANY `.jsonValues()` entries in one pass.
+   *
+   * This is the single implementation; {@link getJsonEntry} is a one-key wrapper.
+   * Batching matters because the expensive parts — `initSources()` and
+   * `fetchPatches()` — are hoisted OUT of the per-entry loop: resolving 500
+   * entries one-by-one would otherwise mean 500 patch fetches.
+   *
+   * Per-entry problems stay per-entry (`missing` / `errors`) so one corrupt
+   * `*.val.json` cannot fail a whole batch. Only a missing or non-record MODULE
+   * is a whole-request `not-found`.
+   *
+   * `selector` is either explicit `keys` or an `offset`/`limit` window over every
+   * key of the record, in module key order. The window form requires
+   * `applyPatches: false`: enumerating from the base source would silently omit
+   * draft-added keys, and a silently-short key list is exactly the class of bug
+   * this endpoint exists to avoid.
+   */
+  async getJsonEntries(
+    moduleFilePath: ModuleFilePath,
+    selector: { keys: string[] } | { offset: number; limit: number },
+    opts?: { applyPatches?: boolean },
+  ): Promise<
+    | {
+        status: "success";
+        entries: { key: string; content: JSONValue | null }[];
+        missing: string[];
+        errors: { key: string; message: string }[];
+        total: number;
+        offset?: number;
+        limit?: number;
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+    | { status: "unauthorized"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const isWindow = !("keys" in selector);
+    if (isWindow && applyPatches) {
+      return {
+        status: "error",
+        message:
+          "Cannot enumerate json entries by offset/limit with apply_patches: the base key set would omit draft-added entries. Pass apply_patches=false, or request explicit keys.",
+      };
+    }
+    const { sources, schemas } = await this.initSources();
+    const moduleSource = sources[moduleFilePath];
+    if (moduleSource === undefined || moduleSource === null) {
+      return {
+        status: "not-found",
+        message: `Module not found: ${moduleFilePath}`,
+      };
+    }
+    if (typeof moduleSource !== "object" || Array.isArray(moduleSource)) {
+      return {
+        status: "not-found",
+        message: `Module is not a record: ${moduleFilePath}`,
+      };
+    }
+    const record = moduleSource as Record<string, unknown>;
+    const allKeys = Object.keys(record);
+    const requestedKeys = isWindow
+      ? allKeys.slice(selector.offset, selector.offset + selector.limit)
+      : selector.keys;
+
+    // Fetched once for the whole batch, not per entry.
+    let modulePatches: { patchId: PatchId; patch: Patch }[] = [];
+    let serializedSchema: SerializedSchema | undefined = undefined;
+    if (applyPatches) {
+      const patchOps = await this.fetchPatches({ excludePatchOps: false });
+      if (patchOps.error) {
+        return { status: "error", message: patchOps.error.message };
+      }
+      if (patchOps.errors && Object.keys(patchOps.errors).length > 0) {
+        return {
+          status: "error",
+          message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
+        };
+      }
+      modulePatches = patchOps.patches
+        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
+        .map((p) => ({ patchId: p.patchId, patch: p.patch }));
+      try {
+        serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
+      } catch {
+        // Serialization errors are reported elsewhere; treat as "no schema".
+      }
+    }
+
+    const entries: { key: string; content: JSONValue | null }[] = [];
+    const missing: string[] = [];
+    const errors: { key: string; message: string }[] = [];
+    type ResolvedEntry =
+      | {
+          entryKey: string;
+          baseContent: JSONValue | undefined;
+          /** Set when the value lives in the module source, not a `*.val.json`. */
+          inline?: true;
+        }
+      | { entryKey: string; message: string };
+    const resolved = await Promise.all(
+      requestedKeys.map(async (entryKey): Promise<ResolvedEntry> => {
+        const marker = record[entryKey];
+        if (marker !== undefined && !Internal.isJson(marker)) {
+          // Not a jsonValues entry — return the inlined value as-is (defensive).
+          // `inline` skips patch replay: entry patches are expressed against a
+          // jsonValues entry, and this value is part of the module source proper.
+          return { entryKey, baseContent: marker as JSONValue, inline: true };
+        }
+        if (marker === undefined) {
+          return { entryKey, baseContent: undefined };
+        }
+        const thunk = Internal.getJsonImport(marker);
+        if (!thunk) {
+          return { entryKey, baseContent: null };
+        }
+        try {
+          return {
+            entryKey,
+            baseContent: ((await thunk()).default ?? null) as JSONValue,
+          };
+        } catch (e) {
+          return {
+            entryKey,
+            message: `Failed to load JSON entry '${entryKey}': ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          };
+        }
+      }),
+    );
+    for (const result of resolved) {
+      const { entryKey } = result;
+      if ("message" in result) {
+        errors.push({ key: entryKey, message: result.message });
+        continue;
+      }
+      const { baseContent } = result;
+      if (!applyPatches || "inline" in result) {
+        if (baseContent === undefined) {
+          missing.push(entryKey);
+        } else {
+          entries.push({ key: entryKey, content: baseContent });
+        }
+        continue;
+      }
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema,
+        entryKey,
+        baseContent,
+        patches: modulePatches,
+      });
+      if (res.kind === "error") {
+        errors.push({ key: entryKey, message: res.message });
+      } else if (res.kind === "deleted") {
+        missing.push(entryKey);
+      } else {
+        entries.push({ key: entryKey, content: res.content });
+      }
+    }
+    return {
+      status: "success",
+      entries,
+      missing,
+      errors,
+      total: allKeys.length,
+      ...(isWindow ? { offset: selector.offset, limit: selector.limit } : {}),
+    };
   }
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);
@@ -263,30 +533,24 @@ export abstract class ValOps {
         if (!patchesByModule[path]) {
           patchesByModule[path] = [];
         }
-        patchesByModule[path].push({
-          patchId: patch.patchId,
-        });
+        // At most ONE entry per (module, patch): consumers treat each entry as
+        // "apply this whole patch". Pushing per-op made a patch with N non-file
+        // ops be applied N times — idempotent for `replace`, but it duplicates
+        // `add`s and corrupts non-idempotent ops like `move`.
+        if (
+          patchesByModule[path][patchesByModule[path].length - 1]?.patchId !==
+          patch.patchId
+        ) {
+          patchesByModule[path].push({
+            patchId: patch.patchId,
+          });
+        }
       }
     }
     return {
       patchesByModule,
       fileLastUpdatedByPatchId,
     };
-  }
-
-  // #region getRenders
-  async getRenders(
-    schemas: Schemas,
-    sources: Sources,
-  ): Promise<{
-    renders: Record<ModuleFilePath, ReifiedRender | null>;
-  }> {
-    const renders: Record<ModuleFilePath, ReifiedRender | null> = {};
-    for (const [pathS, schema] of Object.entries(schemas)) {
-      const path = pathS as ModuleFilePath;
-      renders[path] = schema["executeRender"](path, sources[path]);
-    }
-    return { renders };
   }
 
   // #region getSources
@@ -316,6 +580,27 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     > = {};
+    // Serialized schemas, resolved lazily and only for modules that actually
+    // have patches, so the common (non-jsonValues) case stays free.
+    const { schemas } = await this.initSources();
+    const serializedSchemaCache = new Map<
+      ModuleFilePath,
+      SerializedSchema | undefined
+    >();
+    const jsonValuesSchemaFor = (
+      path: ModuleFilePath,
+    ): SerializedSchema | undefined => {
+      if (!serializedSchemaCache.has(path)) {
+        let serialized: SerializedSchema | undefined = undefined;
+        try {
+          serialized = schemas[path]?.["executeSerialize"]();
+        } catch {
+          // Serialization errors are reported elsewhere; treat as "no schema".
+        }
+        serializedSchemaCache.set(path, serialized);
+      }
+      return serializedSchemaCache.get(path);
+    };
     for (const patchData of analysis.patches) {
       const path = patchData.path;
       if (sources[path] === undefined) {
@@ -348,6 +633,13 @@ export abstract class ValOps {
       } else {
         const applicableOps: Patch = [];
         const fileFixOps: Record<string, Patch> = {};
+        // `.jsonValues()` entry values are opaque `{_type:"json"}` markers in
+        // the module source — their content lives in the entry's `*.val.json`.
+        // Ops that reach INTO an entry therefore cannot be applied here (and
+        // would fail with "Cannot replace object element which does not exist",
+        // poisoning the rest of this module's patch chain). See the per-op
+        // routing below.
+        const serializedSchema = jsonValuesSchemaFor(path);
         for (const op of patchData.patch) {
           if (op.op === "file") {
             if (op.value !== null) {
@@ -368,7 +660,46 @@ export abstract class ValOps {
             // null value = delete: no patch_id to inject; the "remove" op in
             // the patch already removes the metadata entry from the source
           } else {
-            applicableOps.push(op);
+            const cls = serializedSchema
+              ? classifyJsonValuesOp(serializedSchema, op.path)
+              : ({ kind: "normal" } as const);
+            if (cls.kind === "normal") {
+              applicableOps.push(op);
+            } else if (cls.subPath.length > 0) {
+              // Content edit inside an entry: the module source is genuinely
+              // unaffected (the content lives in the `*.val.json`), so skip it.
+              // Draft content is served by the single-entry `/json` endpoint.
+            } else if (op.op === "add" || op.op === "replace") {
+              // Whole-entry add/replace: keep the record's KEY SET correct for
+              // drafts by writing the marker rather than the content. Record
+              // validation only asserts `isJson`, and
+              // `validateJsonValuesEntries` skips thunkless markers by design.
+              applicableOps.push({
+                op: op.op,
+                path: op.path,
+                value: {
+                  [VAL_EXTENSION]: "json",
+                  patch_id: patchId,
+                } as JSONValue,
+              } as Operation);
+            } else if (op.op === "remove") {
+              applicableOps.push(op);
+            } else {
+              // move/copy of a whole entry: the destination key must appear, and
+              // for a move the source key must disappear. Both are key-set
+              // changes we can express with markers.
+              applicableOps.push({
+                op: "add",
+                path: op.path,
+                value: {
+                  [VAL_EXTENSION]: "json",
+                  patch_id: patchId,
+                } as JSONValue,
+              } as Operation);
+              if (op.op === "move" && array.isNonEmpty(op.from)) {
+                applicableOps.push({ op: "remove", path: op.from });
+              }
+            }
           }
         }
         const patchRes = applyPatch(
@@ -484,6 +815,25 @@ export abstract class ValOps {
         path as string as SourcePath,
         source,
       );
+      // For `.jsonValues()` records, executeValidate only checks the entry
+      // markers; load + validate each entry's backing `*.val.json` content here.
+      const jsonValuesErrors = await validateJsonValuesEntries(
+        schema,
+        source,
+        path,
+      );
+      for (const [sourcePathS, entryErrors] of Object.entries(
+        jsonValuesErrors,
+      )) {
+        const sourcePath = sourcePathS as SourcePath;
+        if (!errors[path]) {
+          errors[path] = { validations: {} };
+        }
+        if (!errors[path].validations[sourcePath]) {
+          errors[path].validations[sourcePath] = [];
+        }
+        errors[path].validations[sourcePath].push(...entryErrors);
+      }
       if (res === false) {
         continue;
       }
@@ -795,13 +1145,21 @@ export abstract class ValOps {
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
 
+    // Serialized schemas are needed to route ops that target `.jsonValues()`
+    // entries (their content lives in `*.val.json`, not the `.val.ts`).
+    const schemas = await this.getSchemas();
+
     const applySourceFilePatches = async (
       path: ModuleFilePath,
       patches: { patchId: PatchId }[],
     ): Promise<
       | {
           path: ModuleFilePath;
-          result: string;
+          // `null` means the `.val.ts` itself was not changed (e.g. pure
+          // jsonValues content edits only touch `*.val.json`).
+          result: string | null;
+          // Extra files to write/delete (jsonValues `*.val.json` entries).
+          extraFiles: Record<string, string | null>;
           appliedPatches: PatchId[];
           errors?: undefined;
         }
@@ -829,11 +1187,93 @@ export abstract class ValOps {
       }
       const sourceFile = sourceFileRes.data;
       previousSourceFiles[path] = sourceFile;
-      let tsSourceFile = ts.createSourceFile(
+      const originalSourceFile = ts.createSourceFile(
         "<val>",
         sourceFile,
         ts.ScriptTarget.ES2015,
       );
+      let tsSourceFile = originalSourceFile;
+      let tsChanged = false;
+      const serializedSchema = schemas[path]?.["executeSerialize"]();
+
+      // jsonValues entry content, keyed by `*.val.json` path. `null` = delete.
+      const jsonEntryContents = new Map<string, JSONValue | null>();
+      // Entries added in this commit → their new `*.val.json` path, so later
+      // content ops in the same commit resolve to the freshly-created file.
+      const entryKeyToJsonPath = new Map<string, string>();
+
+      // Lazily analyzed `c.json(() => import("..."))` entries of the ORIGINAL
+      // `.val.ts` (import paths are authoritative for existing/hand-placed files).
+      let analyzerEntries: Map<string, { importPath: string }> | null = null;
+      const resolveEntryJsonPath = (
+        entryKey: string,
+      ): result.Result<string, PatchSourceError> => {
+        const added = entryKeyToJsonPath.get(entryKey);
+        if (added !== undefined) {
+          return result.ok(added);
+        }
+        if (analyzerEntries === null) {
+          const analysis = analyzeValModule(originalSourceFile);
+          if (result.isErr(analysis)) {
+            return result.err(analysis.error);
+          }
+          analyzerEntries = analyzeJsonValuesEntries(analysis.value.source);
+        }
+        const entry = analyzerEntries.get(entryKey);
+        if (!entry) {
+          return result.err({
+            message: `Could not find jsonValues entry '${entryKey}' in ${path}`,
+            filePath: path,
+          });
+        }
+        return result.ok(resolveExistingJsonPath(path, entry.importPath));
+      };
+      const loadEntryContent = async (
+        jsonPath: string,
+      ): Promise<result.Result<JSONValue, PatchSourceError>> => {
+        const current = jsonEntryContents.get(jsonPath);
+        if (current !== undefined) {
+          if (current === null) {
+            return result.err({
+              message: `Cannot edit a removed jsonValues entry: ${jsonPath}`,
+              filePath: jsonPath,
+            });
+          }
+          return result.ok(current);
+        }
+        const res = await this.getSourceFile(jsonPath as ModuleFilePath);
+        if (res.error) {
+          return result.err({ message: res.error.message, filePath: jsonPath });
+        }
+        try {
+          const parsed: JSONValue = JSON.parse(res.data);
+          jsonEntryContents.set(jsonPath, parsed);
+          return result.ok(parsed);
+        } catch (err) {
+          return result.err({
+            message: `Could not parse jsonValues entry ${jsonPath}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            filePath: jsonPath,
+          });
+        }
+      };
+      const collectPatchError = (
+        err: PatchError | ValSyntaxErrorTree,
+        patchId: PatchId,
+        op: unknown,
+      ) => {
+        console.error(
+          "Could not patch",
+          JSON.stringify({ path, patchId, error: err, op }, null, 2),
+        );
+        if (Array.isArray(err)) {
+          errors.push(...err);
+        } else {
+          errors.push(err);
+        }
+      };
+
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];
       for (const { patchId } of patches) {
@@ -848,81 +1288,303 @@ export abstract class ValOps {
         }
         const patch = patchData.patch;
         const sourceFileOps = patch.filter((op) => op.op !== "file"); // file is not a valid source file op
-        const patchRes = applyPatch(tsSourceFile, tsOps, sourceFileOps);
-        if (result.isErr(patchRes)) {
-          if (Array.isArray(patchRes.error)) {
-            for (const error of patchRes.error) {
-              console.error(
-                "Could not patch",
-                JSON.stringify(
-                  {
-                    path,
-                    patchId,
-                    error,
-                    sourceFileOps,
-                  },
-                  null,
-                  2,
-                ),
-              );
+        let patchHadError = false;
+        for (const op of sourceFileOps) {
+          const cls = serializedSchema
+            ? classifyJsonValuesOp(serializedSchema, op.path)
+            : ({ kind: "normal" } as const);
+          // `move` / `copy` also READ from a path: classify that too, so an op
+          // that moves a value out of (or into) a jsonValues entry cannot slip
+          // through as a plain `.val.ts` op.
+          const fromCls =
+            serializedSchema && (op.op === "move" || op.op === "copy")
+              ? classifyJsonValuesOp(serializedSchema, op.from)
+              : ({ kind: "normal" } as const);
+          if (cls.kind === "normal" && fromCls.kind === "normal") {
+            const patchRes = applyPatch(tsSourceFile, tsOps, [op]);
+            if (result.isErr(patchRes)) {
+              collectPatchError(patchRes.error, patchId, op);
+              patchHadError = true;
+              break;
             }
-            errors.push(...patchRes.error);
-          } else {
-            console.error(
-              "Could not patch",
-              JSON.stringify(
-                {
-                  path,
-                  patchId,
-                  error: patchRes.error,
-                  sourceFileOps,
-                },
-                null,
-                2,
-              ),
-            );
-            errors.push(patchRes.error);
+            tsSourceFile = patchRes.value;
+            tsChanged = true;
+            continue;
           }
+          if (cls.kind === "normal") {
+            errors.push({
+              message: `Cannot '${op.op}' a value out of a jsonValues entry and into the module source`,
+              filePath: path,
+            });
+            patchHadError = true;
+            break;
+          }
+          // Nested `.jsonValues()` records are not supported: only the read path
+          // for a module's ROOT record/router is implemented end to end. This is
+          // also rejected up front in `initSources`; this is defense in depth.
+          if (
+            cls.recordPath.length > 0 ||
+            (fromCls.kind === "entry" && fromCls.recordPath.length > 0)
+          ) {
+            errors.push({
+              message: `Nested .jsonValues() records are not supported: '${cls.recordPath.join(
+                ".",
+              )}' in ${path}. Use .jsonValues() only on a module's root record/router.`,
+              filePath: path,
+            });
+            patchHadError = true;
+            break;
+          }
+          // The op targets a `.jsonValues()` entry.
+          if (cls.subPath.length === 0) {
+            // Structural / whole-entry op.
+            if (op.op === "add") {
+              const { jsonPath, importPath } = getNewJsonEntryPaths(
+                path,
+                cls.entryKey,
+              );
+              const insRes = insertValJsonEntry(
+                tsSourceFile,
+                cls.recordPath,
+                cls.entryKey,
+                importPath,
+              );
+              if (result.isErr(insRes)) {
+                collectPatchError(insRes.error, patchId, op);
+                patchHadError = true;
+                break;
+              }
+              tsSourceFile = insRes.value;
+              tsChanged = true;
+              jsonEntryContents.set(jsonPath, op.value);
+              entryKeyToJsonPath.set(cls.entryKey, jsonPath);
+            } else if (op.op === "remove") {
+              const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+              if (result.isErr(jsonPathRes)) {
+                errors.push(jsonPathRes.error);
+                patchHadError = true;
+                break;
+              }
+              const remRes = removeValJsonEntry(
+                tsSourceFile,
+                cls.recordPath,
+                cls.entryKey,
+              );
+              if (result.isErr(remRes)) {
+                collectPatchError(remRes.error, patchId, op);
+                patchHadError = true;
+                break;
+              }
+              tsSourceFile = remRes.value;
+              tsChanged = true;
+              jsonEntryContents.set(jsonPathRes.value, null);
+            } else if (op.op === "replace") {
+              const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+              if (result.isErr(jsonPathRes)) {
+                errors.push(jsonPathRes.error);
+                patchHadError = true;
+                break;
+              }
+              jsonEntryContents.set(jsonPathRes.value, op.value);
+            } else if (op.op === "move" || op.op === "copy") {
+              // Rename (move) or duplicate (copy) a whole entry. The new entry
+              // gets its own `*.val.json` written with the source entry's
+              // content plus a `c.json(...)` thunk; a move additionally drops
+              // the old thunk and deletes the old file.
+              if (
+                fromCls.kind !== "entry" ||
+                fromCls.subPath.length !== 0 ||
+                fromCls.recordPath.join("\0") !== cls.recordPath.join("\0")
+              ) {
+                errors.push({
+                  message: `Cannot '${
+                    op.op
+                  }' a jsonValues entry across records or from a non-entry path (from '${op.from.join(
+                    ".",
+                  )}' to '${op.path.join(".")}')`,
+                  filePath: path,
+                });
+                patchHadError = true;
+                break;
+              }
+              const fromKey = fromCls.entryKey;
+              const fromPathRes = resolveEntryJsonPath(fromKey);
+              if (result.isErr(fromPathRes)) {
+                errors.push(fromPathRes.error);
+                patchHadError = true;
+                break;
+              }
+              // Load BEFORE marking anything deleted: `loadEntryContent` errors
+              // on a path that has already been nulled in this commit.
+              const contentRes = await loadEntryContent(fromPathRes.value);
+              if (result.isErr(contentRes)) {
+                errors.push(contentRes.error);
+                patchHadError = true;
+                break;
+              }
+              const content = deepClone(contentRes.value);
+              if (op.op === "move") {
+                const remRes = removeValJsonEntry(
+                  tsSourceFile,
+                  cls.recordPath,
+                  fromKey,
+                );
+                if (result.isErr(remRes)) {
+                  collectPatchError(remRes.error, patchId, op);
+                  patchHadError = true;
+                  break;
+                }
+                tsSourceFile = remRes.value;
+              }
+              // LOCKED convention: the destination always uses the generated
+              // path, so renaming a hand-placed file relocates it.
+              const { jsonPath, importPath } = getNewJsonEntryPaths(
+                path,
+                cls.entryKey,
+              );
+              const insRes = insertValJsonEntry(
+                tsSourceFile,
+                cls.recordPath,
+                cls.entryKey,
+                importPath,
+              );
+              if (result.isErr(insRes)) {
+                collectPatchError(insRes.error, patchId, op);
+                patchHadError = true;
+                break;
+              }
+              tsSourceFile = insRes.value;
+              tsChanged = true;
+              jsonEntryContents.set(jsonPath, content);
+              entryKeyToJsonPath.set(cls.entryKey, jsonPath);
+              if (op.op === "move" && fromPathRes.value !== jsonPath) {
+                jsonEntryContents.set(fromPathRes.value, null);
+              }
+            } else {
+              errors.push({
+                message: `Unsupported op '${op.op}' on jsonValues entry '${cls.entryKey}' (supported: add, remove, replace, move, copy)`,
+                filePath: path,
+              });
+              patchHadError = true;
+              break;
+            }
+          } else {
+            // Content sub-op: replay against the entry's `*.val.json`.
+            // `rebaseContentOp` slices `from` by the same prefix as `path`, so a
+            // cross-entry move/copy would silently corrupt the target entry.
+            if (
+              (op.op === "move" || op.op === "copy") &&
+              (fromCls.kind !== "entry" || fromCls.entryKey !== cls.entryKey)
+            ) {
+              errors.push({
+                message: `Cannot '${op.op}' between different jsonValues entries`,
+                filePath: path,
+              });
+              patchHadError = true;
+              break;
+            }
+            const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+            if (result.isErr(jsonPathRes)) {
+              errors.push(jsonPathRes.error);
+              patchHadError = true;
+              break;
+            }
+            const jsonPath = jsonPathRes.value;
+            const contentRes = await loadEntryContent(jsonPath);
+            if (result.isErr(contentRes)) {
+              errors.push(contentRes.error);
+              patchHadError = true;
+              break;
+            }
+            const rebasedRes = rebaseContentOp(op, cls.recordPath.length + 1);
+            if (result.isErr(rebasedRes)) {
+              errors.push({
+                message: rebasedRes.error.message,
+                filePath: jsonPath,
+              });
+              patchHadError = true;
+              break;
+            }
+            const applied = applyPatch(deepClone(contentRes.value), jsonOps, [
+              rebasedRes.value,
+            ]);
+            if (result.isErr(applied)) {
+              collectPatchError(applied.error, patchId, op);
+              patchHadError = true;
+              break;
+            }
+            jsonEntryContents.set(jsonPath, applied.value);
+          }
+        }
+        if (patchHadError) {
           triedPatches.push(patchId);
           break;
         }
         appliedPatches.push(patchId);
-        tsSourceFile = patchRes.value;
       }
       if (errors.length === 0) {
         // https://github.com/microsoft/TypeScript/issues/36174
-        let sourceFileText = unescape(
-          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u"),
-        );
-        if (this.options?.formatter) {
-          try {
-            sourceFileText = await this.options.formatter(sourceFileText, path);
-          } catch (err) {
-            errors.push({
-              message:
-                "Could not format source file: " +
-                (err instanceof Error ? err.message : "Unknown error"),
-            });
+        let sourceFileText: string | null = null;
+        if (tsChanged) {
+          sourceFileText = unescape(
+            tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u"),
+          );
+          if (this.options?.formatter) {
+            try {
+              sourceFileText = await this.options.formatter(
+                sourceFileText,
+                path,
+              );
+            } catch (err) {
+              errors.push({
+                message:
+                  "Could not format source file: " +
+                  (err instanceof Error ? err.message : "Unknown error"),
+              });
+            }
           }
         }
-        return {
-          path,
-          appliedPatches,
-          result: sourceFileText,
-        };
-      } else {
-        const skippedPatches = patches
-          .slice(appliedPatches.length + triedPatches.length)
-          .map((p) => p.patchId);
-
-        return {
-          path,
-          appliedPatches,
-          triedPatches,
-          skippedPatches,
-          errors,
-        };
+        const extraFiles: Record<string, string | null> = {};
+        for (const [jsonPath, content] of Array.from(jsonEntryContents)) {
+          if (content === null) {
+            extraFiles[jsonPath] = null;
+            continue;
+          }
+          let jsonText = JSON.stringify(content, null, 2);
+          if (this.options?.formatter) {
+            try {
+              jsonText = await this.options.formatter(jsonText, jsonPath);
+            } catch (err) {
+              errors.push({
+                message:
+                  "Could not format jsonValues entry: " +
+                  (err instanceof Error ? err.message : "Unknown error"),
+                filePath: jsonPath,
+              });
+            }
+          }
+          extraFiles[jsonPath] = jsonText;
+        }
+        if (errors.length === 0) {
+          return {
+            path,
+            appliedPatches,
+            result: sourceFileText,
+            extraFiles,
+          };
+        }
       }
+      const skippedPatches = patches
+        .slice(appliedPatches.length + triedPatches.length)
+        .map((p) => p.patchId);
+
+      return {
+        path,
+        appliedPatches,
+        triedPatches,
+        skippedPatches,
+        errors,
+      };
     };
     const allResults = await Promise.all(
       Object.entries(patchesByModule).map(([path, patches]) =>
@@ -946,7 +1608,14 @@ export abstract class ValOps {
         triedPatches[res.path] = res.triedPatches ?? [];
         skippedPatches[res.path] = res.skippedPatches ?? [];
       } else {
-        patchedSourceFiles[res.path] = res.result;
+        // `result` is null when the `.val.ts` itself was not changed (pure
+        // jsonValues content edits only write `*.val.json` extraFiles).
+        if (res.result !== null) {
+          patchedSourceFiles[res.path] = res.result;
+        }
+        for (const [extraPath, data] of Object.entries(res.extraFiles)) {
+          patchedSourceFiles[extraPath] = data;
+        }
         appliedPatches[res.path] = res.appliedPatches ?? [];
       }
       for (const patchId of res.appliedPatches ?? []) {

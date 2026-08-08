@@ -95,6 +95,55 @@ describe("ValRouter", () => {
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
 
+  // `/json` takes exactly one of `key`, `keys` or `offset`+`limit`. These are
+  // rejected before the ops layer is consulted, so the fixture module (an
+  // ordinary record) is enough to pin the contract.
+  describe("/json request shapes", () => {
+    const jsonRequest = (query: string) =>
+      onRoute(
+        fakeRequest({
+          method: "GET",
+          url: new URL(`http://localhost:3000/api/val/json?${query}`),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+
+    test("no shape is a 400", async () => {
+      expect((await jsonRequest("path=/content/authors.val.ts")).status).toBe(
+        400,
+      );
+    });
+
+    test("key AND keys together is a 400", async () => {
+      expect(
+        (await jsonRequest("path=/content/authors.val.ts&key=a&keys=b")).status,
+      ).toBe(400);
+    });
+
+    test("offset without limit is a 400", async () => {
+      expect(
+        (await jsonRequest("path=/content/authors.val.ts&offset=0")).status,
+      ).toBe(400);
+    });
+
+    test("more keys than the batch cap is rejected", async () => {
+      const keys = Array.from({ length: 101 }, (_, i) => `keys=k${i}`).join(
+        "&",
+      );
+      expect(
+        (await jsonRequest(`path=/content/authors.val.ts&${keys}`)).status,
+      ).toBe(400);
+    });
+
+    test("a valid shape gets past validation (404: no such module)", async () => {
+      expect(
+        (await jsonRequest("path=/content/nope.val.ts&key=a")).status,
+      ).toBe(404);
+    });
+  });
+
   test("smoke test invalid route", async () => {
     const serverRes = await onRoute(
       fakeRequest({
