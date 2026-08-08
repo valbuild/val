@@ -1050,6 +1050,36 @@ worth the complexity. `c.json` takes only the thunk; `jsonValuesSha.ts` was dele
 key there is no skip-cache: `validateJsonValuesEntries` validates each loaded entry's content
 unconditionally (accepted "validation takes more time" tradeoff).
 
+## Follow-ups (found while running the walkthrough)
+
+### A hand-edited `*.val.json` does not hot-reload into an open Studio (2026-08-08)
+
+Editing an entry file on disk leaves the Studio showing the old value until the page is reloaded.
+Diagnosed against a running dev server: **the server is fine** — `/json` returns the new content on the
+next request, immediately. The client is never told to ask again, and two things compound:
+
+- `ValOpsFS`'s watcher, which drives the `/stat` long-poll, treats only `.val.ts`, `.val.js`,
+  `val.config.*`, `val.modules.*` and the patches dir as changes. A `.val.json` write does not wake it.
+- Even if it woke, nothing the client compares would differ: `sourcesSha` and `baseSha` are both
+  `hash(... JSON.stringify(source) ...)` in `extractValModules`, and a jsonValues module's source is
+  markers — the content sits behind a thunk, which `JSON.stringify` drops. No existing sha can see an
+  entry edit.
+
+Workaround (documented in the walkthrough): reload the Studio.
+
+Fix shape, if we want it — roughly 60–100 lines plus tests:
+
+1. Add `.val.json` to the watcher's `isChange` test (one line) so the long-poll wakes.
+2. Give `/stat` an FS-only `jsonEntriesSha`, computed from the entry files' mtime+size (cheap — no content
+   read, so it does not undo the point of `.jsonValues()`).
+   **Not** by extending `sourcesSha`: that lives in core's `extractValModules`, is computed by BOTH client
+   and server, and the client has no entry content — divergence would trip the `schemaOutOfDate` machinery.
+3. On a changed `jsonEntriesSha`, the client calls `markAllJsonEntriesStale()` — which already exists and
+   is exactly what publish uses, so the refetch-and-rerender chain is already built and tested.
+
+Dev-only ergonomics: it does not affect editing in the Studio (a patch, not a file write), publishing, or
+the runtime. Worth doing because hand-authoring entry files is a supported workflow (locked decision #2).
+
 ## Open questions / watch-list
 
 - `JsonOf<T>` correctness vs `resolveJsonModule` inference (esp. images inside json: `_type`

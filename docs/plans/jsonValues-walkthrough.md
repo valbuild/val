@@ -96,6 +96,32 @@ Notes:
 
 ---
 
+## Known limitation: editing a `*.val.json` on disk does not hot-reload
+
+If you edit an entry file by hand while the Studio is open — say `content/faq.val.json` — **the Studio
+keeps showing the old value until you reload the page.** Several steps below have you edit entry files
+directly, so expect it.
+
+The server is not the problem: it serves the new content on the next request, immediately. The client is
+simply never told to ask again, for two reasons that compound:
+
+- The FS watcher that drives the `/stat` long-poll only treats `.val.ts`, `.val.js`, `val.config.*`,
+  `val.modules.*` and the patches directory as changes — `.val.json` is not in that list, so the poll does
+  not even wake up.
+- Nothing the client compares would differ anyway. Both `sourcesSha` and `baseSha` hash
+  `JSON.stringify(source)`, and a `.jsonValues()` module's source is just markers — the entry content is
+  behind a thunk, and `JSON.stringify` drops functions. An entry edit is invisible to every sha that
+  exists today.
+
+**Workaround: reload the Studio.** The client starts with an empty entry cache, so it refetches and you
+get the new content.
+
+This does not affect editing in the Studio itself (that is a patch, not a file edit), nor publishing, nor
+the runtime — only hand-edits to entry files with the Studio already open. Recorded as a follow-up in
+[jsonValues.md](./jsonValues.md).
+
+---
+
 ## What the fixtures are for
 
 | Module                             | Kind                                                                             | Steps            |
