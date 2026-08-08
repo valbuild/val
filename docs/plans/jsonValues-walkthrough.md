@@ -1,9 +1,12 @@
 # `.jsonValues()` manual walkthrough (V1–V20)
 
 The verification checklist for `s.record(...).jsonValues()` / `s.router(...).jsonValues()`. The
-implementation tracker is [jsonValues.md](./jsonValues.md); this file is the part a person has to run,
-because nothing in the repo renders React (no jsdom in the jest preset), so every UI behaviour below is
-covered by this walkthrough and by nothing else.
+implementation tracker is [jsonValues.md](./jsonValues.md); this file is the part a person has to run.
+
+The Studio SPA has no component tests — `packages/ui` lacks `jest-environment-jsdom` — so every Studio
+behaviour below is covered by this walkthrough and by nothing else. (`packages/next` and `packages/react`
+DO have jsdom, which is why the client-hook behaviour in V19/V20's neighbourhood is partly covered by
+`useValKey.draft.test.tsx`.)
 
 Everything it needs is checked in: fixtures in `examples/next`, and a helper script for the states that
 cannot be checked in (a corrupt entry, a deliberately invalid module) and for getting back to a clean
@@ -48,24 +51,48 @@ dev server afterwards.**
 
 ### Counting `/json` requests
 
-Most steps below assert something about requests. Filter the Network tab on `api/val/json`, or — for exact
-numbers — paste this into the DevTools console on the Studio page:
+Most steps below assert something about requests. Two ways to see them:
+
+**The Network tab** — filter on `api/val/json`. Good for watching what happens live; the request count is
+in the status bar at the bottom. Turn OFF "Preserve log" so a reload clears it.
+
+**The console helpers** — for the exact numbers the steps quote. Open the Studio
+(http://localhost:3456/val), open DevTools (⌥⌘J on macOS, Ctrl+Shift+J elsewhere), and paste this into the
+**console of the Studio page** — that is the page making the requests:
 
 ```js
-// how many /json requests, and how many keys each one asked for
-const json = () =>
+// Paste once per page load. Safe to paste again: it reassigns rather than redeclares.
+performance.setResourceTimingBufferSize(5000); // default is ~250: a fling test overflows it and undercounts
+globalThis.jsonReqs = () =>
   performance
     .getEntriesByType("resource")
     .filter((r) => r.name.includes("/api/val/json"));
-const jsonCount = () => json().length;
-const jsonKeys = () =>
-  json().map((r) => (r.name.match(/[?&]keys=/g) || []).length);
-performance.clearResourceTimings(); // zero the counter before a step
+globalThis.jsonCount = () => jsonReqs().length;
+globalThis.jsonKeys = () =>
+  jsonReqs().map((r) => (r.name.match(/[?&]keys=/g) || []).length);
+globalThis.valReset = () => performance.clearResourceTimings();
+valReset();
 ```
 
-The pattern for every "zero requests" check is: **let the page settle, `performance.clearResourceTimings()`,
-then do the thing, then `jsonCount()`.** Opening a record list legitimately loads its visible rows (that is
-V16), so counting from page load instead of from a cleared counter will mislead you.
+Then, at any point:
+
+| Type this     | Answers                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| `jsonCount()` | how many `/json` requests since the last `valReset()`                      |
+| `jsonKeys()`  | how many keys each of those asked for, e.g. `[50, 50, 20]`                 |
+| `valReset()`  | zero the counter — do this immediately before the action you are measuring |
+| `jsonReqs()`  | the raw entries, if you want to inspect a URL                              |
+
+Notes:
+
+- **A page reload clears the definitions**, so re-paste after every reload. Many steps start with "reload
+  the Studio".
+- A `0` in `jsonKeys()` means that request used the single-entry `?key=` shape. The Studio only uses the
+  batch shape, so a `0` there is worth a raised eyebrow — the RSC runtime is the only thing that should
+  use `?key=`.
+- The pattern for every "zero requests" check is: **let the page settle, `valReset()`, then do the thing,
+  then `jsonCount()`.** Opening a record list legitimately loads its visible rows (that is V16), so
+  counting from page load instead of from a cleared counter will mislead you.
 
 ---
 
@@ -103,7 +130,7 @@ Copy the table at the bottom into your notes and fill it in as you go.
 
 Navigate to `/app/support/[slug]/page.val.ts`.
 
-- [ ] Both keys are listed (`/support/getting-started`, `/support/faq`).
+- [x] Both keys are listed (`/support/getting-started`, `/support/faq`).
 - [ ] `jsonCount()` is **1** and `jsonKeys()` is `[2]` — one batch for both rows.
 
 > The original V1 asked for **zero** requests on open. That is superseded: the list renders a preview per
@@ -111,7 +138,7 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 
 ### V2 — open an entry, then revisit it
 
-- [ ] Clear timings, open `/support/faq` → the fields render immediately, and `jsonCount()` is **0**: the
+- [ ] `valReset()`, then open `/support/faq` → the fields render immediately, and `jsonCount()` is **0**: the
       list already loaded it.
 - [ ] Navigate away and back → still **0**. Nothing refetches an entry it already has.
 
@@ -196,7 +223,7 @@ pnpm fixtures nested off    # then restart the dev server
 `kb` is a record, not a router, and no jsonValues item schema points at it — so the guard's answer needs
 only its key set, which the markers already carry.
 
-- [ ] Open `/content/kb.val.ts`, let it settle, `performance.clearResourceTimings()`.
+- [ ] Open `/content/kb.val.ts`, let it settle, then `valReset()`.
 - [ ] Open the delete popover on `kb-000` → it says **"Cannot delete: 1 reference"**, the references
       popover lists `featuredContent.kbEntry`, and `jsonCount()` is **0**.
 - [ ] Rename `kb-000` → `kb-000-renamed` → `featuredContent.kbEntry` now reads `kb-000-renamed`, and
@@ -210,7 +237,7 @@ every entry is loaded.
 
 - [ ] Reload the Studio (a cold cache is the point) and go to `/content/authors.val.ts` **without opening
       `kb` first**.
-- [ ] Clear timings, then open the delete popover on author `kimmid`:
+- [ ] `valReset()`, then open the delete popover on author `kimmid`:
       → it shows **"Checking references"** with a percentage that climbs,
       → then settles on **"Cannot delete: 1 reference"** — `kb-113`'s `author`.
 - [ ] `jsonCount()` is **3** and `jsonKeys()` is `[50, 50, 20]`: 120 entries in batches of 50, never one
@@ -221,7 +248,7 @@ every entry is loaded.
 
 ### V12 — an unrelated record: instant, and no requests
 
-- [ ] Open `/content/tags.val.ts`, clear timings.
+- [ ] Open `/content/tags.val.ts`, then `valReset()`.
 - [ ] Delete `changelog` (referenced by nothing) → allowed immediately, no progress UI, `jsonCount()` is
       **0**.
 - [ ] Open the delete popover on `guides` (referenced by `featuredContent.tag`) → blocked with 1 reference,
@@ -259,7 +286,7 @@ pnpm fixtures corrupt 3     # spread across the record; then reload the Studio
 ### V15 — publish refreshes cached entries in batches
 
 - [ ] Open `/content/kb.val.ts` and scroll a few screens (warming the cache), edit one visible entry's
-      title, then clear timings and publish.
+      title, then `valReset()` and publish.
 - [ ] `jsonCount()` is roughly `ceil(cached entries / 50)` — a couple of batched requests, NOT one per
       cached entry — and `jsonKeys()` shows up to 50 keys each.
 - [ ] The published edit is visible without a reload.
@@ -269,7 +296,7 @@ pnpm fixtures corrupt 3     # spread across the record; then reload the Studio
 
 ### V16 — the list loads only what it renders
 
-- [ ] Reload, clear timings, open `/content/kb.val.ts`.
+- [ ] Reload, re-paste the helpers, `valReset()`, then open `/content/kb.val.ts`.
 - [ ] `jsonCount()` is **1**, and `jsonKeys()[0]` is roughly the visible rows + 8 overscan — a couple of
       dozen at most, never 120.
 - [ ] Rows below the fold show **skeletons** (a fixed-height pulse), not spinners or broken/empty previews,
@@ -285,7 +312,7 @@ pnpm fixtures corrupt 3     # spread across the record; then reload the Studio
 
 - [ ] With `/content/kb.val.ts` open, scroll all the way to the bottom so every entry (including `kb-113`)
       has been rendered and loaded.
-- [ ] Clear timings, then rename author `kimmid` → `kimmid2`:
+- [ ] `valReset()`, then rename author `kimmid` → `kimmid2`:
       → the guard reports complete **with no progress UI**,
       → `jsonCount()` is **0** (or only the few keys never rendered),
       → `kb-113`'s `author` is rewritten even though you never opened that entry.
@@ -328,7 +355,7 @@ The support router declares a RECORD-level validator (a key-count rule). A recor
 statement about ALL entries, so the client cannot run it against un-loaded markers — it loads them first.
 That cost is inherent, and it is why validators belong on the ITEM schema where possible.
 
-- [ ] Reload the Studio, open `/app/support/[slug]/page.val.ts`, clear timings.
+- [ ] Reload the Studio, re-paste the helpers, open `/app/support/[slug]/page.val.ts`, then `valReset()`.
 - [ ] Edit one entry's `title` → the entries get loaded (`jsonCount()` >= 1) before validation settles, and
       no error appears (2 entries is under the limit of 50).
 - [ ] Nothing loops: `jsonCount()` stops climbing once the entries are in. A repeated needs-keys round
