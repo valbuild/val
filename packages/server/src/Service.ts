@@ -20,18 +20,8 @@ import {
 import path from "path";
 import { loadValModules } from "./loadValModules";
 
-export type ServiceOptions = {
-  /**
-   * Disable cache for transpilation
-   *
-   * @default false
-   */
-  disableCache?: boolean;
-};
-
 export async function createService(
   projectRoot: string,
-  opts: ServiceOptions,
   host: IValFSHost = {
     ...ts.sys,
     writeFile: (fileName, data, encoding) => {

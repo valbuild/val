@@ -70,6 +70,21 @@ export function getModulePathRange(
   );
 }
 
+/**
+ * The line/character range of `node`'s own text (leading trivia excluded).
+ *
+ * NOTE: do not compute the start as `end.character - node.getWidth()`. That
+ * identity only holds while the node stays on a single line - for a multi-line
+ * node (an object inside an array, a `c.image` metadata argument, ...) it
+ * reports the *closing* line and a negative character.
+ */
+function rangeOf(node: ts.Node, sourceFile: ts.SourceFile) {
+  return {
+    start: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)),
+    end: sourceFile.getLineAndCharacterOfPosition(node.getEnd()),
+  };
+}
+
 export function createModulePathMap(
   sourceFile: ts.SourceFile,
 ): ModulePathMap | undefined {
@@ -94,20 +109,10 @@ function traverse(
   sourceFile: ts.SourceFile,
 ): ModulePathMap | undefined {
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-    const tsEnd = sourceFile.getLineAndCharacterOfPosition(node.end);
-    const start = {
-      line: tsEnd.line,
-      character: tsEnd.character - node.getWidth(sourceFile),
-    };
-    const end = {
-      line: tsEnd.line,
-      character: tsEnd.character,
-    };
     return {
       "": {
         children: {},
-        start,
-        end,
+        ...rangeOf(node, sourceFile),
       },
     };
   }
@@ -134,26 +139,12 @@ function traverseCallExpression(
     ) {
       const val = {
         children: {},
-        start: sourceFile.getLineAndCharacterOfPosition(
-          node.getStart(sourceFile),
-        ),
-        end: sourceFile.getLineAndCharacterOfPosition(node.getEnd()),
+        ...rangeOf(node, sourceFile),
       };
       if (node.arguments[0]) {
-        const firstArgEnd = sourceFile.getLineAndCharacterOfPosition(
-          node.arguments[0].end,
-        );
         const _ref = {
           children: {},
-          start: {
-            line: firstArgEnd.line,
-            character:
-              firstArgEnd.character - node.arguments[0].getWidth(sourceFile),
-          },
-          end: {
-            line: firstArgEnd.line,
-            character: firstArgEnd.character,
-          },
+          ...rangeOf(node.arguments[0], sourceFile),
         };
         if (!node.arguments[1]) {
           return {
@@ -161,23 +152,12 @@ function traverseCallExpression(
             _ref,
           };
         }
-        const metadataEnd = sourceFile.getLineAndCharacterOfPosition(
-          node.arguments[1].end,
-        );
         return {
           val,
           _ref,
           metadata: {
             children: {},
-            start: {
-              line: metadataEnd.line,
-              character:
-                metadataEnd.character - node.arguments[1].getWidth(sourceFile),
-            },
-            end: {
-              line: metadataEnd.line,
-              character: metadataEnd.character,
-            },
+            ...rangeOf(node.arguments[1], sourceFile),
           },
         };
       }
@@ -191,21 +171,11 @@ function traverseArrayLiteral(
 ): ModulePathMap {
   return node.elements.reduce((acc, element, index) => {
     if (ts.isExpression(element)) {
-      const tsEnd = sourceFile.getLineAndCharacterOfPosition(element.end);
-      const start = {
-        line: tsEnd.line,
-        character: tsEnd.character - element.getWidth(sourceFile),
-      };
-      const end = {
-        line: tsEnd.line,
-        character: tsEnd.character,
-      };
       return {
         ...acc,
         [index]: {
           children: traverse(element, sourceFile),
-          start,
-          end,
+          ...rangeOf(element, sourceFile),
         },
       };
     }
@@ -225,25 +195,9 @@ function traverseObjectLiteral(
         property.name.text;
       const value = property.initializer;
       if (key) {
-        const tsEnd = sourceFile.getLineAndCharacterOfPosition(
-          property.name.getEnd(),
-        );
-        const start = {
-          line: tsEnd.line,
-          character: tsEnd.character - property.name.getWidth(sourceFile),
-        };
-        const end = {
-          line: tsEnd.line,
-          character: tsEnd.character,
-        };
         const val = {
           children: {},
-          start: sourceFile.getLineAndCharacterOfPosition(
-            property.initializer.getStart(sourceFile),
-          ),
-          end: sourceFile.getLineAndCharacterOfPosition(
-            property.initializer.getEnd(),
-          ),
+          ...rangeOf(property.initializer, sourceFile),
         };
         return {
           ...acc,
@@ -252,8 +206,7 @@ function traverseObjectLiteral(
               val,
               ...traverse(value, sourceFile),
             },
-            start,
-            end,
+            ...rangeOf(property.name, sourceFile),
           },
         };
       }

@@ -173,6 +173,93 @@ export default c.define('/content', schema, {
     );
   });
 
+  test("should point at the opening line of a multi-line array element", () => {
+    const text = `import { s, c } from '../val.config';
+
+export const schema = s.array(s.object({ title: s.string() }));
+
+export default c.define('/content/multiline.val.ts', schema, [
+  {
+    title: 'hello',
+  },
+  {
+    title: 'world',
+  },
+]);
+`;
+    const sourceFile = ts.createSourceFile(
+      "./content/multiline.val.ts",
+      text,
+      ts.ScriptTarget.ES2015,
+    );
+
+    const modulePathMap = createModulePathMap(sourceFile);
+    assert(!!modulePathMap, "modulePathMap is undefined");
+
+    // The element spans lines 5-7: the range must start on the *opening* line
+    // with a non-negative character (a start derived from `end - width` gave
+    // the closing line and a negative character, which crashed the CLI's code
+    // frame renderer on `" ".repeat(-n)`).
+    assert.deepStrictEqual(getModulePathRange("0", modulePathMap), {
+      start: { line: 5, character: 2 },
+      end: { line: 7, character: 3 },
+    });
+    assert.deepStrictEqual(getModulePathRange("1", modulePathMap), {
+      start: { line: 8, character: 2 },
+      end: { line: 10, character: 3 },
+    });
+    // Leaves inside the element are unaffected
+    assert.deepStrictEqual(getModulePathRange('0."title"', modulePathMap), {
+      start: { line: 6, character: 4 },
+      end: { line: 6, character: 9 },
+    });
+    assert.deepStrictEqual(
+      getModulePathRange('0."title"', modulePathMap, "value"),
+      { start: { line: 6, character: 11 }, end: { line: 6, character: 18 } },
+    );
+  });
+
+  test("should point at the opening line of a multi-line c.image metadata", () => {
+    const text = `import { s, c } from '../val.config';
+
+export const schema = s.object({ image: s.image() });
+
+export default c.define('/content/img.val.ts', schema, {
+  image: c.image('/public/val/logo.png', {
+    width: 944,
+    height: 944,
+    mimeType: 'image/png',
+  }),
+});
+`;
+    const sourceFile = ts.createSourceFile(
+      "./content/img.val.ts",
+      text,
+      ts.ScriptTarget.ES2015,
+    );
+
+    const modulePathMap = createModulePathMap(sourceFile);
+    assert(!!modulePathMap, "modulePathMap is undefined");
+
+    // The metadata object spans lines 5-9 - it must start at the `{` on line 5.
+    assert.deepStrictEqual(
+      getModulePathRange('"image"."metadata"', modulePathMap),
+      { start: { line: 5, character: 41 }, end: { line: 9, character: 3 } },
+    );
+    assert.deepStrictEqual(
+      getModulePathRange('"image"."_ref"', modulePathMap),
+      {
+        start: { line: 5, character: 17 },
+        end: { line: 5, character: 39 },
+      },
+    );
+    // The whole c.image(...) call, for errors reported on the field itself
+    assert.deepStrictEqual(
+      getModulePathRange('"image"', modulePathMap, "value"),
+      { start: { line: 5, character: 9 }, end: { line: 9, character: 4 } },
+    );
+  });
+
   test("should handle invalid/malformed module paths gracefully", () => {
     const text = `import { s, c } from '../val.config';
 

@@ -265,7 +265,7 @@ describe("runValidation", () => {
       next = await gen.next();
     }
 
-    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    const service = await createService(tmpDir, createDefaultValFSHost());
     try {
       const result = await service.get(
         "/content/basic-gallery-missing-tracked.val.ts" as ModuleFilePath,
@@ -322,7 +322,7 @@ describe("runValidation", () => {
       next = await gen.next();
     }
 
-    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    const service = await createService(tmpDir, createDefaultValFSHost());
     try {
       const result = await service.get(
         "/content/basic-gallery-wrong-metadata.val.ts" as ModuleFilePath,
@@ -356,7 +356,7 @@ describe("runValidation", () => {
       next = await gen.next();
     }
 
-    const service = await createService(tmpDir, {}, createDefaultValFSHost());
+    const service = await createService(tmpDir, createDefaultValFSHost());
     try {
       const result = await service.get(
         "/content/basic-image.val.ts" as ModuleFilePath,
