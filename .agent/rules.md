@@ -218,6 +218,35 @@ Prefer `pnpm run -r typecheck` (or `pnpm --filter <pkg> run typecheck` for a sin
 
 If you do run `pnpm run build` (e.g., as a final CI check), you MUST run `pnpm preconstruct dev` afterward to restore the source-mapped entries so dev mode picks up live edits again.
 
+## Running the val CLI
+
+While developing the CLI itself, run it from `packages/cli` against the example app with `--root`:
+
+```bash
+cd packages/cli
+pnpm exec tsx src/cli.ts validate --root ../../examples/next   # --fix to auto-fix, --watch to re-run on change
+pnpm exec tsx src/cli.ts list-unused-files --root ../../examples/next
+pnpm exec tsx src/cli.ts versions
+```
+
+This runs `src/` directly, so edits apply with no rebuild. `--root` is resolved with `path.resolve()` against cwd, so a relative path works.
+
+**Do not use `pnpm start`.** The script is `tsx src/cli.ts --`, so pnpm produces `tsx src/cli.ts -- validate --root ...`; that trailing `--` makes meow treat the flags as positional input and the command dispatch rejects it with `Unknown command "validate --root ../../examples/next"`.
+
+To exercise the packaged entry (`bin.js` → `require("./cli")` → preconstruct entrypoint) instead of `src/`, use either:
+
+```bash
+cd packages/cli && node bin.js validate --root ../../examples/next
+cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked here only, not in root node_modules/.bin
+```
+
+**Run `validate` whenever you touch `packages/cli` or `packages/server`.** It is not optional coverage:
+
+- `validate` and `list-unused-files` are the only callers of `createService` → `loadValModules`, which evaluates the project's `val.modules.ts` and every `*.val.ts` in a `node:vm` sandbox. Nothing in the Next.js runtime exercises that path — the Next server gets its `ValModules` from the app's own `import valModules from "../val.modules"`.
+- `pnpm test` only reaches `createService` directly from jest, so it misses breakage in the CLI's own entry and argument handling. Before shipping a CLI change, also do one run via `bin.js` / the `val` bin so the packaged entrypoint is covered.
+
+The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
+
 ## Working with Images
 
 ### ImageSource Shape

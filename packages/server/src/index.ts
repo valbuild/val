@@ -1,4 +1,3 @@
-export type { ServiceOptions } from "./Service";
 export { createService, Service } from "./Service";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 export { ValModuleLoader } from "./ValModuleLoader";
@@ -18,3 +17,5 @@ export {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 export { uploadRemoteFile } from "./uploadRemoteFile";
+export { createModulePathMap, getModulePathRange } from "./modulePathMap";
+export type { ModulePathMap } from "./modulePathMap";
