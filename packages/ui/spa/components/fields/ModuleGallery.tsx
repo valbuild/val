@@ -302,7 +302,8 @@ export function ModuleGallery({
           bucket: remoteData.bucket,
           validationHash,
           fileHash: remoteFileHash,
-          filePath: `${directory.slice(1) as `public/${string}`}/${newFilename}`,
+          filePath:
+            `${directory.slice(1)}/${newFilename}` as `public/${string}`,
         });
         isRemote = true;
       } else {

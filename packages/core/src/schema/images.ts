@@ -19,6 +19,7 @@ export type AltSchema =
 export type ImagesOptions<Accept extends `image/${string}`> = {
   /**
    * The accepted mime type pattern. Must be an image type (e.g., "image/png", "image/webp", "image/*")
+   * @default "image/*"
    */
   accept?: Accept;
   /**
@@ -73,6 +74,9 @@ type ImagesItemSrc = {
 
 /**
  * Define a collection of images.
+ *
+ * All options are optional: `s.images()` accepts any image type (`"image/*"`) in
+ * the default `/public/val` directory, with nullable alt text and remote disabled.
  *
  * @example
  * ```typescript
