@@ -542,6 +542,35 @@ describe("ImagesSchema", () => {
       }
     });
 
+    test("should report both the key error and the entry error for the same entry", () => {
+      // Key errors (wrong directory) and entry errors (bad metadata) are both
+      // reported at the entry's path, so merging must concatenate them rather
+      // than let one overwrite the other.
+      const schema = images({
+        accept: "image/webp",
+        directory: "/public/val/images",
+      });
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/wrong/path/image.webp": {
+          width: 0,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong path and bad width",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.some((m) => m.includes("must be within the"))).toBe(true);
+      expect(
+        messages.some((m) =>
+          m.includes("Expected 'width' to be a positive number"),
+        ),
+      ).toBe(true);
+    });
+
     test("should accept paths in subdirectories", () => {
       const schema = images({
         accept: "image/webp",

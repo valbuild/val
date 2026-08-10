@@ -231,12 +231,12 @@ export class RecordSchema<
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
           this.markKeyErrorsAtPath(keyErr, subPath);
-          error = error ? { ...error, ...keyErr } : keyErr;
+          error = this.mergeValidationErrors(error, keyErr);
         }
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
-          error = error ? { ...error, ...entryErr } : entryErr;
+          error = this.mergeValidationErrors(error, entryErr);
         }
       } else {
         const subError = this.item["executeValidate"](
@@ -258,6 +258,29 @@ export class RecordSchema<
 
   private isRemoteUrl(url: string): boolean {
     return url.startsWith("https://") || url.startsWith("http://");
+  }
+
+  /**
+   * Merges `next` into `prev`, concatenating the messages reported at the same
+   * path. A plain spread would drop `prev`'s messages whenever both report at
+   * the same path - which is exactly what the media key/entry checks below do.
+   */
+  private mergeValidationErrors(
+    prev: ValidationErrors,
+    next: ValidationErrors,
+  ): ValidationErrors {
+    if (!next) {
+      return prev;
+    }
+    if (!prev) {
+      return next;
+    }
+    const merged: Record<SourcePath, ValidationError[]> = { ...prev };
+    for (const path of Object.keys(next) as SourcePath[]) {
+      const existing = merged[path];
+      merged[path] = existing ? [...existing, ...next[path]] : next[path];
+    }
+    return merged;
   }
 
   /** Marks the validation errors reported at `path` as key errors (in place). */
