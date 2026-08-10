@@ -26,33 +26,41 @@ export function getModulePathRange(
   // existing callers.
   target: "key" | "value" = "key",
 ) {
-  // Handle empty or invalid module paths gracefully
-  if (!modulePath || typeof modulePath !== "string") {
+  // Handle invalid module paths gracefully
+  if (typeof modulePath !== "string") {
     return undefined;
   }
 
-  let segments: string[];
-  try {
-    // Quote-aware splitter that correctly handles keys containing dots
-    // (e.g. file refs like `"/public/val/images/logo.png"`), unlike a naive
-    // split on ".". Throws on malformed input (e.g. unbalanced quotes).
-    segments = Internal.splitModulePath(modulePath as ModulePath);
-  } catch {
-    // Return undefined if the module path is malformed. This can happen when
-    // there are upstream errors in schema serialization.
-    return undefined;
-  }
-
-  if (segments.length === 0) {
-    return undefined;
-  }
-
-  let range = modulePathMap[segments[0]];
-  for (const pathSegment of segments.slice(1)) {
-    if (!range) {
-      break;
+  let range: ModulePathMap[string] | undefined;
+  if (modulePath === "") {
+    // The empty module path is the module root, stored under the "" key: the
+    // source argument of `c.define`. This is what module-level diagnostics
+    // (which have no module path) resolve to.
+    range = modulePathMap[""];
+  } else {
+    let segments: string[];
+    try {
+      // Quote-aware splitter that correctly handles keys containing dots
+      // (e.g. file refs like `"/public/val/images/logo.png"`), unlike a naive
+      // split on ".". Throws on malformed input (e.g. unbalanced quotes).
+      segments = Internal.splitModulePath(modulePath as ModulePath);
+    } catch {
+      // Return undefined if the module path is malformed. This can happen when
+      // there are upstream errors in schema serialization.
+      return undefined;
     }
-    range = range?.children?.[pathSegment];
+
+    if (segments.length === 0) {
+      return undefined;
+    }
+
+    range = modulePathMap[segments[0]];
+    for (const pathSegment of segments.slice(1)) {
+      if (!range) {
+        break;
+      }
+      range = range?.children?.[pathSegment];
+    }
   }
 
   if (!range) {
@@ -83,7 +91,22 @@ export function createModulePathMap(
         child.expression.arguments[2];
 
       if (contentNode) {
-        return traverse(contentNode, sourceFile);
+        const map = traverse(contentNode, sourceFile) ?? {};
+        // Always expose the module root under the "" key so diagnostics without
+        // a module path still resolve to a location. `traverse` already emits ""
+        // for primitive roots (with a tighter range), so keep that if present.
+        // Object/record keys are never "" (see traverseObjectLiteral), so this
+        // cannot collide with a real key.
+        return {
+          ...map,
+          "": map[""] ?? {
+            children: {},
+            start: sourceFile.getLineAndCharacterOfPosition(
+              contentNode.getStart(sourceFile),
+            ),
+            end: sourceFile.getLineAndCharacterOfPosition(contentNode.getEnd()),
+          },
+        };
       }
     }
   }

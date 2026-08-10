@@ -75,12 +75,10 @@ export default c.define(
 
     assert(!!modulePathMap, "modulePathMap is undefined");
 
-    console.log(getModulePathRange('"text"', modulePathMap));
     assert.deepStrictEqual(getModulePathRange('"text"', modulePathMap), {
       end: { character: 6, line: 48 },
       start: { character: 2, line: 48 },
     });
-    console.log(getModulePathRange('"nested"."text"', modulePathMap));
     assert.deepStrictEqual(
       getModulePathRange('"nested"."text"', modulePathMap),
       { end: { character: 8, line: 50 }, start: { character: 4, line: 50 } },
@@ -135,8 +133,6 @@ export default c.define('/content/aboutUs.val.ts', schema, {
     const modulePathMap = createModulePathMap(sourceFile);
     assert(!!modulePathMap, "modulePathMap is undefined");
 
-    console.log(modulePathMap);
-    // console.log(getModulePathRange('"ingress"', modulePathMap));
     assert.deepStrictEqual(getModulePathRange('"ingress"', modulePathMap), {
       start: { line: 15, character: 2 },
       end: { line: 15, character: 9 },
@@ -194,7 +190,6 @@ export default c.define('/content', schema, {
     assert(!!modulePathMap, "modulePathMap is undefined");
 
     // These should return undefined instead of throwing
-    assert.strictEqual(getModulePathRange("", modulePathMap), undefined);
     assert.strictEqual(getModulePathRange("invalid", modulePathMap), undefined);
     assert.strictEqual(getModulePathRange(".", modulePathMap), undefined);
     assert.strictEqual(getModulePathRange("..", modulePathMap), undefined);
@@ -207,5 +202,46 @@ export default c.define('/content', schema, {
       getModulePathRange(null as unknown as string, modulePathMap),
       undefined,
     );
+  });
+
+  test("the empty module path resolves to the module root", () => {
+    // An object root: the range spans the whole source argument of c.define, so
+    // module-level diagnostics (which carry no module path) get a location.
+    const objectRoot = `import { s, c } from '../val.config';
+
+export default c.define('/content', s.object({ text: s.string() }), {
+  text: 'hello'
+});
+`;
+    const objectMap = createModulePathMap(
+      ts.createSourceFile(
+        "./content.val.ts",
+        objectRoot,
+        ts.ScriptTarget.ES2015,
+      ),
+    );
+    assert(!!objectMap, "modulePathMap is undefined");
+    assert.deepStrictEqual(getModulePathRange("", objectMap), {
+      start: { line: 2, character: 68 },
+      end: { line: 4, character: 1 },
+    });
+
+    // A primitive root keeps the tighter literal range that traverse() emits.
+    const stringRoot = `import { s, c } from '../val.config';
+
+export default c.define('/content', s.string(), 'hello');
+`;
+    const stringMap = createModulePathMap(
+      ts.createSourceFile(
+        "./content.val.ts",
+        stringRoot,
+        ts.ScriptTarget.ES2015,
+      ),
+    );
+    assert(!!stringMap, "modulePathMap is undefined");
+    assert.deepStrictEqual(getModulePathRange("", stringMap), {
+      start: { line: 2, character: 48 },
+      end: { line: 2, character: 55 },
+    });
   });
 });

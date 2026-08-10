@@ -359,7 +359,8 @@ export async function handleRemoteFileUpload(
   if (!ctx.fix) {
     return {
       success: false,
-      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+      // No sourcePath in the message: the reported location already points at it.
+      errorMessage: `Remote file needs to be uploaded (use --fix to upload)`,
     };
   }
 
@@ -433,7 +434,8 @@ export async function handleRemoteGalleryFileUpload(
   if (!ctx.fix) {
     return {
       success: false,
-      errorMessage: `Remote file ${ctx.sourcePath} needs to be uploaded (use --fix to upload)`,
+      // No sourcePath in the message: the reported location already points at it.
+      errorMessage: `Remote file needs to be uploaded (use --fix to upload)`,
     };
   }
 
