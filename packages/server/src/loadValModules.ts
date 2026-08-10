@@ -1,10 +1,10 @@
 import path from "path";
-import fs from "fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 import ts from "typescript";
 import type { ValModules } from "@valbuild/core";
 import { getCompilerOptions } from "./getCompilerOptions";
+import { IValFSHost } from "./ValFSHost";
 
 /**
  * Loads the project's root `val.modules.ts` (or `.js`) using Node's `vm`
@@ -17,18 +17,26 @@ import { getCompilerOptions } from "./getCompilerOptions";
  * user modules share the exact same `@valbuild/core` instance that
  * `extractValModules` uses.
  *
+ * All project file reads / existence checks go through `host`, so a custom
+ * `IValFSHost` (virtual FS, patched reads, ...) is respected. Only actual
+ * `node_modules` packages bypass it, since those must be the same instances
+ * the server itself is running.
+ *
  * Mirrors the pattern already used by the CLI's `evalValConfigFile`.
  */
-export function loadValModules(projectRoot: string): ValModules {
-  const valModulesPath = findValModulesPath(projectRoot);
+export function loadValModules(
+  projectRoot: string,
+  host: IValFSHost,
+): ValModules {
+  const valModulesPath = findValModulesPath(projectRoot, host);
   if (!valModulesPath) {
     throw Error(
       `Could not find 'val.modules.ts' nor 'val.modules.js' in project root: '${projectRoot}'`,
     );
   }
-  const compilerOptions = getCompilerOptions(projectRoot, ts.sys);
+  const compilerOptions = getCompilerOptions(projectRoot, host);
   const cache: Record<string, { exports: Record<string, unknown> }> = {};
-  const loaded = loadModule(valModulesPath, cache, compilerOptions);
+  const loaded = loadModule(valModulesPath, cache, compilerOptions, host);
   const valModules = loaded.exports.default;
   if (!valModules) {
     throw Error(
@@ -38,10 +46,13 @@ export function loadValModules(projectRoot: string): ValModules {
   return valModules as ValModules;
 }
 
-function findValModulesPath(projectRoot: string): string | null {
+function findValModulesPath(
+  projectRoot: string,
+  host: IValFSHost,
+): string | null {
   for (const fileName of ["val.modules.ts", "val.modules.js"]) {
     const candidate = path.join(projectRoot, fileName);
-    if (fs.existsSync(candidate)) {
+    if (host.fileExists(candidate)) {
       return candidate;
     }
   }
@@ -97,12 +108,16 @@ function loadModule(
   absPath: string,
   cache: Record<string, { exports: Record<string, unknown> }>,
   compilerOptions: ts.CompilerOptions,
+  host: IValFSHost,
 ): { exports: Record<string, unknown> } {
   const cached = cache[absPath];
   if (cached) {
     return cached;
   }
-  const code = fs.readFileSync(absPath, "utf-8");
+  const code = host.readFile(absPath);
+  if (code === undefined) {
+    throw Error(`Could not read file: '${absPath}'`);
+  }
   const transpiled = ts.transpileModule(code, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2020,
@@ -124,11 +139,11 @@ function loadModule(
       return makeStub(spec);
     }
     if (spec.startsWith(".") || path.isAbsolute(spec)) {
-      const resolved = resolveRelative(dirName, spec);
+      const resolved = resolveRelative(dirName, spec, host);
       if (!resolved) {
         throw Error(`Could not resolve module '${spec}' from '${absPath}'`);
       }
-      return loadModule(resolved, cache, compilerOptions).exports;
+      return loadModule(resolved, cache, compilerOptions, host).exports;
     }
     // Non-relative specifier: it might be a tsconfig path alias (e.g. "_/val.config")
     // pointing at a local source file, or an actual node_modules package.
@@ -136,14 +151,14 @@ function loadModule(
       spec,
       absPath,
       compilerOptions,
-      ts.sys,
+      host,
     ).resolvedModule?.resolvedFileName;
     if (
       tsResolved &&
       !tsResolved.includes("/node_modules/") &&
       !tsResolved.endsWith(".d.ts")
     ) {
-      return loadModule(tsResolved, cache, compilerOptions).exports;
+      return loadModule(tsResolved, cache, compilerOptions, host).exports;
     }
     // Real node_modules package – use the real require so user modules share
     // the same @valbuild/core instance as extractValModules.
@@ -170,26 +185,29 @@ function loadModule(
   return moduleObj;
 }
 
-function resolveRelative(dirName: string, spec: string): string | null {
+function resolveRelative(
+  dirName: string,
+  spec: string,
+  host: IValFSHost,
+): string | null {
   const base = path.resolve(dirName, spec);
-  // Exact file (with extension)
-  if (fs.existsSync(base) && fs.statSync(base).isFile()) {
+  // Exact file (with extension). fileExists is false for directories, so this
+  // does not shadow the directory-index probe below.
+  if (host.fileExists(base)) {
     return base;
   }
   // Probe extensions (handles `./x.val` -> `./x.val.ts`)
   for (const ext of RESOLVE_EXTENSIONS) {
     const candidate = base + ext;
-    if (fs.existsSync(candidate)) {
+    if (host.fileExists(candidate)) {
       return candidate;
     }
   }
   // Directory index
-  if (fs.existsSync(base) && fs.statSync(base).isDirectory()) {
-    for (const ext of RESOLVE_EXTENSIONS) {
-      const candidate = path.join(base, "index" + ext);
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
+  for (const ext of RESOLVE_EXTENSIONS) {
+    const candidate = path.join(base, "index" + ext);
+    if (host.fileExists(candidate)) {
+      return candidate;
     }
   }
   return null;

@@ -58,7 +58,7 @@ export async function createService(
     compilerOptions,
     host,
   );
-  const valModules = loadValModules(projectRoot);
+  const valModules = loadValModules(projectRoot, host);
   const extracted = await extractValModules(valModules);
   return new Service(projectRoot, sourceFileHandler, extracted);
 }
