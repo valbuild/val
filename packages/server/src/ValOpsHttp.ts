@@ -172,14 +172,21 @@ const NonceResponse = z.object({
 });
 
 export class ValOpsHttp extends ValOps {
-  private readonly authHeaders: { Authorization: string };
+  private readonly authHeaders:
+    | { Authorization: string }
+    | { "x-val-pat": string };
   private readonly root: string;
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
     private readonly commitSha: string, // TODO: CommitSha
     private readonly branch: string,
-    apiKey: string,
+    /**
+     * An api key (how the app itself authenticates) or a personal access token
+     * (how the CLI authenticates after `val login`). Same two shapes as
+     * getSettings / uploadRemoteFile / getPresignedAuthNonce.
+     */
+    auth: { apiKey: string } | { pat: string },
     valModules: ValModules,
     options?: ValOpsOptions & {
       /**
@@ -191,9 +198,10 @@ export class ValOpsHttp extends ValOps {
     },
   ) {
     super(valModules, options);
-    this.authHeaders = {
-      Authorization: `Bearer ${apiKey}`,
-    };
+    this.authHeaders =
+      "pat" in auth
+        ? { "x-val-pat": auth.pat }
+        : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
   }
   async onInit(): Promise<void> {
@@ -600,8 +608,31 @@ export class ValOpsHttp extends ValOps {
         allErrors.push(...res.errors);
       }
     }
+    // Chunking is a query-string-length workaround, NOT a filter: the content
+    // api returns every applicable patch per request regardless of which
+    // patch_ids we ask for. Concatenating the chunks therefore repeats the
+    // whole chain once per chunk, and prepare() applies each patch that many
+    // times - which corrupts arrays (a "remove" runs N times) and fails the
+    // commit with "Array index out of bounds". Only bites above chunkSize
+    // pending patches, so it stays invisible until a project accumulates them.
+    //
+    // Dedupe by patch id, keeping first occurrence so the api's ordering is
+    // preserved, and keep only what was asked for. Correct whether or not the
+    // api filters on its side.
+    const requestedPatchIds = new Set<string>(patchIds);
+    const seenPatchIds = new Set<string>();
+    const patches = allPatches.filter((patch) => {
+      if (!requestedPatchIds.has(patch.patchId)) {
+        return false;
+      }
+      if (seenPatchIds.has(patch.patchId)) {
+        return false;
+      }
+      seenPatchIds.add(patch.patchId);
+      return true;
+    });
     return {
-      patches: allPatches,
+      patches,
       errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
     } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
@@ -735,7 +766,7 @@ export class ValOpsHttp extends ValOps {
         patches,
         error: {
           message:
-            "Could not your changes. It is most likely due to a network issue. Check your network connection and please try again.",
+            "Could not get your changes. It is most likely due to a network issue. Check your network connection and please try again.",
         },
       } as ExcludePatchOps extends true
         ? OrderedPatchesMetadata
@@ -1004,7 +1035,7 @@ export class ValOpsHttp extends ValOps {
   }
 
   protected override async getSourceFile(
-    path: ModuleFilePath,
+    path: string,
   ): Promise<WithGenericError<{ data: string }>> {
     const filesRes = await this.getHttpFiles([
       {

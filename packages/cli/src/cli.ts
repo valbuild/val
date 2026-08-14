@@ -6,6 +6,8 @@ import { getVersions } from "./getVersions";
 import { connect } from "./connect";
 import chalk from "chalk";
 import { login } from "./login";
+import { debug } from "./debug";
+import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -22,7 +24,9 @@ async function main(): Promise<void> {
         files
         connect
         versions
-      
+        debug
+        delete-unappliable-patches
+
       Command: validate
       Description: val-idate val modules
       Options:
@@ -48,6 +52,34 @@ async function main(): Promise<void> {
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: debug
+      Description: Create a self-contained snapshot (the pending patches plus the modules they
+        touch or reference) that Val developers can replay to reproduce validation and save
+        errors. Read-only.
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --out [file]             Output zip (default ./val-debug-<branch>-<commit>-<timestamp>.zip)
+        --remote                 Read the patches from the hosted project instead of <root>/.val
+                                 (requires "val login"; implied by VAL_API_KEY)
+        --commit [sha]           Commit to read module sources at (default VAL_GIT_COMMIT, else git HEAD)
+        --branch [name]          Branch (default VAL_GIT_BRANCH, else the current git branch)
+        --include-files          Also download the binary files the patches reference
+        --verbose                List every pending patch, not just the failing ones
+
+      Command: delete-unappliable-patches
+      Description: Delete the pending patches that cannot be applied. This is what unblocks a
+        publish failing with "Failed to create commit". Capture a "val debug" snapshot first:
+        deleting discards the changes those patches contain.
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --remote                 Operate on the hosted project instead of <root>/.val
+                                 (requires "val login"; implied by VAL_API_KEY)
+        --commit [sha]           Commit to read module sources at (default VAL_GIT_COMMIT, else git HEAD)
+        --branch [name]          Branch (default VAL_GIT_BRANCH, else the current git branch)
+        --dry-run                Only list what would be deleted
+        --yes                    Do not ask for confirmation
+        --verbose                List every pending patch, not just the failing ones
     `,
     {
       flags: {
@@ -72,6 +104,30 @@ async function main(): Promise<void> {
         },
         managedDir: {
           type: "string",
+        },
+        out: {
+          type: "string",
+        },
+        commit: {
+          type: "string",
+        },
+        branch: {
+          type: "string",
+        },
+        includeFiles: {
+          type: "boolean",
+        },
+        remote: {
+          type: "boolean",
+        },
+        dryRun: {
+          type: "boolean",
+        },
+        yes: {
+          type: "boolean",
+        },
+        verbose: {
+          type: "boolean",
         },
       },
       hardRejection: false,
@@ -99,6 +155,26 @@ async function main(): Promise<void> {
       });
     case "versions":
       return versions();
+    case "debug":
+      return debug({
+        root: flags.root,
+        out: flags.out,
+        commit: flags.commit,
+        branch: flags.branch,
+        remote: flags.remote,
+        includeFiles: flags.includeFiles,
+        verbose: flags.verbose,
+      });
+    case "delete-unappliable-patches":
+      return deleteUnappliablePatches({
+        root: flags.root,
+        commit: flags.commit,
+        branch: flags.branch,
+        remote: flags.remote,
+        dryRun: flags.dryRun,
+        yes: flags.yes,
+        verbose: flags.verbose,
+      });
     case "login":
       return login({
         root: flags.root,

@@ -33,8 +33,8 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  formatPatchSourceError,
   OrderedPatches,
-  PatchSourceError,
   SchemaSha,
   SourcesSha,
 } from "./ValOps";
@@ -125,7 +125,7 @@ export const ValServer = (
       options.project,
       options.commit,
       options.branch,
-      options.apiKey,
+      { apiKey: options.apiKey },
       valModules,
       {
         formatter: options.formatter,
@@ -2640,17 +2640,6 @@ export const ValServer = (
     },
   };
 };
-
-function formatPatchSourceError(error: PatchSourceError): string {
-  if ("message" in error) {
-    return error.message;
-  } else if (Array.isArray(error)) {
-    return error.map(formatPatchSourceError).join("\n");
-  } else {
-    const _exhaustiveCheck: never = error;
-    return "Unknown patch source error: " + JSON.stringify(_exhaustiveCheck);
-  }
-}
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
