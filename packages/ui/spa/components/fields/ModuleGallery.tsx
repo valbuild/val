@@ -233,7 +233,10 @@ export function ModuleGallery({
       if (!ref) return;
       const patch: Patch = [
         {
-          op: "replace",
+          // "add", not "replace": on an object key the two mean the same thing,
+          // but "add" also works when the key is absent by the time the patch is
+          // applied - e.g. the entry was re-uploaded with fresh metadata.
+          op: "add",
           path: [...patchPath, ref, "alt"],
           value: newAltText,
         },
