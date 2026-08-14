@@ -1,0 +1,20 @@
+{
+  "patch": [
+    {
+      "op": "replace",
+      "path": ["BBL", "title"],
+      "value": "BBL Housing"
+    }
+  ],
+  "patchId": "11111111-1111-4111-8111-111111111111",
+  "parentRef": {
+    "type": "head",
+    "headBaseSha": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "path": "/content/projects.val.ts",
+  "authorId": "author-a",
+  "sessionId": null,
+  "baseSha": "0000000000000000000000000000000000000000000000000000000000000000",
+  "coreVersion": null,
+  "createdAt": "2026-08-10T12:00:00.000Z"
+}
