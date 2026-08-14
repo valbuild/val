@@ -218,7 +218,7 @@ export class ValSyncEngine {
     validationErrors: Record<SourcePath, ValidationError[] | undefined>;
     patchErrors: Record<
       ModuleFilePath,
-      Record<PatchId, { message: string }> | null
+      Record<PatchId, PatchErrorEntry> | null
     >;
   }>;
   /**
@@ -227,6 +227,11 @@ export class ValSyncEngine {
    * We use this if there's unknown patch ids or to initialize
    */
   private forceSyncAllModules: boolean;
+  /**
+   * Modules whose patch errors changed during a snapshot read and still need to
+   * be emitted. See schedulePatchErrorsInvalidation.
+   */
+  private pendingPatchErrorInvalidations: Set<ModuleFilePath> | null;
 
   /**
    * Owns the validation worker. Lazily created on first use so tests / SSR
@@ -250,6 +255,7 @@ export class ValSyncEngine {
   ) {
     this.initializedAt = null;
     this.forceSyncAllModules = true;
+    this.pendingPatchErrorInvalidations = null;
     this.errors = {};
     this.listeners = {};
     this.syncStatus = {};
@@ -380,6 +386,7 @@ export class ValSyncEngine {
     console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
     this.forceSyncAllModules = true;
+    this.pendingPatchErrorInvalidations = null;
     this.errors = {};
     this.listeners = {};
     this.syncStatus = {};
@@ -857,6 +864,7 @@ export class ValSyncEngine {
     let appliedPrefixLen = startIndex;
     let appliedPrefixSource = current;
     let prefixIntact = true;
+    const clientPatchErrors: Record<PatchId, PatchErrorEntry> = {};
     for (let i = startIndex; i < nextIds.length; i++) {
       const patchId = nextIds[i];
       const data = this.patchDataByPatchId[patchId];
@@ -882,14 +890,21 @@ export class ValSyncEngine {
           appliedPrefixSource = current;
         }
       } else {
-        // skip a failing patch — server-side patch analysis would report
-        // this as an error/skip; don't pollute the cache with the bad state
+        // skip a failing patch — don't pollute the cache with the bad state
         prefixIntact = false;
         console.debug("ValSyncEngine: skipping unappliable client-side patch", {
           patchId,
           moduleFilePath,
           message: patchRes.error.message,
         });
+        // Skipping silently is how a conflicting change stayed invisible until
+        // publish: the view keeps applying later patches on top, so it looks
+        // healthy while /save refuses the whole commit. Record it so the studio
+        // can show it and offer to remove it.
+        clientPatchErrors[patchId] = {
+          message: patchRes.error.message,
+          source: "client",
+        };
       }
     }
 
@@ -897,7 +912,137 @@ export class ValSyncEngine {
       patchIds: nextIds.slice(0, appliedPrefixLen),
       source: appliedPrefixSource,
     };
+    this.recordClientPatchErrors(
+      moduleFilePath,
+      clientPatchErrors,
+      nextIds,
+      startIndex === 0,
+    );
     return current;
+  }
+
+  /**
+   * Merges the client-side patch failures for a module into `errors.patchErrors`
+   * and prunes entries whose patch has left the chain (deleted or published).
+   *
+   * Server-recorded failures are left alone: a patch can apply client-side with
+   * JSONOps and still be rejected by /save, which applies it to the source-file
+   * AST, so the client cannot conclude that a server error has gone away.
+   *
+   * @param replaceExisting the whole chain was re-evaluated (rather than just a
+   * newly appended tail), so previously recorded client errors for this module
+   * are stale and are dropped.
+   */
+  private recordClientPatchErrors(
+    moduleFilePath: ModuleFilePath,
+    clientPatchErrors: Record<PatchId, PatchErrorEntry>,
+    patchIdsInChain: PatchId[],
+    replaceExisting: boolean,
+  ) {
+    const previous = this.errors.patchErrors?.[moduleFilePath] ?? null;
+    const inChain = new Set<string>(patchIdsInChain);
+    const next: Record<PatchId, PatchErrorEntry> = {};
+    for (const [patchIdS, entry] of Object.entries(previous ?? {})) {
+      const patchId = patchIdS as PatchId;
+      if (!inChain.has(patchId)) {
+        continue;
+      }
+      if (replaceExisting && entry.source !== "server") {
+        continue;
+      }
+      next[patchId] = entry;
+    }
+    for (const [patchIdS, entry] of Object.entries(clientPatchErrors)) {
+      next[patchIdS as PatchId] = entry;
+    }
+    const hasErrors = Object.keys(next).length > 0;
+    const changed =
+      JSON.stringify(previous ?? null) !==
+      JSON.stringify(hasErrors ? next : null);
+    if (!changed) {
+      return;
+    }
+    if (this.errors.patchErrors === undefined) {
+      this.errors.patchErrors = {};
+    }
+    this.errors.patchErrors[moduleFilePath] = hasErrors ? next : null;
+    // This runs inside a snapshot getter (getSourceSnapshot -> getPatchedSource),
+    // so emitting here would notify subscribers mid-read. Defer it.
+    this.schedulePatchErrorsInvalidation(moduleFilePath);
+  }
+
+  /**
+   * Records the patches /save could not apply, from its 400 body.
+   *
+   * @returns how many failures were recorded, so the caller can say something
+   * more useful than "Failed to publish changes".
+   */
+  private recordServerPatchErrors(json: unknown): number {
+    if (json === null || typeof json !== "object" || !("details" in json)) {
+      return 0;
+    }
+    const details = json.details;
+    if (
+      details === null ||
+      typeof details !== "object" ||
+      !("unappliablePatches" in details) ||
+      details.unappliablePatches === null ||
+      typeof details.unappliablePatches !== "object"
+    ) {
+      return 0;
+    }
+    const byModule = new Map<
+      ModuleFilePath,
+      Record<PatchId, PatchErrorEntry>
+    >();
+    for (const [patchIdS, value] of Object.entries(
+      details.unappliablePatches,
+    )) {
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        !("moduleFilePath" in value) ||
+        !("message" in value) ||
+        typeof value.moduleFilePath !== "string" ||
+        typeof value.message !== "string"
+      ) {
+        continue;
+      }
+      const moduleFilePath = value.moduleFilePath as ModuleFilePath;
+      const entries = byModule.get(moduleFilePath) ?? {};
+      entries[patchIdS as PatchId] = {
+        message: value.message,
+        source: "server",
+      };
+      byModule.set(moduleFilePath, entries);
+    }
+    let recorded = 0;
+    for (const [moduleFilePath, entries] of Array.from(byModule.entries())) {
+      if (this.errors.patchErrors === undefined) {
+        this.errors.patchErrors = {};
+      }
+      this.errors.patchErrors[moduleFilePath] = {
+        ...(this.errors.patchErrors[moduleFilePath] ?? {}),
+        ...entries,
+      };
+      recorded += Object.keys(entries).length;
+      this.invalidatePatchErrors(moduleFilePath);
+    }
+    return recorded;
+  }
+
+  private schedulePatchErrorsInvalidation(moduleFilePath: ModuleFilePath) {
+    if (this.pendingPatchErrorInvalidations === null) {
+      this.pendingPatchErrorInvalidations = new Set();
+      queueMicrotask(() => {
+        const moduleFilePaths = this.pendingPatchErrorInvalidations;
+        this.pendingPatchErrorInvalidations = null;
+        for (const path of Array.from(moduleFilePaths ?? [])) {
+          this.invalidatePatchErrors(path);
+        }
+      });
+    }
+    this.pendingPatchErrorInvalidations.add(moduleFilePath);
   }
 
   private isPrefix(prev: PatchId[], next: PatchId[]): boolean {
@@ -1200,12 +1345,12 @@ export class ValSyncEngine {
 
   private cachedPatchErrorsSnapshot: Record<
     string,
-    Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
+    Record<ModuleFilePath, Record<PatchId, PatchErrorEntry> | null>
   > | null;
   getPatchErrorsSnapshot(
     moduleFilePaths: ModuleFilePath[],
   ):
-    | Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
+    | Record<ModuleFilePath, Record<PatchId, PatchErrorEntry> | null>
     | undefined {
     const pathsKey = moduleFilePaths.sort().join("|");
     // TODO: not quite sure this works well, however it is only used in one place and seems to work there - something to revise!
@@ -1213,7 +1358,7 @@ export class ValSyncEngine {
       this.cachedPatchErrorsSnapshot = {};
       const result: Record<
         ModuleFilePath,
-        Record<PatchId, { message: string }> | null
+        Record<PatchId, PatchErrorEntry> | null
       > = {};
       let hasErrors = false;
       for (const moduleFilePath of moduleFilePaths) {
@@ -1911,6 +2056,11 @@ export class ValSyncEngine {
   }
 
   deletePatches(patchIds: PatchId[], now: number) {
+    // Optimistically, like the rest of the delete: removing the offending change
+    // is how an editor clears a patch error, so the error has to go now rather
+    // than on the next sync. If the delete does not stick, recomputing the
+    // module's chain records it again.
+    this.forgetPatchErrors(new Set(patchIds));
     const lastOp = this.pendingOps[this.pendingOps.length - 1];
     if (lastOp?.type === "delete-patches") {
       lastOp.patchIds.push(...patchIds);
@@ -2278,11 +2428,40 @@ export class ValSyncEngine {
           (id) => !deletePatchIdsSet.has(id),
         ) ?? null;
       this.deleteSavedButNotYetGlobalServerSidePatchIds(deletePatchIdsSet);
+      // Removing the offending change is how an editor resolves a patch error,
+      // so drop it right away instead of waiting for the next source read to
+      // prune it.
+      this.forgetPatchErrors(deletePatchIdsSet);
     }
     return {
       status: "done",
       syncAllRequired,
     };
+  }
+
+  private forgetPatchErrors(patchIds: Set<PatchId>) {
+    if (this.errors.patchErrors === undefined) {
+      return;
+    }
+    for (const [moduleFilePathS, entries] of Object.entries(
+      this.errors.patchErrors,
+    )) {
+      if (!entries) {
+        continue;
+      }
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      const remaining = Object.fromEntries(
+        Object.entries(entries).filter(
+          ([patchId]) => !patchIds.has(patchId as PatchId),
+        ),
+      );
+      if (Object.keys(remaining).length === Object.keys(entries).length) {
+        continue;
+      }
+      this.errors.patchErrors[moduleFilePath] =
+        Object.keys(remaining).length > 0 ? remaining : null;
+      this.invalidatePatchErrors(moduleFilePath);
+    }
   }
 
   async setValModules(valModules: ValModules | null): Promise<void> {
@@ -2957,8 +3136,22 @@ export class ValSyncEngine {
                 if (this.errors.patchErrors === undefined) {
                   this.errors.patchErrors = {};
                 }
-                this.errors.patchErrors[moduleFilePath] = valModule.patches
-                  .errors as Record<PatchId, { message: string }>;
+                // Merge rather than replace, and do NOT clear when absent: the
+                // studio reads /sources/~ with apply_patches=false, so the
+                // server does not compute these at all. Absent means "not
+                // computed", not "no errors", and overwriting would discard what
+                // the client and /save found.
+                this.errors.patchErrors[moduleFilePath] = {
+                  ...(this.errors.patchErrors[moduleFilePath] ?? {}),
+                  ...Object.fromEntries(
+                    Object.entries(valModule.patches.errors).map(
+                      ([patchId, error]) => [
+                        patchId,
+                        { message: error.message, source: "server" as const },
+                      ],
+                    ),
+                  ),
+                };
               }
               // Validation always runs client-side via the worker now —
               // /sources/~ is called with validate_sources=false.
@@ -3101,8 +3294,16 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else if (res.status !== 200) {
+        // /save reports which patches it could not apply. Keeping only the
+        // message left editors with "Failed to publish changes" and no way to
+        // find the offending change, so record them against the patch ids: this
+        // is the only way TS-AST-only failures ever reach the studio, since the
+        // client applies patches to the evaluated json and cannot see them.
+        const recordedPatchErrors = this.recordServerPatchErrors(res.json);
         this.addGlobalTransientError(
-          "Failed to publish changes",
+          recordedPatchErrors > 0
+            ? `Could not publish: ${recordedPatchErrors} change${recordedPatchErrors === 1 ? "" : "s"} cannot be applied. Review them to continue.`
+            : "Failed to publish changes",
           Date.now(),
           res.json.message,
         );
@@ -3344,6 +3545,22 @@ export const defaultOverlayEmitter = (
 };
 
 // #region Types
+/**
+ * A patch that could not be applied.
+ *
+ * `source` records who found it, because the two cannot see the same things:
+ * the client applies patches to the evaluated json with JSONOps, while /save
+ * applies them to the `.val.ts` AST. A patch can apply here and still be
+ * rejected there (a `c.image` metadata key that is not literally present, a
+ * non-literal initializer, an array shorter in the source than in the evaluated
+ * json), so the client must never conclude that a server-reported failure has
+ * resolved itself.
+ */
+export type PatchErrorEntry = {
+  message: string;
+  source?: "client" | "server";
+};
+
 type RetryReason =
   | "conflict"
   | "not-initialized"

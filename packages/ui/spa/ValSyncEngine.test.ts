@@ -630,6 +630,140 @@ describe("ValSyncEngine", () => {
       "module-schema-not-found",
     );
   });
+
+  /**
+   * A patch that cannot be applied used to be skipped with only a console.debug,
+   * so the studio looked healthy while /save refused the whole commit. These
+   * cover the two ways such a patch is now surfaced.
+   */
+  describe("unappliable patches are surfaced", () => {
+    const arrayModulePath = "/list.val.ts";
+    const createTester = () => {
+      const { s, c, config } = initVal();
+      return new SyncEngineTester(
+        "fs",
+        [c.define(arrayModulePath, s.array(s.string()), ["a", "b", "c"])],
+        config,
+      );
+    };
+    const patchErrorsFor = (syncEngine: ValSyncEngine) =>
+      syncEngine.getPatchErrorsSnapshot([toModuleFilePath(arrayModulePath)]);
+
+    /**
+     * Two editors, which is the only way a patch goes stale: a client refuses to
+     * create a patch that does not apply to what it currently sees, so the
+     * conflict has to arrive from someone else. Editor 2 shortens the array,
+     * editor 1's in-flight edit to the removed index can then never be applied.
+     */
+    const setupConflictingEditors = async () => {
+      const tester = createTester();
+      const editor1 = await tester.createInitializedSyncEngine();
+      const editor2 = await tester.createInitializedSyncEngine();
+
+      editor2.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "remove", path: ["2"] }],
+        tester.getNextNow(),
+      );
+      editor1.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "replace", path: ["2"], value: "c!" }],
+        tester.getNextNow(),
+      );
+      const staleEdit = editor1.getPendingClientSidePatchIdsSnapshot()[0];
+
+      // Editor 2's shortening lands first, so editor 1 ends up with it ahead of
+      // its own edit in the chain.
+      tester.simulatePassingOfSeconds(5);
+      await editor2.sync(tester.getNextNow());
+      tester.simulatePassingOfSeconds(5);
+      await tester.simulateStatCallback(editor1);
+      tester.simulatePassingOfSeconds(5);
+      await editor1.sync(tester.getNextNow());
+      tester.simulatePassingOfSeconds(5);
+      await tester.simulateStatCallback(editor1);
+
+      // Reading the source is what re-applies the chain and finds the failure.
+      editor1.getSourceSnapshot(
+        toModuleFilePath(arrayModulePath),
+        "force-recompute",
+      );
+      await Promise.resolve();
+      return { tester, editor1, staleEdit };
+    };
+
+    test("a client-side skip is recorded against its patch id", async () => {
+      const { editor1, staleEdit } = await setupConflictingEditors();
+
+      const errors = patchErrorsFor(editor1);
+
+      expect(errors?.[toModuleFilePath(arrayModulePath)]).toMatchObject({
+        [staleEdit]: { source: "client" },
+      });
+    });
+
+    test("removing the change clears its error", async () => {
+      const { tester, editor1, staleEdit } = await setupConflictingEditors();
+      expect(
+        patchErrorsFor(editor1)?.[toModuleFilePath(arrayModulePath)],
+      ).toBeTruthy();
+
+      editor1.deletePatches([staleEdit], tester.getNextNow());
+
+      expect(
+        patchErrorsFor(editor1)?.[toModuleFilePath(arrayModulePath)],
+      ).toBeFalsy();
+    });
+
+    test("/save reports failures the client cannot see", async () => {
+      // The client applies patches to the evaluated json, /save applies them to
+      // the source-file AST - so some failures only exist server-side. Without
+      // reading the 400's details they never reach the editor at all.
+      const tester = createTester();
+      const syncEngine = await tester.createInitializedSyncEngine();
+      syncEngine.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "replace", path: ["0"], value: "a!" }],
+        tester.getNextNow(),
+      );
+      const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+      expect(patchIds).toHaveLength(1);
+
+      tester.setFakeResponse("/save", "POST", {
+        status: 400,
+        json: {
+          message: "Failed to create commit",
+          details: {
+            sourceFilePatchErrors: {},
+            binaryFilePatchErrors: {},
+            unappliablePatches: {
+              [patchIds[0]]: {
+                moduleFilePath: arrayModulePath,
+                message: "Cannot replace object element which does not exist",
+              },
+            },
+          },
+        },
+      });
+
+      expect(
+        await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+      ).toMatchObject({ status: "retry" });
+
+      expect(patchErrorsFor(syncEngine)?.[toModuleFilePath(arrayModulePath)]);
+      expect(
+        patchErrorsFor(syncEngine)?.[toModuleFilePath(arrayModulePath)]?.[
+          patchIds[0]
+        ],
+      ).toEqual({
+        message: "Cannot replace object element which does not exist",
+        source: "server",
+      });
+    });
+  });
 });
 
 function toModuleFilePath(moduleFilePath: `/${string}.val.ts`): ModuleFilePath {
@@ -677,6 +811,9 @@ type FakeApi = {
   };
   "/schema": {
     GET: z.infer<Api["/schema"]["GET"]["res"]> | ClientFetchErrors | null;
+  };
+  "/save": {
+    POST: z.infer<Api["/save"]["POST"]["res"]> | ClientFetchErrors | null;
   };
 };
 
