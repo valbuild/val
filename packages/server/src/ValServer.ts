@@ -1796,6 +1796,10 @@ export const ValServer = (
                   ),
                 ),
                 binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+                // Attributed to the patch that caused it, so the studio can
+                // name the offending change and offer to remove it instead of
+                // leaving the editor with "Failed to publish changes".
+                unappliablePatches: preparedCommit.unappliablePatches,
               },
             },
           };
