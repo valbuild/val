@@ -30,7 +30,9 @@ Two things make this non-trivial and drive the design:
 
 Decisions already taken: RSC + client hooks + route resolution are all in scope; live sources reach
 client components via a fetch after hydration; a new dedicated cloud endpoint; stale cache preferred
-over fallback on failure; proxy (http) mode only.
+over fallback on failure; proxy (http) mode only. `ValProvider`'s `suspend` prop also grows from a
+boolean into `"always" | "never" | "draft" | "live"` (2.5.1), since live mode introduces a second
+kind of data worth waiting for.
 
 ---
 
@@ -286,9 +288,8 @@ when `props.config.live` is set and the Val Enable cookie is _absent_ (editors k
 Re-fetch on an interval of `ttl` seconds when `ttl > 0`. Reuse `hasValEnableCookie` for the check.
 Track it in a `liveActive` state and pass it through `ValOverlayProvider` alongside `suspend`.
 
-**`ValOverlayContext.tsx`** — add `live: boolean` to the context. `ValExternalStore` needs no
-changes; `loadedSources` / `hasAllLoaded` / `waitForLoad` from PR #431 already do exactly what live
-mode needs.
+**`ValOverlayContext.tsx`** — add `live: boolean` to the context (see 2.5.1 for the rest of the
+context changes).
 
 **`client/initValClient.ts`** — `useValStega` currently gates `getModule` on `draftMode`:
 
@@ -298,16 +299,98 @@ getModule: (moduleId) => {
 };
 ```
 
-Change the condition to `draftMode || live`. Extend the Suspense gate the same way — replace
-`valOverlayContext.draftMode !== false` with a predicate that also holds when live mode is active,
-so `<ValProvider config={config} suspend>` covers the live case too. That is the answer for
-client-rendered routes that only exist in a committed patch: without `suspend` the first render
-`notFound()`s before the live sources land, exactly as PR #431's changeset describes for drafts.
-Keep the `LOAD_TIMEOUT_MS` release valve.
+Change the condition to `draftMode || live`.
 
-Expected behaviour without `suspend`: build-time content renders first, then swaps once the live
-fetch resolves. This is the accepted trade-off of the client-fetch approach — document it, and
-recommend `suspend` + `loading.tsx` for routes where it matters.
+Expected behaviour without a suspend mode: build-time content renders first, then each module swaps
+as it lands. This is the accepted trade-off of the client-fetch approach — document it, and point at
+`suspend="live"` (2.5.1) for apps that want an atomic swap instead.
+
+### 2.5.1 Suspend modes — `suspend?: boolean | "always" | "never" | "draft" | "live"`
+
+PR #431 shipped `suspend` as a boolean meaning "wait for draft data before rendering". Live mode
+adds a second thing worth waiting for, so the prop grows into an enum:
+
+| Value                         | Suspends for editors (Val Enable cookie present) | Suspends for everyone else        |
+| ----------------------------- | ------------------------------------------------ | --------------------------------- |
+| `"never"` / omitted / `false` | no                                               | no                                |
+| `"draft"` / `true`            | yes, until draft sources load                    | no                                |
+| `"live"`                      | no                                               | yes, until the live fetch settles |
+| `"always"`                    | yes                                              | yes                               |
+
+**`true` keeps meaning `"draft"`** — exactly what PR #431 shipped. Turning on live mode must never
+silently start showing a Suspense fallback to anonymous visitors; that requires typing `"live"` or
+`"always"`. Normalise once (`false | undefined → "never"`, `true → "draft"`) at the top of
+`ValNextProvider` and pass only the enum downwards. The init codemod
+(`packages/init/src/codemods/transformNextAppRouterValProvider.ts:69-79`) keeps emitting the bare
+attribute, so generated apps are unaffected.
+
+`"live"` names the _data source_ being waited for, not the audience or the environment — "prod"
+would be wrong, since draft mode also runs in production. Symmetric with the `live` config flag:
+`suspend="live"` reads as "suspend while live sources load".
+
+**Activation** — `ValNextProvider.tsx:105-117`, extending the existing post-hydration effect. Keep
+the `startTransition` and keep the rule that the gate never deactivates:
+
+```ts
+const mode = normalizeSuspend(props.suspend); // "never" | "draft" | "live" | "always"
+React.useEffect(() => {
+  const isEditor = shouldEnableVal(); // cookie + not /val + not ?message_onready
+  const draft = (mode === "always" || mode === "draft") && isEditor;
+  const live =
+    (mode === "always" || mode === "live") && !isEditor && liveEnabled;
+  if (draft || live) {
+    startTransition(() => setSuspendActive({ draft, live }));
+  }
+}, [mode]);
+```
+
+Same constraints as today: false during SSR and the hydration render (the store is only ever
+populated in the browser), browser-only checks, `"live"` is a no-op when `config.live` is unset —
+warn once in dev if someone asks for it without enabling live mode.
+
+**Release valves.** The draft valve stays `draftMode !== false`. The live gate needs its own, and it
+cannot reuse `hasAllLoaded`: a live response only carries the modules that actually changed, so a
+module with no live patch would never be marked loaded and every component touching it would suspend
+until `LOAD_TIMEOUT_MS` fires — then re-suspend on the next render, because the resolved promise is
+evicted from the cache. That is the exact failure PR #431 documented for draft mode, and it would
+hit _every page_ here.
+
+So add to `ValExternalStore` (`ValOverlayContext.tsx`), mirroring `waitForLoad`/`loadListeners`:
+
+- `settleLive()` — called by `ValNextProvider` once the live fetch resolves **or fails**, after the
+  `update()` calls for the changed modules
+- `isLiveSettled()` / `waitForLive()` — a single cached promise resolved by `settleLive()`, with the
+  same timeout backstop and `console.error` so a hung fetch can never pin the boundary
+
+The gate in `useValStega` then becomes:
+
+```ts
+const { draft, live } = valOverlayContext.suspend;
+if (
+  draft &&
+  valOverlayContext.draftMode !== false &&
+  store &&
+  !store.hasAllLoaded(moduleIds)
+) {
+  React.use(store.waitForLoad(moduleIds));
+} else if (live && store && !store.isLiveSettled()) {
+  React.use(store.waitForLive());
+}
+```
+
+`React.use` is legal inside conditionals (it is not a hook), same as today.
+
+**What `"live"` actually buys — be honest in the docs.** SSR and hydration always render the
+build-time source, so:
+
+- _Hard load_ of a page: the HTML is already correct if the page is a Server Component, because the
+  RSC path (2.4) resolves live sources server-side. For a `"use client"` page the HTML is build-time
+  content either way; `"live"` only makes the subsequent swap atomic instead of per-module.
+- _Hard load of a route that only exists in a committed patch_: works via the RSC path; a
+  `"use client"` page still 404s before hydration, exactly as PR #431 noted for drafts.
+- _Client-side navigation_ to such a route: this is the real win. Without a suspend mode
+  `useValRoute` returns null and the page calls `notFound()`; with `"live"` it waits. Needs a
+  `loading.tsx` to catch it.
 
 ### 2.6 Editor consistency (same code path, worth doing here)
 
@@ -327,7 +410,8 @@ uncommitted analysis. Guard it behind live mode so nothing changes for projects 
   example app exercises it. Note `project` is currently commented out there; re-enabling live mode
   locally requires proxy mode.
 - `packages/next/README.md` — a Live mode section: what it does, the TTL contract, the
-  no-flash caveat for client components, and that it requires `VAL_GIT_COMMIT`/`VAL_API_KEY`.
+  no-flash caveat for client components, the `suspend` truth table from 2.5.1, and that it
+  requires `VAL_GIT_COMMIT`/`VAL_API_KEY`.
 - A changeset (`.changeset/*.md`) — `@valbuild/core`, `@valbuild/shared`, `@valbuild/server`,
   `@valbuild/next` minor.
 
@@ -353,15 +437,17 @@ uncommitted analysis. Guard it behind live mode so nothing changes for projects 
 
 ## Risks and how they are handled
 
-| Risk                                                            | Handling                                                                                                                                       |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Same commit deployed twice with different evaluated sources     | `baseSha` is part of the cache key and is sent to the cloud; commit sha alone is never treated as deploy identity                              |
-| Deploy commit is not an ancestor of head (rollback, force-push) | Cloud returns an empty patch set + `x-val-live-degraded`; app renders deployed content                                                         |
-| Cloud outage                                                    | stale-while-revalidate → stale-if-error → build-time content. Never throws, never 500s a page                                                  |
-| Images from committed-but-undeployed patches                    | `patch_id` URLs via the already-unauthenticated `/files`; blocking retention requirement on the cloud                                          |
-| A dynamic API sneaking into the live path                       | Live path must not touch `cookies()`/`headers()`/`draftMode()`; assert in review and in the example app's build output                         |
-| Stega markers leaking to public HTML                            | `disabled` stays bound to draft mode only; covered by a unit test                                                                              |
-| Patch fails to apply against older sources                      | `getSources` already records per-module errors and skips; live mode logs and falls back to the unpatched module rather than failing the render |
+| Risk                                                            | Handling                                                                                                                                                              |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Same commit deployed twice with different evaluated sources     | `baseSha` is part of the cache key and is sent to the cloud; commit sha alone is never treated as deploy identity                                                     |
+| Deploy commit is not an ancestor of head (rollback, force-push) | Cloud returns an empty patch set + `x-val-live-degraded`; app renders deployed content                                                                                |
+| Cloud outage                                                    | stale-while-revalidate → stale-if-error → build-time content. Never throws, never 500s a page                                                                         |
+| Images from committed-but-undeployed patches                    | `patch_id` URLs via the already-unauthenticated `/files`; blocking retention requirement on the cloud                                                                 |
+| A dynamic API sneaking into the live path                       | Live path must not touch `cookies()`/`headers()`/`draftMode()`; assert in review and in the example app's build output                                                |
+| Stega markers leaking to public HTML                            | `disabled` stays bound to draft mode only; covered by a unit test                                                                                                     |
+| Patch fails to apply against older sources                      | `getSources` already records per-module errors and skips; live mode logs and falls back to the unpatched module rather than failing the render                        |
+| `suspend="live"` pinning a Suspense boundary                    | Live responses only carry changed modules, so the gate uses `waitForLive()`/`settleLive()` — settled on failure too — never `hasAllLoaded`. Timeout backstop retained |
+| Existing apps silently suspending for visitors                  | `suspend={true}` keeps meaning `"draft"`; public suspension requires typing `"live"` or `"always"`                                                                    |
 
 ---
 
@@ -384,8 +470,15 @@ New tests to write:
   `analyzePatches` with `includeApplied: true` includes `appliedAt` patches and the default still
   excludes them.
 - `packages/next/src/client/useValStega.live.test.ts` — modelled on
-  `useValStega.suspense.test.ts`: with `live` on and no draft mode, `getModule` is consulted;
-  stega markers are absent; with `suspend` the component suspends until live sources land.
+  `useValStega.suspense.test.ts`: with `live` on and no draft mode, `getModule` is consulted and
+  stega markers are absent.
+- `packages/next/src/client/useValStega.suspendModes.test.ts` — the 2.5.1 truth table. For each of
+  `"never" | "draft" | "live" | "always"` × editor/visitor, assert suspends-or-not; plus
+  `suspend={true}` behaves identically to `"draft"` (the back-compat guarantee), `"live"` releases
+  on `settleLive()` **after a failed fetch**, and a module with no live patch does not suspend
+  forever.
+- `packages/next/src/ValExternalStore.test.ts` — extend with `waitForLive` / `settleLive` /
+  `isLiveSettled`: same-promise-until-settled, resolves on settle, resolves on timeout.
 - `packages/shared` — round-trip the new `/live/sources` route through `createValClient`.
 
 End-to-end against the example app:
@@ -404,6 +497,9 @@ End-to-end against the example app:
 7. Kill network access to `content.val.build` (block it in `/etc/hosts`) and confirm the app keeps
    serving — stale first, then build-time content — with a warning in the log and no 500.
 8. Confirm no `data-val-path` stega attributes in the anonymous HTML (`curl … | grep val-path`).
+9. With `<ValProvider config={config} suspend="live">`, client-side navigate (not hard-load) to a
+   blog route that only exists in a committed patch — `loading.tsx` shows, then the page renders.
+   Repeat with `suspend={true}`: it must _not_ suspend for a logged-out visitor.
 
 CLI regression (required whenever `packages/server` changes, per repo rules):
 
@@ -425,7 +521,9 @@ Full CI parity before declaring done: `pnpm run build` (then `pnpm preconstruct 
    endpoint.
 5. `/live/sources` app endpoint (2.3).
 6. RSC path (2.4) — the highest-value surface, shippable on its own.
-7. Client hooks + suspend integration (2.5).
+7. Client hooks (2.5), then the `suspend` enum (2.5.1) — the enum needs the live fetch to exist
+   before `"live"` has anything to gate on, so it lands second even though the normalisation and
+   the `"always"`/`"never"`/`"draft"` values are independent of live mode.
 8. Editor consistency (2.6), docs, example, changeset.
 
 ## Out of scope
