@@ -169,6 +169,21 @@ function liveSecondsFromEnv(envVar: string): number | undefined {
 }
 
 /**
+ * Whether live mode is asked for at all.
+ *
+ * The cheap check: it answers "should we bother asking the server for live
+ * sources?" without needing to know the mode. `resolveLiveConfig` is the one
+ * that decides whether live mode actually ends up on - it can still say no,
+ * in which case /live/sources just returns an empty set.
+ */
+export function isLiveModeConfigured(config: ValConfig | undefined): boolean {
+  if (process.env[LIVE_ENV_VARS.disabled] === "true") {
+    return false;
+  }
+  return !!config?.live || process.env[LIVE_ENV_VARS.ttl] !== undefined;
+}
+
+/**
  * Resolve the `live` config, applying the env var overrides.
  *
  * Live mode requires talking to Val on every request unless we cache, so `ttl`
@@ -183,14 +198,11 @@ export function resolveLiveConfig(
   config: ValConfig | undefined,
   isProxyMode: boolean,
 ): ResolvedLiveConfig | undefined {
-  if (process.env[LIVE_ENV_VARS.disabled] === "true") {
+  if (!isLiveModeConfigured(config)) {
     return undefined;
   }
   const envTtl = liveSecondsFromEnv(LIVE_ENV_VARS.ttl);
   const envSwr = liveSecondsFromEnv(LIVE_ENV_VARS.staleWhileRevalidate);
-  if (!config?.live && envTtl === undefined) {
-    return undefined;
-  }
   const ttl =
     envTtl ??
     liveSecondsFromConfig(config?.live?.ttl, "'live.ttl' in val.config");

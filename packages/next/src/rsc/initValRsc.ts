@@ -17,7 +17,11 @@ import {
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
-import { createValServer, ValServer } from "@valbuild/server";
+import {
+  createValServer,
+  isLiveModeConfigured,
+  ValServer,
+} from "@valbuild/server";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
 
@@ -117,6 +121,25 @@ const initFetchValStega =
             }
           }
         }
+      } else if (isLiveModeConfigured(config)) {
+        // Live mode: render patches that are committed to Val but are not yet
+        // part of this deploy, for everyone, with no login.
+        //
+        // NOTE: this path must not add a dynamic API. cookies() and headers()
+        // opt the route out of static generation for every visitor, so
+        // getHost/getCookies above stay behind `enabled` and live mode reads
+        // neither: it needs nothing per-request, only the config and the
+        // in-process server.
+        const liveSources = await getLiveSources(valServerPromise);
+        if (liveSources) {
+          return stegaEncode(selector, {
+            // `disabled` stays bound to draft mode, never to live mode: live
+            // content is public, so no data-val-path markers may leak into the
+            // HTML anonymous visitors get.
+            disabled: !enabled,
+            getModule: (path) => liveSources[path as ModuleFilePath],
+          });
+        }
       }
       return stegaEncode(selector, {
         disabled: !enabled,
@@ -127,6 +150,30 @@ const initFetchValStega =
       return stegaEncode(selector, {});
     });
   };
+
+/**
+ * The live sources for this request, or null if there are none to apply.
+ *
+ * Never throws: live mode is an enhancement on top of the deployed content, so
+ * every failure has to degrade to rendering what was deployed. In particular it
+ * must not reach the caller's catch, which re-encodes with stega enabled.
+ */
+async function getLiveSources(
+  valServerPromise: Promise<ValServer>,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const valServer = await valServerPromise;
+    const res = await valServer["/live/sources"]["GET"]({});
+    if (res.status !== 200) {
+      console.error("Val: could not get live sources: ", res.json.message);
+      return null;
+    }
+    return res.json.sources;
+  } catch (err) {
+    console.error("Val: could not get live sources: ", err);
+    return null;
+  }
+}
 
 function getHost(headers: { get(name: string): string | null } | undefined) {
   // TODO: does NextJs have a way to determine this?
