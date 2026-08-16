@@ -1402,32 +1402,10 @@ function ValMenu({
                   // flex, so the icon does not sit on a text baseline and make
                   // this button taller than the others
                   <div className="flex relative">
-                    {patchIds.length > 0 && (
-                      <div className="absolute -top-3 -right-3">
-                        <div
-                          className={classNames(
-                            "w-4 h-4 text-[9px] leading-4 text-center rounded-full",
-                            {
-                              "bg-bg-brand-primary": validationErrorCount === 0,
-                              "bg-bg-error-primary text-fg-error-primary":
-                                validationErrorCount > 0,
-                            },
-                          )}
-                        >
-                          {validationErrorCount === 0 &&
-                            patchIds.length > 9 && <span>9+</span>}
-                          {validationErrorCount === 0 &&
-                            patchIds.length <= 9 && (
-                              <span>{patchIds.length}</span>
-                            )}
-                          {validationErrorCount > 9 && <span>9+</span>}
-                          {validationErrorCount <= 9 &&
-                            validationErrorCount > 0 && (
-                              <span>{validationErrorCount}</span>
-                            )}
-                        </div>
-                      </div>
-                    )}
+                    <PendingChangesBadge
+                      patchCount={patchIds.length}
+                      validationErrorCount={validationErrorCount}
+                    />
                     <GitCompareArrows size={16} />
                   </div>
                 }
@@ -1671,6 +1649,46 @@ function useValRouterSourcePathFromCurrentPathname() {
     };
   }, [schemas, maybeRecordSources, currentPathname]);
   return sourcePathResult;
+}
+
+/**
+ * The counter on the compare button: how much there is to review. Shows the
+ * number of validation errors in red when there are any, otherwise the number
+ * of pending changes. Anything above 9 is shown as "9+" so the badge stays a
+ * dot rather than growing with the count.
+ *
+ * Must be rendered inside a `relative` container.
+ */
+function PendingChangesBadge({
+  patchCount,
+  validationErrorCount,
+}: {
+  patchCount: number;
+  validationErrorCount: number;
+}) {
+  const isError = validationErrorCount > 0;
+  const count = isError ? validationErrorCount : patchCount;
+  if (count === 0) {
+    return null;
+  }
+  const noun = isError ? "validation error" : "pending change";
+  return (
+    <span
+      aria-label={`${count} ${noun}${count === 1 ? "" : "s"}`}
+      className={classNames(
+        "absolute -top-2 -right-2 inline-flex justify-center items-center px-1 h-4 min-w-[1rem] text-[9px] font-medium leading-none rounded-full tabular-nums",
+        // ring in the menu background color so the badge reads as a separate
+        // dot on top of the button instead of blending into it
+        "ring-2 ring-bg-primary",
+        {
+          "bg-bg-brand-primary text-fg-brand-primary": !isError,
+          "bg-bg-error-primary text-fg-error-primary": isError,
+        },
+      )}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
 }
 
 const MenuButton = React.forwardRef<
