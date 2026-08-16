@@ -16,7 +16,7 @@ import {
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -25,6 +25,13 @@ import {
 
 // Matches the size of the MenuButton in ValOverlay: 16px icon + p-2 + border
 const compactButtonClassName = "h-auto w-auto p-2";
+
+// What the button does, rather than what state it is in: used both as the
+// tooltip text and - when the button is icon-only - as its accessible name
+const saveDescription = "Save to disk";
+const savingDescription = "Saving changes to disk";
+const publishDescription = "Publish pending changes";
+const pushingDescription = "Pushing changes";
 
 export function PublishButton({
   /**
@@ -54,50 +61,59 @@ export function PublishButton({
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
-  const buttonProps = compact
-    ? ({ size: "icon-sm", className: compactButtonClassName } as const)
-    : ({ className: "flex gap-2 items-center" } as const);
+  const buttonClassName = compact
+    ? compactButtonClassName
+    : "flex gap-2 items-center";
 
   if (hasValidationErrors) {
+    // when compact the button is icon-only, so its name has to say what it
+    // does; otherwise it has to match the label the button actually shows
+    const label = compact
+      ? mode === "fs"
+        ? saveDescription
+        : publishDescription
+      : mode === "fs"
+        ? "Save"
+        : "Ready";
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button {...buttonProps} disabled={true}>
-            {mode === "fs" ? (
-              compact ? (
-                <Save size={16} />
-              ) : (
-                "Save"
-              )
+      <PublishTooltip
+        label={label}
+        description="Fix validation errors to continue"
+        disabled={true}
+        container={portalContainer}
+      >
+        <Button className={buttonClassName} disabled={true}>
+          {mode === "fs" ? (
+            compact ? (
+              <Save size={16} />
             ) : (
-              <>
-                {!compact && <span>{"Ready"}</span>}
-                <Upload size={16} />
-              </>
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <div className="flex flex-col gap-2">
-            <p>Fix validation errors to continue</p>
-          </div>
-        </TooltipContent>
-      </Tooltip>
+              "Save"
+            )
+          ) : (
+            <>
+              {!compact && <span>{"Ready"}</span>}
+              <Upload size={16} />
+            </>
+          )}
+        </Button>
+      </PublishTooltip>
     );
   }
 
   if (mode === "fs") {
     const label = isPublishing ? "Saving" : "Save";
+    const description = isPublishing ? savingDescription : saveDescription;
+    const saveDisabled =
+      publishDisabled ||
+      autoPublish ||
+      pendingServerSidePatchIds.length === 0 ||
+      pendingClientSidePatchIds.length > 0;
     const saveButton = (
       <Button
-        {...buttonProps}
-        disabled={
-          publishDisabled ||
-          autoPublish ||
-          pendingServerSidePatchIds.length === 0 ||
-          pendingClientSidePatchIds.length > 0
-        }
-        aria-label={compact ? label : undefined}
+        className={buttonClassName}
+        disabled={saveDisabled}
+        // icon-only: the accessible name has to say what the button does
+        aria-label={compact ? description : undefined}
         onClick={() => {
           publish("No summary provided");
         }}
@@ -120,24 +136,27 @@ export function PublishButton({
       return saveButton;
     }
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>{saveButton}</TooltipTrigger>
-        <TooltipContent>
-          <p>{isPublishing ? "Saving changes to disk" : "Save to disk"}</p>
-        </TooltipContent>
-      </Tooltip>
+      <PublishTooltip
+        label={description}
+        description={description}
+        disabled={saveDisabled}
+        container={portalContainer}
+      >
+        {saveButton}
+      </PublishTooltip>
     );
   }
-  const label = isPublishing ? "Pushing" : "Ready";
+  const description = isPublishing ? pushingDescription : publishDescription;
+  const publishIsDisabled =
+    publishDisabled ||
+    pendingServerSidePatchIds.length === 0 ||
+    pendingClientSidePatchIds.length > 0;
   const publishButton = (
     <Button
-      {...buttonProps}
-      disabled={
-        publishDisabled ||
-        pendingServerSidePatchIds.length === 0 ||
-        pendingClientSidePatchIds.length > 0
-      }
-      aria-label={compact ? label : undefined}
+      className={buttonClassName}
+      disabled={publishIsDisabled}
+      // icon-only: the accessible name has to say what the button does
+      aria-label={compact ? description : undefined}
       onClick={() => {
         setSummaryOpen(true);
         // Always generate a new summary when opening
@@ -173,7 +192,10 @@ export function PublishButton({
     </Button>
   );
   return (
-    <span>
+    // inline-flex, not a plain inline span: an inline box around the button
+    // adds the inherited line-height's descender space below it, which is
+    // exactly the misalignment this button is trying to avoid in the menu
+    <span className="inline-flex">
       <Popover
         open={summaryOpen}
         onOpenChange={(open) => {
@@ -181,16 +203,14 @@ export function PublishButton({
         }}
       >
         {compact ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>{publishButton}</PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                {isPublishing ? "Pushing changes" : "Publish pending changes"}
-              </p>
-            </TooltipContent>
-          </Tooltip>
+          <PublishTooltip
+            label={description}
+            description={description}
+            disabled={publishIsDisabled}
+            container={portalContainer}
+          >
+            <PopoverTrigger asChild>{publishButton}</PopoverTrigger>
+          </PublishTooltip>
         ) : (
           <PopoverTrigger asChild>{publishButton}</PopoverTrigger>
         )}
@@ -218,5 +238,56 @@ export function PublishButton({
         </PopoverContent>
       </Popover>
     </span>
+  );
+}
+
+/**
+ * Tooltip on the publish button.
+ *
+ * When the button is disabled it cannot be the tooltip trigger itself: the
+ * design system gives disabled buttons `pointer-events-none` (so they never
+ * receive hover) and `disabled` takes them out of the tab order (so they
+ * never receive focus), which would leave the tooltip - the only place the
+ * icon-only button explains itself - impossible to open. In that state the
+ * trigger is a focusable wrapper that carries the name and the disabled state
+ * of the action, and the button below it is hidden from assistive technology
+ * so the action is not announced twice.
+ */
+function PublishTooltip({
+  label,
+  description,
+  disabled,
+  container,
+  children,
+}: {
+  label: string;
+  description: string;
+  disabled: boolean;
+  container: HTMLElement | null;
+  children: ReactElement;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {disabled ? (
+          <span
+            className="inline-flex"
+            role="button"
+            tabIndex={0}
+            aria-disabled="true"
+            aria-label={label}
+          >
+            <span className="inline-flex" aria-hidden="true">
+              {children}
+            </span>
+          </span>
+        ) : (
+          children
+        )}
+      </TooltipTrigger>
+      <TooltipContent container={container}>
+        <p>{description}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
