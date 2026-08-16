@@ -32,6 +32,12 @@ const ValConfig = z.object({
     .optional(),
   gitCommit: z.string().optional(),
   gitBranch: z.string().optional(),
+  live: z
+    .object({
+      ttl: z.number(),
+      staleWhileRevalidate: z.number().optional(),
+    })
+    .optional(),
 });
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([

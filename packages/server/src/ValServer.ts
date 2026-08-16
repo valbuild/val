@@ -35,6 +35,7 @@ import {
   CommitSha,
   formatPatchSourceError,
   OrderedPatches,
+  ResolvedLiveConfig,
   SchemaSha,
   SourcesSha,
 } from "./ValOps";
@@ -62,6 +63,12 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * Live mode settings, resolved from `config.live` and the VAL_LIVE_* env vars
+   * by `resolveLiveConfig`. Undefined means live mode is off, which is also the
+   * case whenever the mode is "fs".
+   */
+  live?: ResolvedLiveConfig;
 };
 
 export type ValServerConfig = ValServerOptions &

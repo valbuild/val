@@ -67,6 +67,10 @@ type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
+  live?: {
+    ttl: number;
+    staleWhileRevalidate?: number;
+  };
 };
 
 export const VAL_CONFIG = (

@@ -71,6 +71,17 @@ const tsOps = new TSOps((document) => {
   );
 });
 
+/**
+ * The `live` block of ValConfig after env overrides have been applied and the
+ * defaults filled in. `undefined` means live mode is off.
+ */
+export type ResolvedLiveConfig = {
+  /** Seconds a fetched live patch set is fresh. 0 = always refetch. */
+  ttl: number;
+  /** Seconds past `ttl` a stale entry may be served while it is refreshed in the background. */
+  staleWhileRevalidate: number;
+};
+
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
   statPollingInterval?: number;
