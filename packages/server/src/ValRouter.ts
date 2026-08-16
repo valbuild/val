@@ -177,7 +177,10 @@ function liveSecondsFromEnv(envVar: string): number | undefined {
  * val.config may be a plain JS file where the type is not enforced.
  */
 export function resolveLiveConfig(
-  config: ValConfig,
+  // `initVal()` takes an optional config and hands it straight back, so this is
+  // undefined at runtime whenever the app calls `initVal()` with no arguments -
+  // which the ValConfig type does not tell you.
+  config: ValConfig | undefined,
   isProxyMode: boolean,
 ): ResolvedLiveConfig | undefined {
   if (process.env[LIVE_ENV_VARS.disabled] === "true") {
@@ -185,12 +188,12 @@ export function resolveLiveConfig(
   }
   const envTtl = liveSecondsFromEnv(LIVE_ENV_VARS.ttl);
   const envSwr = liveSecondsFromEnv(LIVE_ENV_VARS.staleWhileRevalidate);
-  if (!config.live && envTtl === undefined) {
+  if (!config?.live && envTtl === undefined) {
     return undefined;
   }
   const ttl =
     envTtl ??
-    liveSecondsFromConfig(config.live?.ttl, "'live.ttl' in val.config");
+    liveSecondsFromConfig(config?.live?.ttl, "'live.ttl' in val.config");
   if (ttl === undefined) {
     // Only reachable when 'live' is present as an object without a ttl, which
     // the ValConfig type forbids but a plain JS config file does not.
@@ -201,7 +204,7 @@ export function resolveLiveConfig(
   const staleWhileRevalidate =
     envSwr ??
     liveSecondsFromConfig(
-      config.live?.staleWhileRevalidate,
+      config?.live?.staleWhileRevalidate,
       "'live.staleWhileRevalidate' in val.config",
     ) ??
     0;

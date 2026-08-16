@@ -138,6 +138,7 @@ export const ValServer = (
         formatter: options.formatter,
         root: options.root,
         config: options.config,
+        live: options.live,
       },
     );
   } else {

@@ -33,6 +33,12 @@ describe("resolveLiveConfig", () => {
     expect(resolveLiveConfig({}, true)).toBeUndefined();
   });
 
+  test("tolerates an undefined config", () => {
+    // initVal() hands back whatever it was given, so apps that call it without
+    // arguments end up with an undefined config at runtime.
+    expect(resolveLiveConfig(undefined, true)).toBeUndefined();
+  });
+
   test("ttl is carried through and staleWhileRevalidate defaults to 0", () => {
     expect(resolveLiveConfig({ live: { ttl: 60 } }, true)).toEqual({
       ttl: 60,
