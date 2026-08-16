@@ -2589,6 +2589,37 @@ export const ValServer = (
       },
     },
 
+    //#region live
+    "/live/sources": {
+      GET: async () => {
+        // NOTE: no auth here, for the same reason as /files below, only more
+        // clear-cut: everything this returns is already committed to the
+        // repository and therefore public. It is uncommitted drafts that need
+        // protecting, and those never reach this route - the live patch set
+        // only ever contains committed patches.
+        if (!options.live) {
+          // Live mode is off, or the mode is fs. An empty set rather than an
+          // error, so the caller does not have to know which.
+          return {
+            status: 200,
+            headers: { "Cache-Control": "no-store" },
+            json: { headCommitSha: null, sources: {} },
+          };
+        }
+        const { sources, headCommitSha } = await serverOps.getLiveSources();
+        return {
+          status: 200,
+          headers: {
+            "Cache-Control":
+              options.live.ttl === 0
+                ? "no-store"
+                : `public, max-age=${options.live.ttl}, stale-while-revalidate=${options.live.staleWhileRevalidate}`,
+          },
+          json: { headCommitSha, sources },
+        };
+      },
+    },
+
     //#region files
     "/files": {
       GET: async (req) => {
@@ -2614,8 +2645,12 @@ export const ValServer = (
             remote,
           );
           mimeType = Internal.filenameToMimeType(filePath);
-          // TODO: reenable this:
-          // cacheControl = "public, max-age=20000, immutable";
+          // A patch is immutable: a given (filePath, patch_id) pair always
+          // resolves to the same bytes, since editing a file creates a new
+          // patch with a new id. Live mode makes this route a lot hotter -
+          // every image added by a committed-but-undeployed patch is served
+          // from here rather than from the deploy.
+          cacheControl = "public, max-age=20000, immutable";
         } else {
           if (serverOps instanceof ValOpsHttp && remote) {
             console.error(

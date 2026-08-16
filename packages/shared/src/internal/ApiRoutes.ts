@@ -910,6 +910,37 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * The sources of modules changed by patches that are committed to Val, but
+   * are not yet part of the running deploy - "live mode".
+   *
+   * Deliberately unauthenticated: everything it returns is already committed
+   * and therefore public. It is served to anonymous end users by design, which
+   * is also why it carries no draft content of any kind.
+   *
+   * Only the changed modules are returned. When live mode is off (or the mode
+   * is fs) it returns an empty set rather than an error, so callers never have
+   * to branch on whether live mode is enabled.
+   */
+  "/live/sources": {
+    GET: {
+      req: {}, // no cookies - anonymous by design
+      res: z.union([
+        z.object({
+          status: z.literal(400),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          headers: z.record(z.string(), z.string()).optional(),
+          json: z.object({
+            headCommitSha: z.string().nullable(),
+            sources: z.record(ModuleFilePath, z.any()),
+          }),
+        }),
+      ]),
+    },
+  },
   "/commit-summary": {
     GET: {
       req: {
