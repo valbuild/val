@@ -1065,8 +1065,12 @@ function ChatWindow({
   );
 }
 
+// inline-flex + centering (rather than inline-block) so every button in the
+// menu is exactly icon + padding + border tall: an inline icon sits on the text
+// baseline, which adds descender space that varies with the inherited
+// line-height and makes the buttons different heights
 const buttonClassName =
-  "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
+  "inline-flex items-center justify-center p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
 const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
 
 function WindowField({
@@ -1311,10 +1315,10 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2",
+            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2 items-center",
             {
               "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2 items-center": dir === "horizontal",
+              "flex-row px-4 py-2": dir === "horizontal",
               "opacity-70": ghost,
             },
           )}
@@ -1381,13 +1385,23 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <div className="pb-1 mt-1 border-t border-border-primary"></div>
+          <div
+            className={classNames("self-stretch border-border-primary", {
+              // a horizontal rule in the vertical menu, a vertical rule in the
+              // horizontal one - otherwise it is an invisible element that
+              // only eats gap
+              "border-t": dir === "vertical",
+              "border-l": dir === "horizontal",
+            })}
+          ></div>
           <HoverCard>
-            <HoverCardTrigger className="inline-flex" asChild>
+            <HoverCardTrigger asChild>
               <MenuButton
                 href={window.origin + "/val/compare"}
                 icon={
-                  <div className="relative">
+                  // flex, so the icon does not sit on a text baseline and make
+                  // this button taller than the others
+                  <div className="flex relative">
                     {patchIds.length > 0 && (
                       <div className="absolute -top-3 -right-3">
                         <div
@@ -1440,16 +1454,9 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <PublishButton />
+          <PublishButton compact />
           <HoverCard>
-            <HoverCardTrigger
-              className={cn(
-                buttonClassName,
-                buttonInactiveClassName,
-                "inline-flex p-2",
-              )}
-              asChild
-            >
+            <HoverCardTrigger asChild>
               <MenuButton
                 icon={
                   sourcePathResult.status === "success" &&
@@ -1694,9 +1701,9 @@ const MenuButton = React.forwardRef<
     ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
-      "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+      "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
         active,
-      [classNames(buttonInactiveClassName, "inline-block leading-4")]: !active,
+      [buttonInactiveClassName]: !active,
     });
 
     if (href) {
