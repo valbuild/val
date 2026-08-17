@@ -50,6 +50,8 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { urlOf } from "@valbuild/shared/internal";
 import { getNavPathFromAll } from "./getNavPath";
+import { HeldSummary, StagingToggle } from "./StagingToggle";
+import { usePatchStaging } from "./PatchStagingProvider";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -151,6 +153,7 @@ export function CompareSummaryStrip({
           {allPatchIds.length === 1 ? "change" : "changes"} to review
         </span>
       </div>
+      <HeldSummary />
       <div className="ml-auto flex items-center gap-3 shrink-0">
         {!readonly && allPatchIds.length > 0 && (
           <DiscardConfirmPopover
@@ -479,6 +482,7 @@ function ChangeRow({
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
+  const staging = usePatchStaging();
   const [now] = useState(() => new Date());
   const change = row.change;
   const [isExpanded, setIsExpanded] = useState(
@@ -515,13 +519,22 @@ function ChangeRow({
 
   const onDiscard = () => deletePatches(change.patchIds);
 
+  // A held row still has to be legible and re-stageable — if unstaging hid the
+  // change, unstaging would be a one-way trapdoor.
+  const stagingState = staging.stateOf(change.patchIds);
+  const isHeld = staging.enabled && stagingState === "held";
+
   return (
     <article
       data-val-studio-path={row.sourcePath}
+      data-val-staging={staging.enabled ? stagingState : undefined}
       className={classNames("px-5 py-5", {
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
         "bg-bg-brand-primary/5": change.changeType === "added",
+        // Held: desaturated and struck through the rail, so it reads as "present
+        // but not going out" rather than as an error.
+        "opacity-50 grayscale": isHeld,
       })}
     >
       <ChangeRowHeader
@@ -542,6 +555,8 @@ function ChangeRow({
         isEqual={isEqual}
         readonly={readonly}
         parentMediaType={parentMediaType}
+        patchIds={change.patchIds}
+        segmentLabel={lastSegment || modulePath || moduleFilePath}
       />
       <div className="mt-4">
         <ChangeRowBody
@@ -566,6 +581,8 @@ function ChangeRowHeader({
   isRouterPageKey,
   patchesByAuthorIds,
   profilesByAuthorIds,
+  patchIds,
+  segmentLabel,
   portalContainer,
   mode,
   now,
@@ -584,6 +601,8 @@ function ChangeRowHeader({
   isRouterPageKey: boolean;
   patchesByAuthorIds: Record<string, AuthorPatchInfo[]>;
   profilesByAuthorIds: Record<string, Profile>;
+  patchIds: PatchId[];
+  segmentLabel: string;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   now: Date;
@@ -607,6 +626,13 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
+        {!readonly && (
+          <StagingToggle
+            patchIds={patchIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            label={segmentLabel}
+          />
+        )}
         {!readonly && (
           <DiscardControl
             isEqual={isEqual}
