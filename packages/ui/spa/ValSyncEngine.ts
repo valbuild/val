@@ -1897,16 +1897,14 @@ export class ValSyncEngine {
     now: number,
   ) {
     const createdAt = new Date(now).toISOString();
-    for (const op of patch) {
-      this.patchSets.insert(
-        moduleFilePath,
-        this.schemas?.[moduleFilePath] ?? undefined,
-        op,
-        patchId,
-        createdAt,
-        this.authorId,
-      );
-    }
+    this.patchSets.insert(
+      moduleFilePath,
+      this.schemas?.[moduleFilePath] ?? undefined,
+      patch,
+      patchId,
+      createdAt,
+      this.authorId,
+    );
     this.invalidatePatchSets();
   }
 
@@ -2620,17 +2618,15 @@ export class ValSyncEngine {
           patchData?.moduleFilePath &&
           this.schemas?.[patchData?.moduleFilePath];
         if (patchData && schema) {
-          for (const op of patchData.patch) {
-            didUpdatePatchSet = true;
-            this.patchSets.insert(
-              patchData.moduleFilePath,
-              schema,
-              op,
-              patchId,
-              patchData.createdAt,
-              patchData.authorId,
-            );
-          }
+          didUpdatePatchSet = true;
+          this.patchSets.insert(
+            patchData.moduleFilePath,
+            schema,
+            patchData.patch,
+            patchId,
+            patchData.createdAt,
+            patchData.authorId,
+          );
         } else {
           missingDataPatchIds.push(patchId);
         }

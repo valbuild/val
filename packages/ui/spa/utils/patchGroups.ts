@@ -316,6 +316,19 @@ export function validateGroup(
   return violations;
 }
 
+/**
+ * The part of an op that decides which patch sets it touches.
+ *
+ * Structural rather than `Operation` so a caller can ask about an edit it has not
+ * built yet — the guard has to run before the patch exists.
+ */
+export type EditableOp = {
+  op: Operation["op"];
+  path: readonly string[];
+  /** Set for `move` and `copy`, which touch two places. */
+  from?: readonly string[];
+};
+
 export type HeldPatchSet = {
   patchSet: string;
   /** Pending patches in this patch set that are NOT in the group. */
@@ -377,16 +390,28 @@ export function heldPatchSets(
  *
  * Containment is checked in both directions: the edit is unsafe whether it lands
  * inside a held patch set or is broad enough to swallow one.
+ *
+ * A `move` or `copy` touches two places, and `PatchSets` inserts it under both, so
+ * `from` is checked as well. Taking the whole op rather than a path is what makes
+ * that this function's job — leaving it to callers meant the source array of a move
+ * out of a held region was silently unchecked.
  */
 export function editWouldRestage(
   index: PatchSetIndex,
   group: PatchGroup,
   moduleFilePath: string,
-  op: { op: Operation["op"]; path: readonly string[] },
+  op: EditableOp,
 ): PatchId[] {
-  const candidates = [patchSetLabel(moduleFilePath, op.path)];
-  if (op.op !== "replace" && op.path.length > 0) {
-    candidates.push(patchSetLabel(moduleFilePath, op.path.slice(0, -1)));
+  const paths: (readonly string[])[] = [op.path];
+  if ((op.op === "move" || op.op === "copy") && op.from) {
+    paths.push(op.from);
+  }
+  const candidates: string[] = [];
+  for (const path of paths) {
+    candidates.push(patchSetLabel(moduleFilePath, path));
+    if (op.op !== "replace" && path.length > 0) {
+      candidates.push(patchSetLabel(moduleFilePath, path.slice(0, -1)));
+    }
   }
   const restaged = new Set<PatchId>();
   for (const { patchSet, unstaged } of heldPatchSets(index, group)) {

@@ -44,16 +44,14 @@ function buildPatchSets(
 ): SerializedPatchSet {
   const patchSets = new PatchSets();
   for (const p of patches) {
-    for (const op of p.patch) {
-      patchSets.insert(
-        moduleFilePath,
-        s["executeSerialize"](),
-        op,
-        p.patchId,
-        p.createdAt,
-        p.author,
-      );
-    }
+    patchSets.insert(
+      moduleFilePath,
+      s["executeSerialize"](),
+      p.patch,
+      p.patchId,
+      p.createdAt,
+      p.author,
+    );
   }
   return patchSets.serialize();
 }

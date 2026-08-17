@@ -1215,16 +1215,14 @@ function testPatchSet(
 ) {
   const patchSet = prev || new PatchSets();
   for (const patch of patches) {
-    for (const op of patch.patch) {
-      patchSet.insert(
-        moduleFilePath,
-        schema["executeSerialize"](),
-        op,
-        patch.patchId,
-        patch.createdAt,
-        patch.author,
-      );
-    }
+    patchSet.insert(
+      moduleFilePath,
+      schema["executeSerialize"](),
+      patch.patch,
+      patch.patchId,
+      patch.createdAt,
+      patch.author,
+    );
   }
   return patchSet;
 }

@@ -31,16 +31,14 @@ const MODULE = "/content/page.val.ts" as ModuleFilePath;
 function index(patches: { id: string; ops: Operation[] }[]) {
   const patchSets = new PatchSets();
   patches.forEach((patch, i) => {
-    for (const op of patch.ops) {
-      patchSets.insert(
-        MODULE,
-        page["executeSerialize"](),
-        op,
-        patch.id as PatchId,
-        `2024-01-0${i + 1}T00:00:00.000Z`,
-        "author",
-      );
-    }
+    patchSets.insert(
+      MODULE,
+      page["executeSerialize"](),
+      patch.ops,
+      patch.id as PatchId,
+      `2024-01-0${i + 1}T00:00:00.000Z`,
+      "author",
+    );
   });
   return indexPatchSets(
     patchSets.serialize(),
@@ -79,7 +77,7 @@ describe("indexPatchSets", () => {
     patchSets.insert(
       MODULE,
       page["executeSerialize"](),
-      { op: "replace", path: ["title"], value: "T" },
+      [{ op: "replace", path: ["title"], value: "T" }],
       "p1" as PatchId,
       "2024-01-01T00:00:00.000Z",
       "author",
@@ -151,16 +149,14 @@ describe("stageClosure", () => {
       },
     ];
     patches.forEach((patch, i) => {
-      for (const op of patch.ops) {
-        patchSets.insert(
-          "/content/board.val.ts" as ModuleFilePath,
-          board["executeSerialize"](),
-          op,
-          patch.id as PatchId,
-          `2024-01-0${i + 1}T00:00:00.000Z`,
-          "author",
-        );
-      }
+      patchSets.insert(
+        "/content/board.val.ts" as ModuleFilePath,
+        board["executeSerialize"](),
+        patch.ops,
+        patch.id as PatchId,
+        `2024-01-0${i + 1}T00:00:00.000Z`,
+        "author",
+      );
     });
     const i = indexPatchSets(
       patchSets.serialize(),

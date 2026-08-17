@@ -103,10 +103,22 @@ export function PatchStagingProvider({
   onChange: (next: Set<PatchId>, change: PatchGroupChange) => void;
   children: ReactNode;
 }) {
-  const index = useMemo(
-    () => indexPatchSets(patchSets, chainOrder),
-    [patchSets, chainOrder],
-  );
+  // `indexPatchSets` throws if a patch set names a patch the chain order does not
+  // have, which is a real possibility mid-sync. Throwing here would be thrown during
+  // render and take the whole review screen down, so a skew turns staging off for
+  // this render instead — the changes are still reviewable, just not stageable.
+  const indexed = useMemo(() => {
+    try {
+      return { value: indexPatchSets(patchSets, chainOrder), ok: true as const };
+    } catch (err) {
+      console.error(
+        "Val: could not index patch sets, disabling staging for this render",
+        err,
+      );
+      return { value: indexPatchSets([], []), ok: false as const };
+    }
+  }, [patchSets, chainOrder]);
+  const index = indexed.value;
 
   const authors = useMemo(() => {
     const byId = new Map<PatchId, string | null>();
@@ -190,7 +202,7 @@ export function PatchStagingProvider({
 
   const value = useMemo(
     (): PatchStaging => ({
-      enabled,
+      enabled: enabled && indexed.ok,
       stateOf,
       stagePreview,
       unstagePreview,
@@ -202,6 +214,7 @@ export function PatchStagingProvider({
     }),
     [
       enabled,
+      indexed.ok,
       stateOf,
       stagePreview,
       unstagePreview,

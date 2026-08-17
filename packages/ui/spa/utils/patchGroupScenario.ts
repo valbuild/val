@@ -249,6 +249,7 @@ class Run {
       if (op.op === "file") {
         continue;
       }
+      // `editWouldRestage` handles `move`/`copy`'s second path itself.
       for (const id of editWouldRestage(
         this.index,
         this.group(step.by),
@@ -256,17 +257,6 @@ class Run {
         op,
       )) {
         blockers.add(id);
-      }
-      if (op.op === "move" || op.op === "copy") {
-        // A move touches two places, and `PatchSets` inserts it under both.
-        for (const id of editWouldRestage(
-          this.index,
-          this.group(step.by),
-          this.scenario.moduleFilePath,
-          { op: op.op, path: op.from },
-        )) {
-          blockers.add(id);
-        }
       }
     }
     if (blockers.size > 0) {
@@ -457,16 +447,14 @@ class Run {
   private reindex() {
     const patchSets = new PatchSets();
     this.pending.forEach((patch, i) => {
-      for (const op of this.opsOf(patch)) {
-        patchSets.insert(
-          this.scenario.moduleFilePath as ModuleFilePath,
-          this.scenario.schema["executeSerialize"](),
-          op,
-          patch.edit as PatchId,
-          isoAt(i),
-          patch.by,
-        );
-      }
+      patchSets.insert(
+        this.scenario.moduleFilePath as ModuleFilePath,
+        this.scenario.schema["executeSerialize"](),
+        this.opsOf(patch),
+        patch.edit as PatchId,
+        isoAt(i),
+        patch.by,
+      );
     });
     this.index = indexPatchSets(
       patchSets.serialize(),

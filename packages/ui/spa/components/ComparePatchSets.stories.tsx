@@ -116,16 +116,14 @@ function applyPatchesAndSerialize(
     const realPatchId =
       "patchId" in result ? result.patchId : (`fallback-${now}` as PatchId);
     chainOrder.push(realPatchId);
-    for (const op of p.patch) {
-      patchSets.insert(
-        moduleFilePath,
-        serializedSchema,
-        op,
-        realPatchId,
-        p.createdAt,
-        p.author,
-      );
-    }
+    patchSets.insert(
+      moduleFilePath,
+      serializedSchema,
+      p.patch,
+      realPatchId,
+      p.createdAt,
+      p.author,
+    );
   }
   return { patchSets: patchSets.serialize(), chainOrder };
 }

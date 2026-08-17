@@ -609,20 +609,24 @@ describe("patch groups", () => {
 
   // #region DECISION — repair policy
   describe("DECISION — repair policy when a merge invalidates a group", () => {
-    // The one genuinely open choice left. Alice has *held* `?items/1/title` — Bob's
-    // rename of "B". Then Carol's array insert widens the patch set to the whole
-    // array and swallows Alice's hold, leaving her group with a hole in it that she
-    // never made.
+    // The one genuinely open choice left, and the only path to a group that breaks
+    // the prefix invariant without its owner doing anything wrong.
     //
-    // Compare the traces. `extend` re-stages Bob's rename, so Alice ships a change
-    // she deliberately excluded. `truncate` drops her own array-adjacent work
-    // instead, so she ships less than she thinks. Neither is free, and the cost of
-    // `truncate` is invisible to assertions — the resulting group is perfectly
-    // valid — which is itself the argument for `extend`.
+    // Alice holds Bob's rename of item 0 — a leaf patch set, so it does not stop her
+    // editing item 1, which is a different patch set. Then Carol appends to the
+    // array. That widens the patch set path to the whole array and swallows both
+    // leaves, so `?items` becomes [p1, p2, p3]. Alice's group has p2 but not p1: a
+    // hole she never made.
+    //
+    // Compare the traces. `extend` gives Alice back Bob's rename, so her hold is
+    // overridden and she ships a change she deliberately excluded. `truncate` honours
+    // the hold and drops her own edit instead — leaving a perfectly valid group, so
+    // no assertion fires and the only trace of the loss is her group going empty.
+    // That invisibility is itself the argument for `extend`.
     const mergeScenario = (
       repairPolicy: Scenario["repairPolicy"],
     ): Scenario => ({
-      name: `Alice holds Bob's rename, then Carol's insert swallows it (repair: ${repairPolicy})`,
+      name: `Alice holds item 0 and edits item 1, then Carol's append merges both (repair: ${repairPolicy})`,
       moduleFilePath: "/content/page.val.ts",
       schema: page,
       shape: pageShape,
@@ -633,17 +637,19 @@ describe("patch groups", () => {
         {
           edit: "p1",
           by: "bob",
-          intent: 'rename "B" to "B*"',
-          ops: renameItem("B", "B*"),
-          holds: (doc) => hasTitle(doc, "B*"),
+          intent: 'rename "A" to "A*"',
+          ops: renameItem("A", "A*"),
+          holds: (doc) => hasTitle(doc, "A*") && !hasTitle(doc, "A"),
         },
         { unstage: ["p1"], by: "alice" },
         {
+          // Allowed: `?items/1/title` is not inside the held `?items/0/title`, and a
+          // replace does not shift indices, so Alice's path stays meaningful.
           edit: "p2",
           by: "alice",
-          intent: "retitle the page",
-          ops: [{ op: "replace", path: ["title"], value: "Page*" }],
-          holds: (doc) => at(doc, "title") === "Page*",
+          intent: 'rename "B" to "B*"',
+          ops: renameItem("B", "B*"),
+          holds: (doc) => hasTitle(doc, "B*") && !hasTitle(doc, "B"),
         },
         {
           edit: "p3",
@@ -663,13 +669,16 @@ describe("patch groups", () => {
 
     test("extend: Alice's hold is overridden and she ships Bob's rename", () => {
       const { report, problems } = runScenario(mergeScenario("extend"));
+      // Extend restores the prefix, so nothing is left broken.
       expect(problems).toEqual([]);
+      expect(report).toContain("repaired alice's group +p1");
       expect(report).toMatchSnapshot();
     });
 
-    test("truncate: Alice's hold survives at the cost of dropping work", () => {
+    test("truncate: Alice's hold survives at the cost of dropping her own edit", () => {
       const { report, problems } = runScenario(mergeScenario("truncate"));
       expect(problems).toEqual([]);
+      expect(report).toContain("repaired alice's group -p2");
       expect(report).toMatchSnapshot();
     });
   });

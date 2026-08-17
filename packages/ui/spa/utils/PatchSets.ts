@@ -204,10 +204,21 @@ export class PatchSets {
     }
   }
 
+  /**
+   * Insert a whole patch.
+   *
+   * Takes the patch rather than one op because the de-duplication below is
+   * per-*patch*: a patch is either known to this instance or it is not. When this
+   * took a single op, callers looped and every call after the first hit the
+   * `insertedPatches` guard and returned — so only a patch's first op ever reached
+   * a patch set. A patch that touched two places (a `move`, or a `file` op sitting
+   * before its source op) was therefore mis-grouped, which is invisible in the
+   * compare view but decides what a patch group must contain.
+   */
   insert(
     moduleFilePath: ModuleFilePath,
     schema: SerializedSchema | undefined,
-    op: Operation,
+    patch: Operation[],
     patchId: PatchId,
     createdAt: IsoDateString,
     author: AuthorId | null,
@@ -215,6 +226,27 @@ export class PatchSets {
     if (this.insertedPatches.has(patchId)) {
       return;
     }
+    this.insertedPatches.add(patchId);
+    for (const op of patch) {
+      this.insertOp(
+        moduleFilePath,
+        schema,
+        op,
+        patchId,
+        createdAt,
+        author,
+      );
+    }
+  }
+
+  private insertOp(
+    moduleFilePath: ModuleFilePath,
+    schema: SerializedSchema | undefined,
+    op: Operation,
+    patchId: PatchId,
+    createdAt: IsoDateString,
+    author: AuthorId | null,
+  ) {
     if (!schema) {
       this.insertPath(
         moduleFilePath,
@@ -228,8 +260,6 @@ export class PatchSets {
       );
       return;
     }
-
-    this.insertedPatches.add(patchId);
     if (op.op === "file" || op.op === "test") {
       return;
     }

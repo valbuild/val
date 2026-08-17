@@ -819,7 +819,10 @@ export class ValOpsHttp extends ValOps {
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "POST",
-      `patch-groups/${patchGroupId}/patches`,
+      // Encoded: patchGroupId arrives in a request body, so an unencoded value
+      // like "../../commit" would reach a different endpoint carrying this
+      // project's auth headers.
+      `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       { patchIds, closureVersion },
     );
   }
@@ -836,7 +839,7 @@ export class ValOpsHttp extends ValOps {
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "DELETE",
-      `patch-groups/${patchGroupId}/patches`,
+      `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       { patchIds },
     );
   }

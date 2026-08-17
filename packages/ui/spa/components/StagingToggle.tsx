@@ -85,7 +85,9 @@ export function StagingToggle({
         <p className="max-w-72">
           {isHeld
             ? "Not in your preview and will not be published when you publish."
-            : "In your preview and will be published when you publish."}
+            : state === "partial"
+              ? "Partly held: some of this will publish and some will not. Stage it to publish all of it."
+              : "In your preview and will be published when you publish."}
           {alsoMoved.length > 0 && (
             <>
               {" "}
@@ -133,16 +135,21 @@ export function HeldSummary() {
   if (!staging.enabled || staging.held.length === 0) {
     return null;
   }
-  const count = staging.held.reduce(
-    (total, { unstaged }) => total + unstaged.length,
-    0,
-  );
+  // Deduplicated: one patch can belong to two patch sets — any `move` does — and
+  // would otherwise be counted once per set.
+  const heldIds = new Set<PatchId>();
+  for (const { unstaged } of staging.held) {
+    for (const patchId of unstaged) {
+      heldIds.add(patchId);
+    }
+  }
+  const count = heldIds.size;
   return (
     <p className="text-sm text-fg-secondary">
       {count} {count === 1 ? "change is" : "changes are"} held back and will not
       be published.{" "}
       <span className="text-fg-tertiary">
-        Sections you are holding are read-only until you stage them again.
+        They still exist, and someone else may publish them.
       </span>
     </p>
   );
