@@ -75,26 +75,43 @@ touched set is moved back to the head. `serialize()` returns
 `SerializedSchema` for the module. The home repo (content.val.build) has no part
 in it today.
 
-### Two bugs in that code the test rig should catch
+### Two bugs in that code
 
-I found these while reading; they are not blockers but they become correctness
-bugs once patch sets decide _what gets published_, so they belong in this
-feature's scope.
+Both are harmless-ish today and become correctness bugs once patch sets decide
+_what gets published_, so they are in this feature's scope.
 
-1. **Prefix matching has no segment boundary.** `insertPath` uses raw
-   `String.startsWith` on the composed key. The comment argues this is safe because
+1. **Prefix matching had no segment boundary — FIXED.** `insertPath` used raw
+   `String.startsWith` on the composed key. The comment argued this is safe because
    `.val.ts` terminates the file part and `?` delimits the patch path — true at the
-   _file_ level, false at the _segment_ level. `…?items/foobar` starts with
-   `…?items/foo`, so a patch on record key `foobar` gets merged into the patch set
-   for record key `foo`. Effect today: two independent changes are shown and
-   discarded as one. Effect after this feature: staging `foo` silently drags
-   `foobar` into your publish.
-2. **`insertedPatches` is not updated on the no-schema path.** `insert` returns
-   early in the `if (!schema)` branch _before_ `this.insertedPatches.add(patchId)`.
-   So a patch with no schema is inserted every time it is seen and is never
-   reported by `isInserted`/`getInsertedPatches`. It also means the `op.op === "file"`
-   early-return happens _after_ the add, which is correct, but the asymmetry is
-   accidental.
+   _file_ level, false at the _segment_ level, since nothing terminates a path
+   segment. `…?foobar/title` starts with `…?foo`, so removing record key `foo` and
+   retitling record key `foobar` were merged into one patch set. Effect before this
+   feature: two independent changes shown and discarded as one. Effect after:
+   staging `foobar` silently publishes the deletion of `foo`.
+
+   Replaced with `isInsidePatchSetPath`, which checks the boundary character — `?`
+   when the outer key is a bare module file path, `/` when it already has a patch
+   path. The scenario suite (§7) caught this on its first run, via the
+   `independent` declaration, and now covers it.
+
+2. **`insertedPatches` bookkeeping is wrong for multi-op patches.** Worse than it
+   first looked, because `insert` is called **once per op**, not once per patch —
+   see `ValSyncEngine.patchSetInsert` and the re-insert loop around
+   `ValServer`-driven sync. Given that:
+   - `this.insertedPatches.add(patchId)` sits _before_ the
+     `if (op.op === "file" || op.op === "test") return;` line, so a patch whose
+     **first** op is a `file` op marks the whole patch inserted and then hits the
+     `has(patchId)` guard on every later op — its source ops are silently dropped
+     and the patch never lands in any patch set. It does not bite today only
+     because `createFilePatch` and `ModuleGallery` both emit the source op first.
+   - The `if (!schema)` branch returns _before_ the add, so a no-schema patch is
+     re-inserted every time it is seen and is never reported by
+     `isInserted`/`getInsertedPatches`.
+
+   The clean fix is to make `insert` take the whole patch (`Operation[]`) and do
+   the per-op loop internally, so patch-level dedupe is actually patch-level.
+   That changes the method's signature and four call sites, so it is called out
+   rather than done silently — see §10 block A.
 
 ---
 
@@ -455,9 +472,24 @@ thing worth testing is **not** "does the closure function return this array" —
 "does a staged subset actually apply, and does it produce what the compare view
 promised". So the rig should _execute_ patches, not just compare metadata.
 
-Location: `packages/ui/spa/utils/patchGroups.test.ts` plus a shared harness
-next to the existing `PatchSets.test.ts` (whose style — build schemas with `s` from
-`initVal`, feed literal patch streams — is the right base, per the repo's test rules).
+Location: `packages/ui/spa/utils/patchGroups.test.ts`, with the harness in
+`patchGroupScenario.ts` next to it. Schemas are built with `s` from `initVal` and
+patch streams are literal, following `PatchSets.test.ts` and the repo's test rules.
+
+Two things make it reviewable rather than just green:
+
+- every scenario emits a **readable trace** — chain, patch sets, each author's
+  group and _why_ each pulled-in patch was pulled in, each author's view, and then
+  the result of publishing each author's group in turn — asserted as a snapshot so
+  the model can be reviewed by reading;
+- every scenario also asserts **`problems` is empty**, so a real regression fails
+  an assertion and does not merely change a snapshot.
+
+The decisive design choice is that a scenario asserts on **content, not on patch
+ids**. Each patch carries its author's intent as a predicate over that author's own
+view (`holds`), which must still be true after anybody publishes. A `replace` that
+lands on a different array element after someone else's commit is exactly what that
+catches, and it is not detectable from group membership.
 
 ### 7.1 Harness
 
@@ -588,14 +620,21 @@ has any patch-group support at all.
 
 **A. Closure + test rig (no API, no behaviour change).**
 
-- [ ] Fix the two `PatchSets.insertPath` bugs from §1 — segment-aware prefix
-      matching, and `insertedPatches.add` on the no-schema path. Add the failing
-      cases to `PatchSets.test.ts` first.
-- [ ] `stageClosure(patchSets, patchIds)` and `unstageClosure(patchSets, patchIds)`
-      in `packages/ui/spa/utils/patchGroups.ts`, plus `validateGroup` /
-      `repairGroup` for §4.1. Export a `CLOSURE_VERSION` constant.
-- [ ] The harness and invariants 1–10 from §7 in
-      `packages/ui/spa/utils/patchGroups.test.ts`.
+- [x] Segment-aware prefix matching in `PatchSets.insertPath` (§1, bug 1).
+- [x] `stageClosure` / `unstageClosure` / `validateGroup` / `repairGroup` and
+      `CLOSURE_VERSION` in `packages/ui/spa/utils/patchGroups.ts`.
+- [x] The scenario harness in `patchGroupScenario.ts` and the first scenarios in
+      `patchGroups.test.ts` (§7).
+- [ ] Decide on §1 bug 2: change `PatchSets.insert` to take a whole patch rather
+      than one op, so patch-level dedupe is patch-level. Four call sites.
+- [ ] More scenarios — this is the part to iterate on before anything else lands.
+      Known gaps: `move` between two arrays (one patch, two patch sets); a `file`
+      op patch whose source op is staged; a patch with no schema (whole-module
+      fallback); nested arrays; a patch set that merges _after_ an unstage;
+      three-author chains where two merges interact.
+- [ ] Explicit unstage scenarios. The harness currently only exercises staging,
+      because staging is what happens implicitly on every edit; unstage needs the
+      scenario spec to grow a step list rather than a flat patch list.
 - [ ] The seeded generative layer from §7.3, with shrinking.
 
 **B. Client plumbing behind a flag (still no behaviour change).**

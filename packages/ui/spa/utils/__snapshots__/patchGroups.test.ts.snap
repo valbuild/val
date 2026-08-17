@@ -1,0 +1,283 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`patch groups a third author's array insert merges two patch sets and repairs both groups 1`] = `
+"scenario: Bob edits item 0, Alice edits item 1, then Carol inserts
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   bob    replace items/0/title = "A*"       rename "A" to "A*"
+  p2   alice  replace items/1/title = "B*"       rename "B" to "B*"
+  p3   carol  add items/3 = {"title":"D"}        append "D"
+
+patch sets (final)
+  /content/page.val.ts?items               [p1, p2, p3]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p1, p2}
+  carol  {p1, p2, p3}
+
+why:
+  p1 pulled into carol's group as a dependency of p3
+  p2 pulled into carol's group as a dependency of p3
+  p3 merged patch sets, repairing alice's group: +p1 (policy: extend)
+
+views (base + own group) — this is what each author sees
+  bob    Page [A*, B, C]
+  alice  Page [A*, B*, C]
+  carol  Page [A*, B*, C, D]
+
+publish bob — commits [p1]
+  new base   Page [A*, B, C]
+  alice  {p2}
+         Page [A*, B*, C]
+  carol  {p2, p3}
+         Page [A*, B*, C, D]
+
+publish alice — commits [p1, p2]
+  new base   Page [A*, B*, C]
+  bob    {}
+         Page [A*, B*, C]
+  carol  {p3}
+         Page [A*, B*, C, D]
+
+publish carol — commits [p1, p2, p3]
+  new base   Page [A*, B*, C, D]
+  bob    {}
+         Page [A*, B*, C, D]
+  alice  {}
+         Page [A*, B*, C, D]"
+`;
+
+exports[`patch groups edit-then-insert: the inserter carries the editor, not the other way round 1`] = `
+"scenario: Bob renames an item, then Alice inserts above it
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   bob    replace items/1/title = "B*"       rename "B" to "B*"
+  p2   alice  add items/0 = {"title":"New"}      insert "New" at the top
+
+patch sets (final)
+  /content/page.val.ts?items               [p1, p2]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p1, p2}
+
+why:
+  p1 pulled into alice's group as a dependency of p2
+
+views (base + own group) — this is what each author sees
+  bob    Page [A, B*, C]
+  alice  Page [New, A, B*, C]
+
+publish bob — commits [p1]
+  new base   Page [A, B*, C]
+  alice  {p2}
+         Page [New, A, B*, C]
+
+publish alice — commits [p1, p2]
+  new base   Page [New, A, B*, C]
+  bob    {}
+         Page [New, A, B*, C]"
+`;
+
+exports[`patch groups insert-then-edit: the editor carries the inserter, mirroring the case above 1`] = `
+"scenario: Alice inserts at the top, then Bob renames an item
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   alice  add items/0 = {"title":"New"}      insert "New" at the top
+  p2   bob    replace items/2/title = "B*"       rename "B" to "B*"
+
+patch sets (final)
+  /content/page.val.ts?items               [p1, p2]
+
+groups as built at creation time
+  alice  {p1}
+  bob    {p1, p2}
+
+why:
+  p1 pulled into bob's group as a dependency of p2
+
+views (base + own group) — this is what each author sees
+  alice  Page [New, A, B, C]
+  bob    Page [New, A, B*, C]
+
+publish alice — commits [p1]
+  new base   Page [New, A, B, C]
+  bob    {p2}
+         Page [New, A, B*, C]
+
+publish bob — commits [p1, p2]
+  new base   Page [New, A, B*, C]
+  alice  {}
+         Page [New, A, B*, C]"
+`;
+
+exports[`patch groups remove then edit a later item in the same array 1`] = `
+"scenario: Bob removes item 0, then Alice renames what is now item 0
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   bob    remove items/0                     remove "A"
+  p2   alice  replace items/0/title = "B*"       rename "B" to "B*"
+
+patch sets (final)
+  /content/page.val.ts?items               [p1, p2]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p1, p2}
+
+why:
+  p1 pulled into alice's group as a dependency of p2
+
+views (base + own group) — this is what each author sees
+  bob    Page [B, C]
+  alice  Page [B*, C]
+
+publish bob — commits [p1]
+  new base   Page [B, C]
+  alice  {p2}
+         Page [B*, C]
+
+publish alice — commits [p1, p2]
+  new base   Page [B*, C]
+  bob    {}
+         Page [B*, C]"
+`;
+
+exports[`patch groups separate fields: both authors publish alone 1`] = `
+"scenario: Bob edits the page title, Alice edits an item title
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   bob    replace title = "Page*"            retitle the page
+  p2   alice  replace items/2/title = "C*"       rename "C" to "C*"
+
+patch sets (final)
+  /content/page.val.ts?items/2/title       [p2]
+  /content/page.val.ts?title               [p1]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p2}
+
+views (base + own group) — this is what each author sees
+  bob    Page* [A, B, C]
+  alice  Page [A, B, C*]
+
+publish bob — commits [p1]
+  new base   Page* [A, B, C]
+  alice  {p2}
+         Page* [A, B, C*]
+
+publish alice — commits [p2]
+  new base   Page [A, B, C*]
+  bob    {p1}
+         Page* [A, B, C*]"
+`;
+
+exports[`patch groups separate record keys: both authors publish alone 1`] = `
+"scenario: Bob edits record key "foo", Alice edits record key "foobar"
+module:   /content/projects.val.ts
+base:     {"foo":{"title":"Foo"},"foobar":{"title":"Foobar"}}
+
+chain (oldest first)
+  p1   bob    replace foo/title = "Foo*"         retitle "foo"
+  p2   alice  replace foobar/title = "Foobar*"   retitle "foobar"
+
+patch sets (final)
+  /content/projects.val.ts?foobar/title    [p2]
+  /content/projects.val.ts?foo/title       [p1]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p2}
+
+views (base + own group) — this is what each author sees
+  bob    {"foo":{"title":"Foo*"},"foobar":{"title":"Foobar"}}
+  alice  {"foo":{"title":"Foo"},"foobar":{"title":"Foobar*"}}
+
+publish bob — commits [p1]
+  new base   {"foo":{"title":"Foo*"},"foobar":{"title":"Foobar"}}
+  alice  {p2}
+         {"foo":{"title":"Foo*"},"foobar":{"title":"Foobar*"}}
+
+publish alice — commits [p2]
+  new base   {"foo":{"title":"Foo"},"foobar":{"title":"Foobar*"}}
+  bob    {p1}
+         {"foo":{"title":"Foo*"},"foobar":{"title":"Foobar*"}}"
+`;
+
+exports[`patch groups sibling record keys where one name is a prefix of the other ("foo" / "foobar") 1`] = `
+"scenario: Bob removes record key "foo", Alice retitles record key "foobar"
+module:   /content/projects.val.ts
+base:     {"foo":{"title":"Foo"},"foobar":{"title":"Foobar"}}
+
+chain (oldest first)
+  p1   bob    remove foo                         delete "foo"
+  p2   alice  replace foobar/title = "Foobar*"   retitle "foobar"
+
+patch sets (final)
+  /content/projects.val.ts?foobar/title    [p2]
+  /content/projects.val.ts?foo             [p1]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p2}
+
+views (base + own group) — this is what each author sees
+  bob    {"foobar":{"title":"Foobar"}}
+  alice  {"foo":{"title":"Foo"},"foobar":{"title":"Foobar*"}}
+
+publish bob — commits [p1]
+  new base   {"foobar":{"title":"Foobar"}}
+  alice  {p2}
+         {"foobar":{"title":"Foobar*"}}
+
+publish alice — commits [p2]
+  new base   {"foo":{"title":"Foo"},"foobar":{"title":"Foobar*"}}
+  bob    {p1}
+         {"foobar":{"title":"Foobar*"}}"
+`;
+
+exports[`patch groups two authors edit the same field: the later one carries the earlier 1`] = `
+"scenario: Bob and Alice both retitle the page
+module:   /content/page.val.ts
+base:     Page [A, B, C]
+
+chain (oldest first)
+  p1   bob    replace title = "Bob was here"     set the page title to "Bob was here"
+  p2   alice  replace title = "Alice was here"   set the page title to "Alice was here"
+
+patch sets (final)
+  /content/page.val.ts?title               [p1, p2]
+
+groups as built at creation time
+  bob    {p1}
+  alice  {p1, p2}
+
+why:
+  p1 pulled into alice's group as a dependency of p2
+
+views (base + own group) — this is what each author sees
+  bob    Bob was here [A, B, C]
+  alice  Alice was here [A, B, C]
+
+publish bob — commits [p1]
+  new base   Bob was here [A, B, C]
+  alice  {p2}
+         Alice was here [A, B, C]
+
+publish alice — commits [p1, p2]
+  new base   Alice was here [A, B, C]
+  bob    {}
+         Alice was here [A, B, C]"
+`;

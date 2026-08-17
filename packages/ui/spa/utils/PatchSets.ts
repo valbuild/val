@@ -34,6 +34,31 @@ type InternalPatchSetPath = string;
 export type SerializedPatchSet = PatchSetMetadata[];
 type PatchPath = string[];
 
+/**
+ * Is `inner` strictly nested inside the patch set `outer`?
+ *
+ * A plain `inner.startsWith(outer)` is not enough, and the difference is not
+ * cosmetic. The file part of a key is terminated by the '?' delimiter, but the
+ * segments of the patch path are not terminated by anything, so a raw prefix
+ * test also matches siblings whose *name* merely starts with the same
+ * characters: '/p.val.ts?foobar/title' starts with '/p.val.ts?foo', so removing
+ * record key "foo" and retitling record key "foobar" would be merged into one
+ * patch set.
+ *
+ * That used to only over-group two unrelated changes in the compare view. Now
+ * that patch sets decide what a patch group must contain, it means staging one
+ * key silently publishes its similarly-named sibling — so the boundary has to be
+ * checked explicitly: '?' when `outer` is a bare module file path, '/' when it
+ * already has a patch path.
+ */
+function isInsidePatchSetPath(inner: string, outer: string): boolean {
+  if (!inner.startsWith(outer)) {
+    return false;
+  }
+  const boundary = inner[outer.length];
+  return outer.includes("?") ? boundary === "/" : boundary === "?";
+}
+
 export class PatchSets {
   private insertedPatches: Set<PatchId>;
   private patchSetMetadata: Record<InternalPatchSetPath, PatchSetMetadata>;
@@ -70,20 +95,18 @@ export class PatchSets {
         ? `${moduleFilePath}?${affectsPatchPath.join("/")}`
         : moduleFilePath;
     const pathIndexesThatMustBeMerged: number[] = [];
-    // TODO: current implementation is O(n), with startsWith it is: O(n x m) - there's room for optimization (Trie?). Just make sure order is maintained and that insert AND then serialize is what we optimize for because the UX will do an insert, then serialize immediately after
+    // TODO: current implementation is O(n), with isInside it is: O(n x m) - there's room for optimization (Trie?). Just make sure order is maintained and that insert AND then serialize is what we optimize for because the UX will do an insert, then serialize immediately after
     for (let i = this.orderedInsertKeys.length - 1; i >= 0; i--) {
       const currentInsertKey = this.orderedInsertKeys[i];
-      // We think .startsWith would not be correct unless we had 1) .val.ts to end the files 2) a delimiter ('?') for the patch path (that is there even if it is an empty array) - right?
-      // but both 1) and 2) are guaranteed by the format of the patch set path, we can do this (which is simple, but not very efficient?):
       if (newPatchSetPath !== currentInsertKey) {
-        if (newPatchSetPath.startsWith(currentInsertKey)) {
+        if (isInsidePatchSetPath(newPatchSetPath, currentInsertKey)) {
           // This new patch set is inside an existing patch set...
           // Use the existing patch set as the new name
           newPatchSetPath = currentInsertKey;
           // Move to new patch set to head
           this.orderedInsertKeys.splice(i, 1);
           this.orderedInsertKeys.unshift(newPatchSetPath);
-        } else if (currentInsertKey.startsWith(newPatchSetPath)) {
+        } else if (isInsidePatchSetPath(currentInsertKey, newPatchSetPath)) {
           // We found a patch set (with a shorter path) that needs to be merged into this new patch set
           pathIndexesThatMustBeMerged.push(i);
         }
