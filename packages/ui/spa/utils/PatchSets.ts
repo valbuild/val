@@ -226,16 +226,17 @@ export class PatchSets {
     if (this.insertedPatches.has(patchId)) {
       return;
     }
-    this.insertedPatches.add(patchId);
+    // Only marked as inserted once we had a schema to place it with. Without one
+    // every op falls back to the whole module as a single patch set, and marking it
+    // would make that fallback permanent: `ValSyncEngine` re-inserts a patch only
+    // while `isInserted` is false, so this is what lets it try again with the real
+    // schema. A module-wide patch set would otherwise make every pending change in
+    // that file one inseparable staging unit, forever.
+    if (schema) {
+      this.insertedPatches.add(patchId);
+    }
     for (const op of patch) {
-      this.insertOp(
-        moduleFilePath,
-        schema,
-        op,
-        patchId,
-        createdAt,
-        author,
-      );
+      this.insertOp(moduleFilePath, schema, op, patchId, createdAt, author);
     }
   }
 

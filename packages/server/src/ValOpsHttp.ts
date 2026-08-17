@@ -882,6 +882,19 @@ export class ValOpsHttp extends ValOps {
           error: { message: await res.text() },
         };
       }
+      // A 401 here is the app's own credentials failing, not the user's, so it gets
+      // the same wording as every other call in this class rather than an opaque
+      // 500 that sends the user looking at their own session.
+      if (res.status === 401) {
+        return {
+          status: 500,
+          patchIds: [],
+          error: {
+            message:
+              "Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
+          },
+        };
+      }
       return {
         status: 500,
         patchIds: [],

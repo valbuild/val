@@ -1150,6 +1150,27 @@ export const ValServer = (
     "/patches": {
       PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {
         const cookies = req.cookies;
+
+        // The patch group fields on this route are declared but not yet honoured:
+        // recording membership needs the corresponding endpoints on
+        // content.val.build. Accepting them and returning 200 would tell a client
+        // its group was updated when it was dropped, so a client that sends them is
+        // told plainly instead.
+        if (
+          req.body.patchGroupId !== undefined ||
+          req.body.alsoAddPatchIds !== undefined ||
+          req.body.holdBackForGroupIds !== undefined
+        ) {
+          return {
+            status: 400,
+            json: {
+              type: "patch-error" as const,
+              message:
+                "This version of Val cannot record patch group membership. Update the Val packages, or omit the patch group fields.",
+              errors: {},
+            },
+          };
+        }
         const auth = getAuth(cookies);
         if (auth.error) {
           return {

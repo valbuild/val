@@ -4,6 +4,7 @@ import {
   ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
 } from "react";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -13,8 +14,10 @@ import {
   inChainOrder,
   indexPatchSets,
   PatchGroup,
+  repairGroup,
   stageClosure,
   unstageClosure,
+  validateGroup,
 } from "../utils/patchGroups";
 
 /**
@@ -109,7 +112,10 @@ export function PatchStagingProvider({
   // this render instead — the changes are still reviewable, just not stageable.
   const indexed = useMemo(() => {
     try {
-      return { value: indexPatchSets(patchSets, chainOrder), ok: true as const };
+      return {
+        value: indexPatchSets(patchSets, chainOrder),
+        ok: true as const,
+      };
     } catch (err) {
       console.error(
         "Val: could not index patch sets, disabling staging for this render",
@@ -119,6 +125,33 @@ export function PatchStagingProvider({
     }
   }, [patchSets, chainOrder]);
   const index = indexed.value;
+
+  // Patch sets coalesce as patches arrive: `PatchSets.insertPath` merges an existing
+  // set into a new, broader one. So a third party's array insert can swallow two leaf
+  // patch sets and leave a hole in a group whose owner did nothing — the group is
+  // suddenly not prefix-closed, and publishing it would apply a patch whose
+  // predecessor is missing. Re-validating only on stage/unstage would miss that
+  // entirely, so it runs on every recomputation of the index.
+  //
+  // `extend` is the policy: it grows the group so the user's own change stays
+  // publishable. `truncate` would silently drop their work while leaving a valid
+  // group, which no assertion can catch — see the DECISION tests in
+  // `patchGroups.test.ts` for both traces side by side.
+  useEffect(() => {
+    if (!enabled || !indexed.ok) {
+      return;
+    }
+    if (validateGroup(index, group).length === 0) {
+      return;
+    }
+    const repair = repairGroup(index, group, "extend");
+    onChange(repair.group, {
+      type: "stage",
+      requested: [],
+      alsoMoved: repair.added,
+      closureVersion: CLOSURE_VERSION,
+    });
+  }, [enabled, indexed.ok, index, group, onChange]);
 
   const authors = useMemo(() => {
     const byId = new Map<PatchId, string | null>();
