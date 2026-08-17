@@ -40,6 +40,22 @@ one group, not everything pending.
 The eventual goal: two people collaborate on one project and each publishes their own
 small change (a title, say) without merging or waiting for the other.
 
+### Staged is the truth — and why it constrains you
+
+The staged set is not just a publish filter. `base + the user's group` is what the CMS
+shows that user, what the site preview shows them, and what publish writes. There is no
+"real" state behind it that they can also see.
+
+The consequence for this repo: **a group is only meaningful relative to a base commit.**
+A user's patches carry op paths (array indices, record keys) computed against
+`base + their group` as it stood when they made them. Apply that group against a
+_different_ base and the paths can silently land somewhere else.
+
+So `patch_group` carries a `base_commit`, and publish compares it to the current commit
+rather than applying blind. When they differ, the group must be revalidated by the
+client against the new base before the commit goes through — return a distinguishable
+error for that case (see endpoint 6) rather than committing and hoping.
+
 ## Critical constraint: do NOT filter `applicable/patches`
 
 `applicable/patches` must keep returning the **full chain**, unfiltered, exactly as it
@@ -83,6 +99,9 @@ create table patch_group (
   branch            text        not null,
   author_id         text        not null,
   created_at        timestamptz not null default now(),
+  -- the commit this group was assembled against; NOT bookkeeping, see
+  -- "Staged is the truth" above. Publish must check it.
+  base_commit       text        not null,
   published_at      timestamptz,
   published_commit  text
 );
@@ -145,7 +164,13 @@ Top level, add:
 
 ```
 patchGroups: [
-  { id: string, authorId: string, createdAt: string, publishedAt: string | null }
+  {
+    id: string,
+    authorId: string,
+    createdAt: string,
+    baseCommit: string,            // so the client can see its group is stale
+    publishedAt: string | null
+  }
 ]
 ```
 
@@ -177,15 +202,29 @@ precisely to avoid that race.
 
 ### 6. `POST /v1/{project}/commit` — publish (changed behaviour, same signature)
 
-It already commits a subset of patch ids, so the signature does not change. It must
-now also, in the same transaction as the commit:
+It already commits a subset of patch ids, so the signature does not change. Accept the
+group id as an optional body field so the bookkeeping below is unambiguous.
+
+**Before committing:** if the group's `base_commit` is not the current commit, someone
+else published in the meantime and this group has not been revalidated against the new
+base (see "Staged is the truth"). Reject with a **distinguishable** status/error code —
+not the generic 400 — so the client can revalidate and retry rather than surfacing a
+mystery failure. This is the one new pre-condition on commit.
+
+**In the same transaction as the commit:**
 
 - set `published_at` / `published_commit` on the group being published;
+- **mark the committed patches applied**, so `applied.commitSha` is set for exactly
+  those patches in subsequent `applicable/patches` responses — and for no others. The
+  Val server relies on this to skip already-applied patches when it rebuilds the
+  content; if it is wrong in either direction, patches are applied twice or dropped;
 - **remove the just-published patch ids from every other group** that contains them.
   They are applied now; leaving them would make another user's next publish try to
   re-apply an applied patch.
 
-Accept the group id as an optional body field so this bookkeeping is unambiguous.
+Every group that survives the commit now has a stale `base_commit`. Do not attempt to
+fix them up here — leave them stale and let the pre-condition above catch them, so
+revalidation happens on the client that has the schema.
 
 ### 7. `DELETE /v1/{project}/patches` — delete (changed behaviour)
 
@@ -220,6 +259,10 @@ anywhere in step 1.
   groups and for one with groups; the chunked-request path still returns the same
   patch set.
 - Commit removes published ids from _all_ groups, not just the published one.
+- Commit sets `applied.commitSha` on exactly the committed patches, and the next
+  `applicable/patches` reflects that — neither more nor fewer.
+- Commit is rejected with the distinguishable stale-base error when the group's
+  `base_commit` is behind the current commit, and accepted when it matches.
 - A patch shared by two groups survives deletion from one.
 - Unique index actually prevents a second open group per user per branch.
 - 403 on another user's group; 409 on a published group.
@@ -233,3 +276,6 @@ anywhere in step 1.
 - Do not make membership one-to-one. A patch legitimately belongs to several groups.
 - Do not delete a patch when it is unstaged. Unstaged patches must remain, and must
   remain re-stageable.
+- Do not try to rebase or repair a stale group server-side. Revalidating a group needs
+  the content schema, which only the client has; your job is to detect staleness via
+  `base_commit` and refuse clearly.

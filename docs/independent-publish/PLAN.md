@@ -2,7 +2,7 @@
 
 Status: **design agreed, implementation in progress.** This document is the plan for
 the branch it lives on; the implementation lands on the same branch, in the phases set
-out in §6.3 and §7. The plan commit is deliberately first so the model and the
+out in §10. The plan commit is deliberately first so the model and the
 invariant in §4 can be reviewed before any code depends on them. Keep this document
 updated as the implementation diverges from it — it is the reference the
 content.val.build side is built against.
@@ -98,26 +98,87 @@ feature's scope.
 
 ---
 
-## 2. Five other names for "patch group"
+## 2. Staged is the truth
 
-`patch set` is taken, and I checked the repo for the others.
+**Settled.** The staged set is what the user's world looks like. Concretely, for a
+given user, `base + their patch group` is the content shown:
 
-| Name                        | For                                                                                                                                              | Against                                                                                                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Changeset**               | Best-understood word in the industry for "a unit of change you publish". Reads well in UI: "Publish changeset".                                  | Hard collision: this repo already uses npm **changesets** (`.changeset/`, the `changeset-release/main` branch). Every future conversation would need disambiguation. |
-| **Patch bundle**            | No collision anywhere in the repo. "Bundle" implies _composed by hand_, which is exactly right. Verbs work: bundle / unbundle, or add to bundle. | Slight overload with JS bundling.                                                                                                                                    |
-| **Publish cart**            | The clearest possible mental model for stage/unstage: you put changes in a cart, then check out. Non-developers get it immediately.              | Consumer-shopping tone may not fit a CMS; awkward in code (`cartId`).                                                                                                |
-| **Stage** / **staging set** | Matches git's vocabulary, and stage/unstage are already the verbs you used. Zero learning cost for developers.                                   | Overloaded with "staging environment", which a CMS user will absolutely read it as.                                                                                  |
-| **Patch batch**             | Neutral, short, no collisions.                                                                                                                   | Suggests machine-generated grouping rather than user-curated selection; "batch" and "set" are near-synonyms so it doesn't clarify against `patch set`.               |
+- everywhere in the studio — field values, lists, media;
+- in the preview (draft mode) of the running site;
+- and it is exactly what publish writes.
 
-**My pick: patch bundle** — no collisions, correct connotation, and it stays clearly
-distinct from `patch set` (which is _computed_, not _curated_). If you want the UI
-to speak plainly, use "bundle" in code and stage/unstage as the verbs.
+**The one exception is the compare view**, which by definition has to show more than
+the current truth: `base → staged` as the diff, plus the unstaged patches as
+separately-listed rows you can stage.
 
-Runners-up worth a mention: **tray**, **selection**, **candidate**. Note also that
-`DraftChanges` is an existing component name, so "draft" is partly taken.
+Everything below follows from this, so the consequences are worth spelling out.
 
-The rest of this document says **patch group** as a placeholder.
+### 2.1 It is cheaper than it looks
+
+The preview needs no separate plumbing. `ValNextProvider` renders draft content
+**browser-side** from the same store the studio reads ("draft data is browser-only"),
+so once `ValSyncEngine` applies only the group's patches to its optimistic source,
+studio and preview are staged-correct together. The server-side path needs exactly one
+change: a `patch_group_id` on `PUT /sources/~?apply_patches=true` (§6.2), so the
+server-applied source agrees with the client's.
+
+### 2.2 The correctness condition it creates
+
+A patch's op paths are computed against **`base + the author's group at the moment of
+creation`**. Publishing applies exactly `base + group` in chain order, so those paths
+are still valid — _provided base has not moved_.
+
+The moment someone else publishes, base moves under everybody else's groups, and every
+other group has to be revalidated against the new base. That is the whole of the
+rebase problem, and it is why `markApplied` is required rather than optional (§9,
+block C).
+
+Note what this rules out: we cannot treat a group as "a set of ids we can apply
+whenever". A group is only meaningful relative to a base commit, so
+`patch_group.base_commit` should be recorded and checked at publish time — if base has
+moved since the group was assembled, revalidate before committing rather than after
+failing.
+
+### 2.3 You cannot leave someone else's array edit unstaged
+
+If Bob has an unstaged patch on `items` and Alice edits that same array, the array
+patch set contains Bob's patch, so the closure (§4) pulls it into Alice's group. Alice
+_cannot_ make that edit while leaving Bob's out — the prefix invariant forbids it.
+
+This is correct (her indices were computed against a state that includes his change,
+or rather: they are only meaningful in an order that includes it), but it is a
+surprise, and the UI must say so at the moment of staging rather than quietly
+enlarging the group. Scalar `replace` on a different field has no such interaction —
+that is the case the whole feature exists to serve.
+
+By the same mechanism, **unstaging is not durable against your own later edits** in the
+same patch set: unstage Bob's array change, then edit that array yourself, and the
+closure pulls it back. Also worth a UI note.
+
+### 2.4 Divergent views are accepted
+
+Two users looking at the same URL will see different content, and that is the intended
+behaviour, not a defect to design around. Two knock-ons:
+
+- Screenshots and bug reports become per-user. Anything that reports "what the site
+  looks like" needs to say whose view it is.
+- **`stat` cannot detect a group-membership change.** `getStat` derives its `patches`
+  array from `fetchPatches`, i.e. from `applicable/patches`, and the client compares
+  patch **ids**. Staging or unstaging changes no ids, so a change made in another tab —
+  or a §4.1 repair computed by another client — would never invalidate. `stat` needs a
+  `patchGroupsSha` (a hash over the caller's group membership) alongside the existing
+  shas, and `syncWithUpdatedStat` needs to treat a change in it as a source-invalidating
+  event. Note `sourcesSha` is computed by `extractValModules` from the _unpatched_
+  modules, so it is unaffected and cannot be reused for this.
+
+### 2.5 Naming
+
+**Settled: patch group.** Not to be confused with **patch set**, and the distinction is
+load-bearing throughout this document:
+
+- a **patch set** is _computed_ — the patches that must move together, derived from the
+  schema (§1);
+- a **patch group** is _curated_ — the patches this user has chosen to publish.
 
 ---
 
@@ -130,6 +191,7 @@ patch_group
   branch             text
   author_id          text
   created_at         timestamptz
+  base_commit        text                -- the commit the group was assembled against
   published_at       timestamptz  null
   published_commit   text         null
 
@@ -143,16 +205,20 @@ patch_group_patch          -- many-to-many, deliberately
 
 Notes on the shape:
 
-- **Many-to-many is required, not a convenience.** The dependency closure (§5) means
-  one patch can end up in several users' groups: if Alice edits an array that Bob
-  already edited, Bob's patch is pulled into Alice's group while staying in Bob's.
+- **Many-to-many is required, not a convenience.** The prefix invariant (§4) means one
+  patch can end up in several users' groups: if Alice edits an array that Bob already
+  edited, Bob's patch is pulled into Alice's group while staying in Bob's.
 - **"Current group" per user** = the newest non-published `patch_group` for
   `(project, branch, author_id)`. Create lazily on first patch. One per user for now;
   the schema already allows more.
+- **`base_commit` is not bookkeeping.** Per §2.2 a group is only meaningful relative to
+  the commit it was assembled against, so publish must compare it to the current commit
+  and revalidate rather than apply blind.
 - A patch in **no** group is unstaged. It still exists, still occupies its place in
   the patch chain, and is still returned by `applicable/patches`.
 - `added_reason` is for UI only ("this was added because your change depends on
-  it"), but it makes the auto-repair in §5.3 explainable instead of magic.
+  it"), but it is what makes the auto-repair in §4.1 and the forced staging in §2.3
+  explainable instead of magic.
 
 ---
 
@@ -271,12 +337,12 @@ a wrong closure, and the home repo cannot tell. Mitigations, in order of cost:
 
 Existing calls, in `packages/server/src/ValOpsHttp.ts`:
 
-| Call                                                            | Change                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/{project}/patches` (`saveSourceFilePatch`)            | **Add** `patchGroupId: string \| null` and `alsoAddPatchIds: string[]` to the body. `null` group id = "my current group, create it if absent"; the response returns the id used. `alsoAddPatchIds` is the closure prefix. The whole thing is one transaction: patch row + group membership for the patch + membership for the closure. |
-| `GET /v1/{project}/applicable/patches` (`fetchPatchesInternal`) | **Additive only** — see §6.3. Each patch gains `patchGroupIds: string[]`. Response gains top-level `patchGroups: [{ id, authorId, createdAt, publishedAt }]`. Existing fields unchanged.                                                                                                                                               |
-| `POST /v1/{project}/commit` (`commit`)                          | Already takes a prepared commit built from a patch id subset, so no signature change. It must additionally mark the group published and **remove the published patch ids from every other group** that contains them (they are applied now).                                                                                           |
-| `DELETE /v1/{project}/patches`                                  | Deleting a patch must cascade-delete its `patch_group_patch` rows, and must apply the unstage rule to every group it was in (drop the tail of the patch set within each group).                                                                                                                                                        |
+| Call                                                            | Change                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/{project}/patches` (`saveSourceFilePatch`)            | **Add** `patchGroupId: string \| null` and `alsoAddPatchIds: string[]` to the body. `null` group id = "my current group, create it if absent"; the response returns the id used. `alsoAddPatchIds` is the closure prefix. The whole thing is one transaction: patch row + group membership for the patch + membership for the closure.                                                              |
+| `GET /v1/{project}/applicable/patches` (`fetchPatchesInternal`) | **Additive only** — see §6.3. Each patch gains `patchGroupIds: string[]`. Response gains top-level `patchGroups: [{ id, authorId, createdAt, baseCommit, publishedAt }]`. Existing fields unchanged.                                                                                                                                                                                                |
+| `POST /v1/{project}/commit` (`commit`)                          | Already takes a prepared commit built from a patch id subset, so no signature change. It must additionally reject a stale `base_commit` (§2.2) with a distinguishable error, mark the group published, mark the committed patches applied so `applied.commitSha` is set for exactly those, and **remove the published patch ids from every other group** that contains them (they are applied now). |
+| `DELETE /v1/{project}/patches`                                  | Deleting a patch must cascade-delete its `patch_group_patch` rows, and must apply the unstage rule to every group it was in (drop the tail of the patch set within each group).                                                                                                                                                                                                                     |
 
 New calls:
 
@@ -381,23 +447,29 @@ The harness then:
 3. Applies **all** patches to `base` in chain order → `full`.
 4. Applies **only `G`** in chain order → `stagedResult`.
 5. Applies `G`, then the complement, in chain order → `rebasedResult`.
+6. Treats `stagedResult` as a new base — i.e. simulates "the user hit Publish" — and
+   re-runs closure + validation for every _other_ author's group against it →
+   `rebasedGroups`. This is the §2.2 base-moved path, and it is the one the harness has
+   to cover because it cannot be reasoned about from the metadata alone.
 
 ### 7.2 Invariants asserted
 
-| #   | Invariant                                                                                                                                                           | Catches                                                                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Prefix** — for every patch set `PS`, `G ∩ PS` is a prefix of `PS`.                                                                                                | The core rule. Pure metadata check, cheap, run on every scenario.                                                                               |
-| 2   | **Applicability** — step 4 never throws and never produces a patch error.                                                                                           | Array index-out-of-bounds from a hole in the middle of a patch set. The failure mode that today shows up as a failed commit.                    |
-| 3   | **Fidelity** — for every staged patch set path, the value at that path in `stagedResult` equals the value in `full`.                                                | The publish delivering something other than what the compare view showed.                                                                       |
-| 4   | **Non-interference** — for every _unstaged_ patch set path, the value in `stagedResult` equals the value in `base`.                                                 | Staging one change leaking a neighbouring change. This is the assertion that fails on the `items/foo` vs `items/foobar` prefix bug (§1, bug 1). |
-| 5   | **Convergence** — `rebasedResult` deep-equals `full`.                                                                                                               | Unstaged patches becoming unapplicable after someone else publishes.                                                                            |
-| 6   | **Minimality** — `G` equals exactly the union of the prefixes of the patch sets touched by `staged`; no extra ids.                                                  | Over-broad closure quietly publishing other people's work. Guards against "fix it by pulling in the whole module".                              |
-| 7   | **Idempotence** — closure(closure(S)) == closure(S); stage-then-unstage returns to the original `G`.                                                                | Concurrent clients computing repairs (§4.1).                                                                                                    |
-| 8   | **Merge repair** — after inserting a patch that coalesces two patch sets, re-running validation restores invariant 1, and under the "extend" policy `G` only grows. | §4.1, the retroactive-invalidation case.                                                                                                        |
+| #   | Invariant                                                                                                                                                           | Catches                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Prefix** — for every patch set `PS`, `G ∩ PS` is a prefix of `PS`.                                                                                                | The core rule. Pure metadata check, cheap, run on every scenario.                                                                                      |
+| 2   | **Applicability** — step 4 never throws and never produces a patch error.                                                                                           | Array index-out-of-bounds from a hole in the middle of a patch set. The failure mode that today shows up as a failed commit.                           |
+| 3   | **Fidelity** — for every staged patch set path, the value at that path in `stagedResult` equals the value in `full`.                                                | The publish delivering something other than what the compare view showed.                                                                              |
+| 4   | **Non-interference** — for every _unstaged_ patch set path, the value in `stagedResult` equals the value in `base`.                                                 | Staging one change leaking a neighbouring change. This is the assertion that fails on the `items/foo` vs `items/foobar` prefix bug (§1, bug 1).        |
+| 5   | **Convergence** — `rebasedResult` deep-equals `full`.                                                                                                               | Unstaged patches becoming unapplicable after someone else publishes.                                                                                   |
+| 6   | **Minimality** — `G` equals exactly the union of the prefixes of the patch sets touched by `staged`; no extra ids.                                                  | Over-broad closure quietly publishing other people's work. Guards against "fix it by pulling in the whole module".                                     |
+| 7   | **Idempotence** — closure(closure(S)) == closure(S); stage-then-unstage returns to the original `G`.                                                                | Concurrent clients computing repairs (§4.1).                                                                                                           |
+| 8   | **Merge repair** — after inserting a patch that coalesces two patch sets, re-running validation restores invariant 1, and under the "extend" policy `G` only grows. | §4.1, the retroactive-invalidation case.                                                                                                               |
+| 9   | **Staged is the truth** — `stagedResult` deep-equals the group-scoped source the studio and preview rendered for that author.                                       | The studio and the publish disagreeing. This is §2 stated as an assertion, and the reason the harness applies patches rather than inspecting metadata. |
+| 10  | **Base moved** — every group in `rebasedGroups` either still satisfies invariants 1–4 against the new base, or is explicitly reported as conflicting.               | The §2.2 failure mode: a group silently applying to a path that moved under it after someone else published. Never silent, either way.                 |
 
 ### 7.3 Generative layer
 
-Invariants 1–8 are all decidable from the scenario, so they can be driven by a
+Invariants 1–10 are all decidable from the scenario, so they can be driven by a
 seeded generator rather than only hand-written cases:
 
 - random schemas over `object` / `array` / `record` / `string` / `number` / `image`,
@@ -433,30 +505,48 @@ set is exactly one stage/unstage unit.
 - When staging pulls in extra rows, show them with the "required by your change"
   note from `added_reason`, and show the author. This is where the §4.1 extend
   policy stops feeling like magic.
+- **Confirm before enlarging the group across authors.** Per §2.3, editing an array
+  someone else has unstaged work on forces their patch into your group. Say so at the
+  moment of staging — "publishing this also publishes Bob's change to Items" — rather
+  than letting the group grow silently.
+- **Unstage is not sticky.** Also per §2.3, unstaging a patch set you then edit pulls
+  it back. Worth a line on the unstaged row so the user isn't surprised twice.
 - Publish sends only the staged ids. `DraftChanges` needs the same split so the
   pending-changes count isn't misleading.
+- Since staged is the truth (§2), the studio outside the compare view needs no
+  staged/unstaged affordance at all — it simply renders the group. The only visible
+  hint that unstaged work exists belongs in the compare view and the pending count.
 - FS mode: hide the whole affordance (single implicit group).
 
 ---
 
-## 9. Open questions
+## 9. Settled, and still open
 
-1. **Preview divergence.** Once groups are strict subsets, Alice's editor shows
-   `base + Alice's group` and Bob's shows `base + Bob's group`. They will show
-   different content for the same URL. Is that acceptable, or does the editor keep
-   showing all pending patches and only _publish_ the subset? The second is much
-   less surprising, but it means the compare view's "before" is not the state you
-   were editing against.
-2. **Publishing someone else's patch.** The prefix rule means Alice's publish can
-   include Bob's patch. Should Bob be told? At minimum his group should show the
+### Settled
+
+- **Staged is the truth** — studio, preview and publish all show `base + your group`;
+  only the compare view shows more. §2, with its consequences.
+- **`markApplied` gets implemented.** It is required, not optional: §2.2 means a group
+  is only valid relative to a base commit, so once anyone publishes, every other group
+  must be revalidated against the new base. `analyzePatches` already skips patches with
+  `appliedAt` set, so the missing half is marking them — the `// TODO:` in
+  `ValServer.ts` (~line 1886). In block C of §10.
+- **Naming: patch group.** §2.5.
+
+### Still open
+
+1. **Publishing someone else's patch.** The prefix rule means Alice's publish can
+   include Bob's patch (§2.3). Should Bob be told? At minimum his group must show the
    patch as published rather than silently vanishing.
-3. **Empty publish.** After a truncating repair a group can become empty. Publish
+2. **Empty publish.** After a truncating repair a group can become empty. Publish
    should refuse with a clear message rather than committing nothing.
-4. **Rebase after publish.** Unstaged patches were built on a chain that now has a
-   new commit under it. `analyzePatches` skips patches with `appliedAt` set, and
-   `markApplied` is still a `// TODO:` in `ValServer.ts` (~line 1886). That TODO is
-   on the critical path for this feature and should be resolved as part of it.
-5. **Multiple groups per user.** The schema allows it; the UI does not. Worth
+3. **Revalidation outcome when base moves.** §2.2 says revalidate a group against the
+   new base before committing. When the revalidation _fails_ — the group's patches no
+   longer apply — what does the user see? Options: block publish and show a conflict on
+   the affected patch sets; or drop the unapplicable patch sets from the group and make
+   the user redo them. This is the one genuinely unresolved design question left, and
+   it is the first thing block C runs into.
+4. **Multiple groups per user.** The schema allows it; the UI does not. Worth
    confirming that "one open group per user per branch" is the intended constraint
    for v1, since it decides whether the group id needs to appear in URLs.
 
@@ -476,7 +566,7 @@ has any patch-group support at all.
 - [ ] `stageClosure(patchSets, patchIds)` and `unstageClosure(patchSets, patchIds)`
       in `packages/ui/spa/utils/patchGroups.ts`, plus `validateGroup` /
       `repairGroup` for §4.1. Export a `CLOSURE_VERSION` constant.
-- [ ] The harness and invariants 1–8 from §7 in
+- [ ] The harness and invariants 1–10 from §7 in
       `packages/ui/spa/utils/patchGroups.test.ts`.
 - [ ] The seeded generative layer from §7.3, with shrinking.
 
@@ -490,18 +580,29 @@ has any patch-group support at all.
       behaviour while every patch is in the group.
 - [ ] `ValOpsFS`: single implicit group containing every pending patch.
 
-**C. Strict subsets (first real behaviour change; needs the home repo).**
+**C. Strict subsets — "staged is the truth" (first real behaviour change; needs the
+home repo).**
 
 - [ ] Stage/unstage routes (§6.2) and the `ValOpsHttp` calls behind them.
-- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so the
-      server-rendered source matches the staged view.
-- [ ] Apply only the group's patches to the optimistic source in `ValSyncEngine`.
-- [ ] Resolve the `markApplied` TODO in `ValServer.ts` (§9.4).
+- [ ] Apply only the group's patches to the optimistic source in `ValSyncEngine`. This
+      is the change that makes the studio _and_ the browser-rendered preview staged
+      (§2.1) — one change, both surfaces.
+- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so the server-applied
+      source agrees with the client's.
+- [ ] `patchGroupsSha` in the `stat` response, and treat a change in it as
+      source-invalidating in `syncWithUpdatedStat` — otherwise stage/unstage in one tab
+      never reaches another, and §4.1 repairs don't propagate (§2.4).
+- [ ] Implement `markApplied` (`ValServer.ts` ~line 1886). Required, not optional —
+      see §9.
+- [ ] Record and check `patch_group.base_commit` at publish: revalidate the group when
+      base has moved instead of applying blind (§2.2). Open question 3 in §9 decides
+      what the user sees when revalidation fails.
 
 **D. UI.**
 
 - [ ] Staged / unstaged split and per-row toggles in `ComparePatchSets` (§8).
 - [ ] "Required by your change" attribution from `added_reason`.
+- [ ] Cross-author confirm before staging enlarges the group (§2.3).
 - [ ] `DraftChanges` count reflects the staged set.
 
 Before marking this ready: `pnpm run lint`, `pnpm -w run format`,
