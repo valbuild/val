@@ -716,6 +716,12 @@ export const Api = {
           // it to stay applicable. Computed on the client, which is the only side
           // that has the schema needed to derive patch sets.
           alsoAddPatchIds: z.array(PatchId).optional(),
+          // A group holds every pending patch by default, so a new patch joins every
+          // other open group too — except ones deliberately holding this patch's
+          // region back. The server cannot work out which those are, because "this
+          // patch's region" is a patch set and that needs the schema, so the client
+          // names them here.
+          holdBackForGroupIds: z.array(z.string()).optional(),
           closureVersion: z.number().optional(),
         }),
         cookies: {

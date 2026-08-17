@@ -67,11 +67,14 @@ deleted — and this feature does not change it.
 
 There is therefore **no base-commit validity condition on a group** and nothing for you
 to check before committing. A group is a set of ids applicable on top of whatever commit
-is current. The client-side closure described below is what guarantees this: two patches
-that could interfere are always in the same patch set, and the prefix rule means the
-later one's author already had the earlier one staged, so committing the earlier one into
-the base cannot move the later one's paths. Two patches in different patch sets are
-independent by definition.
+is current.
+
+What guarantees that: a group holds everything pending by default, so an author's view
+already contained every other pending patch when they picked their path. Committing some
+of those patches into the base does not move anything, because they were already applied
+in the view the path was chosen against. The only way a group ends up _not_ holding a
+pending patch is that its owner unstaged it — and then that region is read-only for them,
+so they cannot have picked a path inside it. Either way there is nothing to rebase.
 
 Do not add a stale-base check, and do not try to rebase or repair a group.
 
