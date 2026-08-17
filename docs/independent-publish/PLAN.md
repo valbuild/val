@@ -59,7 +59,7 @@ the new key is compared against every existing key by string prefix:
 
 So patch sets **grow and coalesce over time**. A set that today is
 `?items/0/title` can tomorrow become `?items` because someone did an array
-insert. This is the single most important property for this feature — see §5.3.
+insert. This is the single most important property for this feature — see §4.1.
 
 **Ordering.** `orderedInsertKeys` and `patches[]` are both **newest first**; a
 touched set is moved back to the head. `serialize()` returns
@@ -379,16 +379,16 @@ The harness then:
 
 ### 7.2 Invariants asserted
 
-| #   | Invariant                                                                                                                                                           | Catches                                                                                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **Prefix** — for every patch set `PS`, `G ∩ PS` is a prefix of `PS`.                                                                                                | The core rule. Pure metadata check, cheap, run on every scenario.                                                                          |
-| 2   | **Applicability** — step 4 never throws and never produces a patch error.                                                                                           | Array index-out-of-bounds from a hole in the middle of a patch set. The failure mode that today shows up as a failed commit.               |
-| 3   | **Fidelity** — for every staged patch set path, the value at that path in `stagedResult` equals the value in `full`.                                                | The publish delivering something other than what the compare view showed.                                                                  |
-| 4   | **Non-interference** — for every _unstaged_ patch set path, the value in `stagedResult` equals the value in `base`.                                                 | Staging one change leaking a neighbouring change. This is the assertion that fails on the `items/foo` vs `items/foobar` prefix bug (§1.1). |
-| 5   | **Convergence** — `rebasedResult` deep-equals `full`.                                                                                                               | Unstaged patches becoming unapplicable after someone else publishes.                                                                       |
-| 6   | **Minimality** — `G` equals exactly the union of the prefixes of the patch sets touched by `staged`; no extra ids.                                                  | Over-broad closure quietly publishing other people's work. Guards against "fix it by pulling in the whole module".                         |
-| 7   | **Idempotence** — closure(closure(S)) == closure(S); stage-then-unstage returns to the original `G`.                                                                | Concurrent clients computing repairs (§4.1).                                                                                               |
-| 8   | **Merge repair** — after inserting a patch that coalesces two patch sets, re-running validation restores invariant 1, and under the "extend" policy `G` only grows. | §4.1, the retroactive-invalidation case.                                                                                                   |
+| #   | Invariant                                                                                                                                                           | Catches                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Prefix** — for every patch set `PS`, `G ∩ PS` is a prefix of `PS`.                                                                                                | The core rule. Pure metadata check, cheap, run on every scenario.                                                                               |
+| 2   | **Applicability** — step 4 never throws and never produces a patch error.                                                                                           | Array index-out-of-bounds from a hole in the middle of a patch set. The failure mode that today shows up as a failed commit.                    |
+| 3   | **Fidelity** — for every staged patch set path, the value at that path in `stagedResult` equals the value in `full`.                                                | The publish delivering something other than what the compare view showed.                                                                       |
+| 4   | **Non-interference** — for every _unstaged_ patch set path, the value in `stagedResult` equals the value in `base`.                                                 | Staging one change leaking a neighbouring change. This is the assertion that fails on the `items/foo` vs `items/foobar` prefix bug (§1, bug 1). |
+| 5   | **Convergence** — `rebasedResult` deep-equals `full`.                                                                                                               | Unstaged patches becoming unapplicable after someone else publishes.                                                                            |
+| 6   | **Minimality** — `G` equals exactly the union of the prefixes of the patch sets touched by `staged`; no extra ids.                                                  | Over-broad closure quietly publishing other people's work. Guards against "fix it by pulling in the whole module".                              |
+| 7   | **Idempotence** — closure(closure(S)) == closure(S); stage-then-unstage returns to the original `G`.                                                                | Concurrent clients computing repairs (§4.1).                                                                                                    |
+| 8   | **Merge repair** — after inserting a patch that coalesces two patch sets, re-running validation restores invariant 1, and under the "extend" policy `G` only grows. | §4.1, the retroactive-invalidation case.                                                                                                        |
 
 ### 7.3 Generative layer
 
