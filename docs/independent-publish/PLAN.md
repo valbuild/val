@@ -1,6 +1,11 @@
 # Independent publish: staging and unstaging patches
 
-Status: **plan / RFC**. No implementation in this PR.
+Status: **design agreed, implementation in progress.** This document is the plan for
+the branch it lives on; the implementation lands on the same branch, in the phases set
+out in §6.3 and §7. The plan commit is deliberately first so the model and the
+invariant in §4 can be reviewed before any code depends on them. Keep this document
+updated as the implementation diverges from it — it is the reference the
+content.val.build side is built against.
 
 The goal: let two people work in the same Val project at the same time and let each
 of them publish their own small change (say, just a title) without first merging or
@@ -454,3 +459,51 @@ set is exactly one stage/unstage unit.
 5. **Multiple groups per user.** The schema allows it; the UI does not. Worth
    confirming that "one open group per user per branch" is the intended constraint
    for v1, since it decides whether the group id needs to appear in URLs.
+
+---
+
+## 10. Implementation checklist for this branch
+
+Ordered so that each block is reviewable on its own and nothing depends on
+content.val.build until block C. Blocks A and B are shippable before the home repo
+has any patch-group support at all.
+
+**A. Closure + test rig (no API, no behaviour change).**
+
+- [ ] Fix the two `PatchSets.insertPath` bugs from §1 — segment-aware prefix
+      matching, and `insertedPatches.add` on the no-schema path. Add the failing
+      cases to `PatchSets.test.ts` first.
+- [ ] `stageClosure(patchSets, patchIds)` and `unstageClosure(patchSets, patchIds)`
+      in `packages/ui/spa/utils/patchGroups.ts`, plus `validateGroup` /
+      `repairGroup` for §4.1. Export a `CLOSURE_VERSION` constant.
+- [ ] The harness and invariants 1–8 from §7 in
+      `packages/ui/spa/utils/patchGroups.test.ts`.
+- [ ] The seeded generative layer from §7.3, with shrinking.
+
+**B. Client plumbing behind a flag (still no behaviour change).**
+
+- [ ] Track group membership in `ValSyncEngine`; parse the annotations from §6.2 and
+      tolerate their absence (FS mode, old home repo).
+- [ ] Send `patchGroupId` + `alsoAddPatchIds` on `PUT /patches`; add the fields to
+      `ApiRoutes.ts` and thread them through `ValOpsHttp.saveSourceFilePatch`.
+- [ ] Send the group's ids to `/save` instead of all pending ids. Identical
+      behaviour while every patch is in the group.
+- [ ] `ValOpsFS`: single implicit group containing every pending patch.
+
+**C. Strict subsets (first real behaviour change; needs the home repo).**
+
+- [ ] Stage/unstage routes (§6.2) and the `ValOpsHttp` calls behind them.
+- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so the
+      server-rendered source matches the staged view.
+- [ ] Apply only the group's patches to the optimistic source in `ValSyncEngine`.
+- [ ] Resolve the `markApplied` TODO in `ValServer.ts` (§9.4).
+
+**D. UI.**
+
+- [ ] Staged / unstaged split and per-row toggles in `ComparePatchSets` (§8).
+- [ ] "Required by your change" attribution from `added_reason`.
+- [ ] `DraftChanges` count reflects the staged set.
+
+Before marking this ready: `pnpm run lint`, `pnpm -w run format`,
+`pnpm run -r typecheck`, `pnpm test`, `pnpm run build`, and
+`cd examples/next && pnpm run build` — per the CI list in `.agent/rules.md`.
