@@ -14,6 +14,9 @@ import {
 import { result } from "@valbuild/core/fp";
 import { PatchSets } from "./PatchSets";
 import {
+  editWouldRestage,
+  heldPatchSets,
+  holdsRegionOf,
   inChainOrder,
   indexPatchSets,
   PatchGroup,
@@ -60,7 +63,20 @@ export type EditStep = {
   by: Author;
   /** What this author was trying to do, in their own words. */
   intent: string;
-  ops: Operation[];
+  /**
+   * The ops, as a function of what this author can actually see right now.
+   *
+   * **This must be a function whenever the path depends on position.** An array
+   * index only means something relative to a particular view, and the author picks
+   * it while looking at their own. Hand-writing `["items", "2", "title"]` quietly
+   * assumes a view the author may not have — which is exactly the class of bug
+   * this harness exists to find, so the harness must not be able to make that
+   * assumption on their behalf.
+   *
+   * A plain array is fine for paths that are position-independent: object fields
+   * and record keys.
+   */
+  ops: Operation[] | ((view: JSONValue) => Operation[]);
   /**
    * The same intent as a predicate over the author's own view.
    *
@@ -115,6 +131,12 @@ export type ScenarioResult = {
   report: string;
   /** Hard failures. Assert this is empty. */
   problems: string[];
+  /**
+   * Ids of edits the guard refused (`editWouldRestage`). Refusing is a correct
+   * outcome, not a failure, so it is reported separately from `problems` — a
+   * scenario that expects a refusal asserts on this.
+   */
+  blocked: string[];
 };
 
 export function runScenario(scenario: Scenario): ScenarioResult {
@@ -135,6 +157,10 @@ class Run {
   private readonly authors: Author[] = [];
   private readonly groups = new Map<Author, Set<PatchId>>();
   private readonly committed = new Set<PatchId>();
+  /** Edits the guard refused. Scenarios assert on this. */
+  private readonly blocked: string[] = [];
+  /** Ops as resolved against their author's view at pick time. */
+  private readonly resolvedOps = new Map<string, Operation[]>();
   private base: JSONValue;
   private index: PatchSetIndex = indexPatchSets([], []);
   private step = 0;
@@ -186,19 +212,80 @@ class Run {
   }
 
   finish(): ScenarioResult {
-    return { report: this.out.toString(), problems: dedupe(this.problems) };
+    return {
+      report: this.out.toString(),
+      problems: dedupe(this.problems),
+      blocked: this.blocked,
+    };
   }
 
   // #region steps
 
   private runEdit(step: EditStep) {
+    // Resolved against what this author can see *now*, before any closure runs.
+    // That is when a real author picks their path, so it is when the harness has
+    // to pick it too.
+    const view = this.applyGroup(this.base, this.group(step.by));
+    if (!view.ok) {
+      this.problems.push(
+        `step ${this.step}: cannot resolve ${step.edit}, ${step.by}'s view does not apply: ${view.error}`,
+      );
+      return;
+    }
+    const ops = typeof step.ops === "function" ? step.ops(view.doc) : step.ops;
+    this.resolvedOps.set(step.edit, ops);
+    this.out.line(
+      `${this.label()} ${step.by} edits ${step.edit}: ${renderOps(ops)}`,
+    );
+    this.out.line(`      intent      ${step.intent}`);
+    this.out.line(`      picked in   ${this.render(view.doc)}`);
+
+    // The guard. An edit into a patch set where this author has left something
+    // unstaged is refused, because their view of that region is not the region
+    // that will be published: re-staging would shift the content under the path
+    // they just picked. See `editWouldRestage`.
+    const blockers = new Set<PatchId>();
+    for (const op of ops) {
+      if (op.op === "file") {
+        continue;
+      }
+      for (const id of editWouldRestage(
+        this.index,
+        this.group(step.by),
+        this.scenario.moduleFilePath,
+        op,
+      )) {
+        blockers.add(id);
+      }
+      if (op.op === "move" || op.op === "copy") {
+        // A move touches two places, and `PatchSets` inserts it under both.
+        for (const id of editWouldRestage(
+          this.index,
+          this.group(step.by),
+          this.scenario.moduleFilePath,
+          { op: op.op, path: op.from },
+        )) {
+          blockers.add(id);
+        }
+      }
+    }
+    if (blockers.size > 0) {
+      this.out.line(
+        `      REFUSED     this section holds unstaged ${inChainOrder(
+          this.index,
+          blockers,
+        )
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")} — re-stage before editing here`,
+      );
+      this.blocked.push(step.edit);
+      this.showGroups();
+      return;
+    }
+
     this.pending.push(step);
     this.allEdits.push(step);
     this.reindex();
-    this.out.line(
-      `${this.label()} ${step.by} edits ${step.edit}: ${renderOps(step.ops)}`,
-    );
-    this.out.line(`      intent      ${step.intent}`);
     this.out.line(`      patch sets  ${this.renderSets()}`);
     // The author stages their own new patch. The closure pulls in whatever the
     // prefix invariant requires — which is how another author's earlier patch
@@ -208,6 +295,26 @@ class Run {
       [step.edit as PatchId],
       `required by ${step.edit}`,
     );
+    // The new patch also joins every *other* author's group, unless they have
+    // deliberately held that region back. See `DEFAULT_GROUP_IS_EVERYTHING`: a
+    // path only means what its author thought it meant if their view already
+    // contains everything the closure would pull in, and the only way to
+    // guarantee that is for every view to contain everything pending.
+    for (const author of this.authors) {
+      if (author === step.by) {
+        continue;
+      }
+      if (holdsRegionOf(this.index, this.group(author), step.edit as PatchId)) {
+        this.out.line(
+          `      not staged for ${author} — they hold this region back`,
+        );
+        continue;
+      }
+      this.groups.set(
+        author,
+        stageClosure(this.index, this.group(author), [step.edit as PatchId]),
+      );
+    }
     this.repairOthers(step.by, `${step.edit} changed the patch sets`);
     this.showGroups();
   }
@@ -350,7 +457,7 @@ class Run {
   private reindex() {
     const patchSets = new PatchSets();
     this.pending.forEach((patch, i) => {
-      for (const op of patch.ops) {
+      for (const op of this.opsOf(patch)) {
         patchSets.insert(
           this.scenario.moduleFilePath as ModuleFilePath,
           this.scenario.schema["executeSerialize"](),
@@ -374,7 +481,7 @@ class Run {
       if (!patch) {
         throw new Error(`Patch '${id}' is in a group but is not pending`);
       }
-      for (const op of patch.ops) {
+      for (const op of this.opsOf(patch)) {
         // `file` ops carry binary data, not source changes; the source op in the
         // same patch is what moves the content.
         if (op.op !== "file") {
@@ -477,11 +584,20 @@ class Run {
   private showGroups() {
     for (const author of this.authors) {
       const group = this.group(author);
+      const held = heldPatchSets(this.index, group);
       this.out.line(
         `      ${pad(author, 6)} ${pad(
           `{${inChainOrder(this.index, group).join(", ")}}`,
           16,
-        )} ${this.describe(this.applyGroup(this.base, group))}`,
+        )} ${this.describe(this.applyGroup(this.base, group))}` +
+          (held.length > 0
+            ? `   holds ${held
+                .map(
+                  ({ patchSet, unstaged }) =>
+                    `${shortLabel(patchSet)} [${unstaged.join(",")}]`,
+                )
+                .join(" ")}`
+            : ""),
       );
     }
   }
@@ -516,6 +632,14 @@ class Run {
       throw new Error(`Unknown author '${author}'`);
     }
     return found;
+  }
+
+  private opsOf(patch: EditStep): Operation[] {
+    const resolved = this.resolvedOps.get(patch.edit);
+    if (!resolved) {
+      throw new Error(`Ops for '${patch.edit}' were never resolved`);
+    }
+    return resolved;
   }
 
   private authorOfPatch(id: PatchId): Author {

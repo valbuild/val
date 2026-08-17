@@ -51,7 +51,7 @@ type PatchPath = string[];
  * checked explicitly: '?' when `outer` is a bare module file path, '/' when it
  * already has a patch path.
  */
-function isInsidePatchSetPath(inner: string, outer: string): boolean {
+export function isInsidePatchSetPath(inner: string, outer: string): boolean {
   if (!inner.startsWith(outer)) {
     return false;
   }

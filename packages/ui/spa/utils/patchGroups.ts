@@ -1,5 +1,6 @@
 import { PatchId } from "@valbuild/core";
-import { SerializedPatchSet } from "./PatchSets";
+import { Operation } from "@valbuild/core/patch";
+import { isInsidePatchSetPath, SerializedPatchSet } from "./PatchSets";
 
 /**
  * A patch group is the set of patches a user has chosen to publish.
@@ -129,6 +130,57 @@ export function indexPatchSets(
 
   return { sets, labels, setsOf, chainPosition };
 }
+
+/**
+ * Does this group hold back anything in any patch set that `patchId` belongs to?
+ *
+ * Used to decide whether a newly arrived patch should join this group. It joins by
+ * default — see `DEFAULT_GROUP_IS_EVERYTHING` — *unless* the author has
+ * deliberately held that region back, in which case it stays out and the region
+ * stays held.
+ */
+export function holdsRegionOf(
+  index: PatchSetIndex,
+  group: PatchGroup,
+  patchId: PatchId,
+): boolean {
+  const ordinals = index.setsOf.get(patchId) ?? [];
+  return ordinals.some((ordinal) =>
+    index.sets[ordinal].some(
+      (member) => member !== patchId && !group.has(member),
+    ),
+  );
+}
+
+/**
+ * Why a group contains *everybody's* pending patches by default, not just its
+ * owner's.
+ *
+ * The tempting model is "your group starts empty and your own edits land in it".
+ * It does not work, and the scenario suite has the counterexample as an executable
+ * test.
+ *
+ * The closure runs when a patch is *created* — which is after its author has
+ * already picked a path. If Alice has inserted at `items/0` and that insert is not
+ * in Bob's group, Bob sees `[A, B, C]` and picks index 1 for "B". Creating his
+ * patch then closes his group over Alice's insert, index 1 becomes "A", and he has
+ * silently renamed the wrong element. Staging later cannot fix a path chosen
+ * earlier.
+ *
+ * So for a path to mean what its author thought it meant, their view at pick time
+ * must already contain everything the closure would pull in. The only way to
+ * guarantee that without predicting the future is for the view to contain
+ * everything pending. Which is also exactly today's behaviour — every pending
+ * patch is applied for everyone — so this model is a strict extension of it rather
+ * than a new risk.
+ *
+ * Independence then comes from **unstaging**: carve a patch set out of your group
+ * and it leaves your view and your publish. The cost is that the carved-out region
+ * becomes read-only for you until you re-stage (`editWouldRestage`), because
+ * inside it your view and the published result disagree — which is the same hole
+ * again, just entered deliberately.
+ */
+export const DEFAULT_GROUP_IS_EVERYTHING = true;
 
 /**
  * Stage `requested` into `group`, pulling in whatever the prefix invariant
@@ -262,6 +314,99 @@ export function validateGroup(
     }
   });
   return violations;
+}
+
+export type HeldPatchSet = {
+  patchSet: string;
+  /** Pending patches in this patch set that are NOT in the group. */
+  unstaged: PatchId[];
+};
+
+/**
+ * Patch sets in which this group has left something unstaged.
+ *
+ * A held patch set is one where the author's view and the published result will
+ * disagree: they see `base`, everyone else sees `base + the unstaged patch`. That
+ * is fine as long as they only *look*. It stops being fine the moment they edit
+ * there — see `editWouldRestage`.
+ */
+export function heldPatchSets(
+  index: PatchSetIndex,
+  group: PatchGroup,
+): HeldPatchSet[] {
+  const held: HeldPatchSet[] = [];
+  index.sets.forEach((set, ordinal) => {
+    const unstaged = set.filter((patchId) => !group.has(patchId));
+    if (unstaged.length > 0) {
+      held.push({ patchSet: index.labels[ordinal], unstaged });
+    }
+  });
+  return held;
+}
+
+/**
+ * Which unstaged patches an edit by `op` would drag back into the group.
+ *
+ * **This is a guard, not a convenience.** The prefix invariant says a group must
+ * be prefix-closed, so an edit into a held patch set re-stages everything before
+ * it. But the author picked their path — an array index, say — while looking at a
+ * view that did *not* include those patches. Re-staging them shifts the content
+ * under the path they just chose, and their edit silently lands somewhere else.
+ *
+ * Worked example (the scenario suite has it as an executable test): base
+ * `[A, B, C]`, Bob inserts `New` at the top, Alice unstages it so her view is
+ * `[A, B, C]`, Alice renames index 1 meaning `B` — and gets `[New, B*, B, C]`.
+ * She renamed `A`. It applies cleanly and the prefix invariant holds; only the
+ * content is wrong.
+ *
+ * So an edit for which this returns a non-empty list must be **refused**, and the
+ * author asked to re-stage first. Re-staging updates their view, and only then can
+ * they pick a path that means what they think it means. Rejecting an edit is
+ * annoying; corrupting one silently is worse.
+ *
+ * The candidate keys mirror `PatchSets.insert`, because being coarser than it is
+ * would block safe edits and being finer would miss unsafe ones:
+ *
+ * - `replace` keys on the op path itself, so that is the only candidate. Widening
+ *   it to the parent would make a `replace` on a top-level field key the whole
+ *   module, which contains every patch set — so holding anything anywhere would
+ *   block every edit, and staging would be useless.
+ * - `add`/`remove`/`move`/`copy` may widen to the parent (arrays do; records do
+ *   not), so both the op path and its parent are candidates. That is the
+ *   over-approximating half, and it is the safe direction.
+ *
+ * Containment is checked in both directions: the edit is unsafe whether it lands
+ * inside a held patch set or is broad enough to swallow one.
+ */
+export function editWouldRestage(
+  index: PatchSetIndex,
+  group: PatchGroup,
+  moduleFilePath: string,
+  op: { op: Operation["op"]; path: readonly string[] },
+): PatchId[] {
+  const candidates = [patchSetLabel(moduleFilePath, op.path)];
+  if (op.op !== "replace" && op.path.length > 0) {
+    candidates.push(patchSetLabel(moduleFilePath, op.path.slice(0, -1)));
+  }
+  const restaged = new Set<PatchId>();
+  for (const { patchSet, unstaged } of heldPatchSets(index, group)) {
+    const overlaps = candidates.some(
+      (candidate) =>
+        candidate === patchSet ||
+        isInsidePatchSetPath(candidate, patchSet) ||
+        isInsidePatchSetPath(patchSet, candidate),
+    );
+    if (!overlaps) {
+      continue;
+    }
+    for (const patchId of unstaged) {
+      restaged.add(patchId);
+    }
+  }
+  return Array.from(restaged).sort(
+    (a, b) =>
+      positionOf(index.chainPosition, a) - positionOf(index.chainPosition, b),
+  );
 }
 
 /**
