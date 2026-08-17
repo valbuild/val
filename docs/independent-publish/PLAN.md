@@ -139,93 +139,63 @@ studio and preview are staged-correct together. The server-side path needs exact
 change: a `patch_group_id` on `PUT /sources/~?apply_patches=true` (§6.2), so the
 server-applied source agrees with the client's.
 
-### 2.2 Patches outlive commits, and the prefix invariant is what makes that safe
+### 2.2 A group holds everything by default, and why it has to
 
-Publish must not disturb anyone else's pending work: Alice publishes, and Bob keeps
-working on patches that were already there. Patches living past a commit is the existing
-design — `applicable/patches` is asked what applies on top of a given commit, and
-committed patches are marked `applied` rather than deleted — and this feature must not
-weaken it.
+The tempting model is "your group starts empty and your own edits land in it". It does
+not work. The scenario suite has the counterexample as an executable test
+(`patchGroups.test.ts`, "a path is picked before the closure runs").
 
-It doesn't, and the reason is worth writing down, because it is the argument that the
-whole design rests on.
+The closure runs when a patch is **created** — which is after its author has already
+picked a path. Suppose Alice has inserted at `items/0` and that insert is not in Bob's
+group. Bob sees `[A, B, C]`, picks index 1 meaning "B", and creating his patch closes
+his group over her insert: index 1 is now "A" and he has silently renamed the wrong
+element. It applies cleanly, the prefix invariant holds, nothing is detectably wrong
+except the content. **Staging later cannot fix a path chosen earlier.**
 
-A patch's op paths are computed against `base + the author's group at the time`. So the
-worry is: Alice publishes an array insert; Bob's pending `replace items/1/title` was
-written when that insert wasn't in Bob's view; after the commit it now points at a
-different element.
+So for a path to mean what its author thought it meant, their view at pick time must
+already contain everything the closure would pull in. Without predicting the future,
+the only way to guarantee that is for the view to contain everything pending — which
+is also exactly today's behaviour, so this is a strict extension of it rather than a
+new risk. It has the pleasant consequence that Publish with staging untouched is
+byte-identical to Publish today.
 
-**The closure rules that out.** Bob's `items/1/title` and Alice's `add items/0` are in
-the same patch set — `?items/1/title` is inside `?items`, so they coalesce. Which means
-that when Bob made his edit, the prefix invariant forced Alice's patch into Bob's group
-(§2.3). Bob computed `items/1` _with_ Alice's insert applied. After Alice publishes,
-that insert is in the base, and Bob's index still means what he meant.
+This corrects an earlier version of this document, which argued the closure made
+patch-set membership self-consistent. That argument assumed the closure ran before the
+author picked, and it does not. The suite only agreed with it because the scenarios
+hand-wrote the array indices; once op paths are resolved against the author's actual
+view, the hole appears immediately.
 
-Generalised:
+### 2.3 Independence comes from unstaging, and a held region is read-only
 
-> If two patches are in the same patch set, the later one's author necessarily had the
-> earlier one staged. So a patch's paths are always valid in any order that includes its
-> patch-set predecessors — which is exactly what publishing a prefix-closed group, and
-> then committing it into the base, produces.
+Since every group holds everything by default, publishing a subset requires an explicit
+act: **unstage**. Carve a patch set out of your group and it leaves your view and your
+publish, while still existing for everybody else. That is the whole feature — the
+headline scenario is Alice shipping a one-line title fix while Bob's half-finished list
+stays behind, then Bob finishing and shipping the list against the new base.
 
-And if two patches are in _different_ patch sets, they are independent by definition —
-that is what a patch set means — so a commit of one cannot move the other.
+But the §2.2 hole is still reachable deliberately: unstage a patch, then edit the
+region you just carved out. Your view no longer has that patch, so you pick a path
+against it, and the closure re-stages it and shifts everything under you. Base
+`[A, B, C]`, Bob inserts `Draft` at the top, Alice unstages it, Alice renames index 1
+meaning "B" — and gets `[Draft, B*, B, C]`. She renamed "A".
 
-So there is **no base-relative validity condition** and no `base_commit` to check. A
-group is a set of ids that can be applied on top of whatever commit is current. Publish
-does not need permission from the other groups, and the other groups need no rebase:
-their patches keep applying, and their authors keep working.
+The guard is `editWouldRestage`, and the semantics are: **a region you are holding is
+read-only until you stage it again.** The edit is refused and the author is asked to
+re-stage, which updates their view; only then can they pick a path that means what they
+think it means. Refusing an edit is annoying. Corrupting one silently is worse.
 
-Two honest residuals, neither of which needs new machinery:
+Being precise about "region" matters in both directions. The guard mirrors
+`PatchSets.insert`: it keys a `replace` on the op path alone, and only adds the parent
+for ops that can widen to it. Widening a `replace` would make a top-level field key the
+whole module, which contains every patch set — so holding one region would block every
+edit and unstaging would be pointless. There is a unit test for exactly that.
 
-- The argument is only as good as the patch sets. If a patch set is too _narrow_ — as it
-  is today with the segment-boundary bug in §1 — two genuinely interdependent patches
-  land in different sets, the closure never links them, and the guarantee above does not
-  hold. That is why fixing that bug is block A and not a footnote, and why the rig
-  asserts non-interference (§7, invariant 4) rather than trusting the grouping.
-- `markApplied` is still required, but for a plainer reason than I first wrote: once
-  Alice's commit lands, patches she published must be reported as `applied` so nobody
-  re-applies them and so they leave the other groups. `analyzePatches` already skips
-  patches with `appliedAt` set, so the missing half is the marking (§9).
+Two things follow that the UI has to carry:
 
-### 2.3 You cannot leave someone else's array edit unstaged
-
-If Bob has an unstaged patch on `items` and Alice edits that same array, the array
-patch set contains Bob's patch, so the closure (§4) pulls it into Alice's group. Alice
-_cannot_ make that edit while leaving Bob's out — the prefix invariant forbids it.
-
-When Alice's edit comes _after_ Bob's, this is not just correct but load-bearing: the
-closure fires before she picks a path, so her index is computed against a view that
-already includes his insert, which is what §2.2 relies on. Scalar `replace` on a
-different field has no such interaction — that is the case the whole feature exists to
-serve.
-
-**But the reverse order is a real hole, and the scenario suite found it.** If Alice
-_unstages_ Bob's patch and then edits that array, she picks her path against a view
-without his insert — and the closure immediately re-stages it, shifting everything
-under her. She renames the wrong element. Concretely
-(`patchGroups.test.ts`, "KNOWN HOLE"): base `[A, B, C]`, Bob inserts `New` at the top,
-Alice unstages it so her view is `[A, B, C]` again, Alice renames index 1 meaning
-`B` — and ends up with `[New, B*, B, C]`.
-
-It applies cleanly, the prefix invariant holds, and nothing is detectably wrong except
-the content. That is exactly why the rig checks author intent rather than group
-membership. The defect is currently **asserted** in the suite rather than hidden, so
-the assertion changes when it is fixed.
-
-Three ways out, none free — this is the open decision:
-
-1. **Do not offer unstage for a patch set the author has pending edits in**, and once
-   they edit that region again, require an explicit re-stage. Cheapest, and makes
-   unstage feel like a mode rather than a toggle.
-2. **Rebase the author's own pending ops** when a re-stage shifts them. Correct, and by
-   far the most work — it is operational transform, for arrays, in the client.
-3. **Treat an edit into a patch set holding an unstaged patch as a conflict** the author
-   resolves by hand. Honest, and the most annoying.
-
-My recommendation is 1: it is the only one that does not need new machinery, and the
-constraint it imposes ("finish or re-stage before editing here again") is explainable in
-one sentence of UI copy.
+- Held rows stay **visible and re-stageable**. If unstaging hid the change, unstaging
+  would be a one-way trapdoor with no way back.
+- Toggling a row can move more than that row, because a patch set is the unit that must
+  move together. The tooltip names what else moves and whose it is.
 
 ### 2.4 Divergent views are accepted
 
@@ -622,97 +592,82 @@ set is exactly one stage/unstage unit.
 
 ### Settled
 
-- **Staged is the truth** — studio, preview and publish all show `base + your group`;
-  only the compare view shows more. §2, with its consequences.
-- **Patches outlive commits; groups are not base-relative.** Alice publishes, Bob keeps
-  working, and Bob's patches keep applying — guaranteed by the prefix invariant rather
-  than by a rebase. §2.2 has the argument. No `base_commit`, no revalidation step.
-- **`markApplied` gets implemented.** Required, but for the plain reason: published
-  patches must be reported `applied` so nobody re-applies them and so they leave the
-  other groups. `analyzePatches` already skips patches with `appliedAt` set, so the
-  missing half is the marking — the `// TODO:` in `ValServer.ts` (~line 1886). Block C.
+- **Staged is the truth** — the studio, the preview and Publish all show
+  `base + your group`; only the compare view shows more. §2.
+- **A group holds everything pending by default.** Not a preference: §2.2 has the
+  executable counterexample that rules out the alternative. Publish with staging
+  untouched is identical to Publish today.
+- **Independence comes from unstaging**, and a region you are holding is read-only until
+  you stage it again. §2.3, guarded by `editWouldRestage` and covered by the suite.
+- **Patches outlive commits.** Alice publishes, Bob keeps working, and Bob's pending
+  patches still apply on the new base. No `base_commit`, no rebase step. The
+  "publish then continue" scenarios cover it.
 - **Naming: patch group.** §2.5.
+- **Repair policy: `extend`.** §4.1. The suite runs the same scenario under both;
+  `truncate` drops the user's own work while leaving a perfectly valid group, so its
+  cost is invisible to assertions and visible only to a user who notices their edit
+  never went live.
+- **`markApplied` gets implemented** — published patches must be reported `applied` so
+  nobody re-applies them and so they leave the other groups.
 
 ### Still open
 
-1. **Unstage then re-edit corrupts the edit (§2.3).** Found by the scenario suite and
-   currently asserted as a known defect rather than fixed. Recommendation is to refuse
-   unstage for a patch set the author has pending edits in. **This is the one that
-   blocks shipping unstage.**
-2. **Array co-editing entangles both authors.** Once two authors have both edited the
+1. **Array co-editing entangles both authors.** Once two authors have both edited the
    same array and the first returns to it, both groups contain both authors' work and
-   neither can publish alone — see "DECISION 1" in `patchGroups.test.ts`. Arrays are
-   therefore effectively single-writer for independent publishing. Accept that, or make
-   patch sets finer than "the whole array" (which `PatchSets` explicitly declined to do:
-   "would need a lot of logic").
-3. **Publishing someone else's patch.** The prefix rule means Alice's publish can
-   include Bob's patch (§2.3). Should Bob be told? At minimum his group must show the
-   patch as published rather than silently vanishing.
-4. **Empty publish.** After a truncating repair a group can become empty. Publish
-   should refuse with a clear message rather than committing nothing.
-5. **Multiple groups per user.** The schema allows it; the UI does not. Worth
-   confirming that "one open group per user per branch" is the intended constraint
-   for v1, since it decides whether the group id needs to appear in URLs.
+   neither can publish alone. Arrays are therefore effectively single-writer for
+   independent publishing. Either accept that, or make patch sets finer than "the whole
+   array" — which `PatchSets` explicitly declined to do ("would need a lot of logic").
+   Nothing is broken either way; it is a question of how much independence arrays get.
+2. **Publishing someone else's patch.** A group holds everything by default, so any
+   publish carries other people's work unless the publisher unstages it. Should they be
+   warned, or the other authors told? At minimum a published patch must leave every
+   group rather than silently vanishing.
+3. **Empty publish.** A group can be emptied by unstaging. Publish should refuse with a
+   clear message rather than committing nothing.
+4. **`PatchSets.insert` takes one op at a time.** It is called per op, and
+   `insertedPatches.add` sits before the `file`/`test` early return, so a patch whose
+   _first_ op is a `file` op marks itself inserted and has its source ops dropped on
+   every later call. It does not bite today only because `createFilePatch` and
+   `ModuleGallery` both emit the source op first. The fix is to make `insert` take a
+   whole patch, which changes its signature and four call sites — worth doing, but as
+   its own change.
+5. **Multiple groups per user.** The schema allows it; the UI does not. Confirm that
+   "one open group per user per branch" is the v1 constraint, since it decides whether
+   the group id needs to appear in URLs.
 
----
+## 10. What is built, and what is left
 
-## 10. Implementation checklist for this branch
+Built on this branch, each as its own commit:
 
-Ordered so that each block is reviewable on its own and nothing depends on
-content.val.build until block C. Blocks A and B are shippable before the home repo
-has any patch-group support at all.
+- [x] **Closure and guard** — `utils/patchGroups.ts`: `stageClosure`,
+      `unstageClosure`, `validateGroup`, `repairGroup`, `heldPatchSets`,
+      `holdsRegionOf`, `editWouldRestage`, `CLOSURE_VERSION`.
+- [x] **Segment-aware patch set paths** in `PatchSets.insertPath` (§1, bug 1).
+- [x] **Scenario suite** — `patchGroupScenario.ts` plus `patchGroups.test.ts`: a step
+      script (edit / stage / unstage / publish) with op paths resolved against each
+      author's own view, a readable trace per scenario, and hard assertions on
+      invariants, applicability, author intent and refusals.
+- [x] **Unit tests** — `patchGroupsStaging.test.ts`, one per primitive.
+- [x] **API surface** — patch group fields on `/patches`, `patchGroupsSha` on `/stat`,
+      and `/patch-groups/~/patches`; `ValOpsHttp` forwarding; FS mode acknowledging.
+- [x] **UI** — `PatchStagingProvider`, `StagingToggle`, `HeldSummary`, wired into
+      `ComparePatchSets`, with four Storybook stories.
 
-**A. Closure + test rig (no API, no behaviour change).**
+Left, and **blocked on content.val.build** (see `HOME_REPO_PROMPT.md`):
 
-- [x] Segment-aware prefix matching in `PatchSets.insertPath` (§1, bug 1).
-- [x] `stageClosure` / `unstageClosure` / `validateGroup` / `repairGroup` and
-      `CLOSURE_VERSION` in `packages/ui/spa/utils/patchGroups.ts`.
-- [x] The scenario harness in `patchGroupScenario.ts` and the first scenarios in
-      `patchGroups.test.ts` (§7).
-- [ ] Decide on §1 bug 2: change `PatchSets.insert` to take a whole patch rather
-      than one op, so patch-level dedupe is patch-level. Four call sites.
-- [ ] More scenarios — this is the part to iterate on before anything else lands.
-      Known gaps: `move` between two arrays (one patch, two patch sets); a `file`
-      op patch whose source op is staged; a patch with no schema (whole-module
-      fallback); nested arrays; a patch set that merges _after_ an unstage;
-      three-author chains where two merges interact.
-- [ ] Explicit unstage scenarios. The harness currently only exercises staging,
-      because staging is what happens implicitly on every edit; unstage needs the
-      scenario spec to grow a step list rather than a flat patch list.
-- [ ] The seeded generative layer from §7.3, with shrinking.
+- [ ] `ValSyncEngine`: hold the group, send `patchGroupId` + `alsoAddPatchIds` on
+      `PUT /patches`, apply only the group's patches to the optimistic source, compute
+      and react to `patchGroupsSha`, and refuse edits into a held region via
+      `editWouldRestage`.
+- [ ] Feed the real group into `PatchStagingProvider` where the compare view is
+      mounted, replacing the local state the Storybook stories use.
+- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`.
+- [ ] `markApplied` in `ValServer.ts`.
+- [ ] More scenarios: a `file` op patch whose source op is staged, a patch with no
+      schema (whole-module fallback), nested arrays, unions, two modules in one group,
+      a patch set that _un_-merges when the broad patch is the one committed.
+- [ ] The seeded generative layer from §7.3.
 
-**B. Client plumbing behind a flag (still no behaviour change).**
-
-- [ ] Track group membership in `ValSyncEngine`; parse the annotations from §6.2 and
-      tolerate their absence (FS mode, old home repo).
-- [ ] Send `patchGroupId` + `alsoAddPatchIds` on `PUT /patches`; add the fields to
-      `ApiRoutes.ts` and thread them through `ValOpsHttp.saveSourceFilePatch`.
-- [ ] Send the group's ids to `/save` instead of all pending ids. Identical
-      behaviour while every patch is in the group.
-- [ ] `ValOpsFS`: single implicit group containing every pending patch.
-
-**C. Strict subsets — "staged is the truth" (first real behaviour change; needs the
-home repo).**
-
-- [ ] Stage/unstage routes (§6.2) and the `ValOpsHttp` calls behind them.
-- [ ] Apply only the group's patches to the optimistic source in `ValSyncEngine`. This
-      is the change that makes the studio _and_ the browser-rendered preview staged
-      (§2.1) — one change, both surfaces.
-- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so the server-applied
-      source agrees with the client's.
-- [ ] `patchGroupsSha` in the `stat` response, and treat a change in it as
-      source-invalidating in `syncWithUpdatedStat` — otherwise stage/unstage in one tab
-      never reaches another, and §4.1 repairs don't propagate (§2.4).
-- [ ] Implement `markApplied` (`ValServer.ts` ~line 1886), so published patches are
-      reported `applied` and leave the other groups instead of being re-applied (§2.2).
-
-**D. UI.**
-
-- [ ] Staged / unstaged split and per-row toggles in `ComparePatchSets` (§8).
-- [ ] "Required by your change" attribution from `added_reason`.
-- [ ] Cross-author confirm before staging enlarges the group (§2.3).
-- [ ] `DraftChanges` count reflects the staged set.
-
-Before marking this ready: `pnpm run lint`, `pnpm -w run format`,
+CI, from `.agent/rules.md`: `pnpm run lint`, `pnpm -w run format`,
 `pnpm run -r typecheck`, `pnpm test`, `pnpm run build`, and
-`cd examples/next && pnpm run build` — per the CI list in `.agent/rules.md`.
+`cd examples/next && pnpm run build`.

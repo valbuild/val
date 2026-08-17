@@ -28,14 +28,25 @@ A **patch group**: a uuid-identified, per-user set of patch ids. Publishing publ
 one group, not everything pending.
 
 - Every user has one "current" patch group per project+branch. It is created lazily.
-- Every patch a user creates is added to that user's current group **in the same
-  transaction** as the patch itself. There must be no window in which a patch exists
-  but belongs to no group.
-- Patches in no group are **unstaged**: they still exist, still occupy their place in
-  the chain, are still returned by `applicable/patches`, but are not applied to that
-  user's view and are not published by that user.
-- A patch can be in **several** groups at once. This is by design, see "the closure"
-  below.
+- **A group holds every pending patch by default, not just its owner's.** A new patch is
+  added to the creating author's group _and_ to every other open group on the same
+  branch, in the same transaction as the patch itself. The one exception is a group that
+  is deliberately holding that patch's region back (see below), which stays untouched.
+- So a patch is in **many** groups at once. That is the normal case, not an edge case.
+- The default is therefore identical to today's all-or-nothing publish. Independence
+  comes from a user explicitly **unstaging**, which removes patches from _their_ group
+  only.
+- A patch a group does not hold is **unstaged for that user**: it still exists, still
+  occupies its place in the chain, is still returned by `applicable/patches`, but is not
+  applied to that user's view and is not published by that user.
+
+Why the default is everything, since it is the one design decision here that looks
+arbitrary and is not: patch group membership is closed when a patch is _created_, which
+is after its author has already picked a path. If an author's group did not already hold
+a pending array insert, they would pick an index against a view without it, membership
+would then close over it, every index would shift by one, and their edit would land on
+the wrong element — cleanly, with no error. There is an executable counterexample in
+`packages/ui/spa/utils/patchGroups.test.ts` in `valbuild/val`.
 
 The eventual goal: two people collaborate on one project and each publishes their own
 small change (a title, say) without merging or waiting for the other.
@@ -137,9 +148,10 @@ for everything pulled in by the closure.
 Add to the request body:
 
 ```
-patchGroupId:     string | null    // null = "my current group, create it if absent"
-alsoAddPatchIds:  string[]         // the closure; may be empty
-closureVersion:   number
+patchGroupId:        string | null  // null = "my current group, create it if absent"
+alsoAddPatchIds:     string[]       // the closure; may be empty
+holdBackForGroupIds: string[]       // other groups that must NOT receive this patch
+closureVersion:      number
 ```
 
 Add to the response body:
@@ -148,12 +160,18 @@ Add to the response body:
 patchGroupId: string               // the group actually used
 ```
 
-All of this in **one transaction**: insert the patch, resolve-or-create the group,
-insert membership for the new patch (`added_reason='explicit'`) and for every id in
-`alsoAddPatchIds` (`added_reason='dependency'`, upsert / do-nothing on conflict so
+All of this in **one transaction**: insert the patch, resolve-or-create the caller's
+group, insert membership for the new patch (`added_reason='explicit'`) and for every id
+in `alsoAddPatchIds` (`added_reason='dependency'`, upsert / do-nothing on conflict so
 retries are safe). If any `alsoAddPatchIds` entry is not a real patch on this
 project+branch, fail the whole request — that is a client bug and silently dropping it
 would corrupt the group.
+
+**Then add the new patch to every other open group on this branch too**, per "a group
+holds every pending patch by default" above — except a group that is already holding
+that patch's region back. You cannot compute "its region" without the schema, so the
+client tells you: it sends `holdBackForGroupIds: string[]`, the groups that must _not_
+receive this patch. Skip exactly those and add the patch to the rest.
 
 `patchGroupId` non-null and not owned by the caller ⇒ 403.
 
@@ -162,7 +180,7 @@ would corrupt the group.
 Per patch, add:
 
 ```
-patchGroupIds: string[]            // may be empty for unstaged patches
+patchGroupIds: string[]            // usually every open group; empty if all hold it back
 ```
 
 Top level, add:
