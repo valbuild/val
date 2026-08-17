@@ -194,15 +194,38 @@ If Bob has an unstaged patch on `items` and Alice edits that same array, the arr
 patch set contains Bob's patch, so the closure (§4) pulls it into Alice's group. Alice
 _cannot_ make that edit while leaving Bob's out — the prefix invariant forbids it.
 
-This is correct (her indices were computed against a state that includes his change,
-or rather: they are only meaningful in an order that includes it), but it is a
-surprise, and the UI must say so at the moment of staging rather than quietly
-enlarging the group. Scalar `replace` on a different field has no such interaction —
-that is the case the whole feature exists to serve.
+When Alice's edit comes _after_ Bob's, this is not just correct but load-bearing: the
+closure fires before she picks a path, so her index is computed against a view that
+already includes his insert, which is what §2.2 relies on. Scalar `replace` on a
+different field has no such interaction — that is the case the whole feature exists to
+serve.
 
-By the same mechanism, **unstaging is not durable against your own later edits** in the
-same patch set: unstage Bob's array change, then edit that array yourself, and the
-closure pulls it back. Also worth a UI note.
+**But the reverse order is a real hole, and the scenario suite found it.** If Alice
+_unstages_ Bob's patch and then edits that array, she picks her path against a view
+without his insert — and the closure immediately re-stages it, shifting everything
+under her. She renames the wrong element. Concretely
+(`patchGroups.test.ts`, "KNOWN HOLE"): base `[A, B, C]`, Bob inserts `New` at the top,
+Alice unstages it so her view is `[A, B, C]` again, Alice renames index 1 meaning
+`B` — and ends up with `[New, B*, B, C]`.
+
+It applies cleanly, the prefix invariant holds, and nothing is detectably wrong except
+the content. That is exactly why the rig checks author intent rather than group
+membership. The defect is currently **asserted** in the suite rather than hidden, so
+the assertion changes when it is fixed.
+
+Three ways out, none free — this is the open decision:
+
+1. **Do not offer unstage for a patch set the author has pending edits in**, and once
+   they edit that region again, require an explicit re-stage. Cheapest, and makes
+   unstage feel like a mode rather than a toggle.
+2. **Rebase the author's own pending ops** when a re-stage shifts them. Correct, and by
+   far the most work — it is operational transform, for arrays, in the client.
+3. **Treat an edit into a patch set holding an unstaged patch as a conflict** the author
+   resolves by hand. Honest, and the most annoying.
+
+My recommendation is 1: it is the only one that does not need new machinery, and the
+constraint it imposes ("finish or re-stage before editing here again") is explainable in
+one sentence of UI copy.
 
 ### 2.4 Divergent views are accepted
 
@@ -338,9 +361,20 @@ Nobody edited Alice's group. A third party's unrelated patch invalidated it. So:
   **Recommendation: extend, and make it visible.** Silently dropping a user's own
   change is the worse failure — they hit Publish, get success, and their edit isn't
   live. Extending is surfaceable: the compare view shows the pulled-in row with
-  `added_reason = 'dependency'` and a "required by your change" note, and the user can
-  still unstage their own change (which, by the unstage rule, drops the whole tail
-  and returns to a clean state).
+  `added_reason = 'dependency'` and a "required by your change" note.
+
+  Two things the scenario suite settles about this choice (compare the `extend` and
+  `truncate` traces under "DECISION 2" in `patchGroups.test.ts`):
+  - **`extend` is safe here, unlike the unstage case in §2.3.** A merge is always
+    caused by a _broader_ new path, and the patches `extend` pulls in are the ones
+    _before_ the victim's patch — which had _narrower_ paths, i.e. leaf replaces or
+    specific record keys. Those do not shift indices, so the victim's own op paths
+    still mean what they meant. An array op on the shared array would have been in
+    the same patch set from the start and forced at creation time.
+  - **`truncate`'s cost is invisible to assertions.** Dropping the user's own patch
+    leaves a perfectly valid group, so no invariant fires; the loss shows up only in
+    the trace, and in production only to a user who notices their edit is missing.
+    That asymmetry is itself the argument for `extend`.
 
 - Repair runs **client-side** at the same moment patch sets are recomputed, and the
   resulting adds are pushed to the home repo. It must be **idempotent** — several
@@ -601,12 +635,22 @@ set is exactly one stage/unstage unit.
 
 ### Still open
 
-1. **Publishing someone else's patch.** The prefix rule means Alice's publish can
+1. **Unstage then re-edit corrupts the edit (§2.3).** Found by the scenario suite and
+   currently asserted as a known defect rather than fixed. Recommendation is to refuse
+   unstage for a patch set the author has pending edits in. **This is the one that
+   blocks shipping unstage.**
+2. **Array co-editing entangles both authors.** Once two authors have both edited the
+   same array and the first returns to it, both groups contain both authors' work and
+   neither can publish alone — see "DECISION 1" in `patchGroups.test.ts`. Arrays are
+   therefore effectively single-writer for independent publishing. Accept that, or make
+   patch sets finer than "the whole array" (which `PatchSets` explicitly declined to do:
+   "would need a lot of logic").
+3. **Publishing someone else's patch.** The prefix rule means Alice's publish can
    include Bob's patch (§2.3). Should Bob be told? At minimum his group must show the
    patch as published rather than silently vanishing.
-2. **Empty publish.** After a truncating repair a group can become empty. Publish
+4. **Empty publish.** After a truncating repair a group can become empty. Publish
    should refuse with a clear message rather than committing nothing.
-3. **Multiple groups per user.** The schema allows it; the UI does not. Worth
+5. **Multiple groups per user.** The schema allows it; the UI does not. Worth
    confirming that "one open group per user per branch" is the intended constraint
    for v1, since it decides whether the group id needs to appear in URLs.
 

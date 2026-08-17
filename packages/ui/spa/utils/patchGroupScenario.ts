@@ -12,469 +12,527 @@ import {
   Operation,
 } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import { PatchSets, SerializedPatchSet } from "./PatchSets";
+import { PatchSets } from "./PatchSets";
 import {
-  indexPatchSets,
   inChainOrder,
+  indexPatchSets,
   PatchGroup,
   PatchSetIndex,
   repairGroup,
   RepairPolicy,
   stageClosure,
+  unstageClosure,
   validateGroup,
 } from "./patchGroups";
 
 /**
- * A scenario harness for patch groups.
+ * A scenario harness for patch groups. See `docs/independent-publish/PLAN.md`.
  *
- * The point of this file is that the *metadata* is not what we are trying to
- * get right — the content is. So a scenario does not assert on which patch ids
- * ended up in which group; it replays a realistic sequence of edits by several
- * authors, applies the resulting groups for real, and checks that each author's
- * content still says what that author meant it to say.
+ * A scenario is a **script of steps** — someone edits, someone stages, someone
+ * unstages, someone publishes — replayed in order. After every step the harness
+ * prints what changed and what each author now sees, and checks the invariants.
  *
- * Each scenario produces two things:
+ * Two deliberate choices:
  *
- * 1. a **report** — a human-readable trace, asserted as an inline snapshot, so
- *    the whole model can be reviewed by reading the test file rather than by
- *    reasoning about the implementation;
- * 2. a list of **problems** — hard failures (a broken prefix invariant, a patch
- *    that would not apply, an author's intent no longer holding). Tests assert
- *    this is empty, so a real regression fails an assertion and does not merely
- *    change a snapshot.
+ * 1. **Scenarios assert on content, not on patch ids.** Each edit carries its
+ *    author's intent as a predicate over that author's own view. It must hold
+ *    while the patch is staged, and must keep holding after anybody publishes. A
+ *    `replace` that lands on a different array element after someone else's
+ *    commit is exactly what that catches, and it is invisible in group membership.
  *
- * The scenario deliberately simulates publishing by *every* author in turn from
- * the same pre-publish state, because the interesting asymmetry only shows up
- * when you compare the orders: the second author to touch a patch set inherits
- * the first author's work, so who publishes first decides who has to carry whom.
+ * 2. **Patch sets are rebuilt one patch at a time**, and again from scratch after
+ *    every publish. Patch sets coalesce as patches arrive and can come apart
+ *    again when patches leave, so a group that was valid when it was made can be
+ *    invalidated by a third party — or silently repaired by a publish. Replaying
+ *    gets that for free; computing the patch sets once at the end would hide it.
+ *
+ * The output is a trace meant to be read. Where the design still has an open
+ * choice — `RepairPolicy` is the live one — run the same scenario under both and
+ * compare the traces. That is the point at which the semantics get decided rather
+ * than assumed.
  */
 
 export type Author = string;
 
-export type ScenarioPatch = {
-  id: string;
-  author: Author;
+/** An author makes a change. It is staged into their own group automatically. */
+export type EditStep = {
+  edit: string;
+  by: Author;
   /** What this author was trying to do, in their own words. */
   intent: string;
   ops: Operation[];
   /**
-   * The same intent as a predicate over the author's *own view* of the content.
+   * The same intent as a predicate over the author's own view.
    *
-   * This is the assertion that matters. It must hold when the author makes the
-   * patch, and it must still hold after anybody publishes — including when
-   * somebody else's commit has moved the content underneath. A `replace` that
-   * silently lands on a different array element is exactly what this catches,
-   * and it is not detectable from patch ids alone.
+   * Checked whenever the patch is in that author's group or already committed.
+   * Not checked while it is unstaged — an unstaged change is *supposed* not to be
+   * in the content.
    */
   holds: (doc: JSONValue) => boolean;
 };
+
+/** An author explicitly stages patches — their own or somebody else's. */
+export type StageStep = { stage: string[]; by: Author };
+/** An author explicitly unstages patches. */
+export type UnstageStep = { unstage: string[]; by: Author };
+/** An author publishes their group. Their patches become the new base. */
+export type PublishStep = { publish: Author };
+
+export type Step = EditStep | StageStep | UnstageStep | PublishStep;
 
 export type Scenario = {
   name: string;
   moduleFilePath: string;
   schema: Schema<SelectorSource>;
   base: JSONValue;
-  /** In chain order — the order the patches were created and are applied. */
-  patches: ScenarioPatch[];
+  /** A one-line reminder of the shape, for the trace. */
+  shape?: string;
+  steps: Step[];
   /**
-   * Pairs of patch ids that are genuinely independent of each other: neither
-   * author should ever have to publish the other's work to publish their own.
+   * Pairs of patch ids that are genuinely independent: neither author should ever
+   * have to publish the other's work to publish their own.
    *
-   * This is the assertion the whole feature exists for, and it is the one that
-   * catches a patch set being too *broad* — two unrelated edits landing in the
-   * same set means the closure forces them to move together, which quietly
-   * publishes somebody else's change.
+   * This is what the feature is for, and the assertion that catches a patch set
+   * being too *broad* — two unrelated edits in one set means the closure forces
+   * them to move together, quietly publishing somebody else's change.
    */
   independent?: [string, string][];
-  /**
-   * Compact rendering of a document for the report. Without this the report is
-   * unreadable JSON; with it, a scenario about an array of titles can render as
-   * `[A, B*, C]`.
-   */
+  /** Compact rendering for the trace. Without it the trace is unreadable JSON. */
   render?: (doc: JSONValue) => string;
-  /** Defaults to "extend" — see `RepairPolicy`. */
+  /** Defaults to "extend". Worth running a scenario under both. */
   repairPolicy?: RepairPolicy;
+  /**
+   * When the script contains no `publish` step, the harness finishes by showing
+   * what *would* happen if each author published, from the same state. That
+   * side-by-side is what makes the ordering asymmetry visible. Set false to
+   * suppress it.
+   */
+  showPublishOptions?: boolean;
 };
 
 export type ScenarioResult = {
+  /** The readable trace. Snapshot this. */
   report: string;
+  /** Hard failures. Assert this is empty. */
   problems: string[];
 };
 
 export function runScenario(scenario: Scenario): ScenarioResult {
-  const policy = scenario.repairPolicy ?? "extend";
-  const render = scenario.render ?? ((doc: JSONValue) => JSON.stringify(doc));
-  const problems: string[] = [];
-  const out = new Report();
+  const run = new Run(scenario);
+  run.replay();
+  return run.finish();
+}
 
-  const byId = new Map<string, ScenarioPatch>(
-    scenario.patches.map((p) => [p.id, p]),
-  );
-  const authors = dedupe(scenario.patches.map((p) => p.author));
+class Run {
+  private readonly policy: RepairPolicy;
+  private readonly render: (doc: JSONValue) => string;
+  private readonly out = new Report();
+  private readonly problems: string[] = [];
 
-  out.line(`scenario: ${scenario.name}`);
-  out.line(`module:   ${scenario.moduleFilePath}`);
-  out.line(`base:     ${render(scenario.base)}`);
-  out.blank();
+  /** Pending (uncommitted) edits, in chain order. */
+  private pending: EditStep[] = [];
+  private readonly allEdits: EditStep[] = [];
+  private readonly authors: Author[] = [];
+  private readonly groups = new Map<Author, Set<PatchId>>();
+  private readonly committed = new Set<PatchId>();
+  private base: JSONValue;
+  private index: PatchSetIndex = indexPatchSets([], []);
+  private step = 0;
 
-  out.line("chain (oldest first)");
-  for (const patch of scenario.patches) {
-    out.line(
-      `  ${pad(patch.id, 4)} ${pad(patch.author, 6)} ${pad(
-        renderOps(patch.ops),
-        34,
-      )} ${patch.intent}`,
-    );
-  }
-  out.blank();
-
-  // #region replay
-  // Rebuild the patch sets incrementally, one patch at a time, exactly as a
-  // client does. This matters: patch sets coalesce as patches arrive, so a group
-  // that was valid when it was made can be invalidated later by a third party.
-  // Replaying gets that for free; computing the patch sets once at the end would
-  // hide it.
-  const groups = new Map<Author, Set<PatchId>>(
-    authors.map((author) => [author, new Set<PatchId>()]),
-  );
-  const pulledIn: string[] = [];
-  const patchSets = new PatchSets();
-  let index: PatchSetIndex = indexPatchSets([], []);
-
-  for (let i = 0; i < scenario.patches.length; i++) {
-    const patch = scenario.patches[i];
-    for (const op of patch.ops) {
-      patchSets.insert(
-        scenario.moduleFilePath as ModuleFilePath,
-        scenario.schema["executeSerialize"](),
-        op,
-        patch.id as PatchId,
-        isoAt(i),
-        patch.author,
-      );
+  constructor(private readonly scenario: Scenario) {
+    this.policy = scenario.repairPolicy ?? "extend";
+    this.render = scenario.render ?? ((doc) => JSON.stringify(doc));
+    this.base = scenario.base;
+    for (const step of scenario.steps) {
+      const author = authorOf(step);
+      if (!this.groups.has(author)) {
+        this.groups.set(author, new Set());
+        this.authors.push(author);
+      }
     }
-    const chainSoFar = scenario.patches
-      .slice(0, i + 1)
-      .map((p) => p.id as PatchId);
-    index = indexPatchSets(patchSets.serialize(), chainSoFar);
+  }
 
+  replay() {
+    this.out.line(`scenario: ${this.scenario.name}`);
+    this.out.line(`module:   ${this.scenario.moduleFilePath}`);
+    if (this.scenario.shape) {
+      this.out.line(`shape:    ${this.scenario.shape}`);
+    }
+    this.out.line(`base:     ${this.render(this.base)}`);
+    this.out.line(`repair:   ${this.policy}`);
+    this.out.blank();
+
+    for (const step of this.scenario.steps) {
+      this.step++;
+      if ("edit" in step) {
+        this.runEdit(step);
+      } else if ("stage" in step) {
+        this.runStage(step);
+      } else if ("unstage" in step) {
+        this.runUnstage(step);
+      } else {
+        this.runPublish(step);
+      }
+      this.checkAll();
+      this.out.blank();
+    }
+
+    this.checkIndependence();
+
+    const scripted = this.scenario.steps.some((s) => "publish" in s);
+    if (!scripted && (this.scenario.showPublishOptions ?? true)) {
+      this.showPublishOptions();
+    }
+  }
+
+  finish(): ScenarioResult {
+    return { report: this.out.toString(), problems: dedupe(this.problems) };
+  }
+
+  // #region steps
+
+  private runEdit(step: EditStep) {
+    this.pending.push(step);
+    this.allEdits.push(step);
+    this.reindex();
+    this.out.line(
+      `${this.label()} ${step.by} edits ${step.edit}: ${renderOps(step.ops)}`,
+    );
+    this.out.line(`      intent      ${step.intent}`);
+    this.out.line(`      patch sets  ${this.renderSets()}`);
     // The author stages their own new patch. The closure pulls in whatever the
     // prefix invariant requires — which is how another author's earlier patch
     // ends up in this author's group.
-    const own = groups.get(patch.author);
-    if (!own) {
-      throw new Error(`Unknown author '${patch.author}'`);
-    }
-    const staged = stageClosure(index, own, [patch.id as PatchId]);
-    for (const patchId of staged) {
-      if (!own.has(patchId) && patchId !== patch.id) {
-        pulledIn.push(
-          `  ${patchId} pulled into ${patch.author}'s group as a dependency of ${patch.id}`,
-        );
-      }
-    }
-    groups.set(patch.author, staged);
-
-    // Every other group is re-validated too, because this patch may have merged
-    // two patch sets and put a hole in a group nobody touched.
-    for (const author of authors) {
-      if (author === patch.author) {
-        continue;
-      }
-      const group = groups.get(author);
-      if (!group || group.size === 0) {
-        continue;
-      }
-      const repair = repairGroup(index, group, policy);
-      if (repair.added.length > 0 || repair.removed.length > 0) {
-        pulledIn.push(
-          `  ${patch.id} merged patch sets, repairing ${author}'s group: ` +
-            [
-              repair.added.length > 0 ? `+${repair.added.join(",")}` : null,
-              repair.removed.length > 0 ? `-${repair.removed.join(",")}` : null,
-            ]
-              .filter(Boolean)
-              .join(" ") +
-            ` (policy: ${policy})`,
-        );
-        groups.set(author, repair.group);
-      }
-    }
-  }
-  // #endregion
-
-  out.line("patch sets (final)");
-  index.sets.forEach((set, ordinal) => {
-    out.line(`  ${pad(index.labels[ordinal], 40)} [${set.join(", ")}]`);
-  });
-  out.blank();
-
-  out.line("groups as built at creation time");
-  for (const author of authors) {
-    out.line(
-      `  ${pad(author, 6)} {${inChainOrder(index, group(groups, author)).join(
-        ", ",
-      )}}`,
+    this.applyStage(
+      step.by,
+      [step.edit as PatchId],
+      `required by ${step.edit}`,
     );
+    this.repairOthers(step.by, `${step.edit} changed the patch sets`);
+    this.showGroups();
   }
-  if (pulledIn.length > 0) {
-    out.blank();
-    out.line("why:");
-    for (const line of pulledIn) {
-      out.line(line);
-    }
-  }
-  out.blank();
 
-  for (const [a, b] of scenario.independent ?? []) {
-    const shared = index.sets.filter(
-      (set, ordinal) =>
-        set.includes(a as PatchId) &&
-        set.includes(b as PatchId) &&
-        index.labels[ordinal] !== undefined,
+  private runStage(step: StageStep) {
+    this.out.line(`${this.label()} ${step.by} stages ${step.stage.join(", ")}`);
+    this.applyStage(
+      step.by,
+      step.stage.map((id) => id as PatchId),
+      `required by ${step.stage.join(", ")}`,
     );
-    if (shared.length > 0) {
-      problems.push(
-        `${a} and ${b} are declared independent but share patch set(s) ` +
-          `${index.sets
-            .map((set, ordinal) =>
-              set.includes(a as PatchId) && set.includes(b as PatchId)
-                ? index.labels[ordinal]
-                : null,
-            )
-            .filter(Boolean)
-            .join(", ")}, so neither can be published without the other`,
+    this.showGroups();
+  }
+
+  private runUnstage(step: UnstageStep) {
+    this.out.line(
+      `${this.label()} ${step.by} unstages ${step.unstage.join(", ")}`,
+    );
+    const before = this.group(step.by);
+    const after = unstageClosure(
+      this.index,
+      before,
+      step.unstage.map((id) => id as PatchId),
+    );
+    const dropped = Array.from(before).filter(
+      (id) => !after.has(id) && !step.unstage.includes(id),
+    );
+    if (dropped.length > 0) {
+      this.out.line(
+        `      also dropped ${inChainOrder(this.index, new Set(dropped))
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")} — they were built on top of it`,
       );
     }
+    this.groups.set(step.by, after);
+    this.showGroups();
   }
 
-  out.line("views (base + own group) — this is what each author sees");
-  const views = new Map<Author, JSONValue>();
-  for (const author of authors) {
-    const applied = apply(
-      scenario.base,
-      orderedOps(index, group(groups, author), byId),
+  private runPublish(step: PublishStep) {
+    const group = this.group(step.publish);
+    const ids = inChainOrder(this.index, group);
+    this.out.line(
+      `${this.label()} ${step.publish} publishes [${ids.join(", ")}]`,
     );
+    if (ids.length === 0) {
+      this.out.line(`      nothing staged — publish would be a no-op`);
+      return;
+    }
+    const carried = ids.filter((id) => this.authorOfPatch(id) !== step.publish);
+    if (carried.length > 0) {
+      this.out.line(
+        `      carries      ${carried
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")}`,
+      );
+    }
+    const applied = this.applyGroup(this.base, group);
     if (!applied.ok) {
-      problems.push(
-        `${author}'s own group does not apply to base: ${applied.error}`,
+      this.problems.push(
+        `step ${this.step}: ${step.publish}'s publish does not apply: ${applied.error}`,
       );
-      out.line(`  ${pad(author, 6)} DOES NOT APPLY: ${applied.error}`);
-      continue;
+      this.out.line(`      DOES NOT APPLY: ${applied.error}`);
+      return;
     }
-    views.set(author, applied.doc);
-    out.line(`  ${pad(author, 6)} ${render(applied.doc)}`);
-    problems.push(
-      ...checkPrefix(index, group(groups, author), `${author}'s group`),
-    );
-    problems.push(
-      ...checkIntents(
-        scenario.patches,
-        author,
-        group(groups, author),
-        applied.doc,
-        `${author}'s view before any publish`,
-      ),
-    );
+    this.base = applied.doc;
+    for (const id of group) {
+      this.committed.add(id);
+    }
+    // Published patches are marked applied and leave every group.
+    for (const author of this.authors) {
+      const remaining = new Set(this.group(author));
+      let lost = false;
+      for (const id of group) {
+        lost = remaining.delete(id) || lost;
+      }
+      if (lost && author !== step.publish) {
+        this.out.line(
+          `      ${author}'s group loses the patches that were just committed`,
+        );
+      }
+      this.groups.set(author, remaining);
+    }
+    this.pending = this.pending.filter((p) => !group.has(p.edit as PatchId));
+    // Rebuilt from scratch: removing a patch can also *un*-merge patch sets, if
+    // the broad path that merged them is the one that got committed.
+    this.reindex();
+    this.out.line(`      new base    ${this.render(this.base)}`);
+    this.out.line(`      patch sets  ${this.renderSets()}`);
+    this.repairOthers(step.publish, "the commit changed the patch sets");
+    this.showGroups();
   }
-  out.blank();
 
-  // #region publish
-  // Publish each author's group in turn, from the same pre-publish state, and
-  // check that everybody else can carry on.
-  for (const publisher of authors) {
-    const published = group(groups, publisher);
-    out.line(
-      `publish ${publisher} — commits [${inChainOrder(index, published).join(
-        ", ",
-      )}]`,
+  // #endregion
+  // #region mechanics
+
+  private applyStage(author: Author, ids: PatchId[], why: string) {
+    const before = this.group(author);
+    const after = stageClosure(this.index, before, ids);
+    const pulled = Array.from(after).filter(
+      (id) => !before.has(id) && !ids.includes(id),
     );
-    if (published.size === 0) {
-      out.line(`  nothing to publish`);
-      out.blank();
-      continue;
-    }
-    const committed = apply(scenario.base, orderedOps(index, published, byId));
-    if (!committed.ok) {
-      problems.push(
-        `publishing ${publisher} does not apply: ${committed.error}`,
+    if (pulled.length > 0) {
+      this.out.line(
+        `      also staged ${inChainOrder(this.index, new Set(pulled))
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")} — ${why}`,
       );
-      out.line(`  DOES NOT APPLY: ${committed.error}`);
-      out.blank();
-      continue;
     }
-    const newBase = committed.doc;
-    out.line(`  new base   ${render(newBase)}`);
-    problems.push(
-      ...checkIntents(
-        scenario.patches,
-        publisher,
-        published,
-        newBase,
-        `the commit produced by ${publisher}`,
-      ),
-    );
+    this.groups.set(author, after);
+  }
 
-    // Published patches are marked applied and leave every group. The patch sets
-    // are rebuilt from what is left, since the committed patches are no longer
-    // pending.
-    const survivingPatches = scenario.patches.filter(
-      (p) => !published.has(p.id as PatchId),
-    );
-    const survivingSets = buildPatchSets(scenario, survivingPatches);
-    const survivingIndex = indexPatchSets(
-      survivingSets,
-      survivingPatches.map((p) => p.id as PatchId),
-    );
-
-    for (const author of authors) {
-      if (author === publisher) {
+  private repairOthers(except: Author, why: string) {
+    for (const author of this.authors) {
+      if (author === except) {
         continue;
       }
-      const remaining = new Set<PatchId>();
-      for (const patchId of group(groups, author)) {
-        if (!published.has(patchId)) {
-          remaining.add(patchId);
+      const group = this.group(author);
+      if (group.size === 0) {
+        continue;
+      }
+      const repair = repairGroup(this.index, group, this.policy);
+      if (repair.added.length === 0 && repair.removed.length === 0) {
+        continue;
+      }
+      const changes = [
+        repair.added.length > 0
+          ? `+${inChainOrder(this.index, new Set(repair.added)).join(",")}`
+          : null,
+        repair.removed.length > 0 ? `-${repair.removed.join(",")}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      this.out.line(
+        `      repaired ${author}'s group ${changes} — ${why} (policy: ${this.policy})`,
+      );
+      this.groups.set(author, repair.group);
+    }
+  }
+
+  private reindex() {
+    const patchSets = new PatchSets();
+    this.pending.forEach((patch, i) => {
+      for (const op of patch.ops) {
+        patchSets.insert(
+          this.scenario.moduleFilePath as ModuleFilePath,
+          this.scenario.schema["executeSerialize"](),
+          op,
+          patch.edit as PatchId,
+          isoAt(i),
+          patch.by,
+        );
+      }
+    });
+    this.index = indexPatchSets(
+      patchSets.serialize(),
+      this.pending.map((p) => p.edit as PatchId),
+    );
+  }
+
+  private applyGroup(base: JSONValue, group: PatchGroup): Applied {
+    const ops: Operation[] = [];
+    for (const id of inChainOrder(this.index, group)) {
+      const patch = this.pending.find((p) => p.edit === id);
+      if (!patch) {
+        throw new Error(`Patch '${id}' is in a group but is not pending`);
+      }
+      for (const op of patch.ops) {
+        // `file` ops carry binary data, not source changes; the source op in the
+        // same patch is what moves the content.
+        if (op.op !== "file") {
+          ops.push(op);
         }
       }
-      const violations = validateGroup(survivingIndex, remaining);
-      const applied = apply(
-        newBase,
-        orderedOps(survivingIndex, remaining, byId),
-      );
-      out.line(
-        `  ${pad(author, 6)} {${inChainOrder(survivingIndex, remaining).join(
-          ", ",
-        )}}${violations.length > 0 ? "  PREFIX VIOLATION" : ""}`,
-      );
-      problems.push(
-        ...checkPrefix(
-          survivingIndex,
-          remaining,
-          `${author}'s group after ${publisher} published`,
-        ),
-      );
-      if (!applied.ok) {
-        problems.push(
-          `after ${publisher} published, ${author}'s remaining group does not apply: ${applied.error}`,
+    }
+    const applied = applyPatch(deepClone(base), new JSONOps(), ops);
+    if (result.isErr(applied)) {
+      return { ok: false, error: describeError(applied.error) };
+    }
+    return { ok: true, doc: applied.value };
+  }
+
+  // #endregion
+  // #region checks
+
+  private checkAll() {
+    for (const author of this.authors) {
+      const group = this.group(author);
+      for (const violation of validateGroup(this.index, group)) {
+        this.problems.push(
+          `step ${this.step}: ${author}'s group breaks the prefix invariant in ` +
+            `patch set ${violation.patchSet}: staged [${violation.staged.join(
+              ", ",
+            )}] but missing [${violation.missing.join(", ")}]`,
         );
-        out.line(`         DOES NOT APPLY: ${applied.error}`);
+      }
+      const applied = this.applyGroup(this.base, group);
+      if (!applied.ok) {
+        this.problems.push(
+          `step ${this.step}: ${author}'s group does not apply: ${applied.error}`,
+        );
         continue;
       }
-      out.line(`         ${render(applied.doc)}`);
-      // Every one of this author's patches is checked, including the ones the
-      // publisher carried along: their effect should now be in the new base.
-      problems.push(
-        ...checkIntents(
-          scenario.patches,
-          author,
-          allOwn(scenario.patches, author),
-          applied.doc,
-          `${author}'s view after ${publisher} published`,
-        ),
-      );
-    }
-    out.blank();
-  }
-  // #endregion
-
-  return { report: out.toString(), problems: dedupe(problems) };
-}
-
-// #region checks
-
-function checkPrefix(
-  index: PatchSetIndex,
-  group: PatchGroup,
-  what: string,
-): string[] {
-  return validateGroup(index, group).map(
-    (violation) =>
-      `${what} breaks the prefix invariant in patch set ${violation.patchSet}: ` +
-      `staged [${violation.staged.join(", ")}] but missing [${violation.missing.join(
-        ", ",
-      )}]`,
-  );
-}
-
-function checkIntents(
-  patches: ScenarioPatch[],
-  author: Author,
-  group: PatchGroup,
-  doc: JSONValue,
-  where: string,
-): string[] {
-  const problems: string[] = [];
-  for (const patch of patches) {
-    if (patch.author !== author) {
-      continue;
-    }
-    if (!group.has(patch.id as PatchId)) {
-      continue;
-    }
-    if (!patch.holds(doc)) {
-      problems.push(
-        `${where}: ${patch.id} (${author}) no longer achieves "${patch.intent}"`,
-      );
-    }
-  }
-  return problems;
-}
-
-// #endregion
-
-// #region plumbing
-
-function buildPatchSets(
-  scenario: Scenario,
-  patches: ScenarioPatch[],
-): SerializedPatchSet {
-  const patchSets = new PatchSets();
-  patches.forEach((patch, i) => {
-    for (const op of patch.ops) {
-      patchSets.insert(
-        scenario.moduleFilePath as ModuleFilePath,
-        scenario.schema["executeSerialize"](),
-        op,
-        patch.id as PatchId,
-        isoAt(i),
-        patch.author,
-      );
-    }
-  });
-  return patchSets.serialize();
-}
-
-function orderedOps(
-  index: PatchSetIndex,
-  group: PatchGroup,
-  byId: Map<string, ScenarioPatch>,
-): Operation[] {
-  const ops: Operation[] = [];
-  for (const patchId of inChainOrder(index, group)) {
-    const patch = byId.get(patchId);
-    if (!patch) {
-      throw new Error(`Unknown patch '${patchId}'`);
-    }
-    for (const op of patch.ops) {
-      // `file` ops carry binary data, not source changes; the source op in the
-      // same patch is what moves the content.
-      if (op.op !== "file") {
-        ops.push(op);
+      for (const patch of this.allEdits) {
+        if (patch.by !== author) {
+          continue;
+        }
+        const staged =
+          group.has(patch.edit as PatchId) ||
+          this.committed.has(patch.edit as PatchId);
+        if (!staged) {
+          continue;
+        }
+        if (!patch.holds(applied.doc)) {
+          this.problems.push(
+            `step ${this.step}: in ${author}'s own view, ${patch.edit} no longer ` +
+              `achieves "${patch.intent}"`,
+          );
+        }
       }
     }
   }
-  return ops;
+
+  private checkIndependence() {
+    for (const [a, b] of this.scenario.independent ?? []) {
+      const shared = this.index.sets
+        .map((set, ordinal) =>
+          set.includes(a as PatchId) && set.includes(b as PatchId)
+            ? this.index.labels[ordinal]
+            : null,
+        )
+        .filter((label): label is string => label !== null);
+      if (shared.length > 0) {
+        this.problems.push(
+          `${a} and ${b} are declared independent but share patch set(s) ` +
+            `${shared.join(", ")}, so neither can be published without the other`,
+        );
+      }
+    }
+  }
+
+  // #endregion
+  // #region reporting
+
+  private showPublishOptions() {
+    this.out.line("if each author published now, from this same state:");
+    for (const author of this.authors) {
+      const group = this.group(author);
+      const ids = inChainOrder(this.index, group);
+      if (ids.length === 0) {
+        this.out.line(`  ${pad(author, 6)} nothing staged`);
+        continue;
+      }
+      const applied = this.applyGroup(this.base, group);
+      const carried = ids.filter((id) => this.authorOfPatch(id) !== author);
+      this.out.line(
+        `  ${pad(author, 6)} commits [${ids.join(", ")}]` +
+          (carried.length > 0
+            ? ` — carries ${carried
+                .map((id) => `${id} (${this.authorOfPatch(id)})`)
+                .join(", ")}`
+            : " — only their own work"),
+      );
+      this.out.line(`         ${this.describe(applied)}`);
+    }
+  }
+
+  private showGroups() {
+    for (const author of this.authors) {
+      const group = this.group(author);
+      this.out.line(
+        `      ${pad(author, 6)} ${pad(
+          `{${inChainOrder(this.index, group).join(", ")}}`,
+          16,
+        )} ${this.describe(this.applyGroup(this.base, group))}`,
+      );
+    }
+  }
+
+  private describe(applied: Applied): string {
+    return applied.ok
+      ? this.render(applied.doc)
+      : `DOES NOT APPLY: ${applied.error}`;
+  }
+
+  private renderSets(): string {
+    if (this.index.sets.length === 0) {
+      return "(none)";
+    }
+    return this.index.sets
+      .map(
+        (set, ordinal) =>
+          `${shortLabel(this.index.labels[ordinal])} [${set.join(", ")}]`,
+      )
+      .join("   ");
+  }
+
+  private label(): string {
+    return pad(`${this.step}.`, 3);
+  }
+
+  // #endregion
+
+  private group(author: Author): PatchGroup {
+    const found = this.groups.get(author);
+    if (!found) {
+      throw new Error(`Unknown author '${author}'`);
+    }
+    return found;
+  }
+
+  private authorOfPatch(id: PatchId): Author {
+    const patch = this.allEdits.find((p) => p.edit === id);
+    return patch ? patch.by : "?";
+  }
 }
 
 type Applied = { ok: true; doc: JSONValue } | { ok: false; error: string };
 
-function apply(base: JSONValue, ops: Operation[]): Applied {
-  const applied = applyPatch(deepClone(base), new JSONOps(), ops);
-  if (result.isErr(applied)) {
-    return { ok: false, error: describeError(applied.error) };
+// #region plumbing
+
+function authorOf(step: Step): Author {
+  if ("edit" in step || "stage" in step || "unstage" in step) {
+    return step.by;
   }
-  return { ok: true, doc: applied.value };
+  return step.publish;
 }
 
 function describeError(error: unknown): string {
@@ -484,31 +542,26 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-function allOwn(patches: ScenarioPatch[], author: Author): Set<PatchId> {
-  return new Set(
-    patches.filter((p) => p.author === author).map((p) => p.id as PatchId),
-  );
-}
-
-function group(groups: Map<Author, Set<PatchId>>, author: Author): PatchGroup {
-  const found = groups.get(author);
-  if (!found) {
-    throw new Error(`Unknown author '${author}'`);
-  }
-  return found;
-}
-
 function renderOps(ops: Operation[]): string {
   return ops
     .map((op) => {
-      const path = op.op === "file" ? op.filePath : op.path.join("/");
-      const value =
-        "value" in op && op.op !== "file"
-          ? ` = ${JSON.stringify(op.value)}`
+      if (op.op === "file") {
+        return `file ${op.filePath}`;
+      }
+      const from =
+        op.op === "move" || op.op === "copy"
+          ? ` from ${op.from.join("/")}`
           : "";
-      return `${op.op} ${path}${value}`;
+      const value = "value" in op ? ` = ${JSON.stringify(op.value)}` : "";
+      return `${op.op} ${op.path.join("/")}${from}${value}`;
     })
     .join("; ");
+}
+
+/** Patch set paths are long and the module file path is already in the header. */
+function shortLabel(label: string): string {
+  const delimiter = label.indexOf("?");
+  return delimiter === -1 ? "?(whole module)" : label.slice(delimiter);
 }
 
 /** Deterministic timestamps: the harness must not depend on wall-clock time. */
@@ -528,7 +581,7 @@ function pad(text: string, width: number): string {
 class Report {
   private readonly lines: string[] = [];
   line(text: string) {
-    this.lines.push(text);
+    this.lines.push(text.replace(/\s+$/, ""));
   }
   blank() {
     if (this.lines.length > 0 && this.lines[this.lines.length - 1] !== "") {
