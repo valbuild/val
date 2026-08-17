@@ -75,6 +75,22 @@ const notFoundResponse = z.object({
 });
 const GenericError = z.object({ message: z.string() });
 
+/**
+ * A patch group: the set of patches one user has chosen to publish.
+ *
+ * Not a patch *set* — a patch set is computed from the schema and says which
+ * patches must move together; a patch group is curated and says which ones this
+ * user wants live. See `docs/independent-publish/PLAN.md`.
+ */
+const PatchGroup = z.object({
+  patchGroupId: z.string(),
+  authorId: z.string().nullable(),
+  createdAt: z.string(),
+  publishedAt: z.string().nullable(),
+  patchIds: z.array(PatchId),
+});
+export type PatchGroupT = z.infer<typeof PatchGroup>;
+
 const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,
@@ -564,6 +580,11 @@ export const Api = {
               schemaSha: z.string(),
               sourcesSha: z.string(),
               patches: z.array(PatchId),
+              // Hash over the caller's patch group membership. Patch ids alone
+              // cannot detect a stage/unstage: the set of pending patches is
+              // unchanged, only who holds them. Without this, unstaging in one tab
+              // never reaches another. Optional so FS mode can omit it.
+              patchGroupsSha: z.string().optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
@@ -577,6 +598,7 @@ export const Api = {
               sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
+              patchGroupsSha: z.string().optional(),
               commits: z.array(ValCommit),
               config: ValConfig,
               profileId: z.string().nullable(),
@@ -685,6 +707,16 @@ export const Api = {
               patch: z.any(), // TODO: this should be Patch instead - we got a weird validation error: although input looks good, it still does not accept objects as values... Which it should do via the z.record(JSONValue) type
             }),
           ),
+          // Patch group membership. Sent with the patch itself, in one request, so
+          // there is no window in which a patch exists but belongs to no group.
+          // Absent means "the caller does not know about groups" - the server then
+          // behaves exactly as before.
+          patchGroupId: z.string().nullish(),
+          // The prefix closure: other patch ids that must join the same group for
+          // it to stay applicable. Computed on the client, which is the only side
+          // that has the schema needed to derive patch sets.
+          alsoAddPatchIds: z.array(PatchId).optional(),
+          closureVersion: z.number().optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -719,6 +751,7 @@ export const Api = {
           json: z.object({
             newPatchIds: z.array(PatchId),
             parentRef: ParentRef,
+            patchGroupId: z.string().optional(),
           }),
         }),
       ]),
@@ -760,11 +793,93 @@ export const Api = {
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z.object({ commitSha: z.string() }).nullable(),
+                // Which patch groups hold this patch. Optional so that FS mode, and
+                // any server that predates patch groups, can leave it out.
+                patchGroupIds: z.array(z.string()).optional(),
               }),
             ),
+            patchGroups: z.array(PatchGroup).optional(),
             baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  // Patch group membership. Both are idempotent set operations, and both take an
+  // already-closed set: the client computes the prefix closure (staging) or the
+  // forward closure (unstaging) because only the client has the schema needed to
+  // derive patch sets. See `docs/independent-publish/PLAN.md`.
+  "/patch-groups/~/patches": {
+    PUT: {
+      req: {
+        body: z.object({
+          patchGroupId: z.string(),
+          patchIds: z
+            .array(PatchId)
+            .min(1, "At least one patch id is required"),
+          closureVersion: z.number(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          // The group has already been published, so its membership is frozen.
+          status: z.literal(409),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patchGroupId: z.string(),
+            patchIds: z.array(PatchId),
+          }),
+        }),
+      ]),
+    },
+    DELETE: {
+      req: {
+        body: z.object({
+          patchGroupId: z.string(),
+          patchIds: z
+            .array(PatchId)
+            .min(1, "At least one patch id is required"),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(409),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patchGroupId: z.string(),
+            patchIds: z.array(PatchId),
           }),
         }),
       ]),

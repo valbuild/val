@@ -1095,6 +1095,57 @@ export const ValServer = (
         };
       },
     },
+    //#region patch groups
+    // Staging and unstaging patches. Both take an already-closed set of patch ids:
+    // the prefix closure (staging) or the forward closure (unstaging) is computed
+    // on the client, which is the only side that has the schema needed to derive
+    // patch sets. See `docs/independent-publish/PLAN.md`.
+    //
+    // In FS mode there is no shared store and exactly one author, so group
+    // membership lives in the client and these handlers simply acknowledge. The
+    // client already sends an explicit patch id list to `/save`, so a locally-held
+    // group is enough to publish a subset correctly.
+    "/patch-groups/~/patches": {
+      PUT: async (
+        req,
+      ): Promise<z.infer<Api["/patch-groups/~/patches"]["PUT"]["res"]>> => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const { patchGroupId, patchIds, closureVersion } = req.body;
+        if (serverOps instanceof ValOpsFS) {
+          return { status: 200, json: { patchGroupId, patchIds } };
+        }
+        const res = await serverOps.stagePatches(
+          patchGroupId,
+          patchIds,
+          closureVersion,
+        );
+        if (res.error) {
+          return { status: res.status, json: { message: res.error.message } };
+        }
+        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+      },
+      DELETE: async (
+        req,
+      ): Promise<z.infer<Api["/patch-groups/~/patches"]["DELETE"]["res"]>> => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const { patchGroupId, patchIds } = req.body;
+        if (serverOps instanceof ValOpsFS) {
+          return { status: 200, json: { patchGroupId, patchIds } };
+        }
+        const res = await serverOps.unstagePatches(patchGroupId, patchIds);
+        if (res.error) {
+          return { status: res.status, json: { message: res.error.message } };
+        }
+        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+      },
+    },
+
     //#region patches
     "/patches": {
       PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {

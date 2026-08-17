@@ -166,6 +166,17 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
+const PatchGroupMutationResponse = z.object({
+  patchGroupId: z.string(),
+  patchIds: z.array(PatchId),
+});
+export type PatchGroupMutationResult =
+  | { patchIds: PatchId[]; status?: undefined; error?: undefined }
+  | {
+      patchIds: PatchId[];
+      status: 403 | 409 | 500;
+      error: GenericErrorMessage;
+    };
 const NonceResponse = z.object({
   nonce: z.string(),
   url: z.string(),
@@ -787,6 +798,107 @@ export class ValOpsHttp extends ValOps {
       };
     }
   }
+
+  // #region patch groups
+  /**
+   * Add patches to a patch group.
+   *
+   * `patchIds` is already closed by the client — it is the prefix closure over the
+   * patch sets the staged patches belong to. We forward it as a set union and do
+   * not second-guess it: deriving the closure needs the content schema, which this
+   * process does have but content.val.build does not, and having two
+   * implementations of the rule would be worse than having one.
+   *
+   * `closureVersion` is stored per membership row on the content side so a bad
+   * client rollout stays identifiable, and recomputable, after the fact.
+   */
+  async stagePatches(
+    patchGroupId: string,
+    patchIds: PatchId[],
+    closureVersion: number,
+  ): Promise<PatchGroupMutationResult> {
+    return this.mutatePatchGroup(
+      "POST",
+      `patch-groups/${patchGroupId}/patches`,
+      { patchIds, closureVersion },
+    );
+  }
+
+  /**
+   * Remove patches from a patch group.
+   *
+   * `patchIds` is already closed forwards by the client: unstaging a patch also
+   * unstages everything built on top of it within its patch sets.
+   */
+  async unstagePatches(
+    patchGroupId: string,
+    patchIds: PatchId[],
+  ): Promise<PatchGroupMutationResult> {
+    return this.mutatePatchGroup(
+      "DELETE",
+      `patch-groups/${patchGroupId}/patches`,
+      { patchIds },
+    );
+  }
+
+  private async mutatePatchGroup(
+    method: "POST" | "DELETE",
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<PatchGroupMutationResult> {
+    try {
+      const res = await fetch(`${this.contentUrl}/v1/${this.project}/${path}`, {
+        method,
+        headers: {
+          ...this.authHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const parsed = PatchGroupMutationResponse.safeParse(await res.json());
+        if (parsed.success) {
+          return { patchIds: parsed.data.patchIds as PatchId[] };
+        }
+        return {
+          status: 500,
+          patchIds: [],
+          error: {
+            message: `Could not parse patch group response. Error: ${fromError(
+              parsed.error,
+            )}`,
+          },
+        };
+      }
+      // 403 (not your group) and 409 (already published) are meaningful to the
+      // client, so they are passed through rather than flattened to a 500.
+      if (res.status === 403 || res.status === 409) {
+        return {
+          status: res.status,
+          patchIds: [],
+          error: { message: await res.text() },
+        };
+      }
+      return {
+        status: 500,
+        patchIds: [],
+        error: {
+          message: `Could not update patch group. HTTP error: ${res.status} ${res.statusText}`,
+        },
+      };
+    } catch (err) {
+      return {
+        status: 500,
+        patchIds: [],
+        error: {
+          message: `Could not update patch group (connection error?): ${
+            err instanceof Error ? err.message : JSON.stringify(err)
+          }`,
+        },
+      };
+    }
+  }
+  // #endregion
 
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
