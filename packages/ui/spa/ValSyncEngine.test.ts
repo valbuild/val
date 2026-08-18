@@ -249,6 +249,103 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual({ [ref]: metadata });
   });
 
+  test("editing one field does not invalidate every module", async () => {
+    // Regression test for the typing-is-slow issue: every keystroke that
+    // started a new patch changed the server-side patch id list, which used to
+    // set forceSyncAllModules and therefore re-fetched + invalidated every
+    // module in the project on the next stat callback.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/edited.val.ts", s.string(), "edited"),
+        c.define("/other1.val.ts", s.string(), "other1"),
+        c.define("/other2.val.ts", s.string(), "other2"),
+      ],
+      config,
+    );
+    const requests: { route: string; path: string | undefined }[] = [];
+    const mockClient = tester.createMockClient();
+    const spyingClient: any = (route: string, method: any, req: any) => {
+      requests.push({ route, path: req?.path });
+      return mockClient(route, method, req);
+    };
+    const syncEngine = new ValSyncEngine(spyingClient, undefined);
+    await syncEngine.init(
+      tester.getMode(),
+      tester.getBaseSha(),
+      tester.getSchemasSha(),
+      tester.getSourcesSha(),
+      tester.fakePatches.map((p) => p.patchId),
+      null,
+      tester.getCommitSha(),
+      tester.getNextNow(),
+    );
+
+    const invalidatedModules: ModuleFilePath[] = [];
+    const unsubscribes = (
+      ["/edited.val.ts", "/other1.val.ts", "/other2.val.ts"] as const
+    ).map((moduleFilePathS) => {
+      const moduleFilePath = toModuleFilePath(moduleFilePathS);
+      return syncEngine.subscribe(
+        "source",
+        moduleFilePath,
+      )(() => {
+        invalidatedModules.push(moduleFilePath);
+      });
+    });
+
+    // Type into a single field, then let the sync + stat cycle run.
+    syncEngine.addPatch(
+      toSourcePath("/edited.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "edited!" }],
+      tester.getNextNow(),
+    );
+    tester.simulatePassingOfSeconds(5);
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+
+    // Only the edited module may be re-fetched...
+    const sourceRequests = requests.filter((r) => r.route === "/sources/~");
+    for (const sourceRequest of sourceRequests) {
+      expect(sourceRequest.path).toBe("/edited.val.ts");
+    }
+    // ... and only the edited module may be invalidated.
+    expect(new Set(invalidatedModules)).toStrictEqual(
+      new Set([toModuleFilePath("/edited.val.ts")]),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/edited.val.ts")).data,
+    ).toStrictEqual("edited!");
+
+    // The stat callback that reports the now-synced patch id must not drag
+    // the untouched modules along either.
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(requests.filter((r) => r.route === "/sources/~")).toStrictEqual([]);
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other1.val.ts"),
+    );
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other2.val.ts"),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/other1.val.ts")).data,
+    ).toStrictEqual("other1");
+
+    for (const unsubscribe of unsubscribes) {
+      unsubscribe();
+    }
+  });
+
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
