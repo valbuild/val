@@ -926,6 +926,24 @@ export function usePatchSets():
   return { status: "success", data: serializedPatchSets };
 }
 
+/**
+ * Increments on every successful publish.
+ *
+ * Views that render state derived from the pending patches - the compare view
+ * above all - are stale the moment a publish goes through: the patches they
+ * were showing are committed and the base they were diffed against has moved.
+ * Use this as a reload key so they rebuild from scratch instead of leaving the
+ * pre-publish result on screen.
+ */
+export function usePublishCount(): number {
+  const { syncEngine } = useContext(ValContext);
+  return useSyncExternalStore(
+    syncEngine.subscribe("published"),
+    () => syncEngine.getPublishCountSnapshot(),
+    () => syncEngine.getPublishCountSnapshot(),
+  );
+}
+
 export function useCommittedPatches() {
   const { syncEngine } = useContext(ValContext);
   const allPatches = useSyncExternalStore(

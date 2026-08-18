@@ -75,15 +75,21 @@ export function ComparePatchSets({
   profilesByAuthorIds,
   mode = "unknown",
   readonly = true,
+  reloadKey,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
   mode?: "fs" | "http" | "unknown";
   readonly?: boolean;
+  /**
+   * Change to rebuild the view from scratch instead of leaving the previous
+   * result on screen while the new one is computed. See `usePatchSetsWorker`.
+   */
+  reloadKey?: unknown;
 }) {
   const portalContainer = useValPortal();
   const schemas = useSchemas();
-  const { trees, isComputing } = usePatchSetsWorker(patchSets);
+  const { trees, isComputing } = usePatchSetsWorker(patchSets, reloadKey);
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
 

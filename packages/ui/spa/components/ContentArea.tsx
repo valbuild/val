@@ -9,6 +9,7 @@ import {
   useGlobalError,
   usePatchSets,
   useProfilesByAuthorId,
+  usePublishCount,
   useValMode,
 } from "./ValProvider";
 import {
@@ -246,9 +247,11 @@ function CompareSummaryInHeader() {
   const mode = useValMode();
   const portalContainer = useValPortal();
 
+  const publishCount = usePublishCount();
+
   const patchSets =
     patchSetsResult.status === "success" ? patchSetsResult.data : [];
-  const { trees } = usePatchSetsWorker(patchSets);
+  const { trees } = usePatchSetsWorker(patchSets, publishCount);
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
 
@@ -322,6 +325,10 @@ function CompareView() {
   const patchSetsResult = usePatchSets();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const mode = useValMode();
+  // A publish commits the patches this view is diffing and moves the base they
+  // are diffed against, so the rendered comparison is stale as soon as one goes
+  // through: rebuild it instead of leaving the pre-publish diff on screen.
+  const publishCount = usePublishCount();
   if (patchSetsResult.status === "not-asked") {
     return (
       <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
@@ -342,6 +349,7 @@ function CompareView() {
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
       readonly={false}
+      reloadKey={publishCount}
     />
   );
 }

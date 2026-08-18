@@ -15,8 +15,16 @@ export interface UsePatchSetsWorkerReturn {
 const supportsWorker =
   typeof window !== "undefined" && typeof Worker !== "undefined";
 
+/**
+ * @param reloadKey Change this to reload from scratch: the previously computed
+ *   trees are dropped (so consumers fall back to their loading state) instead
+ *   of staying on screen while the new ones are computed. Use it when the input
+ *   the trees were derived from is no longer valid - after a publish, say - and
+ *   showing the previous result would be showing stale data.
+ */
 export function usePatchSetsWorker(
   patchSets: SerializedPatchSet,
+  reloadKey?: unknown,
 ): UsePatchSetsWorkerReturn {
   const workerRef = useRef<Worker | null>(null);
   const [trees, setTrees] = useState<ChangeTreeNode[]>([]);
@@ -78,9 +86,14 @@ export function usePatchSetsWorker(
     workerRef.current.postMessage(request);
   }, []);
 
+  const previousReloadKeyRef = useRef(reloadKey);
   useEffect(() => {
+    if (previousReloadKeyRef.current !== reloadKey) {
+      previousReloadKeyRef.current = reloadKey;
+      setTrees([]);
+    }
     compute(patchSets);
-  }, [patchSets, compute]);
+  }, [patchSets, compute, reloadKey]);
 
   return { trees, isComputing };
 }
