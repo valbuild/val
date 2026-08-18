@@ -923,6 +923,14 @@ export function usePatchSets():
     () => syncEngine.getSerializedPatchSetsSnapshot(),
     () => syncEngine.getSerializedPatchSetsSnapshot(),
   );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  if (initializedAt === null) {
+    // Before the engine has synced its patches, the patch sets are empty
+    // because nothing has been read yet - not because there is nothing to
+    // show. Reporting success here makes callers render their empty state
+    // until the first sync lands.
+    return { status: "not-asked" };
+  }
   return { status: "success", data: serializedPatchSets };
 }
 

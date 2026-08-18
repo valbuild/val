@@ -10,6 +10,15 @@ import type {
 export interface UsePatchSetsWorkerReturn {
   trees: ChangeTreeNode[];
   isComputing: boolean;
+  /**
+   * False until a computation has produced a result, so that `trees` being
+   * empty can be told apart from "there is nothing to show". Without it the
+   * initial empty `trees` reads as "no changes" for the frame before the first
+   * computation is even posted to the worker.
+   *
+   * Reset by `reloadKey`, since a reload has no result yet either.
+   */
+  hasComputed: boolean;
 }
 
 const supportsWorker =
@@ -28,7 +37,11 @@ export function usePatchSetsWorker(
 ): UsePatchSetsWorkerReturn {
   const workerRef = useRef<Worker | null>(null);
   const [trees, setTrees] = useState<ChangeTreeNode[]>([]);
-  const [isComputing, setIsComputing] = useState(false);
+  // A computation is posted from an effect on mount, so one is always pending
+  // for the first render: starting at false would show the computed-and-empty
+  // state before anything has been computed.
+  const [isComputing, setIsComputing] = useState(true);
+  const [hasComputed, setHasComputed] = useState(false);
   const requestIdRef = useRef(0);
   const latestRequestIdRef = useRef<string | null>(null);
 
@@ -49,15 +62,20 @@ export function usePatchSetsWorker(
       if (response.type === "result") {
         setTrees(response.trees);
         setIsComputing(false);
+        setHasComputed(true);
       } else if (response.type === "error") {
         console.error("PatchSets worker error:", response.error);
         setIsComputing(false);
+        // Nothing more is coming for this request: treat the failure as a
+        // result so the view leaves its loading state.
+        setHasComputed(true);
       }
     };
 
     worker.onerror = (event) => {
       console.error("PatchSets worker failed:", event.message);
       setIsComputing(false);
+      setHasComputed(true);
     };
 
     return () => {
@@ -71,6 +89,8 @@ export function usePatchSetsWorker(
       // Fallback: compute on main thread if worker not available
       const { trees } = computeChangedSourcePaths(data);
       setTrees(trees);
+      setIsComputing(false);
+      setHasComputed(true);
       return;
     }
 
@@ -91,9 +111,10 @@ export function usePatchSetsWorker(
     if (previousReloadKeyRef.current !== reloadKey) {
       previousReloadKeyRef.current = reloadKey;
       setTrees([]);
+      setHasComputed(false);
     }
     compute(patchSets);
   }, [patchSets, compute, reloadKey]);
 
-  return { trees, isComputing };
+  return { trees, isComputing, hasComputed };
 }

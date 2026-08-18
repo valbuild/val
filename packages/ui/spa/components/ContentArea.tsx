@@ -14,6 +14,7 @@ import {
 } from "./ValProvider";
 import {
   ComparePatchSets,
+  CompareLoading,
   CompareSummaryStrip,
   flattenChanges,
 } from "./ComparePatchSets";
@@ -251,7 +252,7 @@ function CompareSummaryInHeader() {
 
   const patchSets =
     patchSetsResult.status === "success" ? patchSetsResult.data : [];
-  const { trees } = usePatchSetsWorker(patchSets, publishCount);
+  const { trees, hasComputed } = usePatchSetsWorker(patchSets, publishCount);
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
 
@@ -283,7 +284,9 @@ function CompareSummaryInHeader() {
     return ids;
   }, [flatRows]);
 
-  if (patchSetsResult.status !== "success") {
+  // Nothing to summarise until the changes have actually been counted:
+  // rendering early would show "0 changes to review" before the real count.
+  if (patchSetsResult.status !== "success" || !hasComputed) {
     return null;
   }
 
@@ -330,11 +333,7 @@ function CompareView() {
   // through: rebuild it instead of leaving the pre-publish diff on screen.
   const publishCount = usePublishCount();
   if (patchSetsResult.status === "not-asked") {
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
-        Loading changes&hellip;
-      </div>
-    );
+    return <CompareLoading />;
   }
   if (patchSetsResult.status === "error") {
     return (
