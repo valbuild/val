@@ -27,3 +27,8 @@ Also fixed along the way:
 - `extractValModules` builds `moduleErrors` with `push` instead of index
   assignment. The sparse array it produced crashed `Service.get`, which looks
   the errors up with `Array.prototype.find` (that visits holes as `undefined`).
+- `ValSyncEngine.subscribe` now removes listeners by identity on unsubscribe.
+  It used to splice by an index captured at subscribe time, which drifts as soon
+  as anything else in the same bucket unsubscribes first, and the array-path
+  overload indexed the paths array with a listener index — so unsubscribing one
+  component could remove another component's listener and leave its own behind.

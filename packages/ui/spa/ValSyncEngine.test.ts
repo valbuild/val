@@ -592,6 +592,78 @@ describe("ValSyncEngine", () => {
     expect(engine.getPublishDisabledSnapshot()).toBe(false);
   });
 
+  test("unsubscribing removes only that listener, on every path it subscribed to", async () => {
+    // The unsubscribe closure used to splice by an index captured at subscribe
+    // time. Indices drift as soon as anything else in the same bucket
+    // unsubscribes first, and for the multi-path overload the paths array was
+    // indexed with a listener index (p[idx] instead of p[i]) - so unsubscribing
+    // one component removed another component's listener and left its own
+    // behind, and the victim silently stopped re-rendering.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/a.val.ts", s.string(), "a"),
+        c.define("/b.val.ts", s.string(), "b"),
+      ],
+      config,
+    );
+    const engine = await tester.createInitializedSyncEngine();
+
+    const pathsA = [toModuleFilePath("/a.val.ts")];
+    const pathsAB = [
+      toModuleFilePath("/a.val.ts"),
+      toModuleFilePath("/b.val.ts"),
+    ];
+
+    let first = 0;
+    let second = 0;
+    let multi = 0;
+    const unsubFirst = engine.subscribe(
+      "patch-errors",
+      pathsA,
+    )(() => {
+      first++;
+    });
+    const unsubMulti = engine.subscribe(
+      "patch-errors",
+      pathsAB,
+    )(() => {
+      multi++;
+    });
+    const unsubSecond = engine.subscribe(
+      "patch-errors",
+      pathsA,
+    )(() => {
+      second++;
+    });
+
+    // "patch-errors" is the only listener type with an array-path overload and
+    // it has no public setter, so drive its emit directly.
+    const emitFor = (path: ModuleFilePath) =>
+      engine["invalidatePatchErrors"](path);
+
+    // Drop the first listener: the two registered after it must be untouched.
+    unsubFirst();
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(first).toBe(0);
+    expect(second).toBe(1);
+    expect(multi).toBe(1);
+
+    // The multi-path listener must come off /b.val.ts too, not just /a.val.ts.
+    unsubMulti();
+    emitFor(toModuleFilePath("/b.val.ts"));
+    expect(multi).toBe(1);
+
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(second).toBe(2);
+    expect(multi).toBe(1);
+
+    unsubSecond();
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(second).toBe(2);
+  });
+
   test("a redeploy reset keeps existing subscribers alive", async () => {
     // reset() used to wipe the listener registry. `subscribe` closes over that
     // registry, so every mounted component ended up subscribed to an object

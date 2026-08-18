@@ -513,7 +513,7 @@ export class ValSyncEngine {
     type: SyncEngineListenerType,
     path?: string | string[],
   ): (listener: () => void) => () => void {
-    const p = path || globalNamespace;
+    const paths = Array.isArray(path) ? path : [path || globalNamespace];
     return (listener: () => void) => {
       // Our TS version is too low to figure out what is possible undefined here, so we do any's...
       // On TS 5.8+ we should be able to remove const listeners and replace listeners with this.listeners
@@ -522,29 +522,29 @@ export class ValSyncEngine {
       if (!listeners[type]) {
         listeners[type] = {};
       }
-      if (Array.isArray(p)) {
-        const indices: number[] = [];
-        for (const path of p) {
-          if (!listeners[type][path]) {
-            listeners[type][path] = [];
-          }
-          const idx = listeners[type][path].push(listener) - 1;
-          indices.push(idx);
-        }
-        return () => {
-          for (const idx of indices) {
-            listeners[type]?.[p[idx]]?.splice(idx, 1);
-          }
-        };
-      } else {
+      for (const p of paths) {
         if (!listeners[type][p]) {
           listeners[type][p] = [];
         }
-        const idx = listeners[type][p].push(listener) - 1;
-        return () => {
-          listeners[type]?.[p].splice(idx, 1);
-        };
+        listeners[type][p].push(listener);
       }
+      return () => {
+        // NOTE: remove by identity, never by an index captured at subscribe
+        // time. Unsubscribing is not ordered: once any earlier listener in the
+        // same bucket is removed every later one shifts down, so a stored index
+        // would splice out an unrelated component's listener and that component
+        // would silently stop re-rendering.
+        for (const p of paths) {
+          const bucket = listeners[type]?.[p];
+          if (!bucket) {
+            continue;
+          }
+          const idx = bucket.indexOf(listener);
+          if (idx !== -1) {
+            bucket.splice(idx, 1);
+          }
+        }
+      };
     };
   }
   private emit(listeners?: (() => void)[]) {
