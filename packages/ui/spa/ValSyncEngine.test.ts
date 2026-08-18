@@ -1056,6 +1056,61 @@ describe("ValSyncEngine", () => {
       ).toEqual({ title: "A edited", order: 1 });
     });
 
+    test("a saved edit never flashes back to the pre-edit content", async () => {
+      // Regression: the source sync after the last keystroke kicks off an entry
+      // refetch. Save it before that lands and the response — produced BEFORE
+      // the save — was still written into jsonEntryContents, while the patches
+      // that made the content current had just been dropped. Every subscriber
+      // saw the edit revert, until the re-pass refetched and it came back.
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      engine.addPatch(
+        toSourcePath(PAGES),
+        "record",
+        [{ op: "replace", path: ["/a", "title"], value: "A edited" }],
+        tester.getNextNow(),
+      );
+      tester.simulatePassingOfSeconds(5);
+
+      // Hold every /json response back from here on, so the refetch the source
+      // sync below starts is still in flight when the save lands.
+      let landJsonResponses = () => {};
+      tester.jsonResponseGate = new Promise<void>((resolve) => {
+        landJsonResponses = () => resolve();
+      });
+      await engine.sync(tester.getNextNow());
+      const patchIds = tester.fakePatches.map((p) => p.patchId);
+
+      // What a subscribed field would read, emission by emission.
+      const seen: unknown[] = [];
+      const unsubscribe = engine.subscribe(
+        "source",
+        toModuleFilePath(PAGES),
+      )(() => {
+        seen.push(
+          (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+        );
+      });
+
+      // Saving commits the edit: the entry file on disk now holds it.
+      tester.fakeJsonEntries[PAGES]["/a"] = { title: "A edited", order: 1 };
+      expect(
+        await engine.publish(patchIds, undefined, tester.getNextNow()),
+      ).toMatchObject({ status: "done" });
+
+      landJsonResponses();
+      await flush();
+      await flush();
+      unsubscribe();
+
+      expect(seen).not.toContainEqual({ title: "A", order: 1 });
+      expect(
+        (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],
+      ).toEqual({ title: "A edited", order: 1 });
+    });
+
     test("an entry invalidated mid-flight is refetched (a stale response must not win)", async () => {
       const { tester } = setupJsonValues();
       const engine = await tester.createInitializedSyncEngine();
@@ -1662,6 +1717,12 @@ class SyncEngineTester {
   jsonRequestCounts: Record<string, number> = {};
   /** HTTP requests (not keys) served by the batch shapes of `/json`, per module. */
   jsonBatchRequestCounts: Record<string, number> = {};
+  /**
+   * Holds every `/json` response back until it resolves. Lets a test pin the
+   * order two in-flight requests land in — which is otherwise a race, and the
+   * race is what a response-ordering regression hides behind.
+   */
+  jsonResponseGate: Promise<void> | null = null;
 
   constructor(
     private mode: "fs" | "http",
@@ -2072,8 +2133,13 @@ class SyncEngineTester {
         return this.getSchema(req);
       }
       if (route === "/json" && method === "GET") {
+        // Computed eagerly, so the request is counted when it is issued rather
+        // than when the gate below lets the response through.
+        const res = this.getJson(req);
         // NOTE: must be a Promise — the sync engine calls `.then()` on it.
-        return Promise.resolve(this.getJson(req));
+        return this.jsonResponseGate === null
+          ? Promise.resolve(res)
+          : this.jsonResponseGate.then(() => res);
       }
       if (route === "/save" && method === "POST") {
         // Publishing commits the pending patches; the fake server just drops

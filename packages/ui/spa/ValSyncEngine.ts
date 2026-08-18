@@ -1488,6 +1488,15 @@ export class ValSyncEngine {
     for (const key of keys) {
       this.staleJsonEntries.delete(`${moduleFilePath}\0${key}`);
     }
+    /**
+     * True once the key has been marked stale AGAIN, i.e. after the flags above
+     * were cleared and thus after this request was issued. Its outcome predates
+     * that invalidation, so folding it in would show content (or an error) the
+     * invalidation already knows is wrong — visibly, until the re-pass in
+     * {@link loadJsonEntriesSettled} refetches and corrects it.
+     */
+    const isOutdated = (key: string) =>
+      this.staleJsonEntries.has(`${moduleFilePath}\0${key}`);
     this.noteJsonEntriesRequested(keys.length);
     const promise = this.client("/json", "GET", {
       // apply_patches=false: we own in-flight client patches the server has not
@@ -1508,6 +1517,9 @@ export class ValSyncEngine {
             this.jsonEntryContents[moduleFilePath] = {};
           }
           for (const entry of res.json.entries) {
+            if (isOutdated(entry.key)) {
+              continue;
+            }
             this.jsonEntryContents[moduleFilePath][entry.key] =
               entry.content ?? null;
             if (this.jsonEntryErrors[moduleFilePath] !== undefined) {
@@ -1517,12 +1529,18 @@ export class ValSyncEngine {
           // A committed key that the server cannot resolve (deleted on disk
           // between our source sync and this request) is an error, not silence.
           for (const key of res.json.missing) {
+            if (isOutdated(key)) {
+              continue;
+            }
             setJsonEntryError(
               key,
               `Entry not found: ${key} in ${moduleFilePath}`,
             );
           }
           for (const { key, message } of res.json.errors) {
+            if (isOutdated(key)) {
+              continue;
+            }
             setJsonEntryError(key, message);
           }
         } else {
@@ -1536,6 +1554,9 @@ export class ValSyncEngine {
             res,
           });
           for (const key of keys) {
+            if (isOutdated(key)) {
+              continue;
+            }
             setJsonEntryError(key, message);
           }
         }
@@ -1548,6 +1569,9 @@ export class ValSyncEngine {
         });
         const message = err instanceof Error ? err.message : String(err);
         for (const key of keys) {
+          if (isOutdated(key)) {
+            continue;
+          }
           setJsonEntryError(key, message);
         }
       })
@@ -1659,6 +1683,51 @@ export class ValSyncEngine {
     // Batched: with hundreds of entries cached, refetching one-by-one made a
     // publish a request storm.
     this.requestJsonEntries(moduleFilePath, keys);
+  }
+
+  /**
+   * Folds the PATCHED content of every loaded `.jsonValues()` entry into the
+   * committed cache. Called on save, BEFORE the patch state is dropped: what
+   * was just written to disk is the patched content, so leaving the pre-edit
+   * content cached would leave the engine's view of the module behind the disk
+   * for as long as the refetch takes — and with the patches gone there is
+   * nothing left on top to hide it, so the saved edit visibly reverts and then
+   * comes back once the refetch lands.
+   *
+   * Keyed by BASE key, matching {@link jsonEntryContents}: a pending whole-entry
+   * rename means the patched value sits under a different key, so each patched
+   * key is mapped back with {@link resolveBaseJsonEntryKey}.
+   */
+  private foldPatchedJsonEntriesIntoCommitted(): void {
+    for (const moduleFilePathS of Object.keys(this.jsonEntryContents)) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      const contents = this.jsonEntryContents[moduleFilePath];
+      if (contents === undefined) {
+        continue;
+      }
+      const patched = this.getPatchedSource(moduleFilePath);
+      if (
+        patched === undefined ||
+        patched === null ||
+        typeof patched !== "object" ||
+        Array.isArray(patched)
+      ) {
+        continue;
+      }
+      for (const patchedKey of Object.keys(patched)) {
+        const baseKey = this.resolveBaseJsonEntryKey(
+          moduleFilePath,
+          patchedKey,
+        );
+        // Only keys we already hold content for: a key we have never loaded has
+        // no cache entry to bring up to date, and adding one would make the
+        // batch loader refetch a key it was right to leave alone.
+        if (contents[baseKey] === undefined) {
+          continue;
+        }
+        contents[baseKey] = deepClone(patched[patchedKey]);
+      }
+    }
   }
 
   /**
@@ -4407,6 +4476,10 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
+        // BEFORE the patch state below is dropped: the patched content is what
+        // the save just wrote to disk, so it is now the committed content of
+        // every loaded `.jsonValues()` entry.
+        this.foldPatchedJsonEntriesIntoCommitted();
         if (this.mode === "fs") {
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];

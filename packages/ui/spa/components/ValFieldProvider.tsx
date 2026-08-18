@@ -16,6 +16,7 @@ import {
   ModuleFilePathSep,
   ModulePath,
   PatchId,
+  ReifiedRender,
   SerializedSchema,
   SourcePath,
   ValConfig,
@@ -472,9 +473,12 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
+/** `undefined` when the module has nothing to render at this path. */
+type RenderOverrideAtPathResult = ReifiedRender[SourcePath] | undefined;
+
 export function useRenderOverrideAtPath(
   sourcePath: SourcePath | ModuleFilePath,
-) {
+): RenderOverrideAtPathResult {
   const { syncEngine } = useValFieldContext();
   const [moduleFilePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -490,14 +494,14 @@ export function useRenderOverrideAtPath(
     () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  return useMemo(() => {
+  return useMemo<RenderOverrideAtPathResult>(() => {
     const isOptimistic =
       sourcesRes.status === "success" && sourcesRes.optimistic;
     const renderAtPath = renderRes?.[sourcePath];
     if (initializedAt === null || isOptimistic) {
       const renderData =
         renderAtPath && "data" in renderAtPath ? renderAtPath?.data : undefined;
-      return { status: "loading" as const, data: renderData };
+      return { status: "loading", data: renderData };
     }
     return renderAtPath;
   }, [renderRes, initializedAt, sourcesRes, sourcePath]);
@@ -514,6 +518,26 @@ type SchemaWithResolvedPathResult =
   | { status: "loading" }
   | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath }
   | { status: "error"; error: string };
+
+/**
+ * Everything resolving a path against the module's schema and source can come
+ * back with — including the sync engine's own snapshot statuses, which are
+ * returned as-is. {@link useSchemaAtPathInternal} narrows this down to the four
+ * states of {@link SchemaWithResolvedPathResult} that a field renders.
+ */
+type ResolvedSchemaAtPathResult =
+  | { status: "loading" }
+  | {
+      status:
+        | "no-schemas"
+        | "module-schema-not-found"
+        | "schema-not-found"
+        | "source-not-found"
+        | "resolved-schema-not-found";
+      message?: string;
+    }
+  | { status: "error"; error: string }
+  | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath };
 
 function useSchemaAtPathInternal(
   sourcePath: SourcePath | ModuleFilePath,
@@ -564,7 +588,7 @@ function useSchemaAtPathInternal(
         ? null
         : syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey),
   );
-  const resolvedSchemaAtPathRes = useMemo(() => {
+  const resolvedSchemaAtPathRes = useMemo<ResolvedSchemaAtPathResult>(() => {
     if (schemaRes.status !== "success") {
       return schemaRes;
     }
@@ -572,17 +596,17 @@ function useSchemaAtPathInternal(
       // A failed load must not render as a perpetual spinner.
       if (jsonEntryError !== null) {
         return {
-          status: "error" as const,
+          status: "error",
           error: `Could not load entry '${unloadedJsonKey}': ${jsonEntryError}`,
         };
       }
-      return { status: "loading" as const };
+      return { status: "loading" };
     }
     if (sourceData === undefined) {
       if (sourcesRes.status !== "success") {
         return sourcesRes;
       }
-      return { status: "source-not-found" as const };
+      return { status: "source-not-found" };
     }
 
     try {
@@ -593,18 +617,18 @@ function useSchemaAtPathInternal(
       );
       if (resolvedSchemaAtPathRes.status === "error") {
         return {
-          status: "error" as const,
+          status: "error",
           error: resolvedSchemaAtPathRes.message,
         };
       }
       if (resolvedSchemaAtPathRes.status === "source-undefined") {
         return {
-          status: "source-not-found" as const,
+          status: "source-not-found",
         };
       }
       if (!resolvedSchemaAtPathRes.schema) {
         return {
-          status: "resolved-schema-not-found" as const,
+          status: "resolved-schema-not-found",
         };
       }
       const resolvedModulePath =
@@ -616,7 +640,7 @@ function useSchemaAtPathInternal(
           )
         : (moduleFilePath as unknown as SourcePath);
       return {
-        status: "success" as const,
+        status: "success",
         data: resolvedSchemaAtPathRes.schema,
         resolvedPath: resolvedSourcePath,
       };
@@ -630,7 +654,7 @@ function useSchemaAtPathInternal(
         e,
       );
       return {
-        status: "error" as const,
+        status: "error",
         error: `Error resolving schema at path: ${
           e instanceof Error ? e.message : String(e)
         }`,
@@ -716,14 +740,14 @@ export function useSchemas():
 
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
-    return { status: "loading" } as const;
+    return { status: "loading" };
   }
   if (schemas === null) {
     console.warn("Schemas: not found");
     return {
       status: "error",
       error: "Schemas not found",
-    } as const;
+    };
   }
   const definedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
   for (const [moduleFilePathS, moduleSchema] of Object.entries(schemas)) {
@@ -735,7 +759,7 @@ export function useSchemas():
   return {
     status: "success",
     data: definedSchemas,
-  } as const;
+  };
 }
 
 export function useAllSources() {
@@ -1212,7 +1236,7 @@ export function useShallowSourceAtPath<
 
 const noopSubscribe = () => () => {};
 const getNull = () => null;
-const NOT_FOUND = { status: "not-found" as const };
+const NOT_FOUND: { status: "not-found" } = { status: "not-found" };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
 export function useSourceAtPath(
