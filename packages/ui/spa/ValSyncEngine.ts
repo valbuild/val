@@ -381,7 +381,10 @@ export class ValSyncEngine {
     this.initializedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
-    this.listeners = {};
+    // NOTE: this.listeners is deliberately NOT cleared. `subscribe` closes over
+    // the listener registry, so replacing it here would leave every mounted
+    // component subscribed to an object that `emit` no longer reads from - the
+    // UI would silently stop updating for the rest of the session.
     this.syncStatus = {};
     this.schemas = null;
     this.serverSideSchemaSha = null;
@@ -1990,36 +1993,38 @@ export class ValSyncEngine {
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
     this.mode = mode;
-    if (
-      this.serverSideSchemaSha !== schemaSha ||
-      this.commitSha !== commitSha
-    ) {
-      if (haveLocal) {
-        // Local schemas are authoritative. Flag the divergence (http-only
-        // dialog) but do NOT reset+init — that would discard local state.
-        // Source-sync below continues to run: source updates remain useful
-        // even while the schema-out-of-date dialog is open.
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        this.recomputeSchemaOutOfDate();
-      } else {
-        // No local: classic reset+init. The new SHAs are stashed AFTER
-        // reset() (which clears them) so the recursive init's stat-compare
-        // doesn't immediately re-trigger the reset path.
-        this.reset();
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        return this.init(
-          mode,
-          baseSha,
-          schemaSha,
-          sourcesSha,
-          patchIds,
-          authorId,
-          commitSha,
-          now,
-        );
-      }
+    // A different (schemaSha, commitSha) than the one we last saw means a new
+    // version was deployed while this session was open. On the very first stat
+    // there is nothing to compare against yet, so that is not a redeploy.
+    const isFirstStat = this.serverSideSchemaSha === null;
+    const didRedeploy =
+      !isFirstStat &&
+      (this.serverSideSchemaSha !== schemaSha || this.commitSha !== commitSha);
+    this.serverSideSchemaSha = schemaSha;
+    this.commitSha = commitSha;
+    // Local schemas are authoritative, so a redeploy under them must NOT
+    // reset+init - that would discard local state. The divergence is surfaced
+    // by the (http-only) schema-out-of-date dialog instead, and the source sync
+    // below keeps running: source updates remain useful while it is open.
+    this.recomputeSchemaOutOfDate();
+    if (didRedeploy && !haveLocal) {
+      // Without local modules the server is the only source of truth, so drop
+      // all derived state and re-init against the new deployment. The new SHAs
+      // are stashed AFTER reset() (which clears them) so the recursive init's
+      // stat-compare doesn't immediately re-trigger this path.
+      this.reset();
+      this.serverSideSchemaSha = schemaSha;
+      this.commitSha = commitSha;
+      return this.init(
+        mode,
+        baseSha,
+        schemaSha,
+        sourcesSha,
+        patchIds,
+        authorId,
+        commitSha,
+        now,
+      );
     }
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||

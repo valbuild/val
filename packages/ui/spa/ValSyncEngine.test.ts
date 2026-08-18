@@ -592,6 +592,75 @@ describe("ValSyncEngine", () => {
     expect(engine.getPublishDisabledSnapshot()).toBe(false);
   });
 
+  test("a redeploy reset keeps existing subscribers alive", async () => {
+    // reset() used to wipe the listener registry. `subscribe` closes over that
+    // registry, so every mounted component ended up subscribed to an object
+    // `emit` no longer read from and the UI silently froze for the rest of the
+    // session.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "http",
+      [c.define("/test.val.ts", s.string(), "Foo")],
+      config,
+    );
+    const engine = await tester.createInitializedSyncEngine();
+
+    let calls = 0;
+    const unsubscribe = engine.subscribe("all-sources")(() => {
+      calls++;
+    });
+
+    // A new version is deployed: the server now reports another schema SHA.
+    const added = c.define("/added.val.ts", s.string(), "Added");
+    tester.fakeModules.push(added);
+    tester.fakeSchemas["/added.val.ts"] = Internal.getSchema(added)!;
+    tester.fakeSources["/added.val.ts"] = Internal.getSource(added);
+
+    expect(await tester.simulateStatCallback(engine)).toMatchObject({
+      status: "done",
+    });
+    expect(calls).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
+  test("the first stat does not reset the engine", async () => {
+    // serverSideSchemaSha starts out null, so comparing it against the first
+    // stat's SHA always looked like a change and forced a reset + recursive
+    // init on every cold start.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "http",
+      [c.define("/test.val.ts", s.string(), "Foo")],
+      config,
+    );
+    const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+
+    let calls = 0;
+    const unsubscribe = engine.subscribe("all-sources")(() => {
+      calls++;
+    });
+
+    await engine.init(
+      "http",
+      tester.getBaseSha(),
+      tester.getSchemasSha(),
+      tester.getSourcesSha(),
+      [],
+      null,
+      tester.getCommitSha(),
+      tester.getNextNow(),
+    );
+
+    // Subscribed before init: the listener must have survived it.
+    expect(calls).toBeGreaterThan(0);
+    expect(
+      engine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("Foo");
+
+    unsubscribe();
+  });
+
   test("out-of-order setValModules calls do not regress to a stale registry", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(

@@ -99,15 +99,13 @@ export async function extractValModules(
   valModules: ValModules,
 ): Promise<ExtractedValModules> {
   const moduleErrors: ExtractedModuleError[] = [];
-  const addModuleError = (
-    message: string,
-    index: number,
-    path?: SourcePath,
-  ) => {
-    moduleErrors[index] = {
+  // NOTE: push (not index assignment) - a sparse array makes consumers that
+  // use Array.prototype.find (which visits holes) crash on undefined entries.
+  const addModuleError = (message: string, path?: SourcePath) => {
+    moduleErrors.push({
       message,
       path: path as string as ModuleFilePath,
-    };
+    });
   };
   const sources: Record<ModuleFilePath, Source> = {};
   const schemas: Record<ModuleFilePath, Schema<SelectorSource>> = {};
@@ -115,42 +113,42 @@ export async function extractValModules(
   const configSha = hash(JSON.stringify(valModules.config));
   let sourcesSha = "";
   let baseSha = configSha;
-  let schemaSha = configSha;
-  for (let moduleIdx = 0; moduleIdx < valModules.modules.length; moduleIdx++) {
-    const module = valModules.modules[moduleIdx];
+  // NOTE: schemaSha is deliberately NOT seeded with configSha. It is compared
+  // across bundles (the server extracts from the Node bundle, the editor SPA
+  // from the browser bundle) to detect that a new version has been deployed.
+  // The config contains values that are not part of the schema and that differ
+  // between those two bundles - most notably the documented
+  // `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` / `gitBranch`, which are
+  // server-only env vars and therefore `undefined` in the browser. Seeding with
+  // them made the two sides disagree on every production load.
+  let schemaSha = "";
+  for (const module of valModules.modules) {
     if (!module.def) {
-      addModuleError("val.modules is missing 'def' property", moduleIdx);
+      addModuleError("val.modules is missing 'def' property");
       continue;
     }
     if (typeof module.def !== "function") {
-      addModuleError("val.modules 'def' property is not a function", moduleIdx);
+      addModuleError("val.modules 'def' property is not a function");
       continue;
     }
     await module.def().then((value) => {
       if (!value) {
-        addModuleError(`val.modules 'def' did not return a value`, moduleIdx);
+        addModuleError(`val.modules 'def' did not return a value`);
         return;
       }
       if (!value.default) {
-        addModuleError(
-          `val.modules 'def' did not return a default export`,
-          moduleIdx,
-        );
+        addModuleError(`val.modules 'def' did not return a default export`);
         return;
       }
 
       const path = getValPath(value.default);
       if (path === undefined) {
-        addModuleError(`path is undefined`, moduleIdx);
+        addModuleError(`path is undefined`);
         return;
       }
       const schema = getSchema(value.default);
       if (schema === undefined) {
-        addModuleError(
-          `schema in path '${path}' is undefined`,
-          moduleIdx,
-          path,
-        );
+        addModuleError(`schema in path '${path}' is undefined`, path);
         return;
       }
       // Avoid `schema instanceof Schema` — the editor SPA and the host
@@ -161,14 +159,13 @@ export async function extractValModules(
       if (typeof schema["executeSerialize"] !== "function") {
         addModuleError(
           `schema.serialize in path '${path}' is not a function`,
-          moduleIdx,
           path,
         );
         return;
       }
       const source = getSource(value.default);
       if (source === undefined) {
-        addModuleError(`source in ${path} is undefined`, moduleIdx, path);
+        addModuleError(`source in ${path} is undefined`, path);
         return;
       }
       let serializedSchema: SerializedSchema;
@@ -178,7 +175,6 @@ export async function extractValModules(
         const message = e instanceof Error ? e.message : JSON.stringify(e);
         addModuleError(
           `Could not serialize module: '${path}'. Error: ${message}`,
-          moduleIdx,
           path,
         );
         return;
