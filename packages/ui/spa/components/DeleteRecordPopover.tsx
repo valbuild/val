@@ -1,6 +1,6 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
-import { Trash2, Workflow } from "lucide-react";
+import { Link, Trash2 } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -63,8 +63,8 @@ export function DeleteRecordPopover({
               {refs.length > 1 ? "s" : ""} that must be updated first.
             </p>
             <p className="text-sm text-muted-foreground">
-              Click the <Workflow size={12} className="inline align-middle" />{" "}
-              icon to see and update the references.
+              Click the <Link size={12} className="inline align-middle" /> icon
+              to see and update the references.
             </p>
           </>
         ) : references.status === "loading" ? (
