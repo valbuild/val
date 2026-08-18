@@ -162,24 +162,24 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 
 ### V3 — edit and publish
 
-- [ ] Change `title` on `/support/faq`, publish.
+- [x] Change `title` on `/support/faq`, publish.
 - [ ] `git status examples/next` shows **only** `app/support/[slug]/content/faq.val.json` modified —
       `page.val.ts` is untouched.
-- [ ] The new title is still there **without reloading the page** (this is what the post-publish entry
+- [x] The new title is still there **without reloading the page** (this is what the post-publish entry
       refresh exists for).
 - [ ] `pnpm fixtures reset` + restart the dev server.
 
 ### V4 — add an entry
 
-- [ ] Add `/support/new-page`.
-- [ ] A new `app/support/[slug]/page/support/new-page.val.json` appears containing
+- [x] Add `/support/new-page`.
+- [x] A new `app/support/[slug]/page/support/new-page.val.json` appears containing
       `{"title":"","body":"","order":0}` (from `emptyOf`).
-- [ ] `page.val.ts` gained a `c.json(() => import("./page/support/new-page.val.json"))` thunk.
+- [x] `page.val.ts` gained a `c.json(() => import("./page/support/new-page.val.json"))` thunk.
 - [ ] Keep this entry for V5, then `pnpm fixtures reset`.
 
 ### V5 — hand-authored and generated entries coexist
 
-- [ ] With V4's entry still present: `content/` (hand-placed) and `page/support/` (generated) both exist
+- [x] With V4's entry still present: `content/` (hand-placed) and `page/support/` (generated) both exist
       and both render.
 - [ ] Edit `/support/faq` again → the write still goes to its ORIGINAL path,
       `content/faq.val.json` — not to the generated convention path.
@@ -197,7 +197,7 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 
 ### V7 — delete an entry
 
-- [ ] Delete `/support/getting-started` → the popover must say **"Cannot delete: 2 references"**
+- [x] Delete `/support/getting-started` → the popover must say **"Cannot delete: 2 references"**
       (`featuredContent.supportPage` via `keyOf`, and `featuredContent.supportRoute` by route value). Point
       both at `/support/faq`, then delete.
 - [ ] Note that the guard still loaded `kb` before answering, even though no kb entry references this page:
@@ -207,6 +207,8 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 - [ ] The `*.val.json` is deleted and the thunk is gone. Empty directories are left behind — `deleteFile`
       does not prune them, which is expected.
 - [ ] `pnpm fixtures reset` + restart.
+
+Human notes: After I deleted the getting-started the Save button was disabled - at least for a while.
 
 ### V8 — a corrupt entry file
 
@@ -288,16 +290,16 @@ pnpm fixtures corrupt 3     # spread across the record; then reload the Studio
 
 ### V14 — search is lazy, then fills in
 
-- [ ] Reload the Studio. Open search (⌘K / Ctrl+K) but type NOTHING → `jsonCount()` is **0**. Opening the
+- [x] Reload the Studio. Open search (⌘K / Ctrl+K) but type NOTHING → `jsonCount()` is **0**. Opening the
       dialog must not load anything.
-- [ ] Type `kbtoken117` (only entry `kb-117`'s body contains it, and it is below the fold so it was never
+- [x] Type `kbtoken117` (only entry `kb-117`'s body contains it, and it is below the fold so it was never
       loaded):
       → the dropdown shows **"Searching… N% indexed"** with N climbing,
       → the indicator disappears when the load finishes,
       → `kb-117` appears in the results.
-- [ ] While it fills, results already found stay listed — the dropdown never sits empty saying
+- [x] While it fills, results already found stay listed — the dropdown never sits empty saying
       "No results found" while the percentage is still climbing.
-- [ ] Type `article` (matches many entries) → results grow in a handful of steps as batches land, and the
+- [x] Type `article` (matches many entries) → results grow in a handful of steps as batches land, and the
       dropdown stays responsive. (The strict version of "the index is not rebuilt once per batch" is not
       observable from the UI; responsiveness is the proxy.)
 
