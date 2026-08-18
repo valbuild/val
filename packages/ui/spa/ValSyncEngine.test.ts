@@ -1105,6 +1105,9 @@ describe("ValSyncEngine", () => {
       await flush();
       unsubscribe();
 
+      // Without this the assertion below is vacuous: no emissions at all would
+      // pass it, and the test would quietly stop covering anything.
+      expect(seen.length).toBeGreaterThan(0);
       expect(seen).not.toContainEqual({ title: "A", order: 1 });
       expect(
         (engine.getSourceSnapshot(toModuleFilePath(PAGES)).data as any)["/a"],

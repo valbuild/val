@@ -686,6 +686,12 @@ function useSchemaAtPathInternal(
     if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
       return { status: "not-found" };
     }
+    // The source snapshot's own "the module has no schema" — same answer as
+    // module-schema-not-found, and without this it fell through to "loading"
+    // and span forever.
+    if (resolvedSchemaAtPathRes.status === "schema-not-found") {
+      return { status: "not-found" };
+    }
     if (resolvedSchemaAtPathRes.status === "error") {
       return { status: "error", error: resolvedSchemaAtPathRes.error };
     }

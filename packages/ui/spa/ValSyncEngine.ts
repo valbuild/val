@@ -1490,12 +1490,17 @@ export class ValSyncEngine {
     }
     /**
      * True once the key has been marked stale AGAIN, i.e. after the flags above
-     * were cleared and thus after this request was issued. Its outcome predates
-     * that invalidation, so folding it in would show content (or an error) the
-     * invalidation already knows is wrong — visibly, until the re-pass in
+     * were cleared and thus after this request was issued. Content that predates
+     * that invalidation is content the invalidation already knows is wrong, so
+     * writing it in would show it — visibly, until the re-pass in
      * {@link loadJsonEntriesSettled} refetches and corrects it.
+     *
+     * Only content is dropped this way, never a failure: `loadJsonEntries` checks
+     * staleness BEFORE the error memo, so recording the error does not stop the
+     * refetch — while dropping it could leave the key with neither content nor
+     * error, which renders as a spinner with nothing to retry.
      */
-    const isOutdated = (key: string) =>
+    const isOutdatedContent = (key: string) =>
       this.staleJsonEntries.has(`${moduleFilePath}\0${key}`);
     this.noteJsonEntriesRequested(keys.length);
     const promise = this.client("/json", "GET", {
@@ -1517,7 +1522,7 @@ export class ValSyncEngine {
             this.jsonEntryContents[moduleFilePath] = {};
           }
           for (const entry of res.json.entries) {
-            if (isOutdated(entry.key)) {
+            if (isOutdatedContent(entry.key)) {
               continue;
             }
             this.jsonEntryContents[moduleFilePath][entry.key] =
@@ -1529,18 +1534,12 @@ export class ValSyncEngine {
           // A committed key that the server cannot resolve (deleted on disk
           // between our source sync and this request) is an error, not silence.
           for (const key of res.json.missing) {
-            if (isOutdated(key)) {
-              continue;
-            }
             setJsonEntryError(
               key,
               `Entry not found: ${key} in ${moduleFilePath}`,
             );
           }
           for (const { key, message } of res.json.errors) {
-            if (isOutdated(key)) {
-              continue;
-            }
             setJsonEntryError(key, message);
           }
         } else {
@@ -1554,9 +1553,6 @@ export class ValSyncEngine {
             res,
           });
           for (const key of keys) {
-            if (isOutdated(key)) {
-              continue;
-            }
             setJsonEntryError(key, message);
           }
         }
@@ -1569,9 +1565,6 @@ export class ValSyncEngine {
         });
         const message = err instanceof Error ? err.message : String(err);
         for (const key of keys) {
-          if (isOutdated(key)) {
-            continue;
-          }
           setJsonEntryError(key, message);
         }
       })
@@ -1686,47 +1679,96 @@ export class ValSyncEngine {
   }
 
   /**
-   * Folds the PATCHED content of every loaded `.jsonValues()` entry into the
-   * committed cache. Called on save, BEFORE the patch state is dropped: what
-   * was just written to disk is the patched content, so leaving the pre-edit
-   * content cached would leave the engine's view of the module behind the disk
-   * for as long as the refetch takes — and with the patches gone there is
-   * nothing left on top to hide it, so the saved edit visibly reverts and then
-   * comes back once the refetch lands.
+   * Folds what the save just wrote to disk into the committed cache of every
+   * loaded `.jsonValues()` entry. Called from {@link publish} BEFORE the patch
+   * state is dropped: with the patches gone there is nothing left on top to hide
+   * a pre-edit cache entry, so the engine's view of the module sits behind the
+   * disk until the refetch lands — and the saved edit visibly reverts, then comes
+   * back.
    *
-   * Keyed by BASE key, matching {@link jsonEntryContents}: a pending whole-entry
-   * rename means the patched value sits under a different key, so each patched
-   * key is mapped back with {@link resolveBaseJsonEntryKey}.
+   * Applies ONLY `publishedPatchIds`. `publish` is handed the server-side ids, so
+   * a pending client patch that has not been PUT yet is NOT on disk; baking it in
+   * would double-apply it once the sync delivers it and the server sends it back.
+   *
+   * Deliberately narrow — it covers the CONTENT edit, which is the case that
+   * needs it: a content edit rewrites only the entry's `*.val.json`, so the
+   * module source is byte-identical, `sourcesSha` does not change and no
+   * `/sources/~` refresh comes to correct the cache. Anything that reshapes the
+   * record's keys rewrites the `.val.ts` too and is corrected by the refresh it
+   * triggers, so a removed key is left alone and a `move`/`copy` (where two keys
+   * can resolve to one cache key) opts the module out entirely.
    */
-  private foldPatchedJsonEntriesIntoCommitted(): void {
-    for (const moduleFilePathS of Object.keys(this.jsonEntryContents)) {
-      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+  private foldPublishedJsonEntriesIntoCommitted(
+    publishedPatchIds: PatchId[],
+  ): void {
+    const published = new Set(publishedPatchIds);
+    for (const moduleFilePath of this.patchIdsByModuleFilePath.keys()) {
       const contents = this.jsonEntryContents[moduleFilePath];
-      if (contents === undefined) {
+      const baseSource = this.serverSources?.[moduleFilePath];
+      if (contents === undefined || baseSource === undefined) {
         continue;
       }
-      const patched = this.getPatchedSource(moduleFilePath);
+      const patchIds = this.orderedPatchIdsForModule(moduleFilePath).filter(
+        (patchId) => published.has(patchId),
+      );
+      if (patchIds.length === 0) {
+        continue;
+      }
+      let current = this.applyJsonEntryContents(moduleFilePath, baseSource);
+      let reshapesKeys = false;
+      for (const patchId of patchIds) {
+        const data = this.patchDataByPatchId[patchId];
+        if (!data) {
+          continue;
+        }
+        // A whole-entry move or copy can land a key under a name another key
+        // held, which would fold one entry's content onto another's cache slot.
+        if (
+          data.patch.some(
+            (op) =>
+              (op.op === "move" || op.op === "copy") &&
+              (op.path.length <= 1 || op.from.length <= 1),
+          )
+        ) {
+          reshapesKeys = true;
+          break;
+        }
+        const patchableOps = data.patch.filter((op) => op.op !== "file");
+        if (patchableOps.length === 0) {
+          continue;
+        }
+        const patchRes = applyPatch(deepClone(current), ops, patchableOps);
+        if (result.isOk(patchRes)) {
+          current = patchRes.value;
+        }
+        // A patch that does not apply is one the server skipped too — leave the
+        // cache as it is and let the refetch reconcile.
+      }
       if (
-        patched === undefined ||
-        patched === null ||
-        typeof patched !== "object" ||
-        Array.isArray(patched)
+        reshapesKeys ||
+        current === null ||
+        typeof current !== "object" ||
+        Array.isArray(current)
       ) {
         continue;
       }
-      for (const patchedKey of Object.keys(patched)) {
-        const baseKey = this.resolveBaseJsonEntryKey(
-          moduleFilePath,
-          patchedKey,
-        );
-        // Only keys we already hold content for: a key we have never loaded has
-        // no cache entry to bring up to date, and adding one would make the
-        // batch loader refetch a key it was right to leave alone.
-        if (contents[baseKey] === undefined) {
+      for (const key of Object.keys(contents)) {
+        const publishedValue = current[key];
+        // Gone from the published source: removed by one of these patches, so
+        // there is no on-disk content to fold. That rewrites the module source,
+        // so the `/sources/~` refresh corrects the cache.
+        if (publishedValue === undefined) {
           continue;
         }
-        contents[baseKey] = deepClone(patched[patchedKey]);
+        contents[key] = deepClone(publishedValue);
       }
+      // Paired with the mutation, as at every other write to jsonEntryContents:
+      // the patched-source cache can hold a source built from the pre-fold
+      // content, and it outlives publish because the /patches re-sync brings the
+      // module's patch ids back. NOT invalidateSource: that would emit, and a
+      // re-read while the patches are still applied would apply them on top of
+      // content that already contains them.
+      this.invalidatePatchedSourcesCache(moduleFilePath);
     }
   }
 
@@ -4395,14 +4437,18 @@ export class ValSyncEngine {
   }
 
   // #region Publish
-  async publish(patchIds: PatchId[], message: string | undefined, now: number) {
+  async publish(
+    patchIds: PatchId[],
+    message: string | undefined,
+    now: number,
+  ): Promise<PublishResult> {
     try {
       if (this.isPublishing) {
         console.debug("Already publishing changes", now);
         return {
           status: "retry",
           reason: "already-publishing",
-        } as const;
+        };
       }
       this.isPublishing = true;
       if (this.publishDisabled) {
@@ -4413,7 +4459,7 @@ export class ValSyncEngine {
         return {
           status: "retry",
           reason: "publish-disabled",
-        } as const;
+        };
       }
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
@@ -4441,7 +4487,7 @@ export class ValSyncEngine {
         return {
           status: "retry",
           reason: "validation-error",
-        } as const;
+        };
       }
       if (patchIds.length === 0) {
         this.addGlobalTransientError(
@@ -4450,7 +4496,7 @@ export class ValSyncEngine {
         );
         return {
           status: "done",
-        } as const;
+        };
       }
       const res = await this.client("/save", "POST", {
         body: {
@@ -4465,7 +4511,7 @@ export class ValSyncEngine {
         );
         return {
           status: "retry",
-        } as const;
+        };
       } else if (res.status !== 200) {
         this.addGlobalTransientError(
           "Failed to publish changes",
@@ -4474,12 +4520,20 @@ export class ValSyncEngine {
         );
         return {
           status: "retry",
-        } as const;
+        };
       } else {
-        // BEFORE the patch state below is dropped: the patched content is what
-        // the save just wrote to disk, so it is now the committed content of
-        // every loaded `.jsonValues()` entry.
-        this.foldPatchedJsonEntriesIntoCommitted();
+        // BEFORE the patch state below is dropped. Best-effort: the refetch that
+        // markAllJsonEntriesStale kicks off is what makes the cache correct, this
+        // only keeps it from being visibly wrong in the meantime — so a throw
+        // here must not report a save that DID commit as failed.
+        try {
+          this.foldPublishedJsonEntriesIntoCommitted(patchIds);
+        } catch (err) {
+          console.error(
+            "Val: SyncEngine: could not fold published json entries into the committed cache",
+            err,
+          );
+        }
         if (this.mode === "fs") {
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];
@@ -4504,7 +4558,7 @@ export class ValSyncEngine {
         this.invalidateSavedServerSidePatchIds();
         return {
           status: "done",
-        } as const;
+        };
       }
     } catch (err) {
       console.error("Error while publishing", err);
@@ -4516,7 +4570,7 @@ export class ValSyncEngine {
       return {
         status: "retry",
         reason: "error",
-      } as const;
+      };
     } finally {
       this.isPublishing = false;
       this.publishDisabled = false;
@@ -4719,6 +4773,21 @@ export const defaultOverlayEmitter = (
 };
 
 // #region Types
+/**
+ * `publish` has its own reasons — it can be turned away before it ever gets to
+ * the patches, and none of {@link RetryReason}'s sync reasons apply to it.
+ */
+type PublishRetryReason =
+  | "already-publishing"
+  | "publish-disabled"
+  | "validation-error"
+  | "error";
+type PublishResult =
+  | { status: "done" }
+  // No reason on the network / non-200 paths: the transient error already says
+  // what happened, and the caller only distinguishes done from not-done.
+  | { status: "retry"; reason?: PublishRetryReason };
+
 type RetryReason =
   | "conflict"
   | "not-initialized"
