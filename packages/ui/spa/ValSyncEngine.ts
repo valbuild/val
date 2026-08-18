@@ -3061,19 +3061,19 @@ export class ValSyncEngine {
                 // /sources/~ is called with validate_sources=false.
                 this.requestModuleValidation(moduleFilePath);
               }
-              const nextPatchErrors = valModule.patches?.errors;
-              if (nextPatchErrors) {
-                const patchErrorsDidChange = !deepEqual(
-                  this.errors.patchErrors?.[moduleFilePath] ?? null,
-                  nextPatchErrors,
-                );
+              // The server omits `errors` entirely for a module that has none,
+              // so `undefined` here means "no patch errors" and has to clear
+              // whatever we held before — otherwise a module that once had a
+              // patch error keeps reporting it forever.
+              const nextPatchErrors = valModule.patches?.errors ?? null;
+              const previousPatchErrors =
+                this.errors.patchErrors?.[moduleFilePath] ?? null;
+              if (!deepEqual(previousPatchErrors, nextPatchErrors)) {
                 if (this.errors.patchErrors === undefined) {
                   this.errors.patchErrors = {};
                 }
                 this.errors.patchErrors[moduleFilePath] = nextPatchErrors;
-                if (patchErrorsDidChange) {
-                  this.invalidatePatchErrors(moduleFilePath);
-                }
+                this.invalidatePatchErrors(moduleFilePath);
               }
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);

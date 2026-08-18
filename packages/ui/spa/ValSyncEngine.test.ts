@@ -346,6 +346,69 @@ describe("ValSyncEngine", () => {
     }
   });
 
+  test("patch errors are cleared once the server stops reporting them", async () => {
+    // The server omits `patches.errors` for a module that has none, so an
+    // absent field means "no errors" and has to clear what we held before.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string(), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const moduleFilePath = toModuleFilePath("/test.val.ts");
+
+    let patchErrorsListenerCalls = 0;
+    const unsubscribe = syncEngine.subscribe("patch-errors", [moduleFilePath])(
+      () => {
+        patchErrorsListenerCalls++;
+      },
+    );
+
+    const sourcesResponseWithPatchErrors = {
+      status: 200,
+      json: {
+        modules: {
+          [moduleFilePath]: {
+            source: "test",
+            patches: {
+              applied: [],
+              errors: {
+                ["some-patch-id" as PatchId]: { message: "Could not apply" },
+              },
+            },
+          },
+        },
+        sourcesSha: tester.getSourcesSha(),
+        schemaSha: tester.getSchemasSha(),
+      },
+    };
+    tester.setFakeResponse("/sources/~", "PUT", sourcesResponseWithPatchErrors);
+    // Force a sync that reads sources: a source file changed on disk.
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "changed" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toStrictEqual({
+      [moduleFilePath]: {
+        ["some-patch-id" as PatchId]: { message: "Could not apply" },
+      },
+    });
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    // The patch is fixed/removed server side, so `errors` is now omitted.
+    patchErrorsListenerCalls = 0;
+    tester.removeFakeResponse("/sources/~", "PUT");
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "again" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toBeUndefined();
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
