@@ -73,6 +73,30 @@ describe("extractValModules", () => {
     expect(before.schemaSha).not.toBe(after.schemaSha);
   });
 
+  test("a module that throws while importing is reported, not thrown", async () => {
+    // A rejecting def() used to abort the whole extraction: on the server that
+    // means ValOps.initSources rejects and /stat, /schema and /sources/~ all
+    // fail opaquely instead of naming the module that is actually broken.
+    const extracted = await extractValModules(
+      modules({ project: "team/project" }, [
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define("/content/page.val.ts", s.string(), "hello"),
+            }),
+        },
+        { def: () => Promise.reject(new Error("Unexpected token ';'")) },
+      ]),
+    );
+
+    expect(extracted.moduleErrors).toHaveLength(1);
+    expect(extracted.moduleErrors[0].message).toContain("Unexpected token ';'");
+    // The modules that did load are still usable.
+    expect(Object.keys(extracted.serializedSchemas)).toStrictEqual([
+      "/content/page.val.ts",
+    ]);
+  });
+
   test("moduleErrors is dense so consumers using find() do not crash", async () => {
     const extracted = await extractValModules(
       modules({ project: "team/project" }, [

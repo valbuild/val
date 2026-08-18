@@ -27,6 +27,11 @@ Also fixed along the way:
 - `extractValModules` builds `moduleErrors` with `push` instead of index
   assignment. The sparse array it produced crashed `Service.get`, which looks
   the errors up with `Array.prototype.find` (that visits holes as `undefined`).
+- A val module that throws while importing is now reported as a module error
+  instead of rejecting the whole extraction. A rejecting `def()` made
+  `ValOps.initSources` reject, so `/stat`, `/schema` and `/sources/~` all failed
+  opaquely instead of naming the module that is actually broken. Module errors
+  now also say which `val.modules` entry they came from.
 - `ValSyncEngine.subscribe` now removes listeners by identity on unsubscribe.
   It used to splice by an index captured at subscribe time, which drifts as soon
   as anything else in the same bucket unsubscribes first, and the array-path

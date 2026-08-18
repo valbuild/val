@@ -34,6 +34,10 @@ function getTextEncoder(): TextEncoder {
   return textEncoder;
 }
 
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : JSON.stringify(e);
+}
+
 function hash(input: string | object): string {
   if (typeof input === "object") {
     return hashObject(input);
@@ -122,79 +126,94 @@ export async function extractValModules(
   // server-only env vars and therefore `undefined` in the browser. Seeding with
   // them made the two sides disagree on every production load.
   let schemaSha = "";
-  for (const module of valModules.modules) {
+  for (let moduleIdx = 0; moduleIdx < valModules.modules.length; moduleIdx++) {
+    const module = valModules.modules[moduleIdx];
+    // NOTE: `at index N` refers to the module's position in the val.modules
+    // array, which is all we can name when the module never loaded.
+    const at = `at index ${moduleIdx}`;
     if (!module.def) {
-      addModuleError("val.modules is missing 'def' property");
+      addModuleError(`val.modules ${at} is missing 'def' property`);
       continue;
     }
     if (typeof module.def !== "function") {
-      addModuleError("val.modules 'def' property is not a function");
+      addModuleError(`val.modules ${at} 'def' property is not a function`);
       continue;
     }
-    await module.def().then((value) => {
-      if (!value) {
-        addModuleError(`val.modules 'def' did not return a value`);
-        return;
-      }
-      if (!value.default) {
-        addModuleError(`val.modules 'def' did not return a default export`);
-        return;
-      }
-
-      const path = getValPath(value.default);
-      if (path === undefined) {
-        addModuleError(`path is undefined`);
-        return;
-      }
-      const schema = getSchema(value.default);
-      if (schema === undefined) {
-        addModuleError(`schema in path '${path}' is undefined`, path);
-        return;
-      }
-      // Avoid `schema instanceof Schema` — the editor SPA and the host
-      // Next.js bundle each ship their own copy of @valbuild/core, so the
-      // `Schema` class identity differs between them and the instanceof
-      // check would fail for cross-bundle modules. The executeSerialize
-      // check below is the actual contract we depend on.
-      if (typeof schema["executeSerialize"] !== "function") {
-        addModuleError(
-          `schema.serialize in path '${path}' is not a function`,
-          path,
-        );
-        return;
-      }
-      const source = getSource(value.default);
-      if (source === undefined) {
-        addModuleError(`source in ${path} is undefined`, path);
-        return;
-      }
-      let serializedSchema: SerializedSchema;
-      try {
-        serializedSchema = schema["executeSerialize"]();
-      } catch (e) {
-        const message = e instanceof Error ? e.message : JSON.stringify(e);
-        addModuleError(
-          `Could not serialize module: '${path}'. Error: ${message}`,
-          path,
-        );
-        return;
-      }
-      const pathM = path as string as ModuleFilePath;
-      sources[pathM] = source;
-      schemas[pathM] = schema;
-      serializedSchemas[pathM] = serializedSchema;
-      sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
-      baseSha = hash(
-        baseSha +
-          JSON.stringify({
-            path,
-            schema: serializedSchema,
-            source,
-            modulesErrors: moduleErrors,
-          }),
+    let value: Awaited<ReturnType<typeof module.def>>;
+    try {
+      value = await module.def();
+    } catch (e) {
+      // A module that throws while importing (a syntax error, a throwing
+      // top-level statement, a missing file) has to be reported like any other
+      // module error. Letting it reject aborts the whole extraction, which on
+      // the server means ValOps.initSources rejects and /stat, /schema and
+      // /sources/~ all fail opaquely instead of naming the broken module.
+      addModuleError(
+        `val.modules 'def' ${at} could not be loaded. Error: ${errorMessage(e)}`,
       );
-      schemaSha = hash(schemaSha + JSON.stringify(serializedSchema));
-    });
+      continue;
+    }
+    if (!value) {
+      addModuleError(`val.modules 'def' ${at} did not return a value`);
+      continue;
+    }
+    if (!value.default) {
+      addModuleError(`val.modules 'def' ${at} did not return a default export`);
+      continue;
+    }
+
+    const path = getValPath(value.default);
+    if (path === undefined) {
+      addModuleError(`path is undefined for val.modules 'def' ${at}`);
+      continue;
+    }
+    const schema = getSchema(value.default);
+    if (schema === undefined) {
+      addModuleError(`schema in path '${path}' is undefined`, path);
+      continue;
+    }
+    // Avoid `schema instanceof Schema` — the editor SPA and the host
+    // Next.js bundle each ship their own copy of @valbuild/core, so the
+    // `Schema` class identity differs between them and the instanceof
+    // check would fail for cross-bundle modules. The executeSerialize
+    // check below is the actual contract we depend on.
+    if (typeof schema["executeSerialize"] !== "function") {
+      addModuleError(
+        `schema.serialize in path '${path}' is not a function`,
+        path,
+      );
+      continue;
+    }
+    const source = getSource(value.default);
+    if (source === undefined) {
+      addModuleError(`source in ${path} is undefined`, path);
+      continue;
+    }
+    let serializedSchema: SerializedSchema;
+    try {
+      serializedSchema = schema["executeSerialize"]();
+    } catch (e) {
+      addModuleError(
+        `Could not serialize module: '${path}'. Error: ${errorMessage(e)}`,
+        path,
+      );
+      continue;
+    }
+    const pathM = path as string as ModuleFilePath;
+    sources[pathM] = source;
+    schemas[pathM] = schema;
+    serializedSchemas[pathM] = serializedSchema;
+    sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
+    baseSha = hash(
+      baseSha +
+        JSON.stringify({
+          path,
+          schema: serializedSchema,
+          source,
+          modulesErrors: moduleErrors,
+        }),
+    );
+    schemaSha = hash(schemaSha + JSON.stringify(serializedSchema));
   }
   return {
     sources,
