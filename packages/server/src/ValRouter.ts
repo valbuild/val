@@ -8,6 +8,7 @@ import {
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
+import { ResolvedLiveConfig } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 
@@ -126,6 +127,108 @@ type ValServerOverrides = Partial<{
   disableCache?: boolean;
 }>;
 
+const LIVE_ENV_VARS = {
+  ttl: "VAL_LIVE_TTL",
+  staleWhileRevalidate: "VAL_LIVE_STALE_WHILE_REVALIDATE",
+  disabled: "VAL_LIVE_DISABLED",
+} as const;
+
+function invalidLiveSeconds(source: string, value: unknown): Error {
+  return new Error(
+    `Invalid Val live mode config: ${source} must be a finite, non-negative number of seconds, but was: ${JSON.stringify(
+      value,
+    )}`,
+  );
+}
+
+/** val.config is not always type checked (it may be plain JS), so validate strictly. */
+function liveSecondsFromConfig(
+  value: number | undefined,
+  source: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw invalidLiveSeconds(source, value);
+  }
+  return value;
+}
+
+/** Env vars are always strings, so these are coerced - but just as strictly. */
+function liveSecondsFromEnv(envVar: string): number | undefined {
+  const value = process.env[envVar];
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (value.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
+    throw invalidLiveSeconds(`the ${envVar} env var`, value);
+  }
+  return parsed;
+}
+
+/**
+ * Whether live mode is asked for at all.
+ *
+ * The cheap check: it answers "should we bother asking the server for live
+ * sources?" without needing to know the mode. `resolveLiveConfig` is the one
+ * that decides whether live mode actually ends up on - it can still say no,
+ * in which case /live/sources just returns an empty set.
+ */
+export function isLiveModeConfigured(config: ValConfig | undefined): boolean {
+  if (process.env[LIVE_ENV_VARS.disabled] === "true") {
+    return false;
+  }
+  return !!config?.live || process.env[LIVE_ENV_VARS.ttl] !== undefined;
+}
+
+/**
+ * Resolve the `live` config, applying the env var overrides.
+ *
+ * Live mode requires talking to Val on every request unless we cache, so `ttl`
+ * has no safe default and is required whenever `live` is present. This is also
+ * validated at runtime (and not only by the `ValConfig` type) because
+ * val.config may be a plain JS file where the type is not enforced.
+ */
+export function resolveLiveConfig(
+  // `initVal()` takes an optional config and hands it straight back, so this is
+  // undefined at runtime whenever the app calls `initVal()` with no arguments -
+  // which the ValConfig type does not tell you.
+  config: ValConfig | undefined,
+  isProxyMode: boolean,
+): ResolvedLiveConfig | undefined {
+  if (!isLiveModeConfigured(config)) {
+    return undefined;
+  }
+  const envTtl = liveSecondsFromEnv(LIVE_ENV_VARS.ttl);
+  const envSwr = liveSecondsFromEnv(LIVE_ENV_VARS.staleWhileRevalidate);
+  const ttl =
+    envTtl ??
+    liveSecondsFromConfig(config?.live?.ttl, "'live.ttl' in val.config");
+  if (ttl === undefined) {
+    // Only reachable when 'live' is present as an object without a ttl, which
+    // the ValConfig type forbids but a plain JS config file does not.
+    throw new Error(
+      "Invalid Val live mode config: 'live.ttl' is required when 'live' is set in val.config. Use 'live: { ttl: 0 }' to always refetch.",
+    );
+  }
+  const staleWhileRevalidate =
+    envSwr ??
+    liveSecondsFromConfig(
+      config?.live?.staleWhileRevalidate,
+      "'live.staleWhileRevalidate' in val.config",
+    ) ??
+    0;
+  if (!isProxyMode) {
+    console.warn(
+      "Val: live mode is configured, but Val is running in local (fs) mode so it has no effect. Live mode renders patches that were committed to Val, which requires proxy mode (VAL_API_KEY and VAL_SECRET).",
+    );
+    return undefined;
+  }
+  return { ttl, staleWhileRevalidate };
+}
+
 export async function createValServer(
   valModules: ValModules,
   route: string,
@@ -165,6 +268,7 @@ async function initHandlerOptions(
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
   const valContentUrl =
     opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+  const live = resolveLiveConfig(config, !!isProxyMode);
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
@@ -207,6 +311,7 @@ async function initHandlerOptions(
       valContentUrl,
       valBuildUrl,
       config,
+      live,
     };
   } else {
     const cwd = process.cwd();

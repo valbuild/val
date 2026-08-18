@@ -26,7 +26,10 @@ import {
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
+  ResolvedLiveConfig,
+  Sources,
 } from "./ValOps";
+import { LiveCache } from "./LiveCache";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
 import {
@@ -105,6 +108,29 @@ const GetApplicablePatches = z.object({
     )
     .optional(),
 });
+/**
+ * The live patch set: patches that are committed to Val but landed after the
+ * commit this deploy was built from.
+ *
+ * Narrower than GetApplicablePatches on purpose - this response is served to
+ * anonymous end users, so every patch here is already committed and therefore
+ * public. There is no patch_id filter and no chunking.
+ */
+const LivePatchesResponse = z.object({
+  headCommitSha: z.string().nullable(),
+  baseCommitSha: z.string().nullable(),
+  patches: z.array(
+    z.object({
+      patchId: z.string(),
+      path: z.string(),
+      patch: Patch,
+      baseSha: z.string(),
+      createdAt: z.string(),
+      authorId: z.string().nullable(),
+      appliedAt: z.object({ commitSha: z.string() }),
+    }),
+  ),
+});
 const FilesResponse = z.object({
   files: z.array(
     z.union([
@@ -171,11 +197,20 @@ const NonceResponse = z.object({
   url: z.string(),
 });
 
+/** The live patch set, as returned by GET /v1/{project}/live/patches. */
+export type LivePatches = {
+  patches: OrderedPatches["patches"];
+  /** The newest commit on this branch known to Val. */
+  headCommitSha: string | null;
+};
+
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders:
     | { Authorization: string }
     | { "x-val-pat": string };
   private readonly root: string;
+  private readonly live?: ResolvedLiveConfig;
+  private readonly liveCache: LiveCache<LivePatches> | null;
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
@@ -195,6 +230,11 @@ export class ValOpsHttp extends ValOps {
        * the root would be /apps/my-app
        */
       root?: string;
+      /**
+       * Live mode settings, already resolved by `resolveLiveConfig`.
+       * Undefined means live mode is off.
+       */
+      live?: ResolvedLiveConfig;
     },
   ) {
     super(valModules, options);
@@ -203,6 +243,8 @@ export class ValOpsHttp extends ValOps {
         ? { "x-val-pat": auth.pat }
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
+    this.live = options?.live;
+    this.liveCache = this.live ? new LiveCache<LivePatches>(this.live) : null;
   }
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
@@ -786,6 +828,145 @@ export class ValOpsHttp extends ValOps {
         },
       };
     }
+  }
+
+  // #region live patches
+  /**
+   * The patches that are committed to Val, but landed after the commit this
+   * deploy was built from. Cached according to the live mode ttl.
+   *
+   * Returns null whenever live mode cannot produce an answer - it is off, or
+   * the request failed and there is nothing stale to fall back to. Callers then
+   * render the deployed content, which is always a safe answer.
+   */
+  async fetchLivePatches(): Promise<LivePatches | null> {
+    if (!this.liveCache || !this.live) {
+      return null;
+    }
+    const baseSha = await this.getBaseSha();
+    // baseSha, not just the commit sha: the same commit can be deployed more
+    // than once with different evaluated sources, so the commit alone does not
+    // identify a deploy.
+    const key = [
+      this.project,
+      this.branch,
+      this.commitSha,
+      baseSha,
+      Internal.VERSION.core,
+    ].join("|");
+    return this.liveCache.get(key, () =>
+      this.fetchLivePatchesUncached(baseSha),
+    );
+  }
+
+  private async fetchLivePatchesUncached(
+    baseSha: BaseSha,
+  ): Promise<LivePatches | null> {
+    const searchParams = new URLSearchParams([
+      ["branch", this.branch],
+      ["commit", this.commitSha],
+      ["base_sha", baseSha],
+      ["core_version", Internal.VERSION.core ?? ""],
+    ]);
+    // A no-op outside Next. Inside Next it dedupes across server instances on
+    // top of our own in-process cache.
+    const cacheOptions: RequestInit & { next?: { revalidate: number } } =
+      this.live && this.live.ttl > 0
+        ? { next: { revalidate: this.live.ttl } }
+        : { cache: "no-store" };
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/live/patches?${searchParams.toString()}`,
+        { headers: this.authHeaders, ...cacheOptions },
+      );
+      if (!res.ok) {
+        console.error(
+          "Val: could not get live patches. HTTP error: " +
+            res.status +
+            " " +
+            res.statusText,
+        );
+        return null;
+      }
+      const parsed = LivePatchesResponse.safeParse(await res.json());
+      if (!parsed.success) {
+        console.error(
+          "Val: could not parse the live patches response. Error: " +
+            fromError(parsed.error),
+        );
+        return null;
+      }
+      if (
+        parsed.data.baseCommitSha !== null &&
+        parsed.data.baseCommitSha !== this.commitSha
+      ) {
+        // The response is for a different deploy than the one asking, so its
+        // patches may not apply to our sources at all.
+        console.error(
+          `Val: ignoring live patches for a different commit. Expected: ${this.commitSha}, got: ${parsed.data.baseCommitSha}`,
+        );
+        return null;
+      }
+      const degraded = res.headers.get("x-val-live-degraded");
+      if (degraded) {
+        // Expected on a rollback or a force-push: Val cannot tell what landed
+        // after a commit it does not recognise, so it returns nothing.
+        console.warn(
+          `Val: live mode is degraded (${degraded}), rendering the deployed content.`,
+        );
+      }
+      return {
+        headCommitSha: parsed.data.headCommitSha,
+        patches: parsed.data.patches.map((patch) => ({
+          patchId: patch.patchId as PatchId,
+          path: patch.path as ModuleFilePath,
+          patch: patch.patch,
+          baseSha: patch.baseSha as BaseSha,
+          createdAt: patch.createdAt,
+          authorId: patch.authorId as AuthorId | null,
+          appliedAt: { commitSha: patch.appliedAt.commitSha as CommitSha },
+        })),
+      };
+    } catch (err) {
+      console.error(
+        "Val: could not get live patches (connection error):",
+        err instanceof Error ? err.message : JSON.stringify(err),
+      );
+      return null;
+    }
+  }
+
+  override async getLiveSources(): Promise<{
+    sources: Sources;
+    headCommitSha: string | null;
+  }> {
+    const live = await this.fetchLivePatches();
+    if (!live) {
+      return { sources: {}, headCommitSha: null };
+    }
+    if (live.patches.length === 0) {
+      return { sources: {}, headCommitSha: live.headCommitSha };
+    }
+    const analysis = this.analyzePatches(live.patches, undefined, undefined, {
+      // Every live patch is committed, which is exactly what the draft path
+      // filters out.
+      includeApplied: true,
+    });
+    // getSources returns only the modules that had patches, which is what we
+    // want here: it is what goes over the wire. Patches that fail to apply are
+    // recorded per module and skipped, so a stale patch degrades to the
+    // deployed content for that module instead of failing the render.
+    const { sources, errors } = await this.getSources({
+      ...analysis,
+      ...live,
+    });
+    for (const [path, moduleErrors] of Object.entries(errors)) {
+      console.error(
+        `Val: could not apply live patches to ${path}, rendering the deployed content for it instead:`,
+        moduleErrors.map((e) => e.error.message).join(", "),
+      );
+    }
+    return { sources, headCommitSha: live.headCommitSha };
   }
 
   protected async saveSourceFilePatch(

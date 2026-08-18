@@ -15,6 +15,12 @@ export const SharedValConfig: z.ZodSchema<
   gitCommit: z.string().optional(),
   gitBranch: z.string().optional(),
   defaultTheme: z.enum(["dark", "light"]).optional(),
+  live: z
+    .object({
+      ttl: z.number(),
+      staleWhileRevalidate: z.number().optional(),
+    })
+    .optional(),
   ai: z
     .object({
       commitMessages: z

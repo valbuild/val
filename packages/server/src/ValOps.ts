@@ -71,6 +71,17 @@ const tsOps = new TSOps((document) => {
   );
 });
 
+/**
+ * The `live` block of ValConfig after env overrides have been applied and the
+ * defaults filled in. `undefined` means live mode is off.
+ */
+export type ResolvedLiveConfig = {
+  /** Seconds a fetched live patch set is fresh. 0 = always refetch. */
+  ttl: number;
+  /** Seconds past `ttl` a stale entry may be served while it is refreshed in the background. */
+  staleWhileRevalidate: number;
+};
+
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
   statPollingInterval?: number;
@@ -243,6 +254,16 @@ export abstract class ValOps {
     sortedPatches: OrderedPatches["patches"],
     commits?: ValCommit[],
     currentCommitSha?: CommitSha,
+    opts?: {
+      /**
+       * Include patches that have already been committed.
+       *
+       * Only live mode wants these: it renders patches that are committed but
+       * not yet deployed. The draft path must keep skipping them, since there
+       * they are already part of the sources it started from.
+       */
+      includeApplied?: boolean;
+    },
   ): PatchAnalysis {
     const patchesByModule: {
       [path: ModuleFilePath]: {
@@ -258,7 +279,7 @@ export abstract class ValOps {
       }
     > = {};
     for (const patch of sortedPatches) {
-      if (patch.appliedAt) {
+      if (patch.appliedAt && !opts?.includeApplied) {
         continue;
       }
       let hasSourceFileOps = false;
@@ -424,6 +445,25 @@ export abstract class ValOps {
       }
     }
     return { sources: patchedSources, errors };
+  }
+
+  // #region getLiveSources
+  /**
+   * The sources of the modules that changed in patches which are committed to
+   * Val but are not yet part of the running deploy - "live mode".
+   *
+   * Only the changed modules are returned, which is the whole point: it is what
+   * goes over the wire to the browser, and it keeps this path cheap. There is
+   * no validation and no rendering here; it runs on public page loads.
+   *
+   * Live mode requires talking to Val, so this is a no-op outside http mode -
+   * `ValOpsFS` has no committed-but-undeployed patches to speak of.
+   */
+  async getLiveSources(): Promise<{
+    sources: Sources;
+    headCommitSha: string | null;
+  }> {
+    return { sources: {}, headCommitSha: null };
   }
 
   /**

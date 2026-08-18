@@ -67,14 +67,31 @@ type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
+  live?: {
+    ttl: number;
+    staleWhileRevalidate?: number;
+  };
 };
+
+// Live mode is off by default, since it requires a project and remote mode.
+// Left here as a pointer: without it, saved content is only visible once CI has
+// rebuilt and redeployed the app.
+const LIVE_MODE_COMMENT = `  // Render content that has been saved in Val, but not yet deployed.
+  // Requires remote mode. 'ttl' is the seconds to cache for; 0 = always refetch.
+  // live: { ttl: 60 },`;
+
+function valConfigLiteral(options: ValConfig) {
+  const literal = JSON.stringify(options, null, 2);
+  const entries = literal === "{}" ? "{\n" : `${literal.slice(0, -1)}`;
+  return `${entries}${LIVE_MODE_COMMENT}\n}`;
+}
 
 export const VAL_CONFIG = (
   isTypeScript: boolean,
   options: ValConfig,
 ) => `import { initVal } from "@valbuild/next";
 
-const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal(${JSON.stringify(options, null, 2)});
+const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal(${valConfigLiteral(options)});
 
 ${isTypeScript ? 'export type { t } from "@valbuild/next";' : ""};
 export { s, c, val, config, nextAppRouter, externalPageRouter };

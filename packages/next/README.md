@@ -42,6 +42,8 @@
 
 - [Installation](#installation)
 - [Getting started](#getting-started)
+- [Remote mode](#remote-mode)
+- [Live mode](#live-mode)
 - [Schema types](#schema-types):
   - [String](#string)
   - [Number](#number)
@@ -231,6 +233,54 @@ const { s, c, val, config } = initVal({
 export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
+
+# Live mode
+
+By default your app renders exactly what was compiled into the deploy. When an editor hits **Save**, the change is committed — but nobody sees it until CI rebuilds and redeploys. On a large site that is minutes; if the deploy pipeline is broken, it is never.
+
+Live mode closes that gap. It makes your app render patches that are **committed but not yet deployed**, for everyone, with no login and no cookie:
+
+```ts
+const { s, c, val, config } = initVal({
+  project: "myteam/myproject",
+  gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
+  gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
+  live: {
+    ttl: 60, // seconds to cache the live patch set. 0 = always refetch
+    staleWhileRevalidate: 300, // optional: seconds a stale set may be served while refreshing
+  },
+});
+```
+
+## Requirements
+
+Live mode requires [remote mode](#remote-mode): `VAL_API_KEY`, `VAL_SECRET`, plus `gitCommit` and `gitBranch` (the deploy has to be able to say which commit it is running). In local development (fs mode) live mode logs a warning and does nothing.
+
+## The TTL contract
+
+Live mode has to ask Val "what changed since my commit?" — so `ttl` is **required**. There is no safe default:
+
+- `ttl: 0` — always refetch. Correct content immediately, one request to Val per render.
+- `ttl: 60` — a committed change appears within 60 seconds.
+- `staleWhileRevalidate: 300` — for the 300 seconds after the ttl expires, the cached set is served immediately while it is refreshed in the background, so no visitor waits for the refresh.
+
+Val is never in the critical path for correctness. If it is slow, unreachable, or returns something unexpected, the app serves the last good patch set, and failing that the deployed content. It never throws and never 500s a page.
+
+## Environment variables
+
+These override `val.config`, which is useful when the same config is deployed to several environments:
+
+- **`VAL_LIVE_TTL`** / **`VAL_LIVE_STALE_WHILE_REVALIDATE`**: override the values above.
+- **`VAL_LIVE_DISABLED=true`**: kill switch. Turns live mode off entirely, e.g. for preview deploys.
+
+## What currently renders live
+
+- **Server Components** (`fetchVal`, `fetchValRoute`, `fetchValRouteUrl`): fully supported. The HTML is already correct on a hard load.
+- **New routes from a committed patch**: a route that only exists in a committed patch resolves and renders. It is not in `generateStaticParams`, so Next renders it on demand via the default `dynamicParams: true`.
+- **Images added in a committed patch**: served through `/api/val/files`, since they do not exist in the deployed bundle.
+- **Client Components** (`useVal`): not yet — they render the build-time content. Support is coming.
+
+Live content is public content, so no editing markers are ever emitted for it: `data-val-path` attributes remain tied to draft mode.
 
 # Formatting published content
 

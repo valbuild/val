@@ -29,6 +29,26 @@ export type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
+  /**
+   * Live mode: render patches that are committed, but not yet deployed.
+   *
+   * When set, the app asks Val for the patches that landed after the currently
+   * deployed commit and applies them before rendering - for everyone, without
+   * a login. This closes the gap between hitting Save in the studio and CI
+   * having rebuilt and redeployed the app.
+   *
+   * Requires proxy mode (VAL_API_KEY + VAL_SECRET + VAL_GIT_COMMIT). In fs
+   * (local dev) mode it is a no-op.
+   *
+   * Since the live patch set is fetched from Val, `ttl` is required: it is the
+   * number of seconds a fetched patch set is reused before refetching.
+   */
+  live?: {
+    /** Seconds to cache the live patch set. 0 = always refetch. Required. */
+    ttl: number;
+    /** Seconds past `ttl` a stale entry may be served while it is refreshed in the background. */
+    staleWhileRevalidate?: number;
+  };
   ai?: {
     commitMessages?: {
       disabled?: boolean;

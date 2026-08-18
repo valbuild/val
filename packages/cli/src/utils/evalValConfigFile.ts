@@ -29,6 +29,12 @@ const ValConfigSchema = z.object({
   gitCommit: z.string().optional(),
   gitBranch: z.string().optional(),
   defaultTheme: z.union([z.literal("light"), z.literal("dark")]).optional(),
+  live: z
+    .object({
+      ttl: z.number().finite().nonnegative(),
+      staleWhileRevalidate: z.number().finite().nonnegative().optional(),
+    })
+    .optional(),
   ai: z
     .object({
       commitMessages: z
