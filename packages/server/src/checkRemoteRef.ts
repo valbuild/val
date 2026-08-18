@@ -49,10 +49,10 @@ export async function checkRemoteRef(
       error: `File path is missing in remote ref: ${ref}`,
     };
   }
-  if (!relativeFilePath.startsWith("public/val/")) {
+  if (!relativeFilePath.startsWith("public/")) {
     return {
       status: "error",
-      error: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+      error: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,
     };
   }
   const coreVersion = Internal.VERSION.core || "unknown";
@@ -148,7 +148,7 @@ export async function checkRemoteRef(
   }
   const newFileExt = Internal.mimeTypeToFileExt(updatedMetadata.mimeType);
   const newFilePath = (relativeFilePath.slice(0, -fileExt.length) +
-    newFileExt) as `public/val/${string}`;
+    newFileExt) as `public/${string}`;
   return {
     status: "fix-required",
     metadata: updatedMetadata,

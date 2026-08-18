@@ -311,8 +311,28 @@ export function createValApiRouter<Res>(
   convert: (valServerRes: ValServerGenericResult) => Res,
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
+  // valServerPromise is created at module-eval time, but only awaited per request.
+  // Without this no-op catch, a config error (e.g. proxy mode without a project)
+  // rejects with no handler attached, which becomes an unhandledRejection and kills
+  // the dev server. The error is still reported per request by the try/catch below.
+  valServerPromise.catch(() => {
+    // handled below
+  });
   return async (req): Promise<Res> => {
-    const valServer = await valServerPromise;
+    let valServer: ValServer;
+    try {
+      valServer = await valServerPromise;
+    } catch (err) {
+      const error = {
+        message: "Val: could not start the Val server",
+        details: err instanceof Error ? err.message : String(err),
+      };
+      console.error(error.message + ": " + error.details);
+      return convert({
+        status: 500,
+        json: error,
+      });
+    }
     const url = new URL(req.url);
     if (!url.pathname.startsWith(route)) {
       const error = {

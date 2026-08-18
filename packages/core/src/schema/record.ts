@@ -215,10 +215,18 @@ export class RecordSchema<
           src,
         );
       } else if (this.mediaOptions) {
-        // Media collection: validate key (path/URL) and entry (metadata)
+        // Media collection: validate key (path/URL) and entry (metadata).
+        // Gallery entries are keyed by their file path and the metadata is
+        // derived, so surface entry errors on the key rather than the value.
         const keyErr = this.validateMediaKey(subPath, key);
+        if (keyErr) {
+          this.markKeyErrorsAtPath(keyErr, subPath);
+        }
         error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
+        if (entryErr) {
+          this.markKeyErrorsAtPath(entryErr, subPath);
+        }
         error = this.mergeValidationErrors(error, entryErr);
       } else {
         const subError = this.item["executeValidate"](
@@ -233,6 +241,13 @@ export class RecordSchema<
 
   private isRemoteUrl(url: string): boolean {
     return url.startsWith("https://") || url.startsWith("http://");
+  }
+
+  /** Marks the validation errors reported at `path` as key errors (in place). */
+  private markKeyErrorsAtPath(errors: ValidationErrors, path: SourcePath) {
+    if (errors && errors[path]) {
+      errors[path] = errors[path].map((err) => ({ ...err, keyError: true }));
+    }
   }
 
   private validateMediaKey(path: SourcePath, key: string): ValidationErrors {

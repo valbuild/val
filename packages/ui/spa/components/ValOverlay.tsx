@@ -843,6 +843,8 @@ function ChatWindow({
     getSessions,
     setSessionName,
     loadSession,
+    answerToolQuestions,
+    cancelToolQuestion,
   } = useAI(chatRef);
   const mode = useValMode();
   const [windowPos, setWindowPos] = useState({
@@ -1013,6 +1015,8 @@ function ChatWindow({
             onLoadSession={loadSession}
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
+            onAnswerToolQuestions={answerToolQuestions}
+            onCancelToolQuestion={cancelToolQuestion}
           />
         </div>
         {!isMobile && (
@@ -1061,8 +1065,12 @@ function ChatWindow({
   );
 }
 
+// inline-flex + centering (rather than inline-block) so every button in the
+// menu is exactly icon + padding + border tall: an inline icon sits on the text
+// baseline, which adds descender space that varies with the inherited
+// line-height and makes the buttons different heights
 const buttonClassName =
-  "p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
+  "inline-flex items-center justify-center p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
 const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
 
 function WindowField({
@@ -1307,10 +1315,10 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2",
+            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2 items-center",
             {
               "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2 items-center": dir === "horizontal",
+              "flex-row px-4 py-2": dir === "horizontal",
               "opacity-70": ghost,
             },
           )}
@@ -1377,39 +1385,27 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <div className="pb-1 mt-1 border-t border-border-primary"></div>
+          <div
+            className={classNames("self-stretch border-border-primary", {
+              // a horizontal rule in the vertical menu, a vertical rule in the
+              // horizontal one - otherwise it is an invisible element that
+              // only eats gap
+              "border-t": dir === "vertical",
+              "border-l": dir === "horizontal",
+            })}
+          ></div>
           <HoverCard>
-            <HoverCardTrigger className="inline-flex" asChild>
+            <HoverCardTrigger asChild>
               <MenuButton
                 href={window.origin + "/val/compare"}
                 icon={
-                  <div className="relative">
-                    {patchIds.length > 0 && (
-                      <div className="absolute -top-3 -right-3">
-                        <div
-                          className={classNames(
-                            "w-4 h-4 text-[9px] leading-4 text-center rounded-full",
-                            {
-                              "bg-bg-brand-primary": validationErrorCount === 0,
-                              "bg-bg-error-primary text-fg-error-primary":
-                                validationErrorCount > 0,
-                            },
-                          )}
-                        >
-                          {validationErrorCount === 0 &&
-                            patchIds.length > 9 && <span>9+</span>}
-                          {validationErrorCount === 0 &&
-                            patchIds.length <= 9 && (
-                              <span>{patchIds.length}</span>
-                            )}
-                          {validationErrorCount > 9 && <span>9+</span>}
-                          {validationErrorCount <= 9 &&
-                            validationErrorCount > 0 && (
-                              <span>{validationErrorCount}</span>
-                            )}
-                        </div>
-                      </div>
-                    )}
+                  // flex, so the icon does not sit on a text baseline and make
+                  // this button taller than the others
+                  <div className="flex relative">
+                    <PendingChangesBadge
+                      patchCount={patchIds.length}
+                      validationErrorCount={validationErrorCount}
+                    />
                     <GitCompareArrows size={16} />
                   </div>
                 }
@@ -1436,16 +1432,9 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <PublishButton />
+          <PublishButton compact />
           <HoverCard>
-            <HoverCardTrigger
-              className={cn(
-                buttonClassName,
-                buttonInactiveClassName,
-                "inline-flex p-2",
-              )}
-              asChild
-            >
+            <HoverCardTrigger asChild>
               <MenuButton
                 icon={
                   sourcePathResult.status === "success" &&
@@ -1662,6 +1651,46 @@ function useValRouterSourcePathFromCurrentPathname() {
   return sourcePathResult;
 }
 
+/**
+ * The counter on the compare button: how much there is to review. Shows the
+ * number of validation errors in red when there are any, otherwise the number
+ * of pending changes. Anything above 9 is shown as "9+" so the badge stays a
+ * dot rather than growing with the count.
+ *
+ * Must be rendered inside a `relative` container.
+ */
+function PendingChangesBadge({
+  patchCount,
+  validationErrorCount,
+}: {
+  patchCount: number;
+  validationErrorCount: number;
+}) {
+  const isError = validationErrorCount > 0;
+  const count = isError ? validationErrorCount : patchCount;
+  if (count === 0) {
+    return null;
+  }
+  const noun = isError ? "validation error" : "pending change";
+  return (
+    <span
+      aria-label={`${count} ${noun}${count === 1 ? "" : "s"}`}
+      className={classNames(
+        "absolute -top-2 -right-2 inline-flex justify-center items-center px-1 h-4 min-w-[1rem] text-[9px] font-medium leading-none rounded-full tabular-nums",
+        // ring in the menu background color so the badge reads as a separate
+        // dot on top of the button instead of blending into it
+        "ring-2 ring-bg-primary",
+        {
+          "bg-bg-brand-primary text-fg-brand-primary": !isError,
+          "bg-bg-error-primary text-fg-error-primary": isError,
+        },
+      )}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
 const MenuButton = React.forwardRef<
   HTMLButtonElement | HTMLAnchorElement,
   {
@@ -1690,9 +1719,9 @@ const MenuButton = React.forwardRef<
     ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
-      "inline-block leading-4 bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
+      "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
         active,
-      [classNames(buttonInactiveClassName, "inline-block leading-4")]: !active,
+      [buttonInactiveClassName]: !active,
     });
 
     if (href) {

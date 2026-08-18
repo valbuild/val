@@ -16,7 +16,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.97.3",
+  "version": "0.97.6",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -33,7 +33,6 @@
     "chokidar": "^5.0.0",
     "image-size": "^2.0.2",
     "minimatch": "^10.1.1",
-    "quickjs-emscripten": "^0.21.1",
     "sucrase": "^3.35.1",
     "typescript": "^5.9.3",
     "zod": "^4.3.5",
