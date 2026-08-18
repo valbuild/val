@@ -24,6 +24,8 @@ const { s, c, val, config } = initVal({
 
 This release covers the server-rendered surfaces: `fetchVal`, `fetchValRoute` and `fetchValRouteUrl` resolve live content, so the HTML is already correct on a hard load — including for a route that only exists in a committed patch, and for images added by one. Client Components (`useVal`) still render the build-time content; support is coming.
 
+One caveat to be aware of: Next decides how often to re-render a prerendered page from the fetches performed during that render, and Val caches the live patch set in-process - so set `export const revalidate = <your ttl>` in your root layout, or statically generated pages will keep serving the content they were built with. See the Live mode section of the `@valbuild/next` README.
+
 Val is never in the critical path for correctness. A slow, unreachable or unexpected response falls back to the last good patch set, and failing that to the deployed content — it never throws and never 500s a page. Live content is public content, so `data-val-path` editing markers stay bound to draft mode and are never emitted for it.
 
 Also enables the immutable `Cache-Control` on `/api/val/files` for the `patch_id` branch, which was previously commented out: those responses are content-addressed, and live mode makes that route considerably hotter.

@@ -78,7 +78,10 @@ describe("analyzePatches", () => {
     ).toEqual([{ patchId: "uncommitted" }]);
   });
 
-  test("committed file ops are tracked too, so images resolve via patch_id", () => {
+  // NOTE: this is not what makes live-mode images resolve - getSources builds
+  // its own patch_id ops from patch.patch. It matters for the callers that do
+  // read fileLastUpdatedByPatchId: prepare() and /sources/~.
+  test("committed file ops are tracked too", () => {
     const withFileOp: OrderedPatches["patches"][number] = {
       ...patch("filePatch", { commitSha: "commit2" as CommitSha }),
       patch: [

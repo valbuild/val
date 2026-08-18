@@ -260,11 +260,26 @@ Live mode requires [remote mode](#remote-mode): `VAL_API_KEY`, `VAL_SECRET`, plu
 
 Live mode has to ask Val "what changed since my commit?" — so `ttl` is **required**. There is no safe default:
 
-- `ttl: 0` — always refetch. Correct content immediately, one request to Val per render.
+- `ttl: 0` — always refetch. Correct content immediately, one request to Val per render. Note that this opts every route that calls `fetchVal` out of static generation.
 - `ttl: 60` — a committed change appears within 60 seconds.
 - `staleWhileRevalidate: 300` — for the 300 seconds after the ttl expires, the cached set is served immediately while it is refreshed in the background, so no visitor waits for the refresh.
 
 Val is never in the critical path for correctness. If it is slow, unreachable, or returns something unexpected, the app serves the last good patch set, and failing that the deployed content. It never throws and never 500s a page.
+
+## Revalidation: prerendered pages need `export const revalidate`
+
+⚠️ **This is required for live mode to work on statically generated pages.**
+
+Next decides how often to re-render a prerendered page from what happened _during_ that page's render. Val caches the live patch set in-process for `ttl` seconds, so most renders answer from that cache without issuing a request — and a page that renders without any request is prerendered once and then never revalidated. It would keep serving the content that was current at build time, which is exactly what live mode exists to avoid.
+
+So declare the interval yourself, in your root layout (or per page/segment), matching your `ttl`:
+
+```ts
+// app/layout.tsx
+export const revalidate = 60; // matches live: { ttl: 60 }
+```
+
+You do not need this for pages that are already dynamic (they render per request anyway), nor with `live: { ttl: 0 }`, which makes every route dynamic — every render refetches, so nothing is prerendered.
 
 ## Environment variables
 

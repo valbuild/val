@@ -156,6 +156,33 @@ describe("getLiveSources", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("derives the sources once per patch set, not once per call", async () => {
+    fetchMock.mockResolvedValue(liveResponse([livePatch("Committed")]));
+    const ops = testOps({ ttl: 60, staleWhileRevalidate: 0 });
+    const getSources = jest.spyOn(ops, "getSources");
+
+    // Every fetchVal in a render calls this, so applying the patches once per
+    // call would multiply the work by the number of fetchVal calls on the page.
+    const first = await ops.getLiveSources();
+    const second = await ops.getLiveSources();
+
+    expect(second).toEqual(first);
+    expect(getSources).toHaveBeenCalledTimes(1);
+  });
+
+  test("re-derives the sources when the patch set changes", async () => {
+    fetchMock.mockResolvedValueOnce(liveResponse([livePatch("First", "p1")]));
+    fetchMock.mockResolvedValue(liveResponse([livePatch("Second", "p2")]));
+    const ops = testOps({ ttl: 0, staleWhileRevalidate: 0 });
+
+    expect((await ops.getLiveSources()).sources).toEqual({
+      [AUTHORS]: { name: "First" },
+    });
+    expect((await ops.getLiveSources()).sources).toEqual({
+      [AUTHORS]: { name: "Second" },
+    });
+  });
+
   test("ttl 0 refetches every time", async () => {
     fetchMock.mockResolvedValue(liveResponse([livePatch("Committed")]));
     const ops = testOps({ ttl: 0, staleWhileRevalidate: 0 });

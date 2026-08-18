@@ -358,6 +358,14 @@ export function initValRsc(
       },
     },
   );
+  // valServerPromise is created here at module-eval time, but only awaited from
+  // inside a fetchVal call. Without this no-op catch, a config error (a bad
+  // live ttl, proxy mode without a project) rejects with no handler attached,
+  // which becomes an unhandledRejection and kills the server before any request
+  // is served. Every awaiting call site reports the error itself.
+  valServerPromise.catch(() => {
+    // handled at the call sites
+  });
   return {
     fetchValStega: initFetchValStega(
       config,

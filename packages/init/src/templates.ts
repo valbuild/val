@@ -82,7 +82,9 @@ const LIVE_MODE_COMMENT = `  // Render content that has been saved in Val, but n
 
 function valConfigLiteral(options: ValConfig) {
   const literal = JSON.stringify(options, null, 2);
-  const entries = literal === "{}" ? "{\n" : `${literal.slice(0, -1)}`;
+  // Drop the closing "\n}" and re-add the newline with a trailing comma, so the
+  // commented-out live block below is a line the user can just uncomment.
+  const entries = literal === "{}" ? "{\n" : `${literal.slice(0, -2)},\n`;
   return `${entries}${LIVE_MODE_COMMENT}\n}`;
 }
 

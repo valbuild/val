@@ -155,14 +155,20 @@ function liveSecondsFromConfig(
   return value;
 }
 
-/** Env vars are always strings, so these are coerced - but just as strictly. */
+/**
+ * Env vars are always strings, so these are coerced - but just as strictly.
+ *
+ * An empty (or whitespace-only) value counts as unset: several hosts
+ * materialise a declared-but-empty variable as "", and refusing to boot over
+ * one would be a poor trade for a feature the app may not even use.
+ */
 function liveSecondsFromEnv(envVar: string): number | undefined {
   const value = process.env[envVar];
-  if (value === undefined) {
+  if (value === undefined || value.trim() === "") {
     return undefined;
   }
   const parsed = Number(value);
-  if (value.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
+  if (!Number.isFinite(parsed) || parsed < 0) {
     throw invalidLiveSeconds(`the ${envVar} env var`, value);
   }
   return parsed;
@@ -180,8 +186,11 @@ export function isLiveModeConfigured(config: ValConfig | undefined): boolean {
   if (process.env[LIVE_ENV_VARS.disabled] === "true") {
     return false;
   }
-  return !!config?.live || process.env[LIVE_ENV_VARS.ttl] !== undefined;
+  // Same as liveSecondsFromEnv: an empty value is not an opt-in.
+  return !!config?.live || (process.env[LIVE_ENV_VARS.ttl] ?? "").trim() !== "";
 }
+
+let hasWarnedAboutLiveModeInFsMode = false;
 
 /**
  * Resolve the `live` config, applying the env var overrides.
@@ -221,9 +230,14 @@ export function resolveLiveConfig(
     ) ??
     0;
   if (!isProxyMode) {
-    console.warn(
-      "Val: live mode is configured, but Val is running in local (fs) mode so it has no effect. Live mode renders patches that were committed to Val, which requires proxy mode (VAL_API_KEY and VAL_SECRET).",
-    );
+    // Once per process: an app creates a Val server per entrypoint (the RSC one
+    // and the API route one), and a build creates more still.
+    if (!hasWarnedAboutLiveModeInFsMode) {
+      hasWarnedAboutLiveModeInFsMode = true;
+      console.warn(
+        "Val: live mode is configured, but Val is running in local (fs) mode so it has no effect. Live mode renders patches that were committed to Val, which requires proxy mode (VAL_API_KEY and VAL_SECRET).",
+      );
+    }
     return undefined;
   }
   return { ttl, staleWhileRevalidate };

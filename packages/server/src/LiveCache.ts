@@ -44,6 +44,14 @@ export class LiveCache<T> {
   private entry: Entry<T> | null = null;
   /** In-flight refresh, so concurrent callers share one request. */
   private inFlight: { key: string; promise: Promise<T | null> } | null = null;
+  /**
+   * Bumped whenever what we are caching changes: a `clear()`, or a refresh for
+   * a different key. A refresh that started before the bump still returns its
+   * value to the caller that asked for it, but must not write it to `entry` -
+   * it would either resurrect a cleared entry or overwrite a newer deploy's
+   * patches with an older one's.
+   */
+  private epoch = 0;
 
   constructor(options: LiveCacheOptions) {
     this.ttlMs = options.ttl * 1000;
@@ -94,6 +102,11 @@ export class LiveCache<T> {
     if (this.inFlight && this.inFlight.key === key) {
       return this.inFlight.promise;
     }
+    if (this.inFlight) {
+      // A refresh for another key is in flight: it is now stale by definition.
+      this.epoch++;
+    }
+    const epoch = this.epoch;
     const promise = (async () => {
       try {
         return await fetcher();
@@ -110,7 +123,7 @@ export class LiveCache<T> {
       if (this.inFlight?.promise === promise) {
         this.inFlight = null;
       }
-      if (value !== null) {
+      if (value !== null && epoch === this.epoch) {
         this.entry = { key, value, fetchedAt: this.now() };
       }
       return value;
@@ -123,5 +136,6 @@ export class LiveCache<T> {
   clear() {
     this.entry = null;
     this.inFlight = null;
+    this.epoch++;
   }
 }

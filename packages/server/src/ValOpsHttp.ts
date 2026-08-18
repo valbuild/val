@@ -211,6 +211,11 @@ export class ValOpsHttp extends ValOps {
   private readonly root: string;
   private readonly live?: ResolvedLiveConfig;
   private readonly liveCache: LiveCache<LivePatches> | null;
+  /** The sources derived from the current live patch set - see getLiveSources. */
+  private liveSourcesMemo: {
+    signature: string;
+    result: { sources: Sources; headCommitSha: string | null };
+  } | null = null;
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
@@ -947,9 +952,24 @@ export class ValOpsHttp extends ValOps {
     if (live.patches.length === 0) {
       return { sources: {}, headCommitSha: live.headCommitSha };
     }
+    // Every fetchVal in a render calls this, but the answer only changes when
+    // the patch set does - and applying the patches is not free (getSources
+    // deep-clones each module and replays every op). So memoise the derived
+    // sources on the patch set they came from, or a page with ten fetchVal
+    // calls redoes the same work ten times on every public request.
+    const signature = [
+      // stringified, so a null head commit cannot collide with an empty one
+      JSON.stringify(live.headCommitSha),
+      ...live.patches.map((patch) => patch.patchId),
+    ].join("|");
+    if (this.liveSourcesMemo?.signature === signature) {
+      return this.liveSourcesMemo.result;
+    }
+    // NOTE: includeApplied is what makes analyzePatches keep the committed
+    // patches in `patchesByModule`. getSources reads `patches` rather than
+    // `patchesByModule`, so it does not depend on this today - but passing it
+    // keeps the analysis a truthful description of what is being applied.
     const analysis = this.analyzePatches(live.patches, undefined, undefined, {
-      // Every live patch is committed, which is exactly what the draft path
-      // filters out.
       includeApplied: true,
     });
     // getSources returns only the modules that had patches, which is what we
@@ -966,7 +986,9 @@ export class ValOpsHttp extends ValOps {
         moduleErrors.map((e) => e.error.message).join(", "),
       );
     }
-    return { sources, headCommitSha: live.headCommitSha };
+    const result = { sources, headCommitSha: live.headCommitSha };
+    this.liveSourcesMemo = { signature, result };
+    return result;
   }
 
   protected async saveSourceFilePatch(

@@ -238,6 +238,45 @@ describe("LiveCache", () => {
     ).toBeNull();
   });
 
+  test("a slow refresh for an old key never overwrites a newer entry", async () => {
+    const cache = new LiveCache<string>({ ttl: 60, staleWhileRevalidate: 0 });
+    let resolveSlow: (value: string) => void = () => {};
+    const slow = () =>
+      new Promise<string>((resolve) => {
+        resolveSlow = resolve;
+      });
+
+    // keyA is in flight when keyB starts, and keyB lands first.
+    const a = cache.get("keyA", slow);
+    const b = await cache.get("keyB", async () => "fromB");
+    expect(b).toBe("fromB");
+    resolveSlow("fromA");
+    // The caller that asked for keyA still gets keyA's value...
+    expect(await a).toBe("fromA");
+
+    // ...but keyB's entry survived, and a failing keyB refresh falls back to it
+    // rather than to keyA's patch set.
+    expect(await cache.get("keyB", async () => null)).toBe("fromB");
+  });
+
+  test("clear() also discards a refresh that is already in flight", async () => {
+    const cache = new LiveCache<string>({ ttl: 60, staleWhileRevalidate: 0 });
+    let resolveFetch: (value: string) => void = () => {};
+    const pending = cache.get(
+      KEY,
+      () =>
+        new Promise<string>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    cache.clear();
+    resolveFetch("v1");
+    expect(await pending).toBe("v1");
+
+    // The cleared entry must not have been resurrected by the in-flight write.
+    expect(await cache.get(KEY, async () => null)).toBeNull();
+  });
+
   test("clear() drops the entry", async () => {
     const cache = new LiveCache<string>({ ttl: 60, staleWhileRevalidate: 0 });
     const fetcher = jest.fn(async () => "v1");

@@ -81,9 +81,13 @@ describe("resolveLiveConfig", () => {
     expect(resolveLiveConfig({ live: { ttl: 60 } }, true)).toBeUndefined();
   });
 
-  test("live mode is a no-op in fs mode, with a warning", () => {
+  test("live mode is a no-op in fs mode, warning once per process", () => {
     expect(resolveLiveConfig({ live: { ttl: 60 } }, false)).toBeUndefined();
-    expect(warn).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    // An app creates a Val server per entrypoint (RSC + API route), so warning
+    // per call would print the same paragraph several times on every start.
+    expect(resolveLiveConfig({ live: { ttl: 60 } }, false)).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   test("throws when 'live' is set without a ttl", () => {
@@ -114,5 +118,26 @@ describe("resolveLiveConfig", () => {
   test("throws on an invalid VAL_LIVE_TTL env var", () => {
     process.env.VAL_LIVE_TTL = "not-a-number";
     expect(() => resolveLiveConfig({}, true)).toThrow(/VAL_LIVE_TTL/);
+  });
+
+  test.each(["", "   "])(
+    "an empty VAL_LIVE_TTL (%p) counts as unset, not as an error",
+    (value) => {
+      // Hosts materialise a declared-but-empty env var as "". Refusing to boot
+      // over one would be a poor trade for an opt-in feature.
+      process.env.VAL_LIVE_TTL = value;
+      expect(resolveLiveConfig({}, true)).toBeUndefined();
+      expect(resolveLiveConfig({ live: { ttl: 60 } }, true)).toEqual({
+        ttl: 60,
+        staleWhileRevalidate: 0,
+      });
+    },
+  );
+
+  test("an empty VAL_LIVE_STALE_WHILE_REVALIDATE counts as unset", () => {
+    process.env.VAL_LIVE_STALE_WHILE_REVALIDATE = "";
+    expect(
+      resolveLiveConfig({ live: { ttl: 60, staleWhileRevalidate: 300 } }, true),
+    ).toEqual({ ttl: 60, staleWhileRevalidate: 300 });
   });
 });
