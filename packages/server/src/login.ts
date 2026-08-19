@@ -182,7 +182,11 @@ export function persistPersonalAccessToken(
   result: ValLoginResult,
 ): string {
   const filePath = getPersonalAccessTokenPath(projectRoot);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  // NOTE: no restrictive mode on the directory. This is the project's shared
+  // `.val`, which also holds the pending patches the dev server reads and
+  // writes; making it owner-only would lock out anyone who did not run the
+  // login. Only the token file itself is tightened.
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   // The token is a credential: keep it owner-only rather than at the mercy of
   // the process umask. `mode` only applies when the file is created, so an
   // already existing file is chmod-ed explicitly.

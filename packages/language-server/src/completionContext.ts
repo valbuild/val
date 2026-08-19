@@ -42,12 +42,52 @@ export type ValFileRefContext = {
   /** Offsets of the string literal's contents, excluding the quotes. */
   contentStart: number;
   contentEnd: number;
+  /**
+   * Start offset of the reference argument, including its opening quote.
+   *
+   * Stable while the user types to filter the completion list, because every
+   * such keystroke lands *inside* the literal. That makes it the anchor
+   * {@link findFileRefArgument} re-locates the call by at resolve time.
+   */
+  refArgStart: number;
   /** End offset of the reference argument, where a metadata argument follows. */
   refArgEnd: number;
   /** Offsets of an existing metadata argument, when there is one. */
   metadataStart?: number;
   metadataEnd?: number;
 };
+
+/**
+ * The offsets of a string literal's contents, excluding its quotes.
+ *
+ * A client that does not auto-close quotes leaves `c.image("` unterminated while
+ * the user types. TypeScript still produces a string-literal node for it, but the
+ * node ends *at* the cursor rather than one character past it, so the usual
+ * `getEnd() - 1` bound excludes every position inside the literal and no
+ * completions are offered at all. The closing quote is therefore counted rather
+ * than assumed.
+ */
+function contentRangeOf(
+  node: ts.StringLiteralLike,
+  sourceFile: ts.SourceFile,
+): { contentStart: number; contentEnd: number } {
+  const raw = node.getText(sourceFile);
+  const quote = raw[0];
+  let closing = 0;
+  if (raw.length >= 2 && raw[raw.length - 1] === quote) {
+    // A quote preceded by an odd number of backslashes is escaped, so it is part
+    // of the contents rather than the terminator.
+    let backslashes = 0;
+    for (let i = raw.length - 2; i >= 1 && raw[i] === "\\"; i--) {
+      backslashes++;
+    }
+    closing = backslashes % 2 === 0 ? 1 : 0;
+  }
+  return {
+    contentStart: node.getStart(sourceFile) + 1,
+    contentEnd: node.getEnd() - closing,
+  };
+}
 
 /**
  * Find the innermost `c.image(...)` / `c.file(...)` call whose first argument
@@ -59,6 +99,9 @@ export function getValCompletionContext(
 ): ValCompletionContext | undefined {
   let found: ValFileRefContext | undefined;
   let innermostString: ts.StringLiteralLike | undefined;
+  let innermostStringContent:
+    | { contentStart: number; contentEnd: number }
+    | undefined;
   // Tracked explicitly: `ts.createSourceFile` does not set parent pointers
   // unless asked, so `node.parent` cannot be relied on here.
   let innermostStringParent: ts.Node | undefined;
@@ -70,22 +113,27 @@ export function getValCompletionContext(
     if (ts.isCallExpression(node)) {
       const subType = fileConstructorSubType(node, sourceFile);
       const [refArg] = node.arguments;
+      const refContent =
+        refArg && ts.isStringLiteralLike(refArg)
+          ? contentRangeOf(refArg, sourceFile)
+          : undefined;
       if (
         subType &&
         refArg &&
         ts.isStringLiteralLike(refArg) &&
+        refContent &&
         // Inside the quotes, inclusive of both ends so completion works on an
         // empty string and at either edge.
-        offset >= refArg.getStart(sourceFile) + 1 &&
-        offset <= refArg.getEnd() - 1
+        offset >= refContent.contentStart &&
+        offset <= refContent.contentEnd
       ) {
         const metadataArg = node.arguments[1];
         found = {
           kind: "file-ref",
           subType,
           currentText: refArg.text,
-          contentStart: refArg.getStart(sourceFile) + 1,
-          contentEnd: refArg.getEnd() - 1,
+          ...refContent,
+          refArgStart: refArg.getStart(sourceFile),
           refArgEnd: refArg.getEnd(),
           ...(metadataArg
             ? {
@@ -96,13 +144,13 @@ export function getValCompletionContext(
         };
       }
     }
-    if (
-      ts.isStringLiteralLike(node) &&
-      offset >= node.getStart(sourceFile) + 1 &&
-      offset <= node.getEnd() - 1
-    ) {
-      innermostString = node;
-      innermostStringParent = parent;
+    if (ts.isStringLiteralLike(node)) {
+      const content = contentRangeOf(node, sourceFile);
+      if (offset >= content.contentStart && offset <= content.contentEnd) {
+        innermostString = node;
+        innermostStringContent = content;
+        innermostStringParent = parent;
+      }
     }
     ts.forEachChild(node, (child) => visit(child, node));
   }
@@ -113,12 +161,11 @@ export function getValCompletionContext(
   }
   // Not a file reference, but still inside a string: schema-driven completions
   // (keyOf keys, route paths) decide whether they apply.
-  if (innermostString) {
+  if (innermostString && innermostStringContent) {
     return {
       kind: "string-value",
       currentText: innermostString.text,
-      contentStart: innermostString.getStart(sourceFile) + 1,
-      contentEnd: innermostString.getEnd() - 1,
+      ...innermostStringContent,
       // Uses the parent tracked during the walk, not `node.parent`, which
       // `ts.createSourceFile` leaves unset unless asked to populate it.
       isPropertyName: Boolean(
@@ -136,6 +183,63 @@ export function getValCompletionContext(
     };
   }
   return undefined;
+}
+
+/**
+ * Re-find the `c.image(...)` / `c.file(...)` call whose reference argument starts
+ * at `refArgStart`, and report where its arguments are *now*.
+ *
+ * `completionItem/resolve` runs against a document the user may have typed into
+ * since the list was computed, so the offsets captured back then have moved.
+ * Applying them anyway inserts the metadata object into the middle of the string
+ * literal and corrupts the file, so the offsets are re-derived here instead.
+ *
+ * Returns `undefined` when no such call is found — the document changed in some
+ * way this anchor does not survive, and the caller must then offer no edit
+ * rather than a wrong one.
+ */
+export function findFileRefArgument(
+  sourceFile: ts.SourceFile,
+  refArgStart: number,
+):
+  | {
+      refArgEnd: number;
+      metadataStart?: number;
+      metadataEnd?: number;
+    }
+  | undefined {
+  let found:
+    | { refArgEnd: number; metadataStart?: number; metadataEnd?: number }
+    | undefined;
+
+  function visit(node: ts.Node): void {
+    if (found) {
+      return;
+    }
+    if (ts.isCallExpression(node) && fileConstructorSubType(node, sourceFile)) {
+      const [refArg] = node.arguments;
+      if (
+        refArg &&
+        ts.isStringLiteralLike(refArg) &&
+        refArg.getStart(sourceFile) === refArgStart
+      ) {
+        const metadataArg = node.arguments[1];
+        found = {
+          refArgEnd: refArg.getEnd(),
+          ...(metadataArg
+            ? {
+                metadataStart: metadataArg.getStart(sourceFile),
+                metadataEnd: metadataArg.getEnd(),
+              }
+            : {}),
+        };
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return found;
 }
 
 function fileConstructorSubType(

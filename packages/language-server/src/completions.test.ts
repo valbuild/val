@@ -3,7 +3,10 @@ import os from "os";
 import path from "path";
 import ts from "typescript";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { getValCompletionContext } from "./completionContext";
+import {
+  findFileRefArgument,
+  getValCompletionContext,
+} from "./completionContext";
 import { createPublicValFiles } from "./publicValFiles";
 import {
   startLspSession,
@@ -101,6 +104,99 @@ describe("getValCompletionContext", () => {
     // call expression.
     const context = fileRefAt(`const a = wrap(c.file("|/a.pdf"));`);
     expect(context?.subType).toBe("file");
+  });
+});
+
+describe("string literals without a closing quote", () => {
+  /**
+   * A client that does not auto-close quotes (a hand-written Neovim config, say)
+   * leaves `c.image("` unterminated while the user types. Bounding the literal at
+   * `getEnd() - 1` excluded every position inside it, so such a client got no
+   * completions at all.
+   */
+  function contextAt(source: string) {
+    const offset = source.indexOf("|");
+    const text = source.replace("|", "");
+    return getValCompletionContext(
+      ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020),
+      offset,
+    );
+  }
+
+  test("offers a file reference inside an unterminated literal", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  image: c.image("|
+});`);
+    expect(context?.kind).toBe("file-ref");
+    if (context?.kind !== "file-ref") return;
+    expect(context.currentText).toBe("");
+  });
+
+  test("offers a string value inside an unterminated literal", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  author: "fr|
+});`);
+    expect(context?.kind).toBe("string-value");
+    if (context?.kind !== "string-value") return;
+    expect(context.currentText).toBe("fr");
+  });
+
+  test("an escaped trailing quote does not count as the terminator", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  author: "a\\"|
+});`);
+    expect(context?.kind).toBe("string-value");
+  });
+});
+
+describe("findFileRefArgument", () => {
+  /**
+   * Guards the file-corruption case: `completionItem/resolve` used to replay the
+   * offsets captured when the list was built, so typing to filter and then
+   * accepting an item inserted the metadata object *inside* the string literal.
+   */
+  function parse(text: string) {
+    return ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020);
+  }
+
+  const before = `export default c.define("/x", schema, {
+  image: c.image(""),
+});`;
+  // What the document looks like after the user typed "logo" to filter the list.
+  const after = `export default c.define("/x", schema, {
+  image: c.image("logo"),
+});`;
+  const refArgStart = before.indexOf('c.image("') + "c.image(".length;
+
+  test("re-derives the argument end after the literal grew", () => {
+    const stale = getValCompletionContext(parse(before), refArgStart + 1);
+    expect(stale?.kind).toBe("file-ref");
+
+    const fresh = findFileRefArgument(parse(after), refArgStart)!;
+    expect(fresh).toBeDefined();
+    // The end moved by the four characters typed; the stale value would have
+    // pointed into the middle of the literal.
+    expect(fresh.refArgEnd).toBe(
+      after.indexOf('c.image("logo")') + 'c.image("logo"'.length,
+    );
+    expect(after.slice(fresh.refArgEnd, fresh.refArgEnd + 1)).toBe(")");
+  });
+
+  test("finds an existing metadata argument to replace", () => {
+    const text = `export default c.define("/x", schema, {
+  image: c.image("logo", { width: 1, height: 2 }),
+});`;
+    const start = text.indexOf('c.image("') + "c.image(".length;
+    const found = findFileRefArgument(parse(text), start)!;
+    expect(found.metadataStart).toBeDefined();
+    expect(text.slice(found.metadataStart, found.metadataEnd)).toBe(
+      "{ width: 1, height: 2 }",
+    );
+  });
+
+  test("reports nothing when the anchor no longer resolves", () => {
+    // Better no metadata than metadata in the wrong place.
+    expect(findFileRefArgument(parse(after), 9999)).toBeUndefined();
   });
 });
 

@@ -239,6 +239,64 @@ export function createValProject({
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
   let snapshotStale: Set<ModuleFilePath> | undefined;
 
+  // One in-flight snapshot build, shared by concurrent callers.
+  let snapshotPromise:
+    | Promise<
+        | { status: "ok"; snapshot: SchemaSourceSnapshot }
+        | { status: "error"; error: ValProjectInitError }
+      >
+    | undefined;
+
+  async function buildSnapshot(): Promise<
+    | { status: "ok"; snapshot: SchemaSourceSnapshot }
+    | { status: "error"; error: ValProjectInitError }
+  > {
+    // First call: everything is stale. Later calls: only what changed.
+    if (snapshotStale === undefined) {
+      snapshotStale = new Set(findValModuleFilePaths(valRoot));
+    }
+    // Claim the work list *before* the first await, and leave a fresh set
+    // behind. An `invalidate()` that lands while we are evaluating then lands in
+    // that fresh set and is refreshed on the next call, instead of being cleared
+    // as though this call had handled it.
+    const refreshing = [...snapshotStale];
+    snapshotStale = new Set();
+
+    const resolved = await getService();
+    if (resolved.status === "error") {
+      // Nothing was refreshed, so put the work back — unless a full invalidation
+      // landed meanwhile, which re-lists everything anyway.
+      if (snapshotStale !== undefined) {
+        for (const moduleFilePath of refreshing) {
+          snapshotStale.add(moduleFilePath);
+        }
+      }
+      return { status: "error", error: resolved.error };
+    }
+    for (const moduleFilePath of refreshing) {
+      const content = await resolved.service.get(
+        moduleFilePath,
+        "" as ModulePath,
+        // Validation is not needed to answer "what keys/routes exist", and
+        // skipping it keeps the snapshot cheap.
+        { validate: false },
+      );
+      if (content.schema) {
+        snapshot.schemas[moduleFilePath] = content.schema;
+      } else {
+        delete snapshot.schemas[moduleFilePath];
+      }
+      if (content.source !== undefined) {
+        // Same conversion the CLI does when building its snapshot; Source is
+        // JSON-shaped once serialized.
+        snapshot.sources[moduleFilePath] = content.source as Json;
+      } else {
+        delete snapshot.sources[moduleFilePath];
+      }
+    }
+    return { status: "ok", snapshot };
+  }
+
   return {
     valRoot,
 
@@ -283,51 +341,22 @@ export function createValProject({
 
     listModuleFilePaths: () => findValModuleFilePaths(valRoot),
 
-    async getSnapshot() {
-      // First call: everything is stale. Later calls: only what changed.
-      if (snapshotStale === undefined) {
-        snapshotStale = new Set(findValModuleFilePaths(valRoot));
-      }
-      // Claim the work list *before* the first await, and leave a fresh set
-      // behind. An `invalidate()` that lands while we are evaluating then lands
-      // in that fresh set and is refreshed on the next call, instead of being
-      // cleared as though this call had handled it.
-      const refreshing = [...snapshotStale];
-      snapshotStale = new Set();
-
-      const resolved = await getService();
-      if (resolved.status === "error") {
-        // Nothing was refreshed, so put the work back — unless a full
-        // invalidation landed meanwhile, which re-lists everything anyway.
-        if (snapshotStale !== undefined) {
-          for (const moduleFilePath of refreshing) {
-            snapshotStale.add(moduleFilePath);
+    getSnapshot() {
+      // `snapshot` is one shared object handed to every caller, so a second
+      // concurrent build must not be allowed to return it half-filled: the
+      // in-flight build is shared instead. Without this, two callers see 1 and 6
+      // schemas respectively, and a partial snapshot makes keyOf/route resolution
+      // report references that are perfectly valid as broken.
+      if (!snapshotPromise) {
+        const attempt = buildSnapshot();
+        snapshotPromise = attempt;
+        void attempt.finally(() => {
+          if (snapshotPromise === attempt) {
+            snapshotPromise = undefined;
           }
-        }
-        return { status: "error", error: resolved.error };
+        });
       }
-      for (const moduleFilePath of refreshing) {
-        const content = await resolved.service.get(
-          moduleFilePath,
-          "" as ModulePath,
-          // Validation is not needed to answer "what keys/routes exist", and
-          // skipping it keeps the snapshot cheap.
-          { validate: false },
-        );
-        if (content.schema) {
-          snapshot.schemas[moduleFilePath] = content.schema;
-        } else {
-          delete snapshot.schemas[moduleFilePath];
-        }
-        if (content.source !== undefined) {
-          // Same conversion the CLI does when building its snapshot; Source is
-          // JSON-shaped once serialized.
-          snapshot.sources[moduleFilePath] = content.source as Json;
-        } else {
-          delete snapshot.sources[moduleFilePath];
-        }
-      }
-      return { status: "ok", snapshot };
+      return snapshotPromise;
     },
 
     invalidate(moduleFilePath) {

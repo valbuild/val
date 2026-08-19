@@ -23,6 +23,7 @@ import {
   negotiateProtocolVersion,
   SUPPORTED_PROTOCOL_VERSIONS,
   VAL_ENV_OVERRIDE_KEYS,
+  type ProtocolVersionRange,
   type ValClientCapabilities,
   type ValEnvOverrides,
   type ValFeature,
@@ -93,13 +94,39 @@ export function parseInitializationOptions(
       name: raw?.client?.name ?? params.clientInfo?.name ?? "unknown",
       version: raw?.client?.version ?? params.clientInfo?.version ?? null,
     },
-    supportedProtocolVersions: raw?.supportedProtocolVersions ?? {
-      min: 1,
-      max: 1,
-    },
+    supportedProtocolVersions: parseVersionRange(
+      raw?.supportedProtocolVersions,
+    ),
     valRoot: raw?.valRoot ?? fallbackRoot,
     env: pickEnvOverrides(raw?.env),
   };
+}
+
+/**
+ * Read the protocol range a client claims to speak.
+ *
+ * Falls back to `{min: 1, max: 1}` for anything that is not a pair of finite
+ * numbers. A half-filled object would otherwise produce `NaN` bounds, and every
+ * comparison against `NaN` is false — which `negotiateProtocolVersion` reads as
+ * "client too old" and refuses to serve, rather than as the graceful default a
+ * bare LSP client is meant to get.
+ */
+function parseVersionRange(raw: unknown): ProtocolVersionRange {
+  const fallback: ProtocolVersionRange = { min: 1, max: 1 };
+  if (!raw || typeof raw !== "object") {
+    return fallback;
+  }
+  const { min, max } = raw as { min?: unknown; max?: unknown };
+  if (
+    typeof min !== "number" ||
+    typeof max !== "number" ||
+    !Number.isFinite(min) ||
+    !Number.isFinite(max) ||
+    max < min
+  ) {
+    return fallback;
+  }
+  return { min, max };
 }
 
 /**
@@ -150,8 +177,14 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
   }
 }
 
-/** `val.modules.ts` / `val.modules.js`, at any directory depth. */
-const VAL_MODULES_RE = /[/\\]val\.modules\.(ts|js)$/;
+/**
+ * Files that every Val module is evaluated through, so an edit to one makes every
+ * module's result stale rather than just its own.
+ *
+ * `val.modules` decides which modules Val serves at all; `val.config` is what the
+ * modules import `c` and `s` from.
+ */
+const PROJECT_WIDE_FILE_RE = /[/\\]val\.(modules|config)\.(ts|js)$/;
 
 /**
  * Report a Val module that `val.modules` does not register.
@@ -512,9 +545,10 @@ export function createValLanguageServer(connection: Connection): {
   // per keystroke, which scheduleValidation debounces.
   documents.onDidOpen(({ document }) => scheduleValidation(document.uri));
   documents.onDidChangeContent(({ document }) => {
-    if (VAL_MODULES_RE.test(uriToPath(document.uri))) {
-      // Which modules Val serves is a project-wide fact, and the evaluated
-      // project is now stale for every module, not just this file.
+    if (PROJECT_WIDE_FILE_RE.test(uriToPath(document.uri))) {
+      // A project-wide fact changed, so every module's cached result is stale --
+      // not just this file's. `invalidate()` with no argument clears the content
+      // cache too, which the per-module fingerprint check would not.
       project?.invalidate();
       for (const open of documents.all()) {
         if (isValModuleUri(open.uri)) {

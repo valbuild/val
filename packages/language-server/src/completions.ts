@@ -13,7 +13,10 @@ import {
   type TextEdit,
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
-import { getValCompletionContext } from "./completionContext";
+import {
+  findFileRefArgument,
+  getValCompletionContext,
+} from "./completionContext";
 import { createModulePathMap, findModulePathAtPosition } from "./modulePathMap";
 import type { PublicValFiles } from "./publicValFiles";
 
@@ -36,9 +39,12 @@ export type ValCompletionItemData = {
   filePath: string;
   subType: "image" | "file";
   /** Where a metadata argument goes, or what it replaces. */
-  refArgEnd: number;
-  metadataStart?: number;
-  metadataEnd?: number;
+  /**
+   * Start offset of the reference argument, used to re-find the call at resolve
+   * time. Offsets captured now cannot be replayed later: see
+   * {@link findFileRefArgument}.
+   */
+  refArgStart: number;
 };
 
 export function createValCompletions({
@@ -102,13 +108,7 @@ export function createValCompletions({
       ref: file.ref,
       filePath: file.filePath,
       subType: context.subType,
-      refArgEnd: context.refArgEnd,
-      ...(context.metadataStart !== undefined
-        ? {
-            metadataStart: context.metadataStart,
-            metadataEnd: context.metadataEnd,
-          }
-        : {}),
+      refArgStart: context.refArgStart,
     };
     return {
       label: file.ref,
@@ -145,26 +145,46 @@ export async function resolveValCompletion({
     return item;
   }
 
+  // Re-derive the argument offsets against the document as it is *now*: the user
+  // may have typed to filter the list since it was computed, which moves
+  // everything after the reference string. `additionalTextEdits` are applied
+  // verbatim by the client, so a stale offset here corrupts the file.
+  const args = findFileRefArgument(
+    ts.createSourceFile(
+      data.uri,
+      document.getText(),
+      ts.ScriptTarget.ES2020,
+      false,
+      ts.ScriptKind.TS,
+    ),
+    data.refArgStart,
+  );
+  if (!args) {
+    // The anchor no longer resolves, so there is no safe place to put the
+    // metadata. `val validate --fix` and the metadata quick fix still cover it.
+    return item;
+  }
+
   const metadata = await readMetadata(data);
   if (!metadata) {
     return item;
   }
 
   const edit: TextEdit =
-    data.metadataStart !== undefined && data.metadataEnd !== undefined
+    args.metadataStart !== undefined && args.metadataEnd !== undefined
       ? {
           // Replace an existing metadata argument.
           range: {
-            start: document.positionAt(data.metadataStart),
-            end: document.positionAt(data.metadataEnd),
+            start: document.positionAt(args.metadataStart),
+            end: document.positionAt(args.metadataEnd),
           },
           newText: metadata,
         }
       : {
           // Insert one after the reference argument.
           range: {
-            start: document.positionAt(data.refArgEnd),
-            end: document.positionAt(data.refArgEnd),
+            start: document.positionAt(args.refArgEnd),
+            end: document.positionAt(args.refArgEnd),
           },
           newText: `, ${metadata}`,
         };
