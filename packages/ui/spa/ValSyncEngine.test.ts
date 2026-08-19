@@ -107,15 +107,13 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
 
-    // A field re-rendering after publish (fresh creatorId → fresh getPatchedSource
-    // recompute, i.e. what HMR / the next sync's source invalidation triggers)
-    // must NOT see the pre-patch value flicker through. This is the assertion
-    // that fails without the fix (it would recompute base "Foo" + no patches).
+    // A field re-rendering after publish must NOT see the pre-patch value flicker
+    // through. `publish` ends in `invalidateSource`, so this read genuinely
+    // recomputes `getPatchedSource` - the same recompute HMR and the next sync's
+    // source invalidation trigger. Without the fix it would recompute base "Foo"
+    // plus no patches.
     expect(
-      syncEngine.getSourceSnapshot(
-        toModuleFilePath("/test.val.ts"),
-        "field-rerender-after-publish",
-      ).data,
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("FooBar");
 
     // And it stays "FooBar" after the follow-up stat-triggered sync.
@@ -647,6 +645,60 @@ describe("ValSyncEngine", () => {
 
     unsubscribeSource();
     unsubscribeAllSources();
+  });
+
+  describe("source snapshot caching", () => {
+    async function engineWithOneModule() {
+      const { s, c, config } = initVal();
+      const tester = new SyncEngineTester(
+        "fs",
+        [c.define("/a.val.ts", s.string().minLength(2), "a")],
+        config,
+      );
+      return tester.createInitializedSyncEngine();
+    }
+
+    // The snapshot deep-clones the whole module. The cache key used to include
+    // the calling component's creatorId, so N mounted fields meant N full clones
+    // of the module on every keystroke. Reads must now share one clone.
+    test("repeated reads share one snapshot until the module is invalidated", async () => {
+      const syncEngine = await engineWithOneModule();
+      const moduleFilePath = toModuleFilePath("/a.val.ts");
+
+      const first = syncEngine.getSourceSnapshot(moduleFilePath);
+      const second = syncEngine.getSourceSnapshot(moduleFilePath);
+      expect(second).toBe(first);
+
+      syncEngine.setSources({
+        [moduleFilePath]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      const third = syncEngine.getSourceSnapshot(moduleFilePath);
+      expect(third).not.toBe(first);
+      expect(third.data).toStrictEqual("next");
+    });
+
+    // `optimistic` used to be baked into the cached snapshot, which is what forced
+    // the per-creatorId key. It is a cheap array-tail comparison, so it is now
+    // asked separately - and must still distinguish the editing component.
+    test("isOptimisticFor distinguishes the component that made the last patch", async () => {
+      const syncEngine = await engineWithOneModule();
+      const moduleFilePath = toModuleFilePath("/a.val.ts");
+
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "mine")).toBe(false);
+
+      syncEngine.addPatch(
+        moduleFilePath,
+        "string",
+        [{ op: "replace", path: [], value: "edited" }],
+        Date.now(),
+        "mine",
+      );
+
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "mine")).toBe(true);
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "theirs")).toBe(false);
+      expect(syncEngine.isOptimisticFor(moduleFilePath)).toBe(false);
+    });
   });
 
   describe("subscribe / unsubscribe", () => {

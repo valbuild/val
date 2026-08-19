@@ -501,7 +501,8 @@ export function useRenderOverrideAtPath(
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   return useMemo<RenderOverrideAtPathResult>(() => {
     const isOptimistic =
-      sourcesRes.status === "success" && sourcesRes.optimistic;
+      sourcesRes.status === "success" &&
+      syncEngine.isOptimisticFor(moduleFilePath);
     const renderAtPath = renderRes?.[sourcePath];
     if (initializedAt === null || isOptimistic) {
       const renderData =
@@ -509,7 +510,14 @@ export function useRenderOverrideAtPath(
       return { status: "loading", data: renderData };
     }
     return renderAtPath;
-  }, [renderRes, initializedAt, sourcesRes, sourcePath]);
+  }, [
+    renderRes,
+    initializedAt,
+    sourcesRes,
+    sourcePath,
+    syncEngine,
+    moduleFilePath,
+  ]);
 }
 
 type SchemaAtPathResult =
@@ -1222,8 +1230,8 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
@@ -1252,7 +1260,7 @@ export function useShallowSourceAtPath<
           modulePath,
           type,
           moduleSources,
-          sourcesRes.optimistic,
+          syncEngine.isOptimisticFor(moduleFilePath, creatorId),
         );
         return sourceAtSourcePath;
       } else {
@@ -1270,6 +1278,8 @@ export function useShallowSourceAtPath<
     initializedAt,
     type,
     sourceOverride,
+    syncEngine,
+    creatorId,
   ]);
   return source;
 }
@@ -1279,10 +1289,7 @@ const getNull = () => null;
 const NOT_FOUND: { status: "not-found" } = { status: "not-found" };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
-export function useSourceAtPath(
-  sourcePath: SourcePath | ModuleFilePath,
-  creatorId?: string,
-):
+export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "success";
       data: Json;
@@ -1304,12 +1311,8 @@ export function useSourceAtPath(
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
   );
   const initializedAt = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("initialized-at") : noopSubscribe,

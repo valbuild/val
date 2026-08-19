@@ -665,19 +665,10 @@ export class ValSyncEngine {
 
   private invalidateSource(moduleFilePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots !== null) {
-      const keysToRemove: string[] = [];
-      for (const key in this.cachedSourceSnapshots) {
-        if (key === moduleFilePath || key.startsWith(moduleFilePath + "\0")) {
-          keysToRemove.push(key);
-        }
-      }
-      if (keysToRemove.length > 0) {
-        const next = { ...this.cachedSourceSnapshots };
-        for (const key of keysToRemove) {
-          delete next[key];
-        }
-        this.cachedSourceSnapshots = next;
-      }
+      this.cachedSourceSnapshots = {
+        ...this.cachedSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
     }
     if (this.cachedServerSourceSnapshots !== null) {
       this.cachedServerSourceSnapshots = {
@@ -1972,11 +1963,10 @@ export class ValSyncEngine {
   }
 
   private cachedSourceSnapshots: Record<
-    string,
+    ModuleFilePath,
     | {
         status: "success";
         data: Json;
-        optimistic: boolean;
       }
     | {
         data?: undefined;
@@ -1984,34 +1974,53 @@ export class ValSyncEngine {
         message?: string;
       }
   > | null;
-  getSourceSnapshot(sourcePath: ModuleFilePath, creatorId?: string) {
+  /**
+   * The patched source of a module.
+   *
+   * Cached per MODULE, not per subscriber: this deep-clones the whole module, so
+   * a cache key that also varied by the calling component made one keystroke cost
+   * one full clone of the module PER MOUNTED FIELD. Whether a given component was
+   * the last to edit the module is a cheap, separate question - ask
+   * {@link isOptimisticFor}.
+   */
+  getSourceSnapshot(sourcePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    const cacheKey = creatorId ? `${sourcePath}\0${creatorId}` : sourcePath;
-    if (this.cachedSourceSnapshots[cacheKey] === undefined) {
+    if (this.cachedSourceSnapshots[sourcePath] === undefined) {
       const moduleData = this.getPatchedSource(sourcePath);
       if (this.schemas === null) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "no-schemas",
         };
       } else if (!this.schemas[sourcePath]) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "schema-not-found",
         };
       } else if (moduleData === undefined) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "source-not-found",
         };
       } else {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "success",
           data: deepClone(moduleData),
-          optimistic: this.isEditedByComponent(sourcePath, creatorId),
         };
       }
     }
-    return this.cachedSourceSnapshots[cacheKey];
+    return this.cachedSourceSnapshots[sourcePath];
+  }
+
+  /**
+   * Whether `creatorId` created the most recent patch on this module - i.e. the
+   * module's current value is this component's own optimistic edit, so pushing
+   * the engine value back at it would clobber what the user is typing.
+   *
+   * Cheap: a few array-tail comparisons, no cloning. Read it alongside
+   * {@link getSourceSnapshot} rather than baking it into the cached snapshot.
+   */
+  isOptimisticFor(moduleFilePath: ModuleFilePath, creatorId?: string): boolean {
+    return this.isEditedByComponent(moduleFilePath, creatorId);
   }
 
   private cachedServerSourceSnapshots: Record<
