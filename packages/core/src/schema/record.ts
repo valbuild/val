@@ -54,14 +54,25 @@ export type SerializedRecordSchema = {
 };
 
 /**
- * The source type of a `.jsonValues()` record: every entry value is a lazily
- * loaded {@link JsonSource} whose resolved content is the (loosened, see
- * {@link JsonOf}) item type.
+ * The source type of a `.jsonValues()` record: every entry value is EITHER a
+ * lazily loaded {@link JsonSource} whose resolved content is the (loosened, see
+ * {@link JsonOf}) item type, OR the item value written inline.
+ *
+ * Inline values are accepted by the TYPE on purpose: hand-authoring an entry
+ * directly in the `.val.ts` (or copying one in from a non-jsonValues record) is
+ * the natural first thing to write, and a type error there is a dead end — the
+ * author cannot see what to write instead. Validation reports the inline entry
+ * (`jsonValues:extract-entry`) and `val validate --fix` moves it into its own
+ * `*.val.json`, so the mistake is caught and repaired instead of blocking
+ * authoring.
  */
 export type JsonValuesRecordSrc<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
-> = Record<SelectorOfSchema<K>, JsonSource<JsonOf<SelectorOfSchema<T>>>>;
+> = Record<
+  SelectorOfSchema<K>,
+  JsonSource<JsonOf<SelectorOfSchema<T>>> | SelectorOfSchema<T>
+>;
 
 export class RecordSchema<
   T extends Schema<SelectorSource>,

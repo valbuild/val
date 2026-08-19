@@ -17,6 +17,7 @@ export const ValidationFix = [
   "files:check-unique-folder",
   "images:check-all-files",
   "files:check-all-files",
+  "jsonValues:extract-entry",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

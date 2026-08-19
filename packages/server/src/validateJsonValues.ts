@@ -53,7 +53,21 @@ export async function validateJsonValuesEntries(
       continue;
     }
     if (!Internal.isJson(marker)) {
-      // a non-marker entry is already reported by the record-level validation
+      // A value written INLINE in the `.val.ts` instead of `c.json(() => import(...))`.
+      //
+      // The record-level validation checks it against the item schema (so bad
+      // content is still reported), but it cannot report the inlining itself:
+      // the Studio substitutes loaded entry content in place of the marker
+      // before validating, so from `executeValidate`'s perspective a loaded
+      // entry and a hand-authored one look identical. Here the source is the
+      // module as it is on disk, where a non-marker can only be inlined.
+      out[entryPath] = [
+        {
+          message: `Entry '${key}' is written inline in ${modulePath}, but this record uses .jsonValues(): entry values must live in their own '*.val.json' file, referenced with c.json(() => import("./...")). Run 'val validate --fix' to move it.`,
+          value: marker,
+          fixes: ["jsonValues:extract-entry"],
+        },
+      ];
       continue;
     }
     const thunk = Internal.getJsonImport(marker);
