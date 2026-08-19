@@ -14,6 +14,12 @@ import { analyzeValModule } from "@valbuild/server";
  * This is version-sensitive by nature: it encodes how Val's module paths
  * correspond to source syntax, which is why it lives with Val rather than in an
  * editor extension.
+ *
+ * NOTE: `@valbuild/server` has a near-identical `modulePathMap.ts`, used for the
+ * CLI's code frames and the Val UI. This copy differs in locating the source
+ * expression via `analyzeValModule` and in exposing
+ * {@link findModulePathAtPosition}. Fix traversal bugs in both, or fold them
+ * together.
  */
 
 export type ModulePosition = {
@@ -176,7 +182,7 @@ function traverse(
   sourceFile: ts.SourceFile,
 ): ModulePathMap | undefined {
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-    return { "": { children: {}, ...rangeOfWidth(node, sourceFile) } };
+    return { "": { children: {}, ...rangeOfNode(node, sourceFile) } };
   }
   if (ts.isObjectLiteralExpression(node)) {
     return traverseObjectLiteral(node, sourceFile);
@@ -190,26 +196,15 @@ function traverse(
 }
 
 /**
- * Range of a node, derived from its end position and width.
+ * The line/character range of `node`'s own text (leading trivia excluded).
  *
- * `getStart()` needs the node to be part of a fully-parsed tree with parent
- * pointers; end-minus-width does not, and is what the original implementation
- * relied on.
+ * NOTE: do not compute the start as `end.character - node.getWidth()`. That
+ * identity only holds while the node stays on a single line - for a multi-line
+ * node (an object inside an array, a `c.image` metadata argument, ...) it
+ * reports the *closing* line and a negative character. `getStart(sourceFile)`
+ * needs no parent pointers as long as the source file is passed explicitly,
+ * which is why it is safe here.
  */
-function rangeOfWidth(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-): ModulePathRange {
-  const end = sourceFile.getLineAndCharacterOfPosition(node.end);
-  return {
-    start: {
-      line: end.line,
-      character: end.character - node.getWidth(sourceFile),
-    },
-    end: { line: end.line, character: end.character },
-  };
-}
-
 function rangeOfNode(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -244,7 +239,7 @@ function traverseCallExpression(
   const val = { children: {}, ...rangeOfNode(node, sourceFile) };
   const _ref = {
     children: {},
-    ...rangeOfWidth(node.arguments[0], sourceFile),
+    ...rangeOfNode(node.arguments[0], sourceFile),
   };
   if (!node.arguments[1]) {
     return { val, _ref };
@@ -252,7 +247,7 @@ function traverseCallExpression(
   return {
     val,
     _ref,
-    metadata: { children: {}, ...rangeOfWidth(node.arguments[1], sourceFile) },
+    metadata: { children: {}, ...rangeOfNode(node.arguments[1], sourceFile) },
   };
 }
 
@@ -267,7 +262,7 @@ function traverseArrayLiteral(
     }
     map[index] = {
       children: traverse(element, sourceFile) ?? {},
-      ...rangeOfWidth(element, sourceFile),
+      ...rangeOfNode(element, sourceFile),
     };
   });
   return map;
@@ -286,6 +281,12 @@ function traverseObjectLiteral(
       property.name &&
       (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
       property.name.text;
+    // NOTE: this also skips `""`, which is what a gallery key looks like the
+    // moment the user opens the quote. That is deliberate, not an oversight: a
+    // module path cannot address an empty segment, because
+    // `Internal.splitModulePath('""')` returns `[]`, and `""` already means
+    // "bare literal" in this map (see findModulePathAtPosition). Supporting it
+    // needs a change in @valbuild/core first.
     if (!key) {
       continue;
     }
@@ -296,7 +297,7 @@ function traverseObjectLiteral(
         val: { children: {}, ...rangeOfNode(property.initializer, sourceFile) },
         ...traverse(property.initializer, sourceFile),
       },
-      ...rangeOfWidth(property.name, sourceFile),
+      ...rangeOfNode(property.name, sourceFile),
     };
   }
   return map;

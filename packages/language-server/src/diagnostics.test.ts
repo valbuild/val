@@ -10,7 +10,7 @@ import {
  * End-to-end diagnostics: drives the real server as a child process over stdio,
  * opens a document, and waits for `textDocument/publishDiagnostics`.
  *
- * This exercises the whole chain — evaluate through QuickJS, map source paths to
+ * This exercises the whole chain — evaluate the project, map source paths to
  * ranges, publish over LSP — which unit tests of the pieces cannot.
  */
 

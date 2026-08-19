@@ -107,7 +107,9 @@ describe("createValProject — evaluating the example app", () => {
     project.invalidate(modulePath);
     expect(project.cacheSize()).toBe(0);
     const again = await project.getModule(modulePath);
-    expect(again.status === "ok" && again.cached).toBe(false);
+    expect(again.status).toBe("ok");
+    if (again.status !== "ok") return;
+    expect(again.cached).toBe(false);
   });
 
   test("evaluates the editor's unsaved buffer, not the file on disk", async () => {
@@ -117,7 +119,9 @@ describe("createValProject — evaluating the example app", () => {
     const onDisk = fs.readFileSync(absolute, "utf8");
 
     const clean = await project.getModule(modulePath);
-    expect(clean.status === "ok" && clean.content.errors).toBe(false);
+    expect(clean.status).toBe("ok");
+    if (clean.status !== "ok") return;
+    expect(clean.content.errors).toBe(false);
 
     // Introduce a real validation error in the editor only -- disk is untouched.
     // `name` is a string with minLength(2), so a number must be rejected.
@@ -135,7 +139,9 @@ describe("createValProject — evaluating the example app", () => {
     expect(fs.readFileSync(absolute, "utf8")).toBe(onDisk);
     open.set(absolute, onDisk);
     const reverted = await project.getModule(modulePath);
-    expect(reverted.status === "ok" && reverted.content.errors).toBe(false);
+    expect(reverted.status).toBe("ok");
+    if (reverted.status !== "ok") return;
+    expect(reverted.content.errors).toBe(false);
   });
 
   test("reports a buffer that cannot be evaluated as a project error", async () => {
@@ -154,7 +160,9 @@ describe("createValProject — evaluating the example app", () => {
 
     open.set(absolute, onDisk);
     const reverted = await project.getModule(modulePath);
-    expect(reverted.status === "ok" && reverted.content.errors).toBe(false);
+    expect(reverted.status).toBe("ok");
+    if (reverted.status !== "ok") return;
+    expect(reverted.content.errors).toBe(false);
   });
 
   test("surfaces validation errors for a module that has them", async () => {

@@ -190,30 +190,41 @@ export function createValProject({
     servicePromise = undefined;
   }
 
+  function startService(): NonNullable<typeof servicePromise> {
+    const coreProblem = checkCoreIsResolvable(valRoot, isCoreResolvable);
+    if (coreProblem) {
+      return Promise.resolve({ status: "error" as const, error: coreProblem });
+    }
+    return createService(valRoot, host)
+      .then((service) => ({ status: "ok" as const, service }))
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          status: "error" as const,
+          error: {
+            code: /Could not read config from/.test(message)
+              ? ("no-config" as const)
+              : ("service-failed" as const),
+            message,
+          },
+        };
+      });
+  }
+
   function getService() {
     if (!servicePromise) {
-      const coreProblem = checkCoreIsResolvable(valRoot, isCoreResolvable);
-      if (coreProblem) {
-        servicePromise = Promise.resolve({
-          status: "error" as const,
-          error: coreProblem,
-        });
-        return servicePromise;
-      }
-      servicePromise = createService(valRoot, host)
-        .then((service) => ({ status: "ok" as const, service }))
-        .catch((e: unknown) => {
-          const message = e instanceof Error ? e.message : String(e);
-          return {
-            status: "error" as const,
-            error: {
-              code: /Could not read config from/.test(message)
-                ? ("no-config" as const)
-                : ("service-failed" as const),
-              message,
-            },
-          };
-        });
+      const attempt = startService();
+      servicePromise = attempt;
+      // Only a *successful* evaluation is worth keeping. Everything that makes
+      // one fail can be fixed without any Val module's content changing -- add a
+      // tsconfig, install @valbuild/core, fix the module that throws, fix
+      // val.modules -- so memoizing the failure would leave the session
+      // permanently broken. Retrying is cheap: a failing evaluation throws early.
+      void attempt.then((resolved) => {
+        if (resolved.status === "error" && servicePromise === attempt) {
+          servicePromise = undefined;
+        }
+      });
     }
     return servicePromise;
   }
@@ -273,15 +284,29 @@ export function createValProject({
     listModuleFilePaths: () => findValModuleFilePaths(valRoot),
 
     async getSnapshot() {
-      const resolved = await getService();
-      if (resolved.status === "error") {
-        return { status: "error", error: resolved.error };
-      }
       // First call: everything is stale. Later calls: only what changed.
       if (snapshotStale === undefined) {
         snapshotStale = new Set(findValModuleFilePaths(valRoot));
       }
-      for (const moduleFilePath of snapshotStale) {
+      // Claim the work list *before* the first await, and leave a fresh set
+      // behind. An `invalidate()` that lands while we are evaluating then lands
+      // in that fresh set and is refreshed on the next call, instead of being
+      // cleared as though this call had handled it.
+      const refreshing = [...snapshotStale];
+      snapshotStale = new Set();
+
+      const resolved = await getService();
+      if (resolved.status === "error") {
+        // Nothing was refreshed, so put the work back — unless a full
+        // invalidation landed meanwhile, which re-lists everything anyway.
+        if (snapshotStale !== undefined) {
+          for (const moduleFilePath of refreshing) {
+            snapshotStale.add(moduleFilePath);
+          }
+        }
+        return { status: "error", error: resolved.error };
+      }
+      for (const moduleFilePath of refreshing) {
         const content = await resolved.service.get(
           moduleFilePath,
           "" as ModulePath,
@@ -302,7 +327,6 @@ export function createValProject({
           delete snapshot.sources[moduleFilePath];
         }
       }
-      snapshotStale.clear();
       return { status: "ok", snapshot };
     },
 

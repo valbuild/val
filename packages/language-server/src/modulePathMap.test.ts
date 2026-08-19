@@ -263,6 +263,77 @@ export default c.define('/content', schema, {
     });
   });
 
+  describe("ranges of nodes that span several lines", () => {
+    // A range computed as `end.character - node.getWidth()` is right only while a
+    // node stays on one line. For a multi-line node it reports the *closing* line
+    // and a negative character, which an editor either rejects or clamps to the
+    // wrong place.
+    const map = mapOf(
+      "./x.val.ts",
+      `import { s, c } from '../val.config';
+export default c.define('/x.val.ts', schema, {
+  items: [
+    {
+      title: 'first',
+    },
+  ],
+  image: c.image('/public/val/logo.png', {
+    width: 944,
+    height: 944,
+  }),
+});
+`,
+    );
+
+    test("a multi-line array element starts where it opens", () => {
+      const range = getModulePathRange('"items".0', map)!;
+      expect(range).toBeDefined();
+      expect(range.start.character).toBeGreaterThanOrEqual(0);
+      // Opens on the `{` line (3) and closes two lines later.
+      expect(range.start.line).toBe(3);
+      expect(range.end.line).toBe(5);
+    });
+
+    test("a multi-line metadata argument starts where it opens", () => {
+      const range = getModulePathRange('"image"."metadata"', map)!;
+      expect(range).toBeDefined();
+      expect(range.start.character).toBeGreaterThanOrEqual(0);
+      expect(range.start.line).toBe(7);
+      expect(range.end.line).toBe(10);
+    });
+
+    test("every range has a non-negative start character", () => {
+      const check = (node: typeof map) => {
+        for (const entry of Object.values(node)) {
+          expect(entry.start.character).toBeGreaterThanOrEqual(0);
+          expect(entry.end.character).toBeGreaterThanOrEqual(0);
+          check(entry.children);
+        }
+      };
+      check(map);
+    });
+  });
+
+  describe("empty record keys", () => {
+    test('skips a "" key, which no module path can address', () => {
+      // Documents a known limitation rather than asserting desired behaviour:
+      // `Internal.splitModulePath('""')` returns `[]`, so an empty segment is
+      // not addressable, and `""` already marks a bare literal in this map.
+      // A gallery key gets ranges as soon as it has one character.
+      const map = mapOf(
+        "./x.val.ts",
+        `import { s, c } from '../val.config';
+export default c.define('/x.val.ts', schema, {
+  "": { alt: 'not named yet' },
+  "/public/val/logo.png": { alt: 'named' },
+});
+`,
+      );
+      expect(Object.keys(map)).not.toContain("");
+      expect(getModulePathRange('"/public/val/logo.png"', map)).toBeDefined();
+    });
+  });
+
   describe("modules that are not Val modules", () => {
     test("returns undefined when there is no default export", () => {
       expect(

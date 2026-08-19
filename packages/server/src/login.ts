@@ -150,10 +150,15 @@ export async function awaitValLoginConfirmation(
       );
     }
     if (response.status === 200) {
-      const json = await response.json();
+      const json = await response.json().catch(() => null);
+      if (!json) {
+        // A 200 with an empty body is not a confirmation; keep polling rather
+        // than failing the login, which is what the CLI has always done.
+        continue;
+      }
       if (
-        typeof json?.profile?.email === "string" &&
-        typeof json?.pat === "string"
+        typeof json.profile?.email === "string" &&
+        typeof json.pat === "string"
       ) {
         return json;
       }

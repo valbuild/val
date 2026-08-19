@@ -1,14 +1,15 @@
 /**
  * Latency benchmark for the evaluation core.
  *
- * NOT a test -- named `.bench.cjs` so jest ignores it. Run it by hand:
+ * NOT a test -- it lives under `scripts/`, outside the `src/**` that jest picks
+ * up, and it is what `pnpm --filter @valbuild/language-server bench` runs. By
+ * hand:
  *
- *     node packages/language-server/src/evalLatency.bench.cjs examples/next
+ *     node packages/language-server/scripts/evalLatency.bench.js examples/next
  *
- * The question it answers: can we afford to evaluate a Val module through
- * QuickJS on every edit, or does the server need to debounce/degrade? Reports
- * cold start, warm re-evaluation, cache hits, and the edit-then-revalidate loop
- * that an editor actually produces.
+ * The question it answers: can we afford to re-evaluate on every edit, or does
+ * the server need to debounce/degrade? Reports cold start, warm re-evaluation,
+ * cache hits, and the edit-then-revalidate loop an editor actually produces.
  */
 const path = require("path");
 const fs = require("fs");
@@ -54,7 +55,7 @@ async function main() {
   const open = mapOpenDocuments();
   const project = createValProject({ valRoot, open });
 
-  // --- cold: first module pays QuickJS runtime + WASM startup ---
+  // --- cold: first module pays the whole-project evaluation ---
   const [coldT, cold] = await time(() => project.getModule(modules[0]));
   if (cold.status === "error") {
     console.error("INIT FAILED:", cold.error);

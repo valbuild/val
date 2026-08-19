@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import { Internal, type ModuleFilePath } from "@valbuild/core";
+import { findAndEvalValConfigFile } from "@valbuild/server";
 import {
   CodeActionKind,
   type CodeAction,
@@ -37,9 +38,13 @@ import {
 } from "./diagnostics";
 import { createValCodeActions } from "./codeActions";
 import { createValCompletions, resolveValCompletion } from "./completions";
-import { createPublicValFiles, type PublicValFiles } from "./publicValFiles";
+import {
+  createPublicValFiles,
+  DEFAULT_FILES_DIRECTORY,
+  type PublicValFiles,
+} from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
-import { isValModuleUri, pathToUri, toModuleFilePath, uriToPath } from "./uri";
+import { isValModuleUri, toModuleFilePath, uriToPath } from "./uri";
 
 /**
  * How long to wait after an edit before re-evaluating.
@@ -145,24 +150,32 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
   }
 }
 
+/** `val.modules.ts` / `val.modules.js`, at any directory depth. */
+const VAL_MODULES_RE = /[/\\]val\.modules\.(ts|js)$/;
+
 /**
  * Report a Val module that `val.modules` does not register.
  *
- * Reads `val.modules.{ts,js}` from disk on demand. Returns `undefined` when no
- * such file exists — that is a project-level problem, not something to blame on
- * an individual module.
+ * Reads `val.modules.{ts,js}` on demand, through the editor's buffer when it is
+ * open: adding a module to the registry must clear the diagnostic straight away,
+ * not only once the user saves. Returns `undefined` when no such file exists —
+ * that is a project-level problem, not something to blame on an individual
+ * module.
  */
 function findMissingModuleDiagnostic(
   valRoot: string,
   moduleFilePath: ModuleFilePath,
+  read: (fsPath: string) => string | undefined,
 ): Diagnostic | undefined {
   for (const candidate of ["val.modules.ts", "val.modules.js"]) {
     const file = path.join(valRoot, candidate);
-    let text: string;
-    try {
-      text = fs.readFileSync(file, "utf8");
-    } catch {
-      continue;
+    let text: string | undefined = read(file);
+    if (text === undefined) {
+      try {
+        text = fs.readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
     }
     const registered = isModuleRegistered({
       sourceFile: ts.createSourceFile(file, text, ts.ScriptTarget.ES2020),
@@ -187,6 +200,28 @@ export function createValLanguageServer(connection: Connection): {
   getSession: () => ValSession | undefined;
 } {
   const documents = new TextDocuments(TextDocument);
+
+  /**
+   * The editor's view of a file, by absolute path, or `undefined` when the file
+   * is not open.
+   *
+   * Found by comparing paths rather than by rebuilding the client's URI: URI
+   * escaping is not something two serializers agree on byte for byte (`!`, `'`,
+   * `(`, `)`, `*` and drive-letter colons all vary), and a near-miss would
+   * silently fall back to disk — exactly the bug this server exists to avoid.
+   * The number of open documents is small, so a scan is cheaper than keeping an
+   * index in sync.
+   */
+  function readOpenDocument(fsPath: string): string | undefined {
+    const wanted = path.normalize(fsPath);
+    for (const document of documents.all()) {
+      if (path.normalize(uriToPath(document.uri)) === wanted) {
+        return document.getText();
+      }
+    }
+    return undefined;
+  }
+
   let session: ValSession | undefined;
   let project: ValProject | undefined;
   let publicFiles: PublicValFiles | undefined;
@@ -259,6 +294,7 @@ export function createValLanguageServer(connection: Connection): {
       const unregistered = findMissingModuleDiagnostic(
         project.valRoot,
         moduleFilePath,
+        readOpenDocument,
       );
       if (unregistered) {
         diagnostics.push(unregistered);
@@ -324,12 +360,34 @@ export function createValLanguageServer(connection: Connection): {
     const commands: string[] = [];
 
     publicFiles = createPublicValFiles({ valRoot: options.valRoot });
+    // A project can point `files.directory` somewhere other than /public/val, and
+    // media-path completions would list nothing if we assumed the default.
+    // Reading val.config is async and `initialize` is not, so the default stands
+    // until the real value arrives — completions cannot be requested before
+    // `initialize` returns anyway.
+    void findAndEvalValConfigFile(options.valRoot)
+      .then((config) => {
+        const directory = config?.files?.directory;
+        if (directory && directory !== DEFAULT_FILES_DIRECTORY) {
+          publicFiles = createPublicValFiles({
+            valRoot: options.valRoot,
+            directory,
+          });
+        }
+      })
+      .catch((e: unknown) => {
+        // A broken or unreadable val.config is reported per module by the
+        // service; here it only means "keep the default directory".
+        connection.console.warn(
+          `Val: could not read val.config: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      });
     project = createValProject({
       valRoot: options.valRoot,
       open: {
         // Prefer the editor's buffer; fall back to disk for files the user has
         // not opened.
-        read: (fsPath) => documents.get(pathToUri(fsPath))?.getText(),
+        read: readOpenDocument,
       },
     });
 
@@ -453,9 +511,20 @@ export function createValLanguageServer(connection: Connection): {
   // Validate when a module is opened and whenever it changes. `didChange` fires
   // per keystroke, which scheduleValidation debounces.
   documents.onDidOpen(({ document }) => scheduleValidation(document.uri));
-  documents.onDidChangeContent(({ document }) =>
-    scheduleValidation(document.uri),
-  );
+  documents.onDidChangeContent(({ document }) => {
+    if (VAL_MODULES_RE.test(uriToPath(document.uri))) {
+      // Which modules Val serves is a project-wide fact, and the evaluated
+      // project is now stale for every module, not just this file.
+      project?.invalidate();
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+      return;
+    }
+    scheduleValidation(document.uri);
+  });
 
   documents.onDidClose(({ document }) => {
     const timer = pending.get(document.uri);
