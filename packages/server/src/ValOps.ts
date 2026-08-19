@@ -1251,7 +1251,16 @@ export abstract class ValOps {
       );
       let tsSourceFile = originalSourceFile;
       let tsChanged = false;
-      const serializedSchema = schemas[path]?.["executeSerialize"]();
+      let serializedSchema: SerializedSchema | undefined = undefined;
+      try {
+        serializedSchema = schemas[path]?.["executeSerialize"]();
+      } catch {
+        // Serialization errors are reported elsewhere; treat as "no schema".
+        // Without this guard one unserializable schema (e.g. a `keyOf` with an
+        // empty selector) rejects the whole prepare(), so NO module's patches
+        // can be saved — instead of this module's ops being routed as plain
+        // `.val.ts` ops and any that cannot apply reported per-patch.
+      }
 
       // jsonValues entry content, keyed by `*.val.json` path. `null` = delete.
       const jsonEntryContents = new Map<string, JSONValue | null>();
@@ -1403,10 +1412,13 @@ export abstract class ValOps {
           if (cls.subPath.length === 0) {
             // Structural / whole-entry op.
             if (op.op === "add") {
-              const { jsonPath, importPath } = getNewJsonEntryPaths(
-                path,
-                cls.entryKey,
-              );
+              const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
+              if (result.isErr(newPathsRes)) {
+                errors.push(newPathsRes.error);
+                patchHadError = true;
+                break;
+              }
+              const { jsonPath, importPath } = newPathsRes.value;
               const insRes = insertValJsonEntry(
                 tsSourceFile,
                 cls.recordPath,
@@ -1502,10 +1514,13 @@ export abstract class ValOps {
               }
               // LOCKED convention: the destination always uses the generated
               // path, so renaming a hand-placed file relocates it.
-              const { jsonPath, importPath } = getNewJsonEntryPaths(
-                path,
-                cls.entryKey,
-              );
+              const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
+              if (result.isErr(newPathsRes)) {
+                errors.push(newPathsRes.error);
+                patchHadError = true;
+                break;
+              }
+              const { jsonPath, importPath } = newPathsRes.value;
               const insRes = insertValJsonEntry(
                 tsSourceFile,
                 cls.recordPath,

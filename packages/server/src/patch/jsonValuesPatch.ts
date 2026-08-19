@@ -1,5 +1,6 @@
 import * as path from "path";
 import type { PatchId, SerializedSchema } from "@valbuild/core";
+import type { PatchSourceError } from "../ValOps";
 import { array, result } from "@valbuild/core/fp";
 import {
   applyPatch,
@@ -155,18 +156,37 @@ const VAL_TS_SUFFIX = ".val.ts";
 export function getNewJsonEntryPaths(
   moduleFilePath: string,
   entryKey: string,
-): { jsonPath: string; importPath: string } {
+): result.Result<{ jsonPath: string; importPath: string }, PatchSourceError> {
   const base = moduleFilePath.endsWith(VAL_TS_SUFFIX)
     ? moduleFilePath.slice(0, -VAL_TS_SUFFIX.length)
     : moduleFilePath;
   const keyRel = entryKey.replace(/^\//, "");
-  const jsonPath = `${base}/${keyRel}.val.json`;
+  const invalid = (reason: string) =>
+    result.err<PatchSourceError>({
+      message: `Invalid .jsonValues() entry key '${entryKey}' in ${moduleFilePath}: ${reason}`,
+      filePath: moduleFilePath,
+    });
+  // An entry key is CLIENT-SUPPLIED — it arrives as a record key in a patch op —
+  // and this path is what the commit writes to disk. Left unchecked, a key with
+  // `..` segments (or a backslash, which is a separator once the path is handed
+  // to node's `path.join` on Windows) puts that write anywhere in the project or
+  // outside it entirely, and a `move` additionally deletes the source path.
+  if (keyRel === "") {
+    return invalid("it is empty");
+  }
+  if (keyRel.includes("\\") || keyRel.includes("\0")) {
+    return invalid("it contains a backslash or a NUL byte");
+  }
+  const jsonPath = path.posix.normalize(`${base}/${keyRel}.val.json`);
+  if (!jsonPath.startsWith(`${base}/`)) {
+    return invalid(`it resolves outside '${base}/'`);
+  }
   const moduleDir = path.posix.dirname(moduleFilePath);
   let importPath = path.posix.relative(moduleDir, jsonPath);
   if (!importPath.startsWith(".")) {
     importPath = `./${importPath}`;
   }
-  return { jsonPath, importPath };
+  return result.ok({ jsonPath, importPath });
 }
 
 /**
@@ -264,6 +284,12 @@ export function applyJsonValuesEntryPatches(args: {
         } else if (op.op === "remove") {
           content = undefined;
           deleted = true;
+        } else if (op.op === "test") {
+          // An assertion, not a mutation: the content is unchanged either way, and
+          // the commit path is where a failing `test` is reported. Falling through
+          // to the move/copy error below turned a no-op into a permanent load
+          // failure for the whole entry.
+          continue;
         } else {
           // move/copy INTO this key: the content comes from the source entry,
           // which the caller must resolve (it is a different `*.val.json`).

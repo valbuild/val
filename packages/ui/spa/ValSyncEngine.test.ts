@@ -1398,6 +1398,38 @@ describe("ValSyncEngine", () => {
       ).toEqual({ title: "A edited", order: 1 });
     });
 
+    test("a failing entry keeps its error when OTHER entries are invalidated", async () => {
+      // Regression: markJsonEntriesStale cleared the whole module's error memo,
+      // including keys the refetch it starts does not cover (a key that has only
+      // ever failed has no cached content). That left the key with no content, no
+      // error and nothing in flight — a spinner with nothing to retry.
+      const { tester } = setupJsonValues();
+      const engine = await tester.createInitializedSyncEngine();
+
+      await engine.ensureJsonEntry(toModuleFilePath(PAGES), "/a");
+      engine.requestJsonEntry(toModuleFilePath(PAGES), "/missing");
+      await flush();
+      expect(
+        engine.getJsonEntryError(toModuleFilePath(PAGES), "/missing"),
+      ).not.toBe(null);
+      const requestsBefore = tester.jsonRequestCounts[`${PAGES}\0/a`] ?? 0;
+
+      // A key appears on disk: the module source moved, so its loaded entries are
+      // marked stale and refetched.
+      tester.fakeSources[PAGES]["/c"] = { [VAL_EXTENSION]: "json" };
+      tester.fakeJsonEntries[PAGES]["/c"] = { title: "C", order: 3 };
+      tester.simulatePassingOfSeconds(5);
+      await tester.simulateStatCallback(engine);
+      await flush();
+
+      // The loaded entry WAS refetched...
+      expect(tester.jsonRequestCounts[`${PAGES}\0/a`]).toBe(requestsBefore + 1);
+      // ...and the failing one still reports its error, with a retry to offer.
+      expect(
+        engine.getJsonEntryError(toModuleFilePath(PAGES), "/missing"),
+      ).not.toBe(null);
+    });
+
     test("a saved edit never flashes back to the pre-edit content", async () => {
       // Regression: the source sync after the last keystroke kicks off an entry
       // refetch. Save it before that lands and the response — produced BEFORE

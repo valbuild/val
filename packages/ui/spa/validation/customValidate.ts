@@ -110,6 +110,13 @@ export function collectCustomValidateTargets(
         if (!isRecordSource(source)) {
           return;
         }
+        // KNOWN GAP: a validator on the record's KEY schema is not run here. A key
+        // has no source node of its own — `RecordSchema.executeValidate` validates
+        // it against the ENTRY's path, whose schema is the ITEM — so there is no
+        // path to emit that `executeCustomValidations` could resolve to the key
+        // schema and the key string. `hasCustomValidate` still counts the key
+        // schema (a cheap over-approximation of the gate), so such a module is
+        // walked; the walk simply finds nothing for the key itself.
         const itemNeedsContent = hasCustomValidate(schema.item);
         for (const key in source) {
           const value = source[key];
@@ -155,7 +162,23 @@ export function collectCustomValidateTargets(
             );
           });
         if (branch) {
-          go(path, branch, source);
+          // The matched variant SHARES the union's path, so `resolvePath` stops at
+          // the union and `UnionSchema.executeCustomValidateAt` is what dispatches
+          // into the variant. Record the path once — `go(path, branch, ...)` would
+          // push it a second time when both declare a validator — then walk the
+          // variant's fields.
+          if (
+            branch.customValidate === true &&
+            schema.customValidate !== true
+          ) {
+            paths.push(path);
+          }
+          for (const key in branch.items) {
+            if (!(key in source)) {
+              continue; // absent optional field: nothing to validate
+            }
+            go(sourcePathConcat(path, key), branch.items[key], source[key]);
+          }
         }
         return;
       }

@@ -66,6 +66,25 @@ export class JsonEntryFilesFingerprint {
     schemas: Record<ModuleFilePath, SerializedSchema | undefined>,
   ): string {
     const parts: string[] = [];
+    for (const entryFilePath of this.entryFilePaths(schemas)) {
+      parts.push(`${entryFilePath}:${this.fileFingerprint(entryFilePath)}`);
+    }
+    return parts.join("|");
+  }
+
+  /**
+   * Every `.jsonValues()` entry file the given schemas reach, rootDir-relative and
+   * in a stable order.
+   *
+   * Public because the fingerprint is only half the story: the fs polling fallback
+   * (which exists because `fs.watch` is unreliable on some systems, notably WSL)
+   * has to watch these files too, or on those systems a hand-edited entry waits
+   * out the whole long-poll interval.
+   */
+  entryFilePaths(
+    schemas: Record<ModuleFilePath, SerializedSchema | undefined>,
+  ): string[] {
+    const paths: string[] = [];
     for (const moduleFilePathS of Object.keys(schemas).sort()) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
       const schema = schemas[moduleFilePath];
@@ -78,11 +97,9 @@ export class JsonEntryFilesFingerprint {
       ) {
         continue;
       }
-      for (const entryFilePath of this.entryFilePathsOf(moduleFilePath)) {
-        parts.push(`${entryFilePath}:${this.fileFingerprint(entryFilePath)}`);
-      }
+      paths.push(...this.entryFilePathsOf(moduleFilePath));
     }
-    return parts.join("|");
+    return paths;
   }
 
   private entryFilePathsOf(moduleFilePath: ModuleFilePath): string[] {

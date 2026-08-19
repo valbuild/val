@@ -264,22 +264,10 @@ export class RecordSchema<
         // marker. Deep validation is deferred and run per-entry once the backing
         // `*.val.json` is loaded (server: validateJsonEntryContent; UI: the
         // loaded content is substituted and validated by the branch below).
-      } else if (this.isJsonValues) {
-        // jsonValues record, entry content is inlined (loaded in the UI, or
-        // hand-authored content) — validate it against the item schema.
-        const subError = this.item["executeValidate"](
-          subPath,
-          elem as SelectorSource,
-        );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
       } else {
+        // Falls through for a jsonValues record whose entry content is inlined
+        // (loaded in the UI, or hand-authored): same as a plain record — validate
+        // the value against the item schema.
         const subError = this.item["executeValidate"](
           subPath,
           elem as SelectorSource,
@@ -657,11 +645,19 @@ export class RecordSchema<
         ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
       );
     }
+    if (this.customValidateFunctions.length > 0) {
+      // `.jsonValues()` changes the source shape to JsonSource entries, so a
+      // validator typed against the previous Src cannot be carried over. Refusing
+      // is the point: silently dropping it left the developer looking at a
+      // `.validate(...)` in their source file that never ran anywhere.
+      throw new Error(
+        ".jsonValues() must come BEFORE .validate(): a validator added first is typed against the un-lazy source shape and cannot be carried over. Write s.record(...).jsonValues().validate(...) instead.",
+      );
+    }
     return new RecordSchema(
       this.item,
       this.opt,
-      // custom validate functions are typed against the previous Src; drop them
-      // since the source shape changes to JsonSource entries.
+      // Empty by construction: the guard above rejects any that were registered.
       [],
       this.currentRouter,
       this.keySchema,

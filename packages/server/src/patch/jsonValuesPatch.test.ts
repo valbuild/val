@@ -72,19 +72,50 @@ describe("classifyJsonValuesOp", () => {
 });
 
 describe("getNewJsonEntryPaths", () => {
+  const ok = (moduleFilePath: string, entryKey: string) => {
+    const res = getNewJsonEntryPaths(moduleFilePath, entryKey);
+    if (result.isErr(res)) {
+      throw new Error(`Expected ok, got: ${JSON.stringify(res.error)}`);
+    }
+    return res.value;
+  };
+
   test("mirrors the entry key under a folder named after the .val.ts", () => {
-    expect(getNewJsonEntryPaths("/test/pages.val.ts", "/blog/hello")).toEqual({
+    expect(ok("/test/pages.val.ts", "/blog/hello")).toEqual({
       jsonPath: "/test/pages/blog/hello.val.json",
       importPath: "./pages/blog/hello.val.json",
     });
   });
 
   test("handles nested module directories", () => {
-    expect(
-      getNewJsonEntryPaths("/app/support/[slug]/page.val.ts", "/support/faq"),
-    ).toEqual({
+    expect(ok("/app/support/[slug]/page.val.ts", "/support/faq")).toEqual({
       jsonPath: "/app/support/[slug]/page/support/faq.val.json",
       importPath: "./page/support/faq.val.json",
+    });
+  });
+
+  describe("rejects a key that would write outside the module's own folder", () => {
+    // The entry key is client-supplied (a record key in a patch op) and this path
+    // is what the commit writes, so an escape here is an arbitrary file write.
+    test.each([
+      ["parent traversal", "/../../../../../../tmp/pwn"],
+      ["traversal mid-key", "/blog/../../../../etc/passwd"],
+      ["bare traversal", "../outside"],
+      ["backslash separator (a separator on Windows)", "/..\\..\\pwn"],
+      ["NUL byte", "/blog/hello\u0000"],
+      ["empty key", "/"],
+    ])("%s", (_name, entryKey) => {
+      const res = getNewJsonEntryPaths("/app/pages.val.ts", entryKey);
+      expect(result.isErr(res)).toBe(true);
+    });
+
+    test("a key that merely LOOKS like traversal after normalizing is fine", () => {
+      // `/blog/../hello` normalizes back inside the folder — allowed, and lands
+      // where the normalized path says.
+      expect(ok("/app/pages.val.ts", "/blog/../hello")).toEqual({
+        jsonPath: "/app/pages/hello.val.json",
+        importPath: "./pages/hello.val.json",
+      });
     });
   });
 });

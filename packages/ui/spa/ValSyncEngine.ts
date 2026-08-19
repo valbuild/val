@@ -1665,13 +1665,21 @@ export class ValSyncEngine {
    */
   private markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
     const contents = this.jsonEntryContents[moduleFilePath];
-    delete this.jsonEntryErrors[moduleFilePath];
     if (contents === undefined) {
+      // Nothing cached to invalidate. Deliberately does NOT clear the error memo:
+      // a key that has only ever FAILED has no cached content, so there is no
+      // refetch below to replace the error with — and a memo cleared without one
+      // renders as a spinner with nothing in flight and nothing to retry.
       return;
     }
     const keys = Object.keys(contents);
+    const errors = this.jsonEntryErrors[moduleFilePath];
     for (const key of keys) {
       this.staleJsonEntries.add(`${moduleFilePath}\0${key}`);
+      // Cleared per key, and only for the keys the refetch below covers.
+      if (errors !== undefined) {
+        delete errors[key];
+      }
     }
     // Batched: with hundreds of entries cached, refetching one-by-one made a
     // publish a request storm.
@@ -4474,14 +4482,17 @@ export class ValSyncEngine {
               // the un-patched source. The patched view is computed by
               // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
-              // The committed content of any loaded `.jsonValues()` entry may
-              // have changed with it (e.g. after publish) — refetch, or the
-              // stale pre-edit content is re-substituted and the edit looks
-              // like it reverted. NOT gated on `sourceDidChange`: a content-only
-              // edit rewrites the entry's `*.val.json` and leaves the module
-              // source byte-identical, which is exactly the case that needs it.
-              // Cheap for a module with nothing loaded — it returns immediately.
-              this.markJsonEntriesStale(moduleFilePath);
+              // The entry SET moved with the source (a key added, removed or
+              // renamed rewrites the `.val.ts`), so the loaded entries have to be
+              // refetched. Gated on `sourceDidChange` so a full sync — every
+              // module comes back on every tick — does not refetch hundreds of
+              // unchanged entries. A content-only edit leaves the source
+              // byte-identical and is caught by the two signals that DO see it:
+              // `jsonEntriesSha` on the stat (fs) and `markAllJsonEntriesStale`
+              // in `publish`.
+              if (sourceDidChange) {
+                this.markJsonEntriesStale(moduleFilePath);
+              }
               // Renders are computed client-side from the schema instances, so
               // there is nothing to read off the response any more — but they are
               // computed against the PATCHED source, so a source that moved has

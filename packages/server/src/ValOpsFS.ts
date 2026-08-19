@@ -228,14 +228,16 @@ export class ValOpsFS extends ValOps {
       const currentSourcesSha = await this.getSourcesSha();
       const schemas = await this.getSchemas();
       const moduleFilePaths = Object.keys(schemas);
-      const currentJsonEntriesSha = this.jsonEntryFilesFingerprint.compute(
-        Object.fromEntries(
-          Object.entries(schemas).map(([path, schema]) => [
-            path,
-            serializeSchemaSafely(schema),
-          ]),
-        ),
+      const serializedSchemas = Object.fromEntries(
+        Object.entries(schemas).map(([path, schema]) => [
+          path,
+          serializeSchemaSafely(schema),
+        ]),
       );
+      const currentJsonEntriesSha =
+        this.jsonEntryFilesFingerprint.compute(serializedSchemas);
+      const jsonEntryFilePaths =
+        this.jsonEntryFilesFingerprint.entryFilePaths(serializedSchemas);
 
       const patchData = await this.readPatches();
       const patches: PatchId[] = [];
@@ -382,6 +384,13 @@ export class ValOpsFS extends ValOps {
                 nodePath.join(this.rootDir, "val.config.js"),
                 nodePath.join(this.rootDir, "val.modules.js"),
                 ...moduleFilePaths.map((p) => nodePath.join(this.rootDir, p)),
+                // The `.jsonValues()` entry files too: their content is invisible
+                // to every sha, and this polling fallback exists for the systems
+                // where the `fs.watch` below does not fire (notably WSL) — without
+                // them a hand-edited entry waits out the whole long-poll interval.
+                ...jsonEntryFilePaths.map((p) =>
+                  nodePath.join(this.rootDir, p),
+                ),
               ],
               statFilePollingInterval,
               (handle) => {

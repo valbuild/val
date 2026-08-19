@@ -528,11 +528,56 @@ export class UnionSchema<
     path: SourcePath,
     src: Src,
   ): ValidationError[] {
-    return this.executeCustomValidateFunctions(
+    const errors = this.executeCustomValidateFunctions(
       src,
       this.customValidateFunctions,
       { path },
     );
+    // A tagged union's variants share the union's path, so `Internal.resolvePath`
+    // stops here and a variant's OWN validator would never be reached. Dispatch
+    // into the variant this value takes — the union is the only node that knows
+    // which one that is.
+    const matched = this.matchedVariant(src);
+    if (matched) {
+      errors.push(
+        ...matched["executeCustomValidateAt"](path, src as SelectorSource),
+      );
+    }
+    return errors;
+  }
+
+  /**
+   * The variant schema a value takes, for a TAGGED union (string `key`). `null`
+   * for a literal union (its variants are leaves with nothing to descend into) or
+   * when the value matches none of them — a structural error `executeValidate`
+   * already reports.
+   */
+  private matchedVariant(src: Src): Schema<SelectorSource> | null {
+    const key = this.key;
+    if (typeof key !== "string" || !Array.isArray(this.items)) {
+      return null;
+    }
+    if (src === null || typeof src !== "object" || Array.isArray(src)) {
+      return null;
+    }
+    const tag = (src as Record<string, unknown>)[key];
+    if (typeof tag !== "string") {
+      return null;
+    }
+    const objectSchemas = this.items as unknown as ObjectSchema<
+      { [key: string]: Schema<SelectorSource> },
+      { [key: string]: SelectorSource }
+    >[];
+    for (const item of objectSchemas) {
+      if (!(item instanceof ObjectSchema)) {
+        continue;
+      }
+      const tagSchema = item["items"][key];
+      if (tagSchema instanceof LiteralSchema && tagSchema["value"] === tag) {
+        return item as unknown as Schema<SelectorSource>;
+      }
+    }
+    return null;
   }
 
   protected executeSerialize(): SerializedSchema {
