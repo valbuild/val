@@ -11,23 +11,35 @@
 
 ## Current state / resume here
 
-> **NOTHING IS IMPLEMENTED YET (2026-08-19).** This file is the approved design plus
-> a diagnosis of the current engine, checked in so the work can resume across
-> sessions. Every number in "Why it is slow today" was read off the code; none of it
-> has been measured in a browser yet, and building that measurement is the open
-> question below.
+> **Step 0 is DONE (2026-08-19)** — four independent fixes to the existing engine,
+> shipped as four commits. Two of them were plain bugs, not just slowdowns:
 >
-> **Next up — Step 0, four independent fixes, one commit each** on a branch off
-> `json-values`. No new architecture, nothing deleted, no bench harness:
+> 1. `Field` — the wrapper around every leaf field — no longer calls
+>    `useAllSources()` / `useSchemas()` during render. It used them only inside a
+>    click handler, so every keystroke was deep-cloning the whole project and
+>    re-rendering every mounted field for data nobody was looking at. Replaced with
+>    `useGetNavPath()`, an on-demand read.
+> 2. `subscribe()`'s unsubscribe spliced by an index captured at subscribe time, so
+>    removing one listener detached a bystander. Listeners are now a `Set` keyed by
+>    identity, and `emit` iterates a copy because unsubscribing mid-emit is normal.
+> 3. `getSourceSnapshot` is cached per MODULE, not per field instance — the
+>    `creatorId` in the cache key meant one full deep clone of the module per
+>    mounted field, per keystroke. The `optimistic` flag it was carrying is now a
+>    separate cheap call, `isOptimisticFor()`.
+> 4. `subscribe()` is memoised per `(type, paths)`, so React stops tearing down and
+>    re-adding every subscription on every render.
 >
-> 1. `useAllSources()` / `useSchemas()` out of the `Field` and `FieldValidationError`
->    render paths — expected to be the single biggest win, and ~10 lines
-> 2. Fix the `subscribe` unsubscribe index bug (a live bug, not just a slowdown)
-> 3. Drop `creatorId` from the `getSourceSnapshot` cache key and stop cloning there
-> 4. Memoise `subscribe()` at the `ValFieldProvider` call sites
+> Eight new tests, each verified to fail on the previous code. `jest` 1280 passing;
+> `eslint` and `prettier` clean; `tsc` identical to the base branch.
 >
-> Keep them as separate commits: that is what recovers per-fix attribution once the
-> bench exists, since the bench can be checked out at each commit after the fact.
+> **Still true: nothing has been measured in a browser.** Every claim above is read
+> off the code. The four commits are deliberately separate so a bench harness can be
+> checked out at each one and attribute the win per fix.
+>
+> **Next decision:** whether to build the Storybook bench harness (Step 1) or the new
+> hook contract (Step 2) first. Measuring first is the safer order — it is the only
+> way to know whether Step 0 already bought most of the win, and therefore whether
+> the store rewrite is worth its cost.
 >
 > **Decisions already locked** (reasoning under "Three constraints worth stating plainly"):
 >
@@ -39,15 +51,15 @@
 >   truth while the user edits it.
 > - `ValSyncEngine` stays authoritative until the last store lands.
 >
-> **Open, and deliberately not decided yet:** whether the Storybook bench harness
-> (Step 1) or the new hook contract (Step 2) comes first after Step 0, and whether
-> to add `jest-environment-jsdom` to `packages/ui`.
+> **Also open:** whether to add `jest-environment-jsdom` to `packages/ui`. Step 0 hit
+> this immediately — the regression guard for fix 1 had to be static (a source check)
+> rather than behavioural, because no component can be rendered in the suite.
 >
 > **The known blocker** for the end state: `computeRender` executes the user's real
 > `Schema` instances (closures for `select` and custom `validate`), which cannot be
 > structured-cloned into a worker. So renders must become lazy and path-scoped before
 > source can move off the main thread. If that turns out to be impossible, source
-> stays on the main thread and Steps 0–7 still stand on their own.
+> stays on the main thread and the earlier steps still stand on their own.
 
 ---
 
@@ -69,23 +81,32 @@ Three goals, in priority order:
 
 ### Why it is slow today (read from the code, not guessed)
 
+Rows marked **FIXED** were closed by Step 0; they are kept because they are the
+evidence for why the rewrite is shaped the way it is, and because nothing here
+has been confirmed with a browser profile yet.
+
 | #   | Cause                                                                                                                                                                                                                                                                                                                                                                   | Evidence                                                                                                                                                                 |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **`Field` — the wrapper around every leaf — calls `useAllSources()`**, whose snapshot deep-clones **every module in the project** and is invalidated on every keystroke. It is used only to compute a nav path inside a click handler.                                                                                                                                  | [Field.tsx:79](packages/ui/spa/components/Field.tsx#L79), [ValSyncEngine.ts:2091](packages/ui/spa/ValSyncEngine.ts#L2091), [:698](packages/ui/spa/ValSyncEngine.ts#L698) |
+| 1   | **FIXED (Step 0).** **`Field` — the wrapper around every leaf — called `useAllSources()`**, whose snapshot deep-clones **every module in the project** and is invalidated on every keystroke. It is used only to compute a nav path inside a click handler.                                                                                                             | [Field.tsx:79](packages/ui/spa/components/Field.tsx#L79), [ValSyncEngine.ts:2091](packages/ui/spa/ValSyncEngine.ts#L2091), [:698](packages/ui/spa/ValSyncEngine.ts#L698) |
 | 2   | Subscriptions are **module-granular**, never path-granular — one keystroke wakes every field in the module, and the snapshot is a fresh object so React can never bail out.                                                                                                                                                                                             | `subscribe("source", moduleFilePath)` — [ValFieldProvider.tsx:1194](packages/ui/spa/components/ValFieldProvider.tsx#L1194)                                               |
-| 3   | `getSourceSnapshot` **deep-clones the whole module once per field instance**, because `creatorId` is in the cache key. N fields ⇒ N full clones per keystroke.                                                                                                                                                                                                          | [ValSyncEngine.ts:1984](packages/ui/spa/ValSyncEngine.ts#L1984), [:2002](packages/ui/spa/ValSyncEngine.ts#L2002)                                                         |
+| 3   | **FIXED (Step 0).** `getSourceSnapshot` **deep-cloned the whole module once per field instance**, because `creatorId` is in the cache key. N fields ⇒ N full clones per keystroke.                                                                                                                                                                                      | [ValSyncEngine.ts:1984](packages/ui/spa/ValSyncEngine.ts#L1984), [:2002](packages/ui/spa/ValSyncEngine.ts#L2002)                                                         |
 | 4   | `invalidateSource` fans out globally: `source`, `sources`, `all-sources`, `all-validation-errors`, renders, overlay.                                                                                                                                                                                                                                                    | [ValSyncEngine.ts:667-716](packages/ui/spa/ValSyncEngine.ts#L667)                                                                                                        |
 | 5   | `getAllValidationErrorsSnapshot` re-clones **every schema and every source** per read; #4 invalidates it per keystroke.                                                                                                                                                                                                                                                 | [ValSyncEngine.ts:2212](packages/ui/spa/ValSyncEngine.ts#L2212)                                                                                                          |
 | 6   | `computeRender` runs the user's `select` over the whole module. `handboka` has `select` at **two** nested array levels.                                                                                                                                                                                                                                                 | [ValSyncEngine.ts:1004](packages/ui/spa/ValSyncEngine.ts#L1004)                                                                                                          |
 | 7   | One validation worker round-trip **per keystroke** per module.                                                                                                                                                                                                                                                                                                          | `requestModuleValidation(mfp,{custom:true})` from `addPatch`                                                                                                             |
 | 8   | `addPatch` dry-runs the patch (clone + apply, result discarded) only to test applicability.                                                                                                                                                                                                                                                                             | [ValSyncEngine.ts:2507](packages/ui/spa/ValSyncEngine.ts#L2507)                                                                                                          |
-| 9   | ~20 `useSyncExternalStore` subscriptions per leaf field; `Field`'s `useFieldState` duplicates the schema/source/addPatch subscriptions `StringField` already makes.                                                                                                                                                                                                     | [useFieldState.ts](packages/ui/spa/components/useFieldState.ts)                                                                                                          |
+| 9   | **PARTLY FIXED (Step 0)** — the re-subscribe churn is gone now that `subscribe()` is memoised, but the duplication remains: ~20 `useSyncExternalStore` subscriptions per leaf field; `Field`'s `useFieldState` duplicates the schema/source/addPatch subscriptions `StringField` already makes.                                                                         | [useFieldState.ts](packages/ui/spa/components/useFieldState.ts)                                                                                                          |
 | 9b  | **Reference resolution re-traverses the whole project per keystroke.** `getKeysOf` runs `traverseSchemas` over every schema and source, and `useKeysOf`'s `useMemo` depends on `allSources`, whose identity changes every keystroke. `results.includes(sourcePath)` inside the loop makes it O(n²). Same for `useRoutesOf`, `useRouteReferences`, `useReferencedFiles`. | [useKeysOf.ts:38-53](packages/ui/spa/components/useKeysOf.ts#L38), [getKeysOf.ts:29](packages/ui/spa/components/getKeysOf.ts#L29)                                        |
 | 9c  | Validation's read path **depends on** that reference resolution: `resolveSchemaSourceFixes` resolves `keyof:check-keys` / `router:check-route` against the whole-project schema+source snapshot. That is _why_ #5 needs `getAllSourcesSnapshot()`.                                                                                                                      | [ValSyncEngine.ts:2231](packages/ui/spa/ValSyncEngine.ts#L2231)                                                                                                          |
-| 10  | **Live bug:** `subscribe`'s unsubscribe splices by an index captured at subscribe time, so removing an earlier listener detaches the wrong later one; the array branch indexes `p[idx]` with a _listener_ index. Exercised constantly because `subscribe()` returns a fresh closure per render.                                                                         | [ValSyncEngine.ts:628-638](packages/ui/spa/ValSyncEngine.ts#L628)                                                                                                        |
+| 10  | **FIXED (Step 0).** **Live bug:** `subscribe`'s unsubscribe spliced by an index captured at subscribe time, so removing an earlier listener detaches the wrong later one; the array branch indexes `p[idx]` with a _listener_ index. Exercised constantly because `subscribe()` returns a fresh closure per render.                                                     | [ValSyncEngine.ts:628-638](packages/ui/spa/ValSyncEngine.ts#L628)                                                                                                        |
 
 No `React.memo` / `useDeferredValue` / `startTransition` anywhere in
 `packages/ui/spa`. `StringField` has no debounce (only `RichTextField`, 400 ms).
+
+What Step 0 did **not** touch, and what the rewrite is therefore still for: rows 2,
+4, 5, 6, 7, 8, 9b and 9c — module-granular subscriptions, the global invalidation
+fan-out, whole-project validation and reference resolution, eager renders, and a
+validation round-trip per keystroke.
 
 ### The real worst case — measured from a real project (`blankno-v3/web`)
 
@@ -774,121 +795,6 @@ Three thin stores, each a `Map` plus an `EventTarget`, so a field reads one unio
   needs a by-patch-id index so a field can ask "did _my_ patch fail?".
 - **validation errors** — already worker-backed; the fix is that its read must
   stop cloning the project ([:2212](packages/ui/spa/ValSyncEngine.ts#L2212)).
-
----
-
-## Step 0 — the first chunk of work
-
-Branch: `git checkout -b sync-quick-wins json-values`.
-
-Four independent fixes, **one commit each**, in this order (safest first). Each
-must keep `pnpm test` green; each gets a test.
-
-### Commit 1 — `useAllSources()` out of the per-field render path
-
-`Field` wraps **every** leaf field in the Studio, and calls
-`useAllSources()` + `useSchemas()` during render
-([Field.tsx:78-79](packages/ui/spa/components/Field.tsx#L78)). Both are used only
-inside `handleLabelNavigate` → `getNavPathFromAll(path, allSources, schemasData)`
-([Field.tsx:82](packages/ui/spa/components/Field.tsx#L82)) — a click handler.
-
-`getAllSourcesSnapshot()` loops every module, calls `getPatchedSource`, and
-`deepClone`s each one ([ValSyncEngine.ts:2091-2103](packages/ui/spa/ValSyncEngine.ts#L2091)).
-`invalidateSource` nulls that cache on every keystroke
-([:698](packages/ui/spa/ValSyncEngine.ts#L698)) and emits `all-sources` globally
-([:702](packages/ui/spa/ValSyncEngine.ts#L702)). Since the rebuilt snapshot is a
-new object, `useSyncExternalStore` can never bail out.
-
-Net effect per keystroke, for `blankno-v3`: a **407 KB deep clone** plus a
-re-render of every mounted field. Fix: read from the engine on click instead.
-
-- `Field.tsx` — replace the two hooks with `useSyncEngine()`, and call
-  `syncEngine.getAllSourcesSnapshot()` / `getAllSchemasSnapshot()` inside
-  `handleLabelNavigate`.
-- `FieldValidationError.tsx:43` — same pattern, same fix
-  ([:66](packages/ui/spa/components/FieldValidationError.tsx#L66)).
-- Leave the other 12 `useAllSources()` call sites alone: `Search`, `Module`,
-  `ValidationErrors`, `useKeysOf`, `useRoutesOf`, `useReferencedFiles`,
-  `useRouteReferences`, `ReferencesList`, `ValPath`, `ComparePatchSets`,
-  `useJsonValuesLoad`. Those genuinely read all sources during render; they are
-  the references-store problem, not this commit.
-
-Test: a node-env test asserting that rendering a field and adding a patch does not
-call `getAllSourcesSnapshot`. Simplest form — spy on the engine method and assert
-the call count is 0 after `addPatch`.
-
-### Commit 2 — fix the `subscribe` unsubscribe index bug
-
-[ValSyncEngine.ts:605-641](packages/ui/spa/ValSyncEngine.ts#L605). Listeners live
-in arrays and unsubscribe splices by an index captured at subscribe time:
-
-```ts
-const idx = listeners[type][p].push(listener) - 1;
-return () => {
-  listeners[type]?.[p].splice(idx, 1);
-}; // :636-638
-```
-
-If an earlier listener unsubscribes first, every later captured `idx` is stale, so
-the wrong listener is removed — leaking dead listeners and detaching live ones.
-The array-path branch is worse: `listeners[type]?.[p[idx]]?.splice(idx, 1)`
-([:628-630](packages/ui/spa/ValSyncEngine.ts#L628)) indexes the _path_ array `p`
-with a _listener_ index, which is only ever correct for one path with one
-listener.
-
-Fix: store listeners in a `Set<() => void>` per `(type, path)` and delete by
-identity. `emit` iterates the set. This also removes the `as any` casts the array
-juggling needed.
-
-Test: subscribe three listeners on the same `(type, path)`, unsubscribe the first,
-emit, and assert the other two still fire. Then the multi-path variant.
-
-### Commit 3 — one clone per module, not one per field instance
-
-`getSourceSnapshot` keys its cache on `` `${sourcePath}\0${creatorId}` ``
-([:1984](packages/ui/spa/ValSyncEngine.ts#L1984)) and `deepClone`s the whole module
-into each entry ([:2002](packages/ui/spa/ValSyncEngine.ts#L2002)). With N mounted
-field instances in one module that is **N full clones of that module per
-keystroke** — 129 KB × N for `handboka`. `invalidateSource` then sweeps every
-`moduleFilePath + "\0"` key ([:669-681](packages/ui/spa/ValSyncEngine.ts#L669)).
-
-The only thing `creatorId` contributes is the `optimistic` flag, from
-`isEditedByComponent` ([:3272](packages/ui/spa/ValSyncEngine.ts#L3272)).
-
-Fix: cache by `moduleFilePath` alone and clone once. Expose `optimistic` as a
-separate cheap lookup that `useShallowSourceAtPath` combines with the shared
-snapshot, so the flag keeps working while the expensive part is shared.
-
-This is the most delicate of the four — `optimistic` / `clientSideOnly` is what
-stops `StringField`'s `useEffect` clobbering what the user is typing
-([StringField.tsx:38-47](packages/ui/spa/components/fields/StringField.tsx#L38)).
-The clone key changes; the flag's semantics must not.
-
-Test: two field instances on one module, one keystroke, assert `deepClone` is
-called once (spy on the module) and that `optimistic` still differs per
-`creatorId`. The existing "editing one field does not invalidate every module"
-test at `ValSyncEngine.test.ts:253` is the closest guard — it must stay green.
-
-### Commit 4 — memoise `subscribe()`
-
-`subscribe(type, path)` returns a **new closure on every call**, and ~19 call sites
-in `ValFieldProvider.tsx` call it inline in render (`:496, 555, 560, 585, 1194,
-1276, 1304, 1381`, …). React therefore tears down and re-adds every subscription
-on every render — which is also what made commit 2's bug fire constantly. Only
-`ValProvider.tsx:714-724` memoises today.
-
-Fix: cache the returned subscribe function per `(type, path)` inside the engine so
-the identity is stable, and/or wrap the call sites in `useCallback`/`useMemo`. The
-engine-side cache is preferable — it fixes all call sites at once and cannot be
-forgotten by a future one.
-
-Test: call `subscribe("source", m)` twice and assert referential equality.
-
-### Then
-
-Re-run `pnpm run lint`, `pnpm -w run format`, `pnpm run -r typecheck`, `pnpm test`.
-Report what each commit changed, then return to planning to decide whether the
-bench harness or the new contract comes next.
 
 ---
 
