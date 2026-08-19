@@ -110,26 +110,32 @@ describe("code actions over LSP", () => {
     expect(session.capabilities?.features).toContain("fix/gallery");
   });
 
-  // A purpose-built module: it references an image that really exists in the
-  // example app (944x944) but declares the wrong dimensions, so core reports
-  // image:check-metadata and the fix has everything it needs. It is opened as an
-  // unsaved buffer and never written to disk, which also proves the fix pipeline
-  // works on editor state alone.
-  const FIXTURE_URI = `file://${path.join(EXAMPLE_APP, "content", "fixtureQuickFix.val.ts")}`;
-  const FIXTURE_TEXT = `import { s, c } from "../val.config";
+  // An unsaved buffer of a module the example app's `val.modules` registers.
+  //
+  // It has to be a registered module: `createService` evaluates `val.modules`
+  // and answers from that evaluation, so a module `val.modules` does not list
+  // cannot be evaluated at all — it gets `val/missing-module` instead.
+  //
+  // The buffer points the hero's `s.image()` at an image that really exists in
+  // the example app (944x944) but declares the wrong dimensions, so core reports
+  // image:check-metadata and the fix has everything it needs. Disk is never
+  // written, which is what proves the fix pipeline works on editor state alone.
+  const FIXTURE_FILE = path.join(EXAMPLE_APP, "app", "page.val.ts");
+  const FIXTURE_URI = `file://${FIXTURE_FILE}`;
+  const FIXTURE_ON_DISK = fs.readFileSync(FIXTURE_FILE, "utf8");
+  const FIXTURE_IMAGE_REF = "/public/val/images/logo.png";
+  const FIXTURE_TEXT = FIXTURE_ON_DISK.replace(
+    /c\.image\("[^"]*", \{(\s*)width: \d+,(\s*)height: \d+,/,
+    `c.image("${FIXTURE_IMAGE_REF}", {$1width: 800,$2height: 600,`,
+  );
 
-export const schema = s.object({
-  image: s.image(),
-});
-
-export default c.define("/content/fixtureQuickFix.val.ts", schema, {
-  image: c.image("/public/val/images/logo.png", {
-    width: 800,
-    height: 600,
-    mimeType: "image/png",
-  }),
-});
-`;
+  test("the fixture really declares the wrong dimensions", () => {
+    // Fails loudly if the example app changes shape, rather than leaving the
+    // tests below waiting for a diagnostic that can never arrive.
+    expect(FIXTURE_TEXT).not.toBe(FIXTURE_ON_DISK);
+    expect(FIXTURE_TEXT).toMatch(/width:\s*800/);
+    expect(FIXTURE_TEXT).toContain(`c.image("${FIXTURE_IMAGE_REF}"`);
+  });
 
   test("offers a quick fix that corrects image metadata", async () => {
     session.openDocument(FIXTURE_URI, FIXTURE_TEXT);
@@ -158,11 +164,11 @@ export default c.define("/content/fixtureQuickFix.val.ts", schema, {
     const applied = applyEdits(FIXTURE_TEXT, edits!);
     expect(applied).not.toBe(FIXTURE_TEXT);
     // The real dimensions replace the declared ones.
-    expect(applied).toContain("944");
-    expect(applied).not.toContain("800");
+    expect(applied).toMatch(/width:\s*944/);
+    expect(applied).not.toMatch(/width:\s*800/);
     // Narrow edit: surrounding code is untouched.
-    expect(applied).toContain('import { s, c } from "../val.config";');
-    expect(applied).toContain('c.image("/public/val/images/logo.png"');
+    expect(applied.split("\n")[0]).toBe(FIXTURE_ON_DISK.split("\n")[0]);
+    expect(applied).toContain(`c.image("${FIXTURE_IMAGE_REF}"`);
   });
 
   test("applying the fix writes the image's real dimensions and adds no new errors", async () => {

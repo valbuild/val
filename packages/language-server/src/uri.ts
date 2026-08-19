@@ -12,22 +12,62 @@ import type { ModuleFilePath } from "@valbuild/core";
 /** Matches the Val module files the server validates. */
 const VAL_MODULE_RE = /\.val\.(ts|js|tsx|jsx)$/;
 
+/** `file:` with an optional authority, capturing authority and path apart. */
+const FILE_URI_RE = /^file:\/\/([^/?#]*)([^?#]*)/i;
+
+/** A `/c:/...` prefix, i.e. a Windows drive letter as it appears in a URI. */
+const URI_DRIVE_LETTER_RE = /^\/([a-zA-Z]:)(\/|$)/;
+
 export function isValModuleUri(uri: string): boolean {
   return VAL_MODULE_RE.test(uri);
 }
 
-/** `file:///a/b.val.ts` -> `/a/b.val.ts` */
-export function uriToPath(uri: string): string {
-  if (!uri.startsWith("file://")) {
-    return uri;
+/**
+ * `decodeURIComponent` throws on malformed escapes (`%zz`). A client that sends
+ * one is broken, but that should not take the server down: fall back to the
+ * undecoded text so the path is at worst not found.
+ */
+function decodeSafely(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
-  return decodeURIComponent(uri.slice("file://".length));
 }
 
-/** `/a/b.val.ts` -> `file:///a/b.val.ts` */
+/**
+ * `file:///a/b.val.ts` -> `/a/b.val.ts`
+ *
+ * Percent escapes are decoded, Windows drive letters lose the leading slash
+ * (`file:///c%3A/a` -> `c:/a`), and a URI with an authority is read as a UNC
+ * path (`file://host/share/a` -> `//host/share/a`). Anything that is not a
+ * `file:` URI is passed through unchanged, since callers also hand us plain
+ * paths.
+ */
+export function uriToPath(uri: string): string {
+  const match = FILE_URI_RE.exec(uri);
+  if (!match) {
+    return uri;
+  }
+  const authority = decodeSafely(match[1]);
+  const fsPath = decodeSafely(match[2] || "/");
+  if (authority) {
+    return `//${authority}${fsPath}`;
+  }
+  return fsPath.replace(URI_DRIVE_LETTER_RE, "$1$2");
+}
+
+/**
+ * `/a/b.val.ts` -> `file:///a/b.val.ts`
+ *
+ * The escaping matches what VS Code produces (drive-letter colons included), so
+ * that a URI built here can be looked up in the open-document map keyed by the
+ * URIs the client sent.
+ */
 export function pathToUri(fsPath: string): string {
   const normalized = fsPath.split(path.sep).join("/");
-  return `file://${normalized
+  const rooted = normalized.startsWith("/") ? normalized : `/${normalized}`;
+  return `file://${rooted
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/")}`;

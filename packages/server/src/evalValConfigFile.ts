@@ -47,6 +47,18 @@ const ValConfigSchema = z.object({
 });
 
 /**
+ * `ENOENT` (nothing at this path) and `ENOTDIR` (a path segment is a file) both
+ * mean the config file simply is not there.
+ */
+function isFileNotFound(err: unknown): boolean {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? (err as { code?: unknown }).code
+      : undefined;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
  * Read and evaluate a `val.config.{ts,js}` file from disk.
  *
  * Returns `null` if the file does not exist, and throws if it exists but does
@@ -61,13 +73,24 @@ export async function evalValConfigFile(
 ): Promise<ValConfig | null> {
   const valConfigPath = path.join(projectRoot, configFileName);
 
-  let code: string | null = null;
+  let code: string;
   try {
     code = await fs.readFile(valConfigPath, "utf-8");
-  } catch {
-    //
+  } catch (err) {
+    // A missing file means "this project does not use this config file name",
+    // which callers handle by trying the next candidate. Anything else (no read
+    // permission, an IO error, a directory where a file was expected) is a real
+    // problem and must not be reported as "no config".
+    if (isFileNotFound(err)) {
+      return null;
+    }
+    throw Error(
+      `Could not read Val config file at path: '${valConfigPath}': ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
-  if (!code) {
+  if (!code.trim()) {
     return null;
   }
 

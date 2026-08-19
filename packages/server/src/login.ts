@@ -68,6 +68,17 @@ export async function startValLogin(
     headers: { "Content-Type": "application/json" },
   });
 
+  if (response.status >= 500) {
+    const text = await response.text().catch(() => "");
+    throw new ValLoginError(
+      "server-error",
+      "An error occurred on the server.",
+      text
+        ? `Server response: ${text} (status: ${response.status})`
+        : `Status: ${response.status}`,
+    );
+  }
+
   if (!response.headers.get("content-type")?.includes("application/json")) {
     const text = await response.text().catch(() => "");
     throw new ValLoginError(
@@ -166,7 +177,16 @@ export function persistPersonalAccessToken(
   result: ValLoginResult,
 ): string {
   const filePath = getPersonalAccessTokenPath(projectRoot);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(result, null, 2));
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  // The token is a credential: keep it owner-only rather than at the mercy of
+  // the process umask. `mode` only applies when the file is created, so an
+  // already existing file is chmod-ed explicitly.
+  fs.writeFileSync(filePath, JSON.stringify(result, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Not all platforms / filesystems support POSIX modes (Windows, some
+    // network mounts). Failing to tighten them must not fail the login.
+  }
   return filePath;
 }

@@ -21,7 +21,9 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   negotiateProtocolVersion,
   SUPPORTED_PROTOCOL_VERSIONS,
+  VAL_ENV_OVERRIDE_KEYS,
   type ValClientCapabilities,
+  type ValEnvOverrides,
   type ValFeature,
   type ValInitializationOptions,
   type ValServerCapabilities,
@@ -31,12 +33,13 @@ import { createValProject, type ValProject } from "./ValProject";
 import {
   createValDiagnostics,
   createMissingModuleDiagnostic,
+  createProjectErrorDiagnostic,
 } from "./diagnostics";
 import { createValCodeActions } from "./codeActions";
 import { createValCompletions, resolveValCompletion } from "./completions";
 import { createPublicValFiles, type PublicValFiles } from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
-import { isValModuleUri, pathToUri, toModuleFilePath } from "./uri";
+import { isValModuleUri, pathToUri, toModuleFilePath, uriToPath } from "./uri";
 
 /**
  * How long to wait after an edit before re-evaluating.
@@ -74,8 +77,9 @@ export function parseInitializationOptions(
     | null
     | undefined;
 
+  const workspaceFolderUri = params.workspaceFolders?.[0]?.uri;
   const fallbackRoot =
-    params.workspaceFolders?.[0]?.uri.replace(/^file:\/\//, "") ??
+    (workspaceFolderUri !== undefined ? uriToPath(workspaceFolderUri) : null) ??
     params.rootPath ??
     process.cwd();
 
@@ -89,8 +93,36 @@ export function parseInitializationOptions(
       max: 1,
     },
     valRoot: raw?.valRoot ?? fallbackRoot,
-    env: raw?.env,
+    env: pickEnvOverrides(raw?.env),
   };
+}
+
+/**
+ * Keep only the environment variables Val documents.
+ *
+ * `initializationOptions` is untyped JSON at runtime, so a client can send any
+ * key at all. Dropping the rest here means neither this server nor anything
+ * reading {@link ValInitializationOptions.env} downstream can be talked into
+ * setting `PATH` or `NODE_OPTIONS`.
+ *
+ * Returns `undefined` when the client sent nothing usable, so that "no
+ * overrides" stays distinguishable from "an empty set of overrides".
+ */
+function pickEnvOverrides(env: unknown): ValEnvOverrides | undefined {
+  if (!env || typeof env !== "object") {
+    return undefined;
+  }
+  const record: Record<string, unknown> = { ...env };
+  const picked: ValEnvOverrides = {};
+  let any = false;
+  for (const key of VAL_ENV_OVERRIDE_KEYS) {
+    const value = record[key];
+    if (typeof value === "string") {
+      picked[key] = value;
+      any = true;
+    }
+  }
+  return any ? picked : undefined;
 }
 
 /**
@@ -99,7 +131,14 @@ export function parseInitializationOptions(
  * modified environment.
  */
 export function applyEnvOverrides(options: ValInitializationOptions): void {
-  for (const [key, value] of Object.entries(options.env ?? {})) {
+  const env = options.env;
+  if (!env) {
+    return;
+  }
+  // Iterate the allowlist rather than what was sent: `options` may have been
+  // built by a caller that did not go through `parseInitializationOptions`.
+  for (const key of VAL_ENV_OVERRIDE_KEYS) {
+    const value = env[key];
     if (typeof value === "string" && value) {
       process.env[key] = value;
     }
@@ -187,12 +226,22 @@ export function createValLanguageServer(connection: Connection): {
       project.invalidate(moduleFilePath);
       const result = await project.getModule(moduleFilePath);
       if (result.status === "error") {
-        // A project-level problem (no tsconfig, missing @valbuild/core) is not a
-        // property of this file: report it once rather than on every module.
+        // A project-level problem (no tsconfig, missing @valbuild/core, a module
+        // that throws while `val.modules` is evaluated) is not a property of this
+        // file. It still has to be visible: publishing nothing would silently
+        // drop every Val diagnostic and look like "all good".
         connection.console.warn(
           `Val: ${result.error.code}: ${result.error.message}`,
         );
-        connection.sendDiagnostics({ uri, diagnostics: [] });
+        connection.sendDiagnostics({
+          uri,
+          diagnostics: [
+            createProjectErrorDiagnostic({
+              moduleFilePath,
+              message: result.error.message,
+            }),
+          ],
+        });
         return;
       }
       // Needed to resolve keyOf/route validation, which has to look at other

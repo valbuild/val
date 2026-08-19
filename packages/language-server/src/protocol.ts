@@ -57,16 +57,25 @@ export type ValClientInfo = {
 };
 
 /**
+ * The only environment variables a client may override. `initializationOptions`
+ * is untyped JSON at runtime, so this list is what the server enforces: without
+ * it a client could set `PATH` or `NODE_OPTIONS` on the server process.
+ */
+export const VAL_ENV_OVERRIDE_KEYS = [
+  "VAL_CONTENT_URL",
+  "VAL_REMOTE_HOST",
+  "VAL_BUILD_URL",
+] as const;
+
+/**
  * Environment overrides forwarded from the client. These mirror the
  * `VAL_*` environment variables so that an editor can point a session at a
  * non-production Val backend without the user having to restart their editor
  * with a modified environment.
  */
-export type ValEnvOverrides = {
-  VAL_CONTENT_URL?: string;
-  VAL_REMOTE_HOST?: string;
-  VAL_BUILD_URL?: string;
-};
+export type ValEnvOverrides = Partial<
+  Record<(typeof VAL_ENV_OVERRIDE_KEYS)[number], string>
+>;
 
 /**
  * Sent by the client as `InitializeParams.initializationOptions`.

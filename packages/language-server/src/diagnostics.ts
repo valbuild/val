@@ -285,6 +285,29 @@ function missingFileRef({
 }
 
 /**
+ * Diagnostic for a project that could not be evaluated at all.
+ *
+ * `createService` evaluates the whole `val.modules` graph, so one module that
+ * throws stops every module from being evaluated — as do a missing tsconfig and
+ * an unresolvable `@valbuild/core`. Reporting it on the file the user is looking
+ * at is imprecise, but the alternative is that all Val diagnostics silently
+ * disappear the moment a project stops evaluating.
+ */
+export function createProjectErrorDiagnostic({
+  moduleFilePath,
+  message,
+}: {
+  moduleFilePath: ModuleFilePath;
+  message: string;
+}): Diagnostic {
+  return build(
+    FALLBACK_RANGE,
+    `Val could not evaluate this project, so no module is validated: ${message}`,
+    { code: "val/fatal", sourcePath: moduleFilePath },
+  );
+}
+
+/**
  * Diagnostic for a Val module that is not registered in `val.modules`.
  *
  * Val only serves modules listed there, so an unregistered module silently does

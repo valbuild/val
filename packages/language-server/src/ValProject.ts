@@ -12,7 +12,7 @@ import { createEditorFsHost, type OpenDocuments } from "./EditorFsHost";
  *
  * One of these per Val root — never one shared across roots. Different roots in
  * a monorepo can pin different versions of Val, and each gets its own
- * `Service` (and therefore its own QuickJS runtime and module cache).
+ * `Service` (and therefore its own evaluated `val.modules` and module cache).
  */
 
 /** What `Service.get` returns; re-declared to avoid depending on an internal type. */
@@ -37,7 +37,7 @@ export type ValProject = {
    */
   getModule(
     moduleFilePath: ModuleFilePath,
-    options?: { validate: boolean; source: boolean; schema: boolean },
+    options?: { validate: boolean },
   ): Promise<
     | { status: "ok"; content: ValModuleContent; cached: boolean }
     | { status: "error"; error: ValProjectInitError }
@@ -62,7 +62,7 @@ export type ValProject = {
   dispose(): Promise<void>;
 };
 
-const DEFAULT_OPTIONS = { validate: true, source: true, schema: true };
+const DEFAULT_OPTIONS = { validate: true };
 
 /** Cheap cache key. Not security-sensitive, so sha1 over the source is fine. */
 function fingerprint(content: string | undefined): string {
@@ -94,8 +94,8 @@ export const defaultCoreResolver: CoreResolver = (valRoot) => {
 /**
  * Check up front that `@valbuild/core` resolves from the Val root.
  *
- * Val modules import `@valbuild/core`, and so does the program `readValFile`
- * evaluates. When it is not resolvable, every module fails with a fatal
+ * Val modules import `@valbuild/core`, and so does the `val.modules` file that
+ * the service evaluates. When it is not resolvable, every module fails with a fatal
  * "Could not resolve module: '@valbuild/core'" — which reads like a Val bug
  * rather than a missing dependency.
  *
@@ -157,13 +157,10 @@ function findValModuleFilePaths(valRoot: string): ModuleFilePath[] {
 export function createValProject({
   valRoot,
   open,
-  disableCache,
   isCoreResolvable = defaultCoreResolver,
 }: {
   valRoot: string;
   open: OpenDocuments;
-  /** Disable the transpile cache inside ValModuleLoader. Defaults to enabled. */
-  disableCache?: boolean;
   /** Override for tests; see {@link CoreResolver}. */
   isCoreResolvable?: CoreResolver;
 }): ValProject {
@@ -180,6 +177,19 @@ export function createValProject({
       >
     | undefined;
 
+  /**
+   * Forget the current `Service` so the next request builds a new one.
+   *
+   * A `Service` evaluates the whole `val.modules` graph when it is created and
+   * then answers `get` from that evaluation, so it is a snapshot of the project
+   * at one point in time and cannot re-read a single module. Dropping it is what
+   * makes the next request see an edit. `Service.dispose()` is a no-op, so the
+   * only cost is the re-evaluation itself.
+   */
+  function discardService(): void {
+    servicePromise = undefined;
+  }
+
   function getService() {
     if (!servicePromise) {
       const coreProblem = checkCoreIsResolvable(valRoot, isCoreResolvable);
@@ -190,11 +200,7 @@ export function createValProject({
         });
         return servicePromise;
       }
-      servicePromise = createService(
-        valRoot,
-        { disableCache: disableCache ?? false },
-        host,
-      )
+      servicePromise = createService(valRoot, host)
         .then((service) => ({ status: "ok" as const, service }))
         .catch((e: unknown) => {
           const message = e instanceof Error ? e.message : String(e);
@@ -226,22 +232,29 @@ export function createValProject({
     valRoot,
 
     async getModule(moduleFilePath, options = DEFAULT_OPTIONS) {
-      const resolved = await getService();
-      if (resolved.status === "error") {
-        return { status: "error", error: resolved.error };
-      }
-
       // Cache on the module's own content as seen by the editor. This covers the
       // common case -- repeated requests while the user edits one file -- but
       // NOT edits to a module's imports; `invalidate()` is how the server
-      // handles that. Transpilation of imported files is separately cached by
-      // ValModuleLoader.
+      // handles that.
       const absolute = path.join(valRoot, moduleFilePath);
       const current = fingerprint(host.readFile(absolute));
-      const optionsKey = `${+options.validate}${+options.source}${+options.schema}`;
+      const optionsKey = `${+options.validate}`;
       const hit = cache.get(moduleFilePath);
-      if (hit && hit.fingerprint === current && hit.optionsKey === optionsKey) {
-        return { status: "ok", content: hit.content, cached: true };
+      if (hit) {
+        if (hit.fingerprint === current && hit.optionsKey === optionsKey) {
+          return { status: "ok", content: hit.content, cached: true };
+        }
+        if (hit.fingerprint !== current) {
+          // The content we last evaluated at is gone, so the Service's
+          // whole-project evaluation is stale as well. Callers do not have to
+          // call `invalidate()` first for this to be correct.
+          discardService();
+        }
+      }
+
+      const resolved = await getService();
+      if (resolved.status === "error") {
+        return { status: "error", error: resolved.error };
       }
 
       const content = await resolved.service.get(
@@ -274,7 +287,7 @@ export function createValProject({
           "" as ModulePath,
           // Validation is not needed to answer "what keys/routes exist", and
           // skipping it keeps the snapshot cheap.
-          { source: true, schema: true, validate: false },
+          { validate: false },
         );
         if (content.schema) {
           snapshot.schemas[moduleFilePath] = content.schema;
@@ -294,6 +307,7 @@ export function createValProject({
     },
 
     invalidate(moduleFilePath) {
+      discardService();
       if (moduleFilePath === undefined) {
         cache.clear();
         snapshotStale = undefined;
@@ -322,7 +336,7 @@ export function createValProject({
       if (resolved.status === "ok") {
         resolved.service.dispose();
       }
-      servicePromise = undefined;
+      discardService();
       cache.clear();
     },
   };

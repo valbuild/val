@@ -6,8 +6,8 @@ import { mapOpenDocuments } from "./EditorFsHost";
 import { createValProject } from "./ValProject";
 
 /**
- * The integration tests here evaluate real Val modules through QuickJS, which
- * costs ~100ms of runtime boot plus ~15ms per module.
+ * The integration tests here evaluate the example app's real Val modules, which
+ * costs a few hundred milliseconds per evaluation of the project.
  */
 jest.setTimeout(60000);
 
@@ -119,17 +119,12 @@ describe("createValProject — evaluating the example app", () => {
     const clean = await project.getModule(modulePath);
     expect(clean.status === "ok" && clean.content.errors).toBe(false);
 
-    // readValFile logs fatal module errors to console.error, and we are about to
-    // cause one on purpose. Silence it so the expected failure is not mistaken
-    // for a broken test.
-    const consoleError = jest
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-
-    // Break the module in the editor only -- disk is untouched.
-    open.set(absolute, onDisk.replace("c.define(", "c.defineBROKEN("));
+    // Introduce a real validation error in the editor only -- disk is untouched.
+    // `name` is a string with minLength(2), so a number must be rejected.
+    const broken = onDisk.replace('name: "Theodor René Carlsen"', "name: 1");
+    expect(broken).not.toBe(onDisk);
+    open.set(absolute, broken);
     const dirty = await project.getModule(modulePath);
-    consoleError.mockRestore();
 
     expect(dirty.status).toBe("ok");
     if (dirty.status !== "ok") return;
@@ -138,6 +133,25 @@ describe("createValProject — evaluating the example app", () => {
 
     // Disk really was untouched, so reverting the buffer restores validity.
     expect(fs.readFileSync(absolute, "utf8")).toBe(onDisk);
+    open.set(absolute, onDisk);
+    const reverted = await project.getModule(modulePath);
+    expect(reverted.status === "ok" && reverted.content.errors).toBe(false);
+  });
+
+  test("reports a buffer that cannot be evaluated as a project error", async () => {
+    // `createService` evaluates the whole `val.modules` graph, so a module that
+    // throws while being evaluated takes the evaluation down with it rather than
+    // producing per-module errors. That must surface as an error *value*, and the
+    // next good buffer must recover.
+    const absolute = path.join(EXAMPLE_APP, modulePath);
+    const onDisk = fs.readFileSync(absolute, "utf8");
+
+    open.set(absolute, onDisk.replace("c.define(", "c.defineBROKEN("));
+    const dirty = await project.getModule(modulePath);
+    expect(dirty.status).toBe("error");
+    if (dirty.status !== "error") return;
+    expect(dirty.error.code).toBe("service-failed");
+
     open.set(absolute, onDisk);
     const reverted = await project.getModule(modulePath);
     expect(reverted.status === "ok" && reverted.content.errors).toBe(false);

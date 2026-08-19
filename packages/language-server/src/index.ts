@@ -16,6 +16,7 @@ export {
 export {
   createValDiagnostics,
   createMissingModuleDiagnostic,
+  createProjectErrorDiagnostic,
   severityFor,
   VAL_DIAGNOSTIC_SOURCE,
   VAL_DIAGNOSTIC_CODES,

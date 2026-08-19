@@ -37,6 +37,53 @@ describe("parseInitializationOptions", () => {
     expect(result.valRoot).toBe("/work/my-site");
   });
 
+  test("decodes the workspace folder URI instead of string-stripping it", () => {
+    expect(
+      parseInitializationOptions(
+        params({
+          workspaceFolders: [
+            { uri: "file:///work/my%20site", name: "my site" },
+          ],
+        }),
+      ).valRoot,
+    ).toBe("/work/my site");
+    // VS Code on Windows: the drive letter must not keep the URI's leading slash.
+    expect(
+      parseInitializationOptions(
+        params({
+          workspaceFolders: [{ uri: "file:///c%3A/work/my-site", name: "x" }],
+        }),
+      ).valRoot,
+    ).toBe("c:/work/my-site");
+  });
+
+  test("keeps only the VAL_* keys the protocol documents", () => {
+    // `initializationOptions` is untyped JSON: a client can send anything.
+    const result = parseInitializationOptions(
+      params({
+        initializationOptions: {
+          env: {
+            VAL_CONTENT_URL: "https://content.example.test",
+            PATH: "/evil/bin",
+            NODE_OPTIONS: "--require /evil/preload.js",
+          },
+        },
+      }),
+    );
+    expect(result.env).toEqual({
+      VAL_CONTENT_URL: "https://content.example.test",
+    });
+  });
+
+  test("reports no overrides when the client sent nothing usable", () => {
+    expect(parseInitializationOptions(params()).env).toBeUndefined();
+    expect(
+      parseInitializationOptions(
+        params({ initializationOptions: { env: { PATH: "/evil/bin" } } }),
+      ).env,
+    ).toBeUndefined();
+  });
+
   test("falls back to rootPath, then cwd", () => {
     expect(
       parseInitializationOptions(params({ rootPath: "/work/legacy" })).valRoot,
@@ -89,7 +136,7 @@ describe("applyEnvOverrides", () => {
   });
 
   function options(
-    env: ValInitializationOptions["env"],
+    env: Record<string, string> | undefined,
   ): ValInitializationOptions {
     return {
       client: { name: "test", version: null },
@@ -122,5 +169,18 @@ describe("applyEnvOverrides", () => {
     process.env.VAL_BUILD_URL = "https://preexisting.example.test";
     applyEnvOverrides(options({ VAL_BUILD_URL: "" }));
     expect(process.env.VAL_BUILD_URL).toBe("https://preexisting.example.test");
+  });
+
+  test("never applies a key outside the VAL_* allowlist", () => {
+    // Belt and braces: `options` here bypasses `parseInitializationOptions`.
+    const before = {
+      PATH: process.env.PATH,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+    };
+    applyEnvOverrides(
+      options({ PATH: "/evil/bin", NODE_OPTIONS: "--require /evil.js" }),
+    );
+    expect(process.env.PATH).toBe(before.PATH);
+    expect(process.env.NODE_OPTIONS).toBe(before.NODE_OPTIONS);
   });
 });

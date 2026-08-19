@@ -36,7 +36,7 @@ export function mapOpenDocuments(
  * An `IValFSHost` that overlays the editor's unsaved buffers on top of the real
  * filesystem.
  *
- * `IValFSHost` is the filesystem seam that `createService`, `ValModuleLoader`
+ * `IValFSHost` is the filesystem seam that `createService`, `loadValModules`
  * and `ValSourceFileHandler` all read through, so overriding it here is what
  * makes Val evaluate the user's *current* editor state. Everything else
  * delegates to `ts.sys`, exactly like the default host in
