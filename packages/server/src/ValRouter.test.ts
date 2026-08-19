@@ -5,50 +5,53 @@ import { encodeJwt } from "./jwt";
 describe("ValRouter", () => {
   const route = "/api/val";
   const { c, s, config } = initVal();
-  const onRoute = createValApiRouter(
-    route,
-    createValServer(
-      modules(config, [
-        {
-          def: () =>
-            Promise.resolve({
-              default: c.define(
-                "/content/authors.val.ts",
-                s.record(
-                  s.object({
-                    name: s.string(),
-                    birthdate: s.date().from("1900-01-01").to("2024-01-01"),
-                  }),
-                ),
-                {
-                  teddy: {
-                    name: "Theodor René Carlsen",
-                    birthdate: "1970-01-01",
-                  },
-                  freekh: { name: "Fredrik Ekholdt", birthdate: "1970-01-01" },
-                  erlamd: { name: "Erlend Åmdal", birthdate: "1970-01-01" },
-                  thoram: { name: "Thomas Ramirez", birthdate: "1970-01-01" },
-                  isabjo: { name: "Isak Bjørnstad", birthdate: "1970-01-01" },
-                  kimmid: { name: "Kim Midtlid", birthdate: "1970-01-01" },
-                },
-              ),
-            }),
-        },
-      ]),
+  const authorsSchema = s.record(
+    s.object({
+      name: s.string(),
+      birthdate: s.date().from("1900-01-01").to("2024-01-01"),
+    }),
+  );
+  const authorsSource = {
+    teddy: {
+      name: "Theodor René Carlsen",
+      birthdate: "1970-01-01",
+    },
+    freekh: { name: "Fredrik Ekholdt", birthdate: "1970-01-01" },
+    erlamd: { name: "Erlend Åmdal", birthdate: "1970-01-01" },
+    thoram: { name: "Thomas Ramirez", birthdate: "1970-01-01" },
+    isabjo: { name: "Isak Bjørnstad", birthdate: "1970-01-01" },
+    kimmid: { name: "Kim Midtlid", birthdate: "1970-01-01" },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createOnRoute = (valModule: any) =>
+    createValApiRouter(
       route,
-      {
-        disableCache: true,
-      },
-      config,
-      {
-        async isEnabled() {
-          return true;
+      createValServer(
+        modules(config, [
+          {
+            def: () =>
+              Promise.resolve({
+                default: valModule,
+              }),
+          },
+        ]),
+        route,
+        {
+          disableCache: true,
         },
-        async onDisable() {},
-        async onEnable() {},
-      },
-    ),
-    (res) => res,
+        config,
+        {
+          async isEnabled() {
+            return true;
+          },
+          async onDisable() {},
+          async onEnable() {},
+        },
+      ),
+      (res) => res,
+    );
+  const onRoute = createOnRoute(
+    c.define("/content/authors.val.ts", authorsSchema, authorsSource),
   );
 
   test("smoke test valid route: /sources/~", async () => {
@@ -66,6 +69,65 @@ describe("ValRouter", () => {
     expect(serverRes.status).toBe(200);
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
+
+  // NOTE: the studio applies patches on the client and therefore requests
+  // sources with apply_patches=false. Renders must be returned either way:
+  // the select functions only exist on the server (they are not part of the
+  // serialized schema), so the client cannot compute them itself.
+  test.each([undefined, "apply_patches=false", "apply_patches=true"])(
+    "/sources/~ returns renders (query: %s)",
+    async (query) => {
+      const onRouteWithRender = createOnRoute(
+        c.define(
+          "/content/authors.val.ts",
+          authorsSchema.render({
+            as: "list",
+            select: ({ val }) => ({
+              title: val.name,
+              subtitle: val.birthdate,
+            }),
+          }),
+          authorsSource,
+        ),
+      );
+      const serverRes = await onRouteWithRender(
+        fakeRequest({
+          method: "PUT",
+          url: new URL(
+            `http://localhost:3000/api/val/sources/~${query ? `?${query}` : ""}`,
+          ),
+          json: {},
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+      expect(serverRes.status).toBe(200);
+      if (serverRes.status !== 200 || !("json" in serverRes)) {
+        throw new Error("Expected a 200 response with a json body");
+      }
+      const json = serverRes.json as unknown as {
+        modules: Record<string, { render?: unknown }>;
+      };
+      expect(json.modules["/content/authors.val.ts"]?.render).toEqual({
+        "/content/authors.val.ts": {
+          status: "success",
+          data: {
+            layout: "list",
+            parent: "record",
+            items: Object.entries(authorsSource).map(([key, author]) => [
+              key,
+              {
+                title: author.name,
+                subtitle: author.birthdate,
+                image: undefined,
+              },
+            ]),
+          },
+        },
+      });
+    },
+  );
 
   test("smoke test valid route: /schema", async () => {
     const serverRes = await onRoute(

@@ -49,6 +49,15 @@ export type SerializedRecordSchema = {
   description?: string;
 };
 
+type RecordRenderInput<T extends Schema<SelectorSource>> = {
+  layout: "list";
+  select: (input: { key: string; val: RenderSelector<T> }) => {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | RemoteSource<ImageMetadata> | null;
+  };
+};
+
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
@@ -64,6 +73,7 @@ export class RecordSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: RecordRenderInput<T> | null = null,
   ) {
     super();
   }
@@ -79,6 +89,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -95,6 +106,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -532,6 +544,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -546,6 +559,7 @@ export class RecordSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -560,6 +574,7 @@ export class RecordSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -574,6 +589,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -588,6 +604,7 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -679,15 +696,6 @@ export class RecordSchema<
     return result;
   }
 
-  private renderInput: {
-    layout: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
-    };
-  } | null = null;
-
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
@@ -749,12 +757,22 @@ export class RecordSchema<
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
-  }) {
-    this.renderInput = {
-      layout: input.as,
-      select: input.select,
-    };
-    return this;
+  }): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      {
+        layout: input.as,
+        select: input.select,
+      },
+    );
   }
 }
 

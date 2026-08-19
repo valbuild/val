@@ -543,4 +543,47 @@ describe("RecordSchema", () => {
       expect(reserialized.key?.type).toBe(serialized.key?.type);
     }
   });
+  test("record: list render is kept when chaining after render", () => {
+    const base = record(object({ name: string() })).render({
+      as: "list",
+      select: ({ key, val }) => ({ title: val.name, subtitle: key }),
+    });
+    const src = { ada: { name: "Ada" } };
+    const expected = {
+      "/test.val.ts": {
+        status: "success",
+        data: {
+          layout: "list",
+          parent: "record",
+          items: [["ada", { title: "Ada", subtitle: "ada", image: undefined }]],
+        },
+      },
+    };
+    for (const schema of [
+      base,
+      base.nullable(),
+      base.readonly(),
+      base.hidden(),
+      base.describe("Some description"),
+      base.validate(() => false),
+      base.router(nextAppRouter),
+    ]) {
+      expect(
+        schema["executeRender"]("/test.val.ts" as SourcePath, src),
+      ).toEqual(expected);
+    }
+  });
+
+  test("record: render does not mutate the schema it was called on", () => {
+    const base = record(object({ name: string() }));
+    base.render({
+      as: "list",
+      select: ({ val }) => ({ title: val.name }),
+    });
+    expect(
+      base["executeRender"]("/test.val.ts" as SourcePath, {
+        ada: { name: "Ada" },
+      }),
+    ).toEqual({});
+  });
 });
