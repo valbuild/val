@@ -39,6 +39,25 @@ describe("c.json + .jsonValues()", () => {
     expect(serialized.item.type).toBe("object");
   });
 
+  test(".jsonValues() after .validate() throws instead of dropping the validator", () => {
+    // `.jsonValues()` changes the source shape to JsonSource entries, so a
+    // validator typed against the un-lazy shape cannot be carried over. It used to
+    // be dropped silently, leaving a `.validate(...)` in the source file that ran
+    // nowhere — client or server.
+    expect(() =>
+      record(object({ title: string() }))
+        .validate(() => "never runs")
+        .jsonValues(),
+    ).toThrow(/must come BEFORE \.validate/);
+  });
+
+  test(".validate() AFTER .jsonValues() is the supported order and is kept", () => {
+    const schema = record(object({ title: string() }))
+      .jsonValues()
+      .validate(() => "keys are wrong");
+    expect(schema["executeSerialize"]().customValidate).toBe(true);
+  });
+
   test("non-jsonValues record does not set jsonValues", () => {
     const schema = record(object({ title: string() }));
     const serialized = schema["executeSerialize"]();

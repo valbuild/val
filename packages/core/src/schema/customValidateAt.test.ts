@@ -2,8 +2,10 @@ import { SourcePath } from "../val";
 import { array } from "./array";
 import { number } from "./number";
 import { object } from "./object";
+import { literal } from "./literal";
 import { record } from "./record";
 import { string } from "./string";
+import { union } from "./union";
 
 /**
  * `executeCustomValidateAt` runs ONE node's user-supplied validators, which is
@@ -90,5 +92,75 @@ describe("executeCustomValidateAt", () => {
       { message: "must not be empty", value: [] },
     ]);
     expect(schema["executeCustomValidateAt"](path, ["x"])).toEqual([]);
+  });
+
+  describe("tagged union", () => {
+    // A union's variants SHARE the union's path, so the caller's `resolvePath`
+    // stops at the union and never reaches the variant. The union is the only node
+    // that knows which variant a value takes, so it has to dispatch itself — the
+    // one place where "only THIS node's validators" cannot hold.
+    const taggedUnion = union(
+      "type",
+      object({
+        type: literal("a"),
+        n: number().validate((src) => (src > 0 ? false : "n must be positive")),
+      }).validate((src) => (src.n === 13 ? "13 is unlucky" : false)),
+      object({ type: literal("b"), s: string() }).validate(
+        () => "b is never valid",
+      ),
+    );
+
+    test("runs the MATCHED variant's own validator", () => {
+      expect(
+        taggedUnion["executeCustomValidateAt"](path, { type: "a", n: 13 }),
+      ).toEqual([{ message: "13 is unlucky", value: { type: "a", n: 13 } }]);
+    });
+
+    test("does NOT run the other variants' validators", () => {
+      expect(
+        taggedUnion["executeCustomValidateAt"](path, { type: "a", n: 1 }),
+      ).toEqual([]);
+      expect(
+        taggedUnion["executeCustomValidateAt"](path, { type: "b", s: "x" }),
+      ).toEqual([
+        { message: "b is never valid", value: { type: "b", s: "x" } },
+      ]);
+    });
+
+    test("still only THIS node: the variant's CHILD validators are the caller's job", () => {
+      // `n` gets its own path, so the walk flags it separately.
+      expect(
+        taggedUnion["executeCustomValidateAt"](path, { type: "a", n: -1 }),
+      ).toEqual([]);
+    });
+
+    test("the union's own validator runs alongside the variant's", () => {
+      const withBoth = union(
+        "type",
+        object({ type: literal("a") }).validate(() => "variant says no"),
+      ).validate(() => "union says no");
+      expect(withBoth["executeCustomValidateAt"](path, { type: "a" })).toEqual([
+        { message: "union says no", value: { type: "a" } },
+        { message: "variant says no", value: { type: "a" } },
+      ]);
+    });
+
+    test("a tag matching no variant reports nothing extra (structural error's job)", () => {
+      expect(
+        taggedUnion["executeCustomValidateAt"](path, {
+          type: "nope",
+        } as never),
+      ).toEqual([]);
+    });
+
+    test("a literal union has no variant to descend into", () => {
+      const literalUnion = union(literal("a"), literal("b")).validate((src) =>
+        src === "b" ? "not b" : false,
+      );
+      expect(literalUnion["executeCustomValidateAt"](path, "b")).toEqual([
+        { message: "not b", value: "b" },
+      ]);
+      expect(literalUnion["executeCustomValidateAt"](path, "a")).toEqual([]);
+    });
   });
 });
