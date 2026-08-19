@@ -541,7 +541,7 @@ export class ValSyncEngine {
 
   // #region Subscribe
   private listeners: Partial<
-    Record<SyncEngineListenerType, Record<string, (() => void)[]>>
+    Record<SyncEngineListenerType, Record<string, Set<() => void>>>
   >;
   subscribe(
     type: "source",
@@ -606,43 +606,42 @@ export class ValSyncEngine {
     type: SyncEngineListenerType,
     path?: string | string[],
   ): (listener: () => void) => () => void {
-    const p = path || globalNamespace;
+    const paths = Array.isArray(path) ? path : [path || globalNamespace];
     return (listener: () => void) => {
-      // Our TS version is too low to figure out what is possible undefined here, so we do any's...
-      // On TS 5.8+ we should be able to remove const listeners and replace listeners with this.listeners
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const listeners = this.listeners as any;
-      if (!listeners[type]) {
-        listeners[type] = {};
+      for (const p of paths) {
+        this.listenersAt(type, p).add(listener);
       }
-      if (Array.isArray(p)) {
-        const indices: number[] = [];
-        for (const path of p) {
-          if (!listeners[type][path]) {
-            listeners[type][path] = [];
-          }
-          const idx = listeners[type][path].push(listener) - 1;
-          indices.push(idx);
+      return () => {
+        for (const p of paths) {
+          this.listeners[type]?.[p]?.delete(listener);
         }
-        return () => {
-          for (const idx of indices) {
-            listeners[type]?.[p[idx]]?.splice(idx, 1);
-          }
-        };
-      } else {
-        if (!listeners[type][p]) {
-          listeners[type][p] = [];
-        }
-        const idx = listeners[type][p].push(listener) - 1;
-        return () => {
-          listeners[type]?.[p].splice(idx, 1);
-        };
-      }
+      };
     };
   }
-  private emit(listeners?: (() => void)[]) {
+
+  private listenersAt(
+    type: SyncEngineListenerType,
+    path: string,
+  ): Set<() => void> {
+    let byPath = this.listeners[type];
+    if (!byPath) {
+      byPath = {};
+      this.listeners[type] = byPath;
+    }
+    let listeners = byPath[path];
+    if (!listeners) {
+      listeners = new Set();
+      byPath[path] = listeners;
+    }
+    return listeners;
+  }
+
+  private emit(listeners?: Set<() => void>) {
     if (listeners) {
-      for (const listener of listeners) {
+      // Iterate a copy: a listener is free to unsubscribe (React does exactly
+      // that when a re-render unmounts the subscriber), and mutating the set
+      // while iterating it would skip the listeners after it.
+      for (const listener of [...listeners]) {
         listener();
       }
     }

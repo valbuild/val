@@ -649,6 +649,125 @@ describe("ValSyncEngine", () => {
     unsubscribeAllSources();
   });
 
+  describe("subscribe / unsubscribe", () => {
+    async function engineWithTwoModules() {
+      const { s, c, config } = initVal();
+      const tester = new SyncEngineTester(
+        "fs",
+        [
+          c.define("/a.val.ts", s.string().minLength(2), "a"),
+          c.define("/b.val.ts", s.string().minLength(2), "b"),
+        ],
+        config,
+      );
+      return tester.createInitializedSyncEngine();
+    }
+
+    // Unsubscribe used to splice by an index captured at subscribe time, so
+    // removing an EARLIER listener shifted every later index and detached the
+    // wrong callback - leaking dead listeners and silencing live ones. Every
+    // render re-subscribes (subscribe() returns a fresh closure), so this fired
+    // constantly.
+    // Removing the FIRST listener alone looked fine - the survivors were still
+    // in the array, just shifted. The damage showed up on the next unsubscribe,
+    // whose captured index now pointed at somebody else.
+    test("unsubscribing two listeners removes those two, not a bystander", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeFirst = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+      });
+      const unsubscribeSecond = syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("third");
+      });
+
+      unsubscribeFirst();
+      unsubscribeSecond();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["third"]);
+    });
+
+    test("unsubscribing twice does not detach a different listener", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeFirst = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+
+      unsubscribeFirst();
+      unsubscribeFirst();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["second"]);
+    });
+
+    // The multi-path branch indexed the PATH array with a LISTENER index
+    // (`listeners[type]?.[p[idx]]`), so it was only ever correct for a single
+    // path holding a single listener.
+    test("a multi-path subscription detaches from every path it registered on", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const paths = [
+        toModuleFilePath("/a.val.ts"),
+        toModuleFilePath("/b.val.ts"),
+      ];
+      let kept = 0;
+      let removed = 0;
+      syncEngine.subscribe(
+        "sources",
+        paths,
+      )(() => {
+        kept++;
+      });
+      const unsubscribe = syncEngine.subscribe(
+        "sources",
+        paths,
+      )(() => {
+        removed++;
+      });
+
+      unsubscribe();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next-a",
+        [toModuleFilePath("/b.val.ts")]: "next-b",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(removed).toBe(0);
+      expect(kept).toBeGreaterThan(0);
+    });
+
+    // React unmounts subscribers in response to a store change, so a listener
+    // unsubscribing mid-emit is normal. Mutating the collection while iterating
+    // it would skip whatever came after.
+    test("a listener that unsubscribes during an emit does not skip the next one", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeSelf = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+        unsubscribeSelf();
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["first", "second"]);
+    });
+  });
+
   test("setRenders sets renders and invalidates caches", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
