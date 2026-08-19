@@ -29,6 +29,7 @@ export const mockSitemap: SitemapItem = {
       moduleFilePath: "/app/blogs/[blog]/page.val.ts" as ModuleFilePath,
       routePattern: blogsRoutePattern,
       existingKeys: ["/blog-1", "/blog-2", "/blog-3"],
+      keyDescription: "The URL of this blog post. Lower case, no spaces.",
       sourcePath: '/app/blogs/[blog]/page.val.ts?p="/blogs"' as SourcePath,
       children: [
         {
