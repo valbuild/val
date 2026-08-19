@@ -798,6 +798,58 @@ describe("ValSyncEngine", () => {
       expect(kept).toBeGreaterThan(0);
     });
 
+    // useSyncExternalStore re-subscribes whenever the subscribe function's
+    // identity changes, and nearly every call site calls subscribe() inline in
+    // render - so a fresh closure per call meant every render tore down and
+    // re-added every subscription.
+    test("the same (type, path) returns the same subscribe function", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const a = toModuleFilePath("/a.val.ts");
+      const b = toModuleFilePath("/b.val.ts");
+
+      expect(syncEngine.subscribe("source", a)).toBe(
+        syncEngine.subscribe("source", a),
+      );
+      expect(syncEngine.subscribe("all-sources")).toBe(
+        syncEngine.subscribe("all-sources"),
+      );
+      expect(syncEngine.subscribe("sources", [a, b])).toBe(
+        syncEngine.subscribe("sources", [a, b]),
+      );
+
+      // Different targets must stay distinct.
+      expect(syncEngine.subscribe("source", a)).not.toBe(
+        syncEngine.subscribe("source", b),
+      );
+      expect(syncEngine.subscribe("source", a)).not.toBe(
+        syncEngine.subscribe("render", a),
+      );
+      expect(syncEngine.subscribe("sources", [a, b])).not.toBe(
+        syncEngine.subscribe("sources", [b, a]),
+      );
+    });
+
+    // A shared subscribe function must still hand every subscriber its own
+    // unsubscribe.
+    test("a memoised subscribe function still unsubscribes individually", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const subscribe = syncEngine.subscribe("all-sources");
+      const unsubscribeFirst = subscribe(() => {
+        calls.push("first");
+      });
+      subscribe(() => {
+        calls.push("second");
+      });
+
+      unsubscribeFirst();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["second"]);
+    });
+
     // React unmounts subscribers in response to a store change, so a listener
     // unsubscribing mid-emit is normal. Mutating the collection while iterating
     // it would skip whatever came after.

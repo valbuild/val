@@ -543,6 +543,21 @@ export class ValSyncEngine {
   private listeners: Partial<
     Record<SyncEngineListenerType, Record<string, Set<() => void>>>
   >;
+
+  /**
+   * Memoised per (type, paths).
+   *
+   * `useSyncExternalStore` re-subscribes whenever the subscribe function's
+   * identity changes, and almost every call site calls this inline in render - so
+   * returning a fresh closure meant tearing down and re-adding every subscription
+   * on every render. Caching here fixes all ~40 call sites at once, and cannot be
+   * forgotten by a new one.
+   *
+   * The cached closures hold no listener state (they read `this.listeners` on
+   * each call), so they stay valid across `reset()`.
+   */
+  private subscribeFns: Map<string, (listener: () => void) => () => void> =
+    new Map();
   subscribe(
     type: "source",
     path: ModuleFilePath,
@@ -607,7 +622,12 @@ export class ValSyncEngine {
     path?: string | string[],
   ): (listener: () => void) => () => void {
     const paths = Array.isArray(path) ? path : [path || globalNamespace];
-    return (listener: () => void) => {
+    const key = `${type}\u0000${paths.join("\u0001")}`;
+    const cached = this.subscribeFns.get(key);
+    if (cached) {
+      return cached;
+    }
+    const subscribeFn = (listener: () => void) => {
       for (const p of paths) {
         this.listenersAt(type, p).add(listener);
       }
@@ -617,6 +637,8 @@ export class ValSyncEngine {
         }
       };
     };
+    this.subscribeFns.set(key, subscribeFn);
+    return subscribeFn;
   }
 
   private listenersAt(
