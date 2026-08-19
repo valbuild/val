@@ -107,7 +107,7 @@ describe("ValOpsFS", () => {
       project,
       commitSha,
       branch,
-      apiKey,
+      { apiKey },
       {
         config,
         modules: fakeModules,

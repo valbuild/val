@@ -19,8 +19,9 @@ export type AltSchema =
 export type ImagesOptions<Accept extends `image/${string}`> = {
   /**
    * The accepted mime type pattern. Must be an image type (e.g., "image/png", "image/webp", "image/*")
+   * @default "image/*"
    */
-  accept: Accept;
+  accept?: Accept;
   /**
    * The directory where images should be stored.
    * Must start with "/public" (e.g., "/public/val/images")
@@ -74,6 +75,9 @@ type ImagesItemSrc = {
 /**
  * Define a collection of images.
  *
+ * All options are optional: `s.images()` accepts any image type (`"image/*"`) in
+ * the default `/public/val` directory, with nullable alt text and remote disabled.
+ *
  * @example
  * ```typescript
  * const schema = s.images({
@@ -92,14 +96,14 @@ type ImagesItemSrc = {
  * ```
  */
 export const images = <Accept extends `image/${string}`>(
-  options: ImagesOptions<Accept>,
+  options?: ImagesOptions<Accept>,
 ): RecordSchema<
   ObjectSchema<ImagesItemProps, ImagesItemSrc>,
   Schema<string>,
   Record<string, ImagesEntryMetadata>
 > => {
-  const directory = options.directory ?? "/public/val";
-  const altSchema = options.alt ?? string().nullable();
+  const directory = options?.directory ?? "/public/val";
+  const altSchema = options?.alt ?? string().nullable();
   const itemSchema = new ObjectSchema(
     {
       width: new NumberSchema<number>(undefined, false),
@@ -111,9 +115,9 @@ export const images = <Accept extends `image/${string}`>(
   ) as ObjectSchema<ImagesItemProps, ImagesItemSrc>;
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "images",
-    accept: options.accept,
+    accept: options?.accept ?? "image/*",
     directory,
-    remote: options.remote ?? false,
+    remote: options?.remote ?? false,
     altSchema,
   });
 };

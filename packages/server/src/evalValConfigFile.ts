@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 /**
  * NOTE: this is intentionally NOT `SharedValConfig` from `@valbuild/shared`.
  * That schema requires `files.directory` to be exactly `/public/val`, whereas
- * this one accepts any path beneath it. Unifying them would change which
+ * this one accepts any path beneath `/public`. Unifying them would change which
  * configs are accepted, so they are kept separate on purpose.
  */
 const ValConfigSchema = z.object({
@@ -17,11 +17,19 @@ const ValConfigSchema = z.object({
   root: z.string().optional(),
   files: z
     .object({
-      directory: z
-        .string()
-        .refine((val): val is `/public/val` => val.startsWith("/public/val"), {
-          message: "files.directory must start with '/public/val'",
-        }),
+      directory: z.string().refine(
+        (val): val is `/public` | `/public/${string}` =>
+          (val === "/public" ||
+            (val.startsWith("/public/") && !val.endsWith("/"))) &&
+          // Reject path traversal so the directory cannot escape /public
+          !val
+            .split("/")
+            .some((segment) => segment === "." || segment === ".."),
+        {
+          message:
+            "files.directory must start with '/public', must not end with '/' and must not contain '.' or '..' segments",
+        },
+      ),
     })
     .optional(),
   gitCommit: z.string().optional(),
