@@ -35,6 +35,14 @@ export function splitRemoteRef(ref: string):
       error: "Invalid remote ref: " + ref,
     };
   }
+  if (
+    match[7].split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    return {
+      status: "error",
+      error: "Invalid remote ref: " + ref,
+    };
+  }
 
   return {
     status: "success",

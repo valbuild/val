@@ -1,4 +1,3 @@
-export type { ServiceOptions } from "./Service";
 export { createService, Service } from "./Service";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 export { ValModuleLoader } from "./ValModuleLoader";
@@ -25,3 +24,21 @@ export {
 } from "./modulePathMap";
 export { findJsonEntryFilePath } from "./jsonEntryLocation";
 export type { ModulePathMap } from "./modulePathMap";
+// Exposed for the CLI's `debug` command and the snapshot replay harness, which
+// need to drive the same ops the app's api routes drive.
+export { ValOpsFS } from "./ValOpsFS";
+export { ValOpsHttp } from "./ValOpsHttp";
+export { loadValModules } from "./loadValModules";
+export { formatPatchSourceError } from "./ValOps";
+export {
+  compareWithCapturedReport,
+  readCapturedReport,
+  replaySnapshot,
+} from "./debug/replaySnapshot";
+export type { ReplayComparison, ReplayResult } from "./debug/replaySnapshot";
+export type {
+  OrderedPatches,
+  PatchAnalysis,
+  PatchSourceError,
+  PreparedCommit,
+} from "./ValOps";

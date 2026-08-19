@@ -140,13 +140,13 @@ function resolveRange(
     return {
       relativeFile: moduleFilePath.replace(/^\//, ""),
       lines: cached.lines,
-      range,
+      range: clampRange(range),
     };
   }
   // Nothing in the `.val.ts` matches — which is the normal case for a
   // `.jsonValues()` entry, since the value lives in its own `*.val.json` and the
   // `.val.ts` only holds the `c.json(() => import(...))` thunk. Follow it.
-  return resolveJsonEntryRange(
+  const entryResolved = resolveJsonEntryRange(
     moduleFilePath,
     modulePath,
     projectRoot,
@@ -154,6 +154,30 @@ function resolveRange(
     target,
     cached,
   );
+  // Clamped here too: an entry's range comes from the same resolver, run against
+  // the entry's `*.val.json`, so it can be just as bad.
+  return (
+    entryResolved && {
+      ...entryResolved,
+      range: clampRange(entryResolved.range),
+    }
+  );
+}
+
+/**
+ * Defensive: a bad range must degrade to an odd-looking frame, never a crash —
+ * the caret math in the code frame does `" ".repeat(start.character)`, which
+ * throws a RangeError on a negative count.
+ */
+function clampRange(range: Range): Range {
+  return { start: clampPosition(range.start), end: clampPosition(range.end) };
+}
+
+function clampPosition(position: Position): Position {
+  return {
+    line: Math.max(0, position.line),
+    character: Math.max(0, position.character),
+  };
 }
 
 /**

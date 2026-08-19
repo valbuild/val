@@ -11,6 +11,7 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
+  VAL_EXTENSION,
   ValidationError,
   ValModule,
   ValModules,
@@ -66,6 +67,347 @@ describe("ValSyncEngine", () => {
     expect(
       syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
+  });
+
+  test("fs publish keeps the patched value (no flicker back to base)", async () => {
+    // Regression test for the save-flicker: after publish() drops the now-saved
+    // patches in fs mode, serverSources still holds the un-patched base. Without
+    // baking the optimistic value into serverSources first, the field would
+    // momentarily revert to the pre-patch value until the next /sources/~ sync.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("Foo");
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    // Optimistic value is shown immediately.
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("FooBar");
+
+    // serverSources is still the un-patched base at this point (the studio reads
+    // /sources/~ with apply_patches=false), so publishing must bake the patched
+    // value in as it drops the patch chain.
+    const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+
+    // A field re-rendering after publish (fresh creatorId → fresh getPatchedSource
+    // recompute, i.e. what HMR / the next sync's source invalidation triggers)
+    // must NOT see the pre-patch value flicker through. This is the assertion
+    // that fails without the fix (it would recompute base "Foo" + no patches).
+    expect(
+      syncEngine.getSourceSnapshot(
+        toModuleFilePath("/test.val.ts"),
+        "field-rerender-after-publish",
+      ).data,
+    ).toStrictEqual("FooBar");
+
+    // And it stays "FooBar" after the follow-up stat-triggered sync.
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("FooBar");
+  });
+
+  test("fs publish clears the server-side patch-id snapshot (no Save button re-enable)", async () => {
+    // Regression test for the Save button flicker: after publish() empties
+    // globalServerSidePatchIds in fs mode, its snapshot must be invalidated too.
+    // Otherwise getGlobalServerSidePatchIdsSnapshot() (which the button reads as
+    // pendingServerSidePatchIds) stays stale and non-empty until the next
+    // stat/sync, so the button briefly flips back to enabled when publish()'s
+    // finally clears publishDisabled.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    // Push the patch to the server and promote it to a global server-side patch
+    // id via the stat callback — this is the button's "enabled" precondition.
+    expect(await syncEngine.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    const patchIds = syncEngine.getGlobalServerSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+
+    // Immediately after publish (before any further stat/sync) the server-side
+    // patch-id snapshot must be empty — this fails without the invalidation.
+    expect(syncEngine.getGlobalServerSidePatchIdsSnapshot()).toStrictEqual([]);
+  });
+
+  test("fs publish persists patches that contain file ops", async () => {
+    // File ops carry binary content, not document mutations, so applyPatch
+    // rejects them: the fake /save must filter them out (as the real server
+    // does) before applying the rest of the patch. Otherwise an image / gallery
+    // patch never persists and the value reverts on the next sources sync.
+    const { s, c, config } = initVal();
+    const ref = "/public/val/test_a1b2c.png";
+    const metadata = {
+      width: 10,
+      height: 20,
+      mimeType: "image/png",
+      alt: "",
+    };
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define(
+          "/gallery.val.ts",
+          s.record(
+            s.object({
+              width: s.number(),
+              height: s.number(),
+              mimeType: s.string(),
+              alt: s.string(),
+            }),
+          ),
+          {},
+        ),
+      ],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    // Same shape as ModuleGallery: the metadata entry is added by a JSON op and
+    // the binary is carried by a file op on the same path (in the real flow
+    // `value` is the sha256 of the already uploaded content).
+    syncEngine.addPatch(
+      toSourcePath("/gallery.val.ts"),
+      "record",
+      [
+        { op: "add", path: [ref], value: metadata },
+        {
+          op: "file",
+          path: [ref],
+          filePath: ref,
+          value:
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          remote: false,
+          metadata,
+        },
+      ],
+      tester.getNextNow(),
+    );
+    expect(await syncEngine.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    const patchIds = syncEngine.getGlobalServerSidePatchIdsSnapshot();
+    expect(patchIds.length).toBeGreaterThan(0);
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({
+      status: "done",
+    });
+    // /save must have applied the non-file half of the patch to the sources...
+    expect(tester.fakeSources["/gallery.val.ts"]).toStrictEqual({
+      [ref]: metadata,
+    });
+    // ...so the entry survives the follow-up stat-triggered sources sync, where
+    // it comes from the server instead of the now-dropped patch chain.
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/gallery.val.ts")).data,
+    ).toStrictEqual({ [ref]: metadata });
+  });
+
+  test("editing one field does not invalidate every module", async () => {
+    // Regression test for the typing-is-slow issue: every keystroke that
+    // started a new patch changed the server-side patch id list, which used to
+    // set forceSyncAllModules and therefore re-fetched + invalidated every
+    // module in the project on the next stat callback.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/edited.val.ts", s.string(), "edited"),
+        c.define("/other1.val.ts", s.string(), "other1"),
+        c.define("/other2.val.ts", s.string(), "other2"),
+      ],
+      config,
+    );
+    const requests: { route: string; path: string | undefined }[] = [];
+    const mockClient = tester.createMockClient();
+    const spyingClient: any = (route: string, method: any, req: any) => {
+      requests.push({ route, path: req?.path });
+      return mockClient(route, method, req);
+    };
+    const syncEngine = new ValSyncEngine(spyingClient, undefined);
+    await syncEngine.init(
+      tester.getMode(),
+      tester.getBaseSha(),
+      tester.getSchemasSha(),
+      tester.getSourcesSha(),
+      tester.fakePatches.map((p) => p.patchId),
+      null,
+      tester.getCommitSha(),
+      tester.getNextNow(),
+    );
+
+    const invalidatedModules: ModuleFilePath[] = [];
+    const unsubscribes = (
+      ["/edited.val.ts", "/other1.val.ts", "/other2.val.ts"] as const
+    ).map((moduleFilePathS) => {
+      const moduleFilePath = toModuleFilePath(moduleFilePathS);
+      return syncEngine.subscribe(
+        "source",
+        moduleFilePath,
+      )(() => {
+        invalidatedModules.push(moduleFilePath);
+      });
+    });
+
+    // Type into a single field, then let the sync + stat cycle run.
+    syncEngine.addPatch(
+      toSourcePath("/edited.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "edited!" }],
+      tester.getNextNow(),
+    );
+    tester.simulatePassingOfSeconds(5);
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+
+    // Only the edited module may be re-fetched...
+    const sourceRequests = requests.filter((r) => r.route === "/sources/~");
+    for (const sourceRequest of sourceRequests) {
+      expect(sourceRequest.path).toBe("/edited.val.ts");
+    }
+    // ... and only the edited module may be invalidated.
+    expect(new Set(invalidatedModules)).toStrictEqual(
+      new Set([toModuleFilePath("/edited.val.ts")]),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/edited.val.ts")).data,
+    ).toStrictEqual("edited!");
+
+    // The stat callback that reports the now-synced patch id must not drag
+    // the untouched modules along either.
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(requests.filter((r) => r.route === "/sources/~")).toStrictEqual([]);
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other1.val.ts"),
+    );
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other2.val.ts"),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/other1.val.ts")).data,
+    ).toStrictEqual("other1");
+
+    for (const unsubscribe of unsubscribes) {
+      unsubscribe();
+    }
+  });
+
+  test("patch errors are cleared once the server stops reporting them", async () => {
+    // The server omits `patches.errors` for a module that has none, so an
+    // absent field means "no errors" and has to clear what we held before.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string(), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const moduleFilePath = toModuleFilePath("/test.val.ts");
+
+    let patchErrorsListenerCalls = 0;
+    const unsubscribe = syncEngine.subscribe("patch-errors", [moduleFilePath])(
+      () => {
+        patchErrorsListenerCalls++;
+      },
+    );
+
+    const sourcesResponseWithPatchErrors = {
+      status: 200,
+      json: {
+        modules: {
+          [moduleFilePath]: {
+            source: "test",
+            patches: {
+              applied: [],
+              errors: {
+                ["some-patch-id" as PatchId]: { message: "Could not apply" },
+              },
+            },
+          },
+        },
+        sourcesSha: tester.getSourcesSha(),
+        schemaSha: tester.getSchemasSha(),
+      },
+    };
+    tester.setFakeResponse("/sources/~", "PUT", sourcesResponseWithPatchErrors);
+    // Force a sync that reads sources: a source file changed on disk.
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "changed" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toStrictEqual({
+      [moduleFilePath]: {
+        ["some-patch-id" as PatchId]: { message: "Could not apply" },
+      },
+    });
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    // The patch is fixed/removed server side, so `errors` is now omitted.
+    patchErrorsListenerCalls = 0;
+    tester.removeFakeResponse("/sources/~", "PUT");
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "again" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toBeUndefined();
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    unsubscribe();
   });
 
   test("basic reset", async () => {
@@ -2021,10 +2363,14 @@ class SyncEngineTester {
       if (!patch) {
         continue;
       }
+      // File ops carry binary content rather than document mutations, so
+      // applyPatch rejects them outright. The real server filters them out the
+      // same way before applying (see applySourceFilePatches in ValOps).
+      const sourceFileOps = patch.filter((op) => op.op !== "file");
       const patchRes = applyPatch(
         deepClone(this.fakeSources[moduleFilePath]),
         this.ops,
-        patch,
+        sourceFileOps,
       );
       if (!modules[moduleFilePath]) {
         modules[moduleFilePath] = {};
@@ -2080,6 +2426,175 @@ class SyncEngineTester {
         sourcesSha: this.getSourcesSha(),
         schemaSha: this.getSchemasSha(),
       },
+    };
+  }
+
+  /**
+   * The entry key an op targets, or `null` when it is a plain module-source op.
+   * Classified off the committed module source: a `{_type:"json"}` marker at the
+   * first segment is what makes that segment a `.jsonValues()` entry key.
+   */
+  private jsonEntryKeyOf(
+    moduleFilePath: ModuleFilePath,
+    opPath: string[],
+  ): string | null {
+    const source = this.fakeSources[moduleFilePath];
+    const key = opPath[0];
+    if (
+      key === undefined ||
+      source === null ||
+      typeof source !== "object" ||
+      Array.isArray(source)
+    ) {
+      return null;
+    }
+    return Internal.isJson(source[key]) ? key : null;
+  }
+
+  postSave(
+    req: InferReq<Api["/save"]["POST"]["req"]>,
+  ): z.infer<Api["/save"]["POST"]["res"]> {
+    // Model fs-mode /save: apply the requested patches to the backing sources
+    // and then delete every patch (fs mode deletes all of them), so a
+    // subsequent /patches read returns empty.
+    const requestedPatchIds = new Set(req.body.patchIds);
+    const savedSources = { ...this.fakeSources };
+    // A `.jsonValues()` entry's value lives in its own `*.val.json`, so an op
+    // below an entry key rewrites THAT file and leaves the module source
+    // byte-identical — which is what ValOps does server-side, and what makes a
+    // content-only save invisible to sourcesSha.
+    const savedJsonEntries: Record<
+      string,
+      Record<string, unknown>
+    > = Object.fromEntries(
+      Object.entries(this.fakeJsonEntries).map(([path, entries]) => [
+        path,
+        { ...entries },
+      ]),
+    );
+    const sourceFilePatchErrors: Record<ModuleFilePath, { message: string }[]> =
+      {};
+    for (const patchData of this.fakePatches) {
+      if (!patchData.patch || !requestedPatchIds.has(patchData.patchId)) {
+        continue;
+      }
+      const moduleFilePath = patchData.path;
+      const pushError = (message: string) => {
+        if (!sourceFilePatchErrors[moduleFilePath]) {
+          sourceFilePatchErrors[moduleFilePath] = [];
+        }
+        sourceFilePatchErrors[moduleFilePath].push({ message });
+      };
+      // File ops carry binary content rather than document mutations: the real
+      // /save writes those to disk separately and filters them out before
+      // applying the rest (applyPatch errors on them). A file-only patch
+      // therefore leaves the source untouched instead of failing to save.
+      const sourceFileOps: Patch = [];
+      for (const op of patchData.patch) {
+        if (op.op === "file") {
+          continue;
+        }
+        const entryKey = this.jsonEntryKeyOf(moduleFilePath, op.path);
+        if (entryKey === null) {
+          sourceFileOps.push(op);
+          continue;
+        }
+        const entries = savedJsonEntries[moduleFilePath];
+        if (op.path.length > 1) {
+          // Content op: rebase off the entry key and apply to the entry's file.
+          const content = entries?.[entryKey];
+          if (entries === undefined || content === undefined) {
+            pushError(
+              `No entry content for '${entryKey}' in ${moduleFilePath}`,
+            );
+            continue;
+          }
+          const rebased = {
+            ...op,
+            path: op.path.slice(1),
+            ...("from" in op ? { from: op.from.slice(1) } : {}),
+          } as Patch[number];
+          const res = applyPatch(deepClone(content as JSONValue), this.ops, [
+            rebased,
+          ]);
+          if (res.kind === "ok") {
+            entries[entryKey] = res.value;
+          } else {
+            pushError(res.error.message);
+          }
+          continue;
+        }
+        // Whole-entry op. `replace` rewrites only the file (the thunk stays);
+        // everything else also rewrites the `.val.ts`, so the marker moves with
+        // it via `sourceFileOps`.
+        if (entries === undefined) {
+          savedJsonEntries[moduleFilePath] = {};
+        }
+        const entryFiles = savedJsonEntries[moduleFilePath];
+        if (op.op === "replace") {
+          entryFiles[entryKey] = op.value;
+          continue;
+        }
+        if (op.op === "remove") {
+          delete entryFiles[entryKey];
+          sourceFileOps.push(op);
+          continue;
+        }
+        if (op.op === "move" || op.op === "copy") {
+          const fromKey = op.from[0];
+          if (op.from.length !== 1 || fromKey === undefined) {
+            pushError(
+              `Cannot '${op.op}' a jsonValues entry from '${op.from.join(".")}'`,
+            );
+            continue;
+          }
+          entryFiles[entryKey] = entryFiles[fromKey];
+          if (op.op === "move") {
+            delete entryFiles[fromKey];
+          }
+          sourceFileOps.push(op);
+          continue;
+        }
+        // `add`: a new `*.val.json` plus a `c.json(...)` thunk, so the module
+        // source gains a MARKER rather than the content itself.
+        entryFiles[entryKey] = op.value;
+        sourceFileOps.push({
+          ...op,
+          value: { [VAL_EXTENSION]: "json" } as unknown as typeof op.value,
+        });
+      }
+      if (sourceFileOps.length > 0) {
+        const patchRes = applyPatch(
+          deepClone(savedSources[moduleFilePath]),
+          this.ops,
+          sourceFileOps,
+        );
+        if (patchRes.kind === "ok") {
+          savedSources[moduleFilePath] = patchRes.value;
+        } else {
+          pushError(patchRes.error.message);
+        }
+      }
+    }
+    if (Object.keys(sourceFilePatchErrors).length > 0) {
+      // The real /save bails out before writing sources or deleting patches.
+      return {
+        status: 400,
+        json: {
+          message: "Failed to save patches",
+          details: {
+            sourceFilePatchErrors,
+            binaryFilePatchErrors: {},
+          },
+        },
+      };
+    }
+    this.fakeSources = savedSources;
+    this.fakeJsonEntries = savedJsonEntries;
+    this.fakePatches = [];
+    return {
+      status: 200,
+      json: {},
     };
   }
 
@@ -2145,10 +2660,7 @@ class SyncEngineTester {
           : this.jsonResponseGate.then(() => res);
       }
       if (route === "/save" && method === "POST") {
-        // Publishing commits the pending patches; the fake server just drops
-        // them (fs mode behaviour).
-        this.fakePatches = [];
-        return { status: 200, json: {} };
+        return this.postSave(req);
       }
       return {
         status: 404,

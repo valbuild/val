@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import vm from "node:vm";
-import { createRequire } from "node:module";
+import { Module } from "node:module";
 import ts from "typescript";
 import type { ValModules } from "@valbuild/core";
 import { getCompilerOptions } from "./getCompilerOptions";
@@ -146,7 +146,7 @@ function loadModule(
   cache[absPath] = moduleObj;
 
   const dirName = path.dirname(absPath);
-  const realRequire = createRequire(absPath);
+  const realRequire = Module.createRequire(absPath);
   const customRequire = (spec: string): unknown => {
     if (isStubbedSpecifier(spec)) {
       return makeStub(spec);

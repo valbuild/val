@@ -773,7 +773,7 @@ export class ValOpsFS extends ValOps {
   }
 
   protected override async getSourceFile(
-    path: ModuleFilePath,
+    path: string,
   ): Promise<WithGenericError<{ data: string }>> {
     const filePath = fsPath.join(this.rootDir, path);
     if (!this.host.fileExists(filePath)) {

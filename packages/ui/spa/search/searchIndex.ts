@@ -11,6 +11,7 @@ import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
+import { getFilenameFromRef } from "../utils/getFilenameFromRef";
 
 /**
  * The search index and the labels to render for its hits.
@@ -84,8 +85,8 @@ export function buildSearchIndex(
           typeof source[FILE_REF_PROP] === "string"
         ) {
           const filename = source[FILE_REF_PROP] as string;
-          // Extract just the filename from the path
-          const filenameOnly = filename.replace("/public", "");
+          // Extract just the basename (handles local and remote refs)
+          const filenameOnly = getFilenameFromRef(filename);
           const metadata = source?.metadata;
           const alt =
             metadata && typeof metadata === "object" && "alt" in metadata

@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.97.3",
+  "version": "0.97.6",
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
@@ -30,6 +30,7 @@
     "chokidar": "^5.0.0",
     "cors": "^2.8.5",
     "fast-glob": "^3.3.3",
+    "jszip": "^3.10.1",
     "meow": "^9.0.0",
     "open": "^9.1.0",
     "picocolors": "^1.1.1",

@@ -616,7 +616,7 @@ export async function* runValidation({
 }): AsyncGenerator<ValidationEvent> {
   const projectRoot = path.resolve(root);
 
-  const service = await createService(projectRoot, {}, fs);
+  const service = await createService(projectRoot, fs);
 
   // Modules registered in the project's val.modules. Files found on disk that
   // are not registered here are not validated (a warning is emitted instead).

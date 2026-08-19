@@ -1679,6 +1679,68 @@ export class ValSyncEngine {
   }
 
   /**
+   * `baseSource` with `patchIds` applied in order. A patch that does not apply is
+   * skipped, matching {@link getPatchedSource} and the server's own patch
+   * analysis. Uncached — for the one-shot reads around a save.
+   */
+  private applyPatchIdsTo(
+    baseSource: JSONValue,
+    moduleFilePath: ModuleFilePath,
+    patchIds: PatchId[],
+  ): JSONValue {
+    let current = baseSource;
+    for (const patchId of patchIds) {
+      const data = this.patchDataByPatchId[patchId];
+      if (!data) {
+        continue;
+      }
+      const patchableOps = data.patch.filter((op) => op.op !== "file");
+      if (patchableOps.length === 0) {
+        continue;
+      }
+      const patchRes = applyPatch(deepClone(current), ops, patchableOps);
+      if (result.isOk(patchRes)) {
+        current = patchRes.value;
+      } else {
+        console.debug("ValSyncEngine: skipping unappliable patch", {
+          patchId,
+          moduleFilePath,
+          message: patchRes.error.message,
+        });
+      }
+    }
+    return current;
+  }
+
+  /**
+   * The module source as a save leaves it on disk: the patch chain applied to the
+   * RAW base, markers and all.
+   *
+   * Markers must survive. A `{_type:"json"}` marker is what tells the engine an
+   * entry's value lives in its own file and has to be loaded — and refetched —
+   * through `/json`. Baking a source with the content substituted in would inline
+   * it over the markers and quietly switch that machinery off: no refetch after a
+   * save, and `committedJsonEntryKeys` reporting the module has no entries at all.
+   * The ops that reach INSIDE an entry do not apply to a marker, are skipped
+   * here, and are exactly the ones
+   * {@link foldPublishedJsonEntriesIntoCommitted} has already folded into the
+   * entry cache. For a module without markers this is just the patched source.
+   */
+  private sourceAsSavedToDisk(
+    moduleFilePath: ModuleFilePath,
+  ): JSONValue | undefined {
+    const baseSource = this.serverSources?.[moduleFilePath];
+    if (baseSource === undefined) {
+      return undefined;
+    }
+    return this.applyPatchIdsTo(
+      baseSource,
+      moduleFilePath,
+      this.orderedPatchIdsForModule(moduleFilePath),
+    );
+  }
+
+  /**
    * Folds what the save just wrote to disk into the committed cache of every
    * loaded `.jsonValues()` entry. Called from {@link publish} BEFORE the patch
    * state is dropped: with the patches gone there is nothing left on top to hide
@@ -1714,38 +1776,24 @@ export class ValSyncEngine {
       if (patchIds.length === 0) {
         continue;
       }
-      let current = this.applyJsonEntryContents(moduleFilePath, baseSource);
-      let reshapesKeys = false;
-      for (const patchId of patchIds) {
-        const data = this.patchDataByPatchId[patchId];
-        if (!data) {
-          continue;
-        }
-        // A whole-entry move or copy can land a key under a name another key
-        // held, which would fold one entry's content onto another's cache slot.
-        if (
-          data.patch.some(
-            (op) =>
-              (op.op === "move" || op.op === "copy") &&
-              (op.path.length <= 1 || op.from.length <= 1),
-          )
-        ) {
-          reshapesKeys = true;
-          break;
-        }
-        const patchableOps = data.patch.filter((op) => op.op !== "file");
-        if (patchableOps.length === 0) {
-          continue;
-        }
-        const patchRes = applyPatch(deepClone(current), ops, patchableOps);
-        if (result.isOk(patchRes)) {
-          current = patchRes.value;
-        }
-        // A patch that does not apply is one the server skipped too — leave the
-        // cache as it is and let the refetch reconcile.
+      // A whole-entry move or copy can land a key under a name another key held,
+      // which would fold one entry's content onto another's cache slot.
+      const reshapesKeys = patchIds.some((patchId) =>
+        this.patchDataByPatchId[patchId]?.patch.some(
+          (op) =>
+            (op.op === "move" || op.op === "copy") &&
+            (op.path.length <= 1 || op.from.length <= 1),
+        ),
+      );
+      if (reshapesKeys) {
+        continue;
       }
+      const current = this.applyPatchIdsTo(
+        this.applyJsonEntryContents(moduleFilePath, baseSource),
+        moduleFilePath,
+        patchIds,
+      );
       if (
-        reshapesKeys ||
         current === null ||
         typeof current !== "object" ||
         Array.isArray(current)
@@ -3409,6 +3457,7 @@ export class ValSyncEngine {
         );
       }
     }
+    const previousGlobalServerSidePatchIds = this.globalServerSidePatchIds;
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||
       !deepEqual(this.globalServerSidePatchIds, patchIds);
@@ -3427,11 +3476,32 @@ export class ValSyncEngine {
       this.invalidateSavedServerSidePatchIds();
       this.invalidatePendingClientSidePatchIds();
     }
-    if (
-      !this.forceSyncAllModules &&
-      (sourcesShaDidChange || patchIdsDidChange)
-    ) {
+    if (!this.forceSyncAllModules && sourcesShaDidChange) {
       this.forceSyncAllModules = true;
+    }
+    if (patchIdsDidChange && !this.forceSyncAllModules) {
+      // A patch-id change on its own never changes what /sources/~ returns:
+      // the studio always reads it with apply_patches=false and folds the
+      // patch chain in client-side (getPatchedSource). So there is nothing to
+      // re-fetch — we only need to re-derive the patched view of the modules
+      // whose ordered patch chain actually moved.
+      //
+      // Forcing a full sync here (as we used to) meant that every keystroke
+      // which started a new patch made the server re-evaluate every module and
+      // made the client invalidate every module, which is why editing a single
+      // field felt slow.
+      const affected = this.getModulesAffectedByPatchIdChange(
+        previousGlobalServerSidePatchIds,
+        patchIds,
+      );
+      if (affected === "all") {
+        this.forceSyncAllModules = true;
+      } else {
+        for (const moduleFilePath of affected) {
+          this.invalidateSource(moduleFilePath);
+          this.requestModuleValidation(moduleFilePath);
+        }
+      }
     }
     return this.sync(now);
   }
@@ -3844,13 +3914,20 @@ export class ValSyncEngine {
           this.schemas[moduleFilePath] = schema;
         }
       }
-      if (this.clientSideSchemaSha !== schemaRes.json.schemaSha) {
+      const schemaShaDidChange =
+        this.clientSideSchemaSha !== schemaRes.json.schemaSha;
+      if (schemaShaDidChange) {
         this.clientSideSchemaSha = schemaRes.json.schemaSha;
       }
 
       console.debug("Invalidating schema");
       this.resetSchemaError();
       this.invalidateSchema();
+      if (schemaShaDidChange) {
+        // The sources sync only re-validates modules whose source actually
+        // changed, so a new schema has to re-validate everything itself.
+        this.requestAllModuleValidation();
+      }
       return {
         status: "done",
       };
@@ -4062,6 +4139,64 @@ export class ValSyncEngine {
     return {
       status: "done",
     };
+  }
+
+  /**
+   * Given the previous and the next list of global (server side) patch ids,
+   * returns the modules whose ordered patch chain changed — i.e. the modules
+   * whose patched source could now be different.
+   *
+   * Returns "all" if we cannot map every patch id to a module, in which case
+   * the caller must fall back to syncing everything.
+   */
+  private getModulesAffectedByPatchIdChange(
+    previous: PatchId[] | null,
+    next: PatchId[],
+  ): "all" | ModuleFilePath[] {
+    if (previous === null) {
+      return "all";
+    }
+    const groupByModule = (
+      patchIds: PatchId[],
+    ): Map<ModuleFilePath, PatchId[]> | null => {
+      const byModule = new Map<ModuleFilePath, PatchId[]>();
+      for (const patchId of patchIds) {
+        const moduleFilePath = this.patchDataByPatchId[patchId]?.moduleFilePath;
+        if (!moduleFilePath) {
+          // We do not know which module this patch belongs to (syncPatches
+          // could not fetch it), so we cannot reason about what changed.
+          return null;
+        }
+        let patchIdsInModule = byModule.get(moduleFilePath);
+        if (!patchIdsInModule) {
+          patchIdsInModule = [];
+          byModule.set(moduleFilePath, patchIdsInModule);
+        }
+        patchIdsInModule.push(patchId);
+      }
+      return byModule;
+    };
+    const previousByModule = groupByModule(previous);
+    const nextByModule = groupByModule(next);
+    if (previousByModule === null || nextByModule === null) {
+      return "all";
+    }
+    const affected: ModuleFilePath[] = [];
+    const allModuleFilePaths = new Set([
+      ...previousByModule.keys(),
+      ...nextByModule.keys(),
+    ]);
+    for (const moduleFilePath of allModuleFilePaths) {
+      const previousPatchIds = previousByModule.get(moduleFilePath) || [];
+      const nextPatchIds = nextByModule.get(moduleFilePath) || [];
+      if (
+        previousPatchIds.length !== nextPatchIds.length ||
+        previousPatchIds.some((patchId, i) => patchId !== nextPatchIds[i])
+      ) {
+        affected.push(moduleFilePath);
+      }
+    }
+    return affected;
   }
 
   private getChangedModules(
@@ -4326,6 +4461,15 @@ export class ValSyncEngine {
               if (this.serverSources === null) {
                 this.serverSources = {};
               }
+              // A full sync returns every module, but typically only a few of
+              // them (often none) actually changed on disk. Invalidating the
+              // untouched ones would re-render every subscriber and re-run the
+              // validation worker for the whole project on every sync tick, so
+              // compare first and only invalidate what really moved.
+              const previousSource = this.serverSources[moduleFilePath];
+              const sourceDidChange =
+                previousSource === undefined ||
+                !deepEqual(previousSource, valModule.source);
               // With apply_patches=false on /sources/~, valModule.source is
               // the un-patched source. The patched view is computed by
               // getPatchedSource folding the known patch chain on top.
@@ -4333,38 +4477,54 @@ export class ValSyncEngine {
               // The committed content of any loaded `.jsonValues()` entry may
               // have changed with it (e.g. after publish) — refetch, or the
               // stale pre-edit content is re-substituted and the edit looks
-              // like it reverted.
+              // like it reverted. NOT gated on `sourceDidChange`: a content-only
+              // edit rewrites the entry's `*.val.json` and leaves the module
+              // source byte-identical, which is exactly the case that needs it.
+              // Cheap for a module with nothing loaded — it returns immediately.
               this.markJsonEntriesStale(moduleFilePath);
               // Renders are computed client-side from the schema instances, so
-              // there is nothing to read off the response any more — but the
-              // source moved, so they have to be recomputed.
-              this.invalidateRenders(moduleFilePath);
-              // Drop any cached patched view for this module; the next read
-              // rebuilds from the fresh un-patched source.
-              if (this.patchedSourcesCache !== null) {
-                this.patchedSourcesCache = {
-                  ...this.patchedSourcesCache,
-                  [moduleFilePath]: undefined,
-                };
+              // there is nothing to read off the response any more — but they are
+              // computed against the PATCHED source, so a source that moved has
+              // to recompute them. Gated on `sourceDidChange` for the same reason
+              // the source invalidation below is: a full sync returns every
+              // module and recomputing the untouched ones is pure waste.
+              if (sourceDidChange) {
+                this.invalidateRenders(moduleFilePath);
               }
-              console.debug("Invalidating source", moduleFilePath);
-              // invalidateSource schedules the overlay emission itself, with the
-              // PATCHED source. Emitting `valModule.source` here would push the
-              // committed content — this endpoint is called with
-              // apply_patches:false — and the host's client components would
-              // render the editor's unpublished work away.
-              this.invalidateSource(moduleFilePath);
-              this.invalidatePatchErrors(moduleFilePath);
-              if (valModule.patches?.errors) {
+              if (sourceDidChange) {
+                // Drop any cached patched view for this module; the next read
+                // rebuilds from the fresh un-patched source.
+                if (this.patchedSourcesCache !== null) {
+                  this.patchedSourcesCache = {
+                    ...this.patchedSourcesCache,
+                    [moduleFilePath]: undefined,
+                  };
+                }
+                console.debug("Invalidating source", moduleFilePath);
+                // invalidateSource schedules the overlay emission itself, with
+                // the PATCHED source. Emitting `valModule.source` here would
+                // push the committed content — this endpoint is called with
+                // apply_patches:false — and the host's client components would
+                // render the editor's unpublished work away.
+                this.invalidateSource(moduleFilePath);
+                // Validation always runs client-side via the worker now —
+                // /sources/~ is called with validate_sources=false.
+                this.requestModuleValidation(moduleFilePath);
+              }
+              // The server omits `errors` entirely for a module that has none,
+              // so `undefined` here means "no patch errors" and has to clear
+              // whatever we held before — otherwise a module that once had a
+              // patch error keeps reporting it forever.
+              const nextPatchErrors = valModule.patches?.errors ?? null;
+              const previousPatchErrors =
+                this.errors.patchErrors?.[moduleFilePath] ?? null;
+              if (!deepEqual(previousPatchErrors, nextPatchErrors)) {
                 if (this.errors.patchErrors === undefined) {
                   this.errors.patchErrors = {};
                 }
-                this.errors.patchErrors[moduleFilePath] = valModule.patches
-                  .errors as Record<PatchId, { message: string }>;
+                this.errors.patchErrors[moduleFilePath] = nextPatchErrors;
+                this.invalidatePatchErrors(moduleFilePath);
               }
-              // Validation always runs client-side via the worker now —
-              // /sources/~ is called with validate_sources=false.
-              this.requestModuleValidation(moduleFilePath);
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
               }
@@ -4522,10 +4682,12 @@ export class ValSyncEngine {
           status: "retry",
         };
       } else {
-        // BEFORE the patch state below is dropped. Best-effort: the refetch that
-        // markAllJsonEntriesStale kicks off is what makes the cache correct, this
-        // only keeps it from being visibly wrong in the meantime — so a throw
-        // here must not report a save that DID commit as failed.
+        // BEFORE the baking below, which replaces serverSources with an ALREADY
+        // patched source — folding after that would apply the same patches a
+        // second time. Best-effort: the refetch that markAllJsonEntriesStale
+        // kicks off is what makes the cache correct, this only keeps it from
+        // being visibly wrong in the meantime, so a throw here must not report a
+        // save that DID commit as failed.
         try {
           this.foldPublishedJsonEntriesIntoCommitted(patchIds);
         } catch (err) {
@@ -4534,7 +4696,33 @@ export class ValSyncEngine {
             err,
           );
         }
+        // In fs mode /save applies exactly these patches to the .val files and
+        // then deletes them. Since serverSources still holds the *un-patched*
+        // base (we read /sources/~ with apply_patches=false), dropping the patch
+        // chain below would momentarily revert affected fields to their
+        // pre-patch value until the next stat-triggered /sources/~ refresh.
+        // Bake the current optimistic (patched) value into serverSources first
+        // so the base swaps out from under the optimistic view atomically and
+        // the displayed value never changes. The later /sources/~ overwrites
+        // serverSources with the authoritative value (self-healing if it
+        // differs). Only safe in fs mode: in http mode the committed patches
+        // persist server-side and are re-applied by syncPatches, so the base
+        // must stay un-patched (baking would double-apply).
+        const affectedModules: ModuleFilePath[] = [];
         if (this.mode === "fs") {
+          for (const moduleFilePath of this.patchIdsByModuleFilePath.keys()) {
+            const patched = this.sourceAsSavedToDisk(moduleFilePath);
+            if (patched !== undefined && this.serverSources) {
+              this.serverSources[moduleFilePath] = patched;
+              if (this.patchedSourcesCache !== null) {
+                this.patchedSourcesCache = {
+                  ...this.patchedSourcesCache,
+                  [moduleFilePath]: undefined,
+                };
+              }
+              affectedModules.push(moduleFilePath);
+            }
+          }
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];
           console.debug("Deleting all patch ids");
@@ -4556,6 +4744,17 @@ export class ValSyncEngine {
         this.invalidatePendingClientSidePatchIds();
         this.invalidateSyncedServerSidePatchIds();
         this.invalidateSavedServerSidePatchIds();
+        // We emptied globalServerSidePatchIds above (fs), so its snapshot must be
+        // invalidated too — otherwise the Save button re-reads a stale non-empty
+        // value when the finally clears publishDisabled, briefly flicking back to
+        // enabled before the next stat/sync corrects it.
+        this.invalidateGlobalServerSidePatchIds();
+        // Notify subscribers so they re-read the freshly baked-in base. The
+        // value is unchanged from the optimistic view, so there's no flicker;
+        // only the snapshot's `optimistic` flag flips to false (now published).
+        for (const moduleFilePath of affectedModules) {
+          this.invalidateSource(moduleFilePath);
+        }
         return {
           status: "done",
         };
