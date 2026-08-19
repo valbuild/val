@@ -74,9 +74,34 @@ describe("ValRouter", () => {
   // sources with apply_patches=false. Renders must be returned either way:
   // the select functions only exist on the server (they are not part of the
   // serialized schema), so the client cannot compute them itself.
-  test.each([undefined, "apply_patches=false", "apply_patches=true"])(
-    "/sources/~ returns renders (query: %s)",
-    async (query) => {
+  const patchedAuthorName = "Fredrik Ekholdt (patched)";
+  const patchedAuthorsSource = {
+    ...authorsSource,
+    freekh: {
+      ...authorsSource.freekh,
+      name: patchedAuthorName,
+    },
+  };
+
+  test.each([
+    {
+      query: undefined,
+      expectedSource: patchedAuthorsSource,
+      expectedBaseSource: authorsSource,
+    },
+    {
+      query: "apply_patches=false",
+      expectedSource: authorsSource,
+      expectedBaseSource: undefined,
+    },
+    {
+      query: "apply_patches=true",
+      expectedSource: patchedAuthorsSource,
+      expectedBaseSource: authorsSource,
+    },
+  ])(
+    "/sources/~ returns renders (query: $query)",
+    async ({ query, expectedSource, expectedBaseSource }) => {
       const onRouteWithRender = createOnRoute(
         c.define(
           "/content/authors.val.ts",
@@ -90,6 +115,48 @@ describe("ValRouter", () => {
           authorsSource,
         ),
       );
+      const patchesRes = await onRouteWithRender(
+        fakeRequest({
+          method: "GET",
+          url: new URL("http://localhost:3000/api/val/patches"),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+      expect(patchesRes.status).toBe(200);
+      if (patchesRes.status !== 200 || !("json" in patchesRes)) {
+        throw new Error("Expected a 200 response with a json body");
+      }
+      const createPatchRes = await onRouteWithRender(
+        fakeRequest({
+          method: "PUT",
+          url: new URL("http://localhost:3000/api/val/patches"),
+          json: {
+            patches: [
+              {
+                path: "/content/authors.val.ts",
+                patchId: "11111111-1111-4111-8111-111111111111",
+                patch: [
+                  {
+                    op: "replace",
+                    path: ["freekh", "name"],
+                    value: patchedAuthorName,
+                  },
+                ],
+              },
+            ],
+            parentRef: {
+              type: "head",
+              headBaseSha: patchesRes.json.baseSha,
+            },
+          },
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+      expect(createPatchRes.status).toBe(200);
       const serverRes = await onRouteWithRender(
         fakeRequest({
           method: "PUT",
@@ -107,15 +174,24 @@ describe("ValRouter", () => {
         throw new Error("Expected a 200 response with a json body");
       }
       const json = serverRes.json as unknown as {
-        modules: Record<string, { render?: unknown }>;
+        modules: Record<
+          string,
+          { source?: unknown; baseSource?: unknown; render?: unknown }
+        >;
       };
+      expect(json.modules["/content/authors.val.ts"]?.source).toEqual(
+        expectedSource,
+      );
+      expect(json.modules["/content/authors.val.ts"]?.baseSource).toEqual(
+        expectedBaseSource,
+      );
       expect(json.modules["/content/authors.val.ts"]?.render).toEqual({
         "/content/authors.val.ts": {
           status: "success",
           data: {
             layout: "list",
             parent: "record",
-            items: Object.entries(authorsSource).map(([key, author]) => [
+            items: Object.entries(patchedAuthorsSource).map(([key, author]) => [
               key,
               {
                 title: author.name,
