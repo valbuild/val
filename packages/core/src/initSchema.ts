@@ -14,6 +14,7 @@ import { file } from "./schema/file";
 import { files } from "./schema/files";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
+import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
@@ -178,6 +179,25 @@ export type InitSchema = {
    */
   readonly datetime: typeof datetime;
   /**
+   * Define a color.
+   *
+   * Stored as a CSS color string, so it can be used directly in `style`
+   * attributes, CSS custom properties and Tailwind arbitrary values.
+   *
+   * The notation is decided by the `format` option, which defaults to `"hsl"`.
+   * Set `alpha: true` to allow transparency.
+   *
+   * @example
+   * const schema = s.color();
+   * export default c.define("/example.val.ts", schema, "hsl(217.22 91.22% 59.8%)");
+   *
+   * @example
+   * const schema = s.color({ format: "hex" });
+   * export default c.define("/example.val.ts", schema, "#3b82f6");
+   *
+   */
+  readonly color: typeof color;
+  /**
    * Define a string that references a route path in your application.
    *
    * To create router pages you can use the s.router() function.
@@ -275,6 +295,7 @@ export function initSchema() {
     files,
     date,
     datetime,
+    color,
     route,
     router,
     images,

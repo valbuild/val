@@ -170,7 +170,11 @@ function rec(
           source,
       );
     }
-  } else if (schema.type === "date" || schema.type === "dateTime") {
+  } else if (
+    schema.type === "date" ||
+    schema.type === "dateTime" ||
+    schema.type === "color"
+  ) {
     if (typeof source === "string") {
       sourceIndex.add(path, source + " " + path);
     } else {

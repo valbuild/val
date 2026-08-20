@@ -91,6 +91,14 @@ export function traverseSchemaSource(
     return;
   }
 
+  // Handle color
+  if (schema.type === "color") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
   // Handle keyOf
   if (schema.type === "keyOf") {
     if (typeof source === "string" || typeof source === "number") {

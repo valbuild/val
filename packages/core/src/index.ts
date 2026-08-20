@@ -106,6 +106,13 @@ import {
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import { convertRemoteSource } from "./schema/remote";
+import {
+  colorToHex,
+  convertColor,
+  detectColorFormat,
+  formatColor,
+  parseColor,
+} from "./schema/colorFormat";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -115,6 +122,17 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export {
+  type SerializedColorSchema,
+  type ColorOptions,
+  ColorSchema,
+} from "./schema/color";
+export {
+  type ColorFormat,
+  type ParsedColor,
+  COLOR_FORMATS,
+  DEFAULT_COLOR_FORMAT,
+} from "./schema/colorFormat";
 export {
   type SerializedDateTimeSchema,
   DateTimeSchema,
@@ -178,6 +196,13 @@ const Internal = {
   joinModuleFilePathAndModulePath,
   nextAppRouter,
   externalPageRouter,
+  color: {
+    parseColor,
+    formatColor,
+    convertColor,
+    detectColorFormat,
+    colorToHex,
+  },
   remote: {
     createRemoteRef,
     getValidationBasis,
