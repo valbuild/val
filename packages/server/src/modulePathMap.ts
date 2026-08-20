@@ -1,6 +1,11 @@
 import ts from "typescript";
 import { Internal, type ModulePath } from "@valbuild/core";
 
+/**
+ * NOTE: `@valbuild/language-server` has a near-identical `modulePathMap.ts`.
+ * Fix traversal bugs in both, or fold them together.
+ */
+
 export type ModulePathMap = {
   [modulePath: string]: {
     children: ModulePathMap;

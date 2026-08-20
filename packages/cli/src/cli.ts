@@ -6,6 +6,7 @@ import { getVersions } from "./getVersions";
 import { connect } from "./connect";
 import chalk from "chalk";
 import { login } from "./login";
+import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
         files
         connect
         versions
+        lsp
         debug
         delete-unappliable-patches
 
@@ -52,6 +54,13 @@ async function main(): Promise<void> {
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: lsp
+      Description: start the Val language server (used by editor integrations)
+      Options:
+        --stdio                  Communicate over stdin/stdout
+        --node-ipc               Communicate over Node IPC
+        --socket=[port]          Communicate over a socket
 
       Command: debug
       Description: Create a self-contained snapshot (the pending patches plus the modules they
@@ -83,11 +92,6 @@ async function main(): Promise<void> {
     `,
     {
       flags: {
-        port: {
-          type: "number",
-          alias: "p",
-          default: 4123,
-        },
         root: {
           type: "string",
           alias: "r",
@@ -155,6 +159,8 @@ async function main(): Promise<void> {
       });
     case "versions":
       return versions();
+    case "lsp":
+      return lsp();
     case "debug":
       return debug({
         root: flags.root,

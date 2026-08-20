@@ -9,7 +9,7 @@ import {
   ValOpsFS,
   ValOpsHttp,
 } from "@valbuild/server";
-import { evalValConfigFile } from "../utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "../utils/evalValConfigFile";
 
 /**
  * Everything the debug commands need in order to talk to the same ops the
@@ -56,9 +56,7 @@ export async function createDebugContext(options: {
   if (!fs.existsSync(projectRoot)) {
     throw new DebugContextError(`Project root does not exist: ${projectRoot}`);
   }
-  const config =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const config = await findAndEvalValConfigFile(projectRoot);
   if (!config) {
     throw new DebugContextError(
       `Could not find val.config.ts nor val.config.js in: ${projectRoot}`,

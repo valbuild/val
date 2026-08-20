@@ -8,14 +8,12 @@ import {
 import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
 import path from "path";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
   // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
   const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
     /^\//,

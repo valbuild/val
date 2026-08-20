@@ -1,0 +1,554 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+import ts from "typescript";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import {
+  findFileRefArgument,
+  getValCompletionContext,
+} from "./completionContext";
+import { createPublicValFiles } from "./publicValFiles";
+import {
+  startLspSession,
+  EXAMPLE_APP,
+  type LspSession,
+} from "./__testHelpers__/lspClient";
+
+jest.setTimeout(90000);
+
+describe("getValCompletionContext", () => {
+  /** Returns the context at the position marked by `|` in the source. */
+  function contextAt(source: string) {
+    const offset = source.indexOf("|");
+    const text = source.replace("|", "");
+    return getValCompletionContext(
+      ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020),
+      offset,
+    );
+  }
+
+  /** As above, but only when the cursor is in a file reference. */
+  function fileRefAt(source: string) {
+    const context = contextAt(source);
+    return context?.kind === "file-ref" ? context : undefined;
+  }
+
+  test("detects the cursor inside c.image()'s reference argument", () => {
+    const context = fileRefAt(`export default c.define("/x", schema, {
+  image: c.image("/public/val/|"),
+});`);
+    expect(context?.kind).toBe("file-ref");
+    expect(context?.subType).toBe("image");
+    expect(context?.currentText).toBe("/public/val/");
+  });
+
+  test("detects c.file() as well", () => {
+    expect(fileRefAt(`const a = c.file("|");`)?.subType).toBe("file");
+  });
+
+  test("works on an empty string and at both quote edges", () => {
+    expect(fileRefAt(`const a = c.image("|");`)?.subType).toBe("image");
+    expect(fileRefAt(`const a = c.image("|abc");`)?.currentText).toBe("abc");
+    expect(fileRefAt(`const a = c.image("abc|");`)?.currentText).toBe("abc");
+  });
+
+  test("reports an existing metadata argument so it can be replaced", () => {
+    const context = fileRefAt(
+      `const a = c.image("|/p.png", { width: 1, height: 2 });`,
+    );
+    expect(context?.metadataStart).toBeDefined();
+    expect(context?.metadataEnd).toBeDefined();
+  });
+
+  test("reports no metadata argument when there is none", () => {
+    const context = fileRefAt(`const a = c.image("|/p.png");`);
+    expect(context?.metadataStart).toBeUndefined();
+  });
+
+  test("reports no file reference outside one", () => {
+    // Outside any string there is no context at all.
+    expect(contextAt(`const a = c.image("/p.png")|;`)).toBeUndefined();
+    // Inside a plain string there is a context, but not a file reference:
+    // schema-driven completions decide whether they apply there.
+    expect(contextAt(`const a = "|just a string";`)?.kind).toBe("string-value");
+    expect(fileRefAt(`const a = "|just a string";`)).toBeUndefined();
+    expect(fileRefAt(`const a = somethingElse("|/p.png");`)).toBeUndefined();
+    // The metadata argument is not the reference argument.
+    expect(
+      fileRefAt(`const a = c.image("/p.png", { width: |1 });`),
+    ).toBeUndefined();
+  });
+
+  test("distinguishes an object key from a value", () => {
+    // Which schema describes the string depends on this: a value is described by
+    // the schema at its own path, a key by its container's.
+    expect(
+      contextAt(`export default c.define("/x", schema, { "|/a.png": {} });`),
+    ).toMatchObject({ kind: "string-value", isPropertyName: true });
+    expect(
+      contextAt(`export default c.define("/x", schema, { a: "|value" });`),
+    ).toMatchObject({ kind: "string-value", isPropertyName: false });
+  });
+
+  test("handles a multi-line call", () => {
+    const context = fileRefAt(`const a = c.image(
+  "|/public/val/logo.png",
+  { width: 1, height: 2, mimeType: "image/png" },
+);`);
+    expect(context?.subType).toBe("image");
+    expect(context?.metadataStart).toBeDefined();
+  });
+
+  test("picks the innermost call when nested", () => {
+    // Contrived, but proves the walk descends rather than stopping at the outer
+    // call expression.
+    const context = fileRefAt(`const a = wrap(c.file("|/a.pdf"));`);
+    expect(context?.subType).toBe("file");
+  });
+});
+
+describe("string literals without a closing quote", () => {
+  /**
+   * A client that does not auto-close quotes (a hand-written Neovim config, say)
+   * leaves `c.image("` unterminated while the user types. Bounding the literal at
+   * `getEnd() - 1` excluded every position inside it, so such a client got no
+   * completions at all.
+   */
+  function contextAt(source: string) {
+    const offset = source.indexOf("|");
+    const text = source.replace("|", "");
+    return getValCompletionContext(
+      ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020),
+      offset,
+    );
+  }
+
+  test("offers a file reference inside an unterminated literal", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  image: c.image("|
+});`);
+    expect(context?.kind).toBe("file-ref");
+    if (context?.kind !== "file-ref") return;
+    expect(context.currentText).toBe("");
+  });
+
+  test("offers a string value inside an unterminated literal", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  author: "fr|
+});`);
+    expect(context?.kind).toBe("string-value");
+    if (context?.kind !== "string-value") return;
+    expect(context.currentText).toBe("fr");
+  });
+
+  test("an escaped trailing quote does not count as the terminator", () => {
+    const context = contextAt(`export default c.define("/x", schema, {
+  author: "a\\"|
+});`);
+    expect(context?.kind).toBe("string-value");
+  });
+});
+
+describe("findFileRefArgument", () => {
+  /**
+   * Guards the file-corruption case: `completionItem/resolve` used to replay the
+   * offsets captured when the list was built, so typing to filter and then
+   * accepting an item inserted the metadata object *inside* the string literal.
+   */
+  function parse(text: string) {
+    return ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020);
+  }
+
+  const before = `export default c.define("/x", schema, {
+  image: c.image(""),
+});`;
+  // What the document looks like after the user typed "logo" to filter the list.
+  const after = `export default c.define("/x", schema, {
+  image: c.image("logo"),
+});`;
+  const refArgStart = before.indexOf('c.image("') + "c.image(".length;
+
+  test("re-derives the argument end after the literal grew", () => {
+    const stale = getValCompletionContext(parse(before), refArgStart + 1);
+    expect(stale?.kind).toBe("file-ref");
+
+    const fresh = findFileRefArgument(parse(after), refArgStart)!;
+    expect(fresh).toBeDefined();
+    // The end moved by the four characters typed; the stale value would have
+    // pointed into the middle of the literal.
+    expect(fresh.refArgEnd).toBe(
+      after.indexOf('c.image("logo")') + 'c.image("logo"'.length,
+    );
+    expect(after.slice(fresh.refArgEnd, fresh.refArgEnd + 1)).toBe(")");
+  });
+
+  test("finds an existing metadata argument to replace", () => {
+    const text = `export default c.define("/x", schema, {
+  image: c.image("logo", { width: 1, height: 2 }),
+});`;
+    const start = text.indexOf('c.image("') + "c.image(".length;
+    const found = findFileRefArgument(parse(text), start)!;
+    expect(found.metadataStart).toBeDefined();
+    expect(text.slice(found.metadataStart, found.metadataEnd)).toBe(
+      "{ width: 1, height: 2 }",
+    );
+  });
+
+  test("reports nothing when the anchor no longer resolves", () => {
+    // Better no metadata than metadata in the wrong place.
+    expect(findFileRefArgument(parse(after), 9999)).toBeUndefined();
+  });
+});
+
+describe("createPublicValFiles", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "val-public-"));
+    fs.mkdirSync(path.join(dir, "public", "val", "images"), {
+      recursive: true,
+    });
+    fs.writeFileSync(path.join(dir, "public", "val", "images", "a.png"), "x");
+    fs.writeFileSync(path.join(dir, "public", "val", "doc.pdf"), "x");
+    fs.writeFileSync(path.join(dir, "public", "val", ".DS_Store"), "x");
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("lists files as Val-style refs, including the /public prefix", () => {
+    const files = createPublicValFiles({ valRoot: dir });
+    expect(files.list().map((f) => f.ref)).toEqual([
+      "/public/val/doc.pdf",
+      "/public/val/images/a.png",
+    ]);
+  });
+
+  test("skips dotfiles", () => {
+    const refs = createPublicValFiles({ valRoot: dir })
+      .list()
+      .map((f) => f.ref);
+    expect(refs.some((r) => r.includes(".DS_Store"))).toBe(false);
+  });
+
+  test("derives mime types and filters images", () => {
+    const files = createPublicValFiles({ valRoot: dir });
+    expect(files.images().map((f) => f.ref)).toEqual([
+      "/public/val/images/a.png",
+    ]);
+    expect(files.list().find((f) => f.ref.endsWith(".pdf"))?.mimeType).toBe(
+      "application/pdf",
+    );
+  });
+
+  test("returns nothing when the directory does not exist", () => {
+    expect(
+      createPublicValFiles({ valRoot: path.join(dir, "nope") }).list(),
+    ).toEqual([]);
+  });
+
+  test("caches briefly, and invalidate() forces a re-read", () => {
+    const clock = 1000;
+    const files = createPublicValFiles({ valRoot: dir, now: () => clock });
+    expect(files.list()).toHaveLength(2);
+
+    fs.writeFileSync(path.join(dir, "public", "val", "new.png"), "x");
+    // Within the cache window the new file is not visible yet.
+    expect(files.list()).toHaveLength(2);
+
+    files.invalidate();
+    expect(files.list()).toHaveLength(3);
+  });
+
+  test("picks up new files once the cache window passes", () => {
+    let clock = 1000;
+    const files = createPublicValFiles({ valRoot: dir, now: () => clock });
+    expect(files.list()).toHaveLength(2);
+    fs.writeFileSync(path.join(dir, "public", "val", "new.png"), "x");
+    clock += 5000;
+    expect(files.list()).toHaveLength(3);
+  });
+});
+
+describe("completions over LSP", () => {
+  let session: LspSession;
+  const uri = `file://${path.join(EXAMPLE_APP, "content", "fixtureCompletion.val.ts")}`;
+
+  beforeEach(async () => {
+    session = await startLspSession();
+  });
+
+  afterEach(() => {
+    session.dispose();
+  });
+
+  test("advertises the media path completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/mediaPath");
+  });
+
+  test("offers existing files inside c.image()", async () => {
+    const text = `import { s, c } from "../val.config";
+export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s.image() }), {
+  image: c.image(""),
+});
+`;
+    session.openDocument(uri, text);
+
+    const document = TextDocument.create(uri, "typescript", 1, text);
+    const items = await session.requestCompletions(
+      uri,
+      document.positionAt(text.indexOf('c.image("') + 'c.image("'.length),
+    );
+
+    const labels = items.map((i) => i.label);
+    // The example app really has this image.
+    expect(labels).toContain("/public/val/images/logo.png");
+    // c.image() must not offer non-images.
+    expect(labels.some((l) => l.endsWith(".webm"))).toBe(false);
+    // Each item replaces the string contents rather than inserting at the cursor.
+    expect(items[0].textEdit).toBeDefined();
+  });
+
+  test("offers non-image files inside c.file()", async () => {
+    const text = `import { s, c } from "../val.config";
+export default c.define("/content/fixtureCompletion.val.ts", s.object({ f: s.file() }), {
+  f: c.file(""),
+});
+`;
+    session.openDocument(uri, text);
+
+    const document = TextDocument.create(uri, "typescript", 1, text);
+    const items = await session.requestCompletions(
+      uri,
+      document.positionAt(text.indexOf('c.file("') + 'c.file("'.length),
+    );
+
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("/public/val/file_example.webm");
+    expect(labels).toContain("/public/val/images/logo.png");
+  });
+
+  test("resolving an item fills in the metadata argument", async () => {
+    const text = `import { s, c } from "../val.config";
+export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s.image() }), {
+  image: c.image(""),
+});
+`;
+    session.openDocument(uri, text);
+
+    const document = TextDocument.create(uri, "typescript", 1, text);
+    const items = await session.requestCompletions(
+      uri,
+      document.positionAt(text.indexOf('c.image("') + 'c.image("'.length),
+    );
+    const logo = items.find((i) => i.label === "/public/val/images/logo.png");
+    expect(logo).toBeDefined();
+
+    const resolved = await session.resolveCompletion(logo!);
+    expect(resolved.additionalTextEdits).toBeDefined();
+    const [edit] = resolved.additionalTextEdits!;
+    // Real dimensions of the example app's logo, read from the file itself.
+    expect(edit.newText).toContain("944");
+    expect(edit.newText).toContain('mimeType: "image/png"');
+    // Inserted after the reference argument, not replacing it.
+    expect(edit.newText.startsWith(", {")).toBe(true);
+    expect(edit.range.start).toEqual(edit.range.end);
+  });
+
+  test("advertises the keyOf completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/keyOf");
+  });
+
+  test("offers the referenced record's keys for an s.keyOf field", async () => {
+    // page.val.ts declares `author: s.keyOf(authorsVal)`, so the candidates are
+    // the keys of /content/authors.val.ts -- a different module, which is why
+    // this needs the project-wide snapshot.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const pageUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(pageUri, original);
+    await session.nextDiagnostics(pageUri);
+
+    const match = original.match(/author:\s*"([^"]*)"/);
+    expect(match).not.toBeNull();
+    const document = TextDocument.create(pageUri, "typescript", 1, original);
+    // Put the cursor just inside the opening quote of the author value.
+    const offset =
+      original.indexOf(match![0]) +
+      match![0].indexOf('"', "author:".length) +
+      1;
+
+    const items = await session.requestCompletions(
+      pageUri,
+      document.positionAt(offset),
+    );
+    const labels = items.map((i) => i.label);
+
+    // Real author keys from the other module.
+    expect(labels).toContain("freekh");
+    expect(labels.length).toBeGreaterThan(1);
+    // Replaces the string contents rather than inserting.
+    expect(items[0].textEdit).toBeDefined();
+  });
+
+  test("advertises the route completion feature", () => {
+    expect(session.capabilities?.features).toContain("completions/route");
+  });
+
+  test("offers the project's routes for an s.route field", async () => {
+    // page.val.ts declares `link: s.route()`. The candidates are the keys of the
+    // project's router modules, so this also needs the snapshot.
+    const file = path.join(EXAMPLE_APP, "app", "page.val.ts");
+    const pageUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(pageUri, original);
+    await session.nextDiagnostics(pageUri);
+
+    const match = original.match(/\n\s+link:\s*"([^"]*)"/);
+    expect(match).not.toBeNull();
+    const document = TextDocument.create(pageUri, "typescript", 1, original);
+    const offset =
+      original.indexOf(match![0]) + match![0].indexOf('"', "link:".length) + 1;
+
+    const items = await session.requestCompletions(
+      pageUri,
+      document.positionAt(offset),
+    );
+    const labels = items.map((i) => i.label);
+    expect(labels.length).toBeGreaterThan(0);
+
+    // Internal pages: the root page exists in the example app.
+    expect(labels).toContain("/");
+    expect(labels.some((l) => l.startsWith("/blogs/"))).toBe(true);
+
+    // External URLs are valid route values too -- the example app registers them
+    // through a router module using externalPageRouter -- so they belong in the
+    // candidate list rather than being filtered out.
+    const external = items.filter((i) => i.label.startsWith("https://"));
+    expect(external.length).toBeGreaterThan(0);
+    expect(external[0].detail).toBe("/app/external.val.ts");
+
+    // Every item says which module defines it, so an internal page and an
+    // external link are distinguishable in the list.
+    for (const item of items) {
+      expect(item.detail).toMatch(/\.val\.ts$/);
+      expect(item.textEdit).toBeDefined();
+    }
+  });
+
+  test("advertises the gallery key and richtext link features", () => {
+    expect(session.capabilities?.features).toContain("completions/galleryKey");
+    expect(session.capabilities?.features).toContain(
+      "completions/richtextLink",
+    );
+  });
+
+  test("offers files from the gallery's own directory as record keys", async () => {
+    // media.val.ts is `s.images({ directory: "/public/val/images" })`, keyed by
+    // file reference. A key is described by its container, so the candidates come
+    // from the record's declared directory -- not the project-wide files dir.
+    const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
+    const galleryUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(galleryUri, original);
+    await session.nextDiagnostics(galleryUri);
+
+    const document = TextDocument.create(galleryUri, "typescript", 1, original);
+    // Cursor just inside the opening quote of the existing entry key.
+    const keyOffset = original.indexOf('"/public/val/images/logo.png"') + 1;
+    const items = await session.requestCompletions(
+      galleryUri,
+      document.positionAt(keyOffset),
+    );
+
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain("/public/val/images/logo.png");
+    // Scoped to the gallery's directory: the webm sits in /public/val, not
+    // /public/val/images, so it must not be offered.
+    expect(labels.some((l) => l.endsWith(".webm"))).toBe(false);
+    for (const label of labels) {
+      expect(label.startsWith("/public/val/images/")).toBe(true);
+    }
+  });
+
+  test("offers routes for a route field nested deep inside a router record", async () => {
+    // link.href is `s.route()` inside an object, inside a record keyed by route.
+    // Exercises the position -> module path walk at depth.
+    const file = path.join(
+      EXAMPLE_APP,
+      "app",
+      "blogs",
+      "[blog]",
+      "page.val.ts",
+    );
+    const blogUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+    session.openDocument(blogUri, original);
+    await session.nextDiagnostics(blogUri);
+
+    const document = TextDocument.create(blogUri, "typescript", 1, original);
+    const offset = original.indexOf('href: "') + 'href: "'.length;
+    const items = await session.requestCompletions(
+      blogUri,
+      document.positionAt(offset),
+    );
+
+    expect(items.map((i) => i.label)).toContain("/");
+    expect(items.length).toBeGreaterThan(1);
+  });
+
+  test("offers routes for a richtext inline link href", async () => {
+    // A richtext link is a plain `{ tag: "a", href }` node, which Val does not
+    // describe with a schema, so the candidates come from the enclosing
+    // richtext's `inline.a` instead.
+    const file = path.join(
+      EXAMPLE_APP,
+      "app",
+      "blogs",
+      "[blog]",
+      "page.val.ts",
+    );
+    const blogUri = `file://${file}`;
+    const original = fs.readFileSync(file, "utf8");
+
+    // The example app's richtext content has only `tag: "p"` nodes, so add a link
+    // in the buffer. The file exists on disk, so the snapshot picks up the edit.
+    const withLink = original.replace(
+      '          tag: "p",\n          children: ["Blog 2 content"],',
+      '          tag: "p",\n          children: [{ tag: "a", href: "", children: ["x"] }],',
+    );
+    expect(withLink).not.toBe(original);
+
+    session.openDocument(blogUri, original);
+    await session.nextDiagnostics(blogUri);
+    session.changeDocument(blogUri, 2, withLink);
+    await session.nextDiagnostics(blogUri);
+
+    const document = TextDocument.create(blogUri, "typescript", 1, withLink);
+    const offset = withLink.indexOf('href: ""') + 'href: "'.length;
+    const items = await session.requestCompletions(
+      blogUri,
+      document.positionAt(offset),
+    );
+
+    expect(items.map((i) => i.label)).toContain("/");
+    expect(items.length).toBeGreaterThan(1);
+  });
+
+  test("offers nothing outside a file reference", async () => {
+    const text = `import { s, c } from "../val.config";
+export default c.define("/content/fixtureCompletion.val.ts", s.object({ a: s.string() }), {
+  a: "",
+});
+`;
+    session.openDocument(uri, text);
+
+    const document = TextDocument.create(uri, "typescript", 1, text);
+    const items = await session.requestCompletions(
+      uri,
+      document.positionAt(text.indexOf('a: "') + 'a: "'.length),
+    );
+    expect(items).toEqual([]);
+  });
+});
