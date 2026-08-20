@@ -3,7 +3,7 @@ import authorsVal from "../../../content/authors.val";
 import { linkSchema } from "../../../components/link.val";
 
 const blogSchema = s.object({
-  title: s.string().maxLength(3),
+  title: s.string(),
   content: s.richtext({
     inline: {
       a: s.route(),
@@ -15,7 +15,19 @@ const blogSchema = s.object({
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s.router(nextAppRouter, blogSchema),
+  s
+    .router(
+      nextAppRouter,
+      s.string().describe("The URL of the blog post"),
+      blogSchema,
+    )
+    .render({
+      as: "list",
+      select: ({ val }) => ({
+        title: val.title,
+        subtitle: val.author,
+      }),
+    }),
   {
     "/blogs/blog2": {
       title: "Blog 2",
@@ -228,7 +240,7 @@ export default c.define(
       },
     },
     "/blogs/blog-15": {
-      title: "Blog 1",
+      title: "Blog dette er jo sinnsyjt! men hvorfor har vi to feil?",
       content: [
         {
           tag: "p",

@@ -3,6 +3,7 @@ import React, {
   useRef,
   useEffect,
   useCallback,
+  useId,
   useImperativeHandle,
   forwardRef,
 } from "react";
@@ -33,6 +34,7 @@ import {
   Paperclip,
   GitCompareArrows,
   X,
+  HelpCircle,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
@@ -50,11 +52,41 @@ export type ChatMessageStatus = "complete" | "streaming" | "error";
 
 export type ToolActivityStatus = "pending" | "complete" | "error";
 
+export type AskUserQuestionItem = {
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+  defaults?: number[];
+};
+
+export type AskUserQuestionAnswer = {
+  question: string;
+  selectedOptions: number[];
+  customAnswer: string | null;
+};
+
 export type ToolActivity = {
   toolCallId: string;
   name: string;
   status: ToolActivityStatus;
+  questions?: AskUserQuestionItem[];
+  answers?: AskUserQuestionAnswer[];
+  cancelled?: boolean;
 };
+
+/**
+ * True while an ask_user_question card is still open, i.e. the user has neither
+ * submitted answers nor cancelled. Such an activity blocks the assistant turn.
+ */
+function isPendingQuestion(activity: ToolActivity): boolean {
+  return (
+    activity.questions !== undefined &&
+    activity.answers === undefined &&
+    !activity.cancelled &&
+    activity.status === "pending"
+  );
+}
 
 export type ChatMessageAttachment = {
   key: string;
@@ -101,6 +133,7 @@ export type AIChatHandle = {
     messageId: string,
     toolCallId: string,
     toolName: string,
+    questions?: AskUserQuestionItem[],
   ) => void;
   /** Mark a tool call as complete */
   completeToolCall: (messageId: string, toolCallId: string) => void;
@@ -144,6 +177,13 @@ export type AIChatProps = {
   onSetSessionName?: (sessionId: string, name: string) => void;
   /** True while a previous session's messages are being fetched from the server. */
   isLoadingSession?: boolean;
+  /** Called when the user submits answers to an ask_user_question tool call */
+  onAnswerToolQuestions?: (
+    toolCallId: string,
+    answers: AskUserQuestionAnswer[],
+  ) => void;
+  /** Called when the user cancels an ask_user_question tool call */
+  onCancelToolQuestion?: (toolCallId: string) => void;
   /**
    * @internal – seed messages for Storybook / testing only.
    * Not part of the public API.
@@ -215,6 +255,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onFetchSessions,
     onSetSessionName,
     isLoadingSession,
+    onAnswerToolQuestions,
+    onCancelToolQuestion,
     initialMessages,
   },
   ref,
@@ -252,9 +294,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, [messages]);
 
-  // 2-minute timeout for in-progress assistant messages
+  // 2-minute timeout for in-progress assistant messages. Suspended while an
+  // ask_user_question card is open: that tool sets timeoutMs: null server-side
+  // precisely because it blocks on the user, so the client must not time out
+  // either. The clock is restarted (startedAt is bumped) once the user submits
+  // or cancels, so it measures server time, not thinking time.
+  const awaitingUserAnswer = (
+    currentMessage?.message.toolActivities ?? []
+  ).some(isPendingQuestion);
   useEffect(() => {
-    if (!currentMessage) return;
+    if (!currentMessage || awaitingUserAnswer) return;
     const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
     if (remaining <= 0) {
       setCompletedMessages((prev) => [
@@ -279,7 +328,65 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       });
     }, remaining);
     return () => clearTimeout(timer);
-  }, [currentMessage]);
+  }, [currentMessage, awaitingUserAnswer]);
+
+  // ---- Local state mutators (shared by imperative handle and inline UI) ----
+
+  const updateToolActivity = useCallback(
+    (
+      messageId: string,
+      toolCallId: string,
+      update: (activity: ToolActivity) => ToolActivity,
+    ) => {
+      const mapMessage = (msg: ChatMessage): ChatMessage => ({
+        ...msg,
+        toolActivities: (msg.toolActivities ?? []).map((t) =>
+          t.toolCallId === toolCallId ? update(t) : t,
+        ),
+      });
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        // Restart the in-progress timeout window from the moment the user
+        // acted — see the timeout effect above.
+        return { message: mapMessage(prev.message), startedAt: Date.now() };
+      });
+      // The message may already have been moved to completedMessages (e.g. by
+      // an ai_error) while the question card was still open, in which case the
+      // card renders from there and needs the same update.
+      setCompletedMessages((prev) =>
+        prev.some((m) => m.id === messageId)
+          ? prev.map((m) => (m.id === messageId ? mapMessage(m) : m))
+          : prev,
+      );
+    },
+    [],
+  );
+
+  const recordAnswersInState = useCallback(
+    (
+      messageId: string,
+      toolCallId: string,
+      answers: AskUserQuestionAnswer[],
+    ) => {
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        status: "complete",
+        answers,
+      }));
+    },
+    [updateToolActivity],
+  );
+
+  const recordCancelInState = useCallback(
+    (messageId: string, toolCallId: string) => {
+      updateToolActivity(messageId, toolCallId, (t) => ({
+        ...t,
+        status: "error",
+        cancelled: true,
+      }));
+    },
+    [updateToolActivity],
+  );
 
   // ---- Imperative handle for WebSocket layer ----
 
@@ -323,11 +430,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         return null;
       });
     },
-    addToolCall(messageId: string, toolCallId: string, toolName: string) {
+    addToolCall(
+      messageId: string,
+      toolCallId: string,
+      toolName: string,
+      questions?: AskUserQuestionItem[],
+    ) {
       const activity: ToolActivity = {
         toolCallId,
         name: toolName,
         status: "pending",
+        ...(questions ? { questions } : {}),
       };
       setCurrentMessage((prev) => {
         if (prev && prev.message.id === messageId) {
@@ -740,7 +853,19 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             />
           ) : (
             messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} onRetry={handleRetry} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                onRetry={handleRetry}
+                onSubmitToolAnswers={(toolCallId, answers) => {
+                  recordAnswersInState(msg.id, toolCallId, answers);
+                  onAnswerToolQuestions?.(toolCallId, answers);
+                }}
+                onCancelToolQuestion={(toolCallId) => {
+                  recordCancelInState(msg.id, toolCallId);
+                  onCancelToolQuestion?.(toolCallId);
+                }}
+              />
             ))
           )}
           <div ref={bottomRef} />
@@ -953,9 +1078,16 @@ function EmptyState({
 function MessageBubble({
   message,
   onRetry,
+  onSubmitToolAnswers,
+  onCancelToolQuestion,
 }: {
   message: ChatMessage;
   onRetry: (id: string) => void;
+  onSubmitToolAnswers: (
+    toolCallId: string,
+    answers: AskUserQuestionAnswer[],
+  ) => void;
+  onCancelToolQuestion: (toolCallId: string) => void;
 }) {
   const config = useValConfig();
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
@@ -965,6 +1097,9 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
+  const hasPendingQuestion = (message.toolActivities ?? []).some(
+    isPendingQuestion,
+  );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
 
@@ -1030,7 +1165,11 @@ function MessageBubble({
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             {message.toolActivities && message.toolActivities.length > 0 && (
-              <ToolActivitiesIndicator activities={message.toolActivities} />
+              <ToolActivitiesIndicator
+                activities={message.toolActivities}
+                onSubmitAnswers={onSubmitToolAnswers}
+                onCancel={onCancelToolQuestion}
+              />
             )}
             {fileUrls.length > 0 && (
               <div className="not-prose mb-3 flex flex-wrap gap-2">
@@ -1046,10 +1185,13 @@ function MessageBubble({
             )}
             {textContent ? (
               <ReactMarkdown>{textContent}</ReactMarkdown>
-            ) : isStreamingMsg || isError || fileUrls.length > 0 ? null : (
+            ) : isStreamingMsg ||
+              isError ||
+              fileUrls.length > 0 ||
+              hasPendingQuestion ? null : (
               <p className="text-fg-secondary italic">Empty response</p>
             )}
-            {isStreamingMsg && <StreamingCursor />}
+            {isStreamingMsg && !hasPendingQuestion && <StreamingCursor />}
           </div>
         )}
 
@@ -1164,12 +1306,23 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
       label: "Opening compare view",
       icon: <GitCompareArrows className="h-3 w-3" />,
     },
+    ask_user_question: {
+      label: "Asking a question",
+      icon: <HelpCircle className="h-3 w-3" />,
+    },
   };
 
 function ToolActivitiesIndicator({
   activities,
+  onSubmitAnswers,
+  onCancel,
 }: {
   activities: ToolActivity[];
+  onSubmitAnswers: (
+    toolCallId: string,
+    answers: AskUserQuestionAnswer[],
+  ) => void;
+  onCancel: (toolCallId: string) => void;
 }) {
   return (
     <div className="not-prose flex flex-col gap-1 mb-2">
@@ -1180,6 +1333,39 @@ function ToolActivitiesIndicator({
         };
         const isPending = activity.status === "pending";
         const isError = activity.status === "error";
+        if (isPendingQuestion(activity) && activity.questions) {
+          return (
+            <QuestionCard
+              key={activity.toolCallId}
+              questions={activity.questions}
+              onSubmit={(answers) =>
+                onSubmitAnswers(activity.toolCallId, answers)
+              }
+              onCancel={() => onCancel(activity.toolCallId)}
+            />
+          );
+        }
+        if (activity.questions && activity.answers) {
+          return (
+            <AnsweredQuestionSummary
+              key={activity.toolCallId}
+              answers={activity.answers}
+              questions={activity.questions}
+            />
+          );
+        }
+        if (activity.questions && activity.cancelled) {
+          return (
+            <div
+              key={activity.toolCallId}
+              className="flex items-center gap-1.5 text-xs py-0.5 text-fg-secondary"
+            >
+              <XCircle className="h-3 w-3" />
+              <HelpCircle className="h-3 w-3" />
+              <span>Question dismissed</span>
+            </div>
+          );
+        }
         return (
           <div
             key={activity.toolCallId}
@@ -1209,6 +1395,365 @@ function ToolActivitiesIndicator({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AnsweredQuestionSummary({
+  questions,
+  answers,
+}: {
+  questions: AskUserQuestionItem[];
+  answers: AskUserQuestionAnswer[];
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 text-xs text-fg-secondary py-0.5">
+      <div className="flex items-center gap-1.5">
+        <HelpCircle className="h-3 w-3" />
+        <span>Asked a question</span>
+      </div>
+      {answers.map((a, i) => {
+        const q = questions[i];
+        const parts: string[] = [];
+        if (q) {
+          a.selectedOptions.forEach((idx) => {
+            const label = q.options[idx]?.label;
+            if (label) parts.push(label);
+          });
+        }
+        if (a.customAnswer) parts.push(a.customAnswer);
+        const answerText = parts.join(", ") || "(no answer)";
+        return (
+          <div key={i} className="pl-4 truncate">
+            <span className="text-fg-tertiary">Q:</span> {a.question}{" "}
+            <span className="text-fg-tertiary">→</span> {answerText}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type DraftAnswer = {
+  selected: Set<number>;
+  custom: string;
+  otherSelected: boolean;
+};
+
+function initialDrafts(questions: AskUserQuestionItem[]): DraftAnswer[] {
+  return questions.map((q) => {
+    const selected = new Set<number>();
+    if (q.defaults && q.defaults.length > 0) {
+      const validDefaults = q.defaults.filter(
+        (idx) => Number.isInteger(idx) && idx >= 0 && idx < q.options.length,
+      );
+      if (q.multiSelect) {
+        validDefaults.forEach((idx) => selected.add(idx));
+      } else if (validDefaults.length > 0) {
+        selected.add(validDefaults[0]);
+      }
+    }
+    return { selected, custom: "", otherSelected: false };
+  });
+}
+
+function QuestionCard({
+  questions,
+  onSubmit,
+  onCancel,
+}: {
+  questions: AskUserQuestionItem[];
+  onSubmit: (answers: AskUserQuestionAnswer[]) => void;
+  onCancel: () => void;
+}) {
+  const [drafts, setDrafts] = useState<DraftAnswer[]>(() =>
+    initialDrafts(questions),
+  );
+  const [submitted, setSubmitted] = useState(false);
+  // Each group is labelled by its question text, so the ids must be unique
+  // across the several cards a session can accumulate.
+  const baseId = useId();
+
+  const canSubmit = drafts.every(
+    (d) =>
+      d.selected.size > 0 || (d.otherSelected && d.custom.trim().length > 0),
+  );
+
+  const toggleOption = (qi: number, oi: number, multiSelect: boolean) => {
+    if (submitted) return;
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== qi) return d;
+        const next = new Set(d.selected);
+        if (multiSelect) {
+          if (next.has(oi)) next.delete(oi);
+          else next.add(oi);
+          return { ...d, selected: next };
+        }
+        next.clear();
+        next.add(oi);
+        // Single-select: picking an option deselects Other.
+        return { ...d, selected: next, otherSelected: false };
+      }),
+    );
+  };
+
+  const selectOther = (qi: number, multiSelect: boolean) => {
+    if (submitted) return;
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== qi) return d;
+        if (multiSelect) {
+          return { ...d, otherSelected: !d.otherSelected };
+        }
+        // Single-select: selecting Other deselects all listed options.
+        return { ...d, selected: new Set<number>(), otherSelected: true };
+      }),
+    );
+  };
+
+  const setCustom = (qi: number, value: string, multiSelect: boolean) => {
+    if (submitted) return;
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== qi) return d;
+        // Typing in the Other input auto-selects Other. In single-select
+        // mode, this also deselects the listed options.
+        if (multiSelect) {
+          return { ...d, custom: value, otherSelected: true };
+        }
+        return {
+          ...d,
+          custom: value,
+          otherSelected: true,
+          selected: new Set<number>(),
+        };
+      }),
+    );
+  };
+
+  // Radio/checkbox navigation. Each question owns options 0..n-1 plus the
+  // free-text row at index n, all addressed by `${qi}:${index}`.
+  const radioRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+  const radioKey = (qi: number, index: number) => `${qi}:${index}`;
+
+  // Single-select groups are radiogroups, so they get the radio keyboard
+  // pattern: arrows move focus AND selection, and only the checked radio is in
+  // the tab order (see checkedIndex below). Multi-select groups are checkboxes,
+  // which are each individually tabbable and toggled with Space — that is the
+  // native button behaviour, so they need no key handling.
+  const handleRadioKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    qi: number,
+    index: number,
+    radioCount: number,
+  ) => {
+    let next: number;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      next = (index + 1) % radioCount;
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      next = (index - 1 + radioCount) % radioCount;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const otherIndex = radioCount - 1;
+    if (next === otherIndex) {
+      selectOther(qi, false);
+    } else {
+      toggleOption(qi, next, false);
+    }
+    radioRefs.current.get(radioKey(qi, next))?.focus();
+  };
+
+  const handleSubmit = () => {
+    if (submitted || !canSubmit) return;
+    setSubmitted(true);
+    const answers: AskUserQuestionAnswer[] = questions.map((q, i) => {
+      const d = drafts[i];
+      return {
+        question: q.question,
+        selectedOptions: Array.from(d.selected).sort((a, b) => a - b),
+        customAnswer:
+          d.otherSelected && d.custom.trim().length > 0
+            ? d.custom.trim()
+            : null,
+      };
+    });
+    onSubmit(answers);
+  };
+
+  const handleCancel = () => {
+    if (submitted) return;
+    setSubmitted(true);
+    onCancel();
+  };
+
+  return (
+    <div className="not-prose flex flex-col gap-3 rounded-md border border-border-primary bg-bg-secondary p-3 my-2">
+      <div className="flex items-center gap-1.5 text-xs text-fg-secondary">
+        <HelpCircle className="h-3 w-3" />
+        <span>Please answer to continue</span>
+      </div>
+      {questions.map((q, qi) => {
+        const multiSelect = q.multiSelect === true;
+        const draft = drafts[qi];
+        const otherIndex = q.options.length;
+        const radioCount = otherIndex + 1;
+        const questionLabelId = `${baseId}-q${qi}`;
+        // Roving tabindex for single-select: the checked radio is the group's
+        // single tab stop, falling back to the first control when nothing is
+        // checked yet. Checkboxes are each tabbable, so this is unused there.
+        const checkedIndex = draft.otherSelected
+          ? otherIndex
+          : (Array.from(draft.selected).sort((a, b) => a - b)[0] ?? 0);
+        const tabIndexFor = (index: number) =>
+          multiSelect ? undefined : checkedIndex === index ? 0 : -1;
+        return (
+          <div key={qi} className="flex flex-col gap-1.5">
+            {q.header && (
+              <div className="text-xs uppercase tracking-wide text-fg-tertiary">
+                {q.header}
+              </div>
+            )}
+            <div id={questionLabelId} className="text-sm text-fg-primary">
+              {q.question}
+            </div>
+            {/* The free-text row is the last choice inside the group, so it is
+                reachable by arrow keys and counted in "n of m" announcements. */}
+            <div
+              role={multiSelect ? "group" : "radiogroup"}
+              aria-labelledby={questionLabelId}
+              className="flex flex-col gap-1"
+            >
+              {q.options.map((opt, oi) => {
+                const isSelected = draft.selected.has(oi);
+                return (
+                  <button
+                    key={oi}
+                    ref={(el) => {
+                      radioRefs.current.set(radioKey(qi, oi), el);
+                    }}
+                    type="button"
+                    role={multiSelect ? "checkbox" : "radio"}
+                    aria-checked={isSelected}
+                    tabIndex={tabIndexFor(oi)}
+                    disabled={submitted}
+                    onClick={() => toggleOption(qi, oi, multiSelect)}
+                    onKeyDown={
+                      multiSelect
+                        ? undefined
+                        : (e) => handleRadioKeyDown(e, qi, oi, radioCount)
+                    }
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",
+                      isSelected
+                        ? "border-fg-primary bg-bg-primary"
+                        : "border-border-primary bg-bg-primary hover:bg-bg-secondary",
+                      submitted && "opacity-60 cursor-not-allowed",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
+                        multiSelect ? "rounded-sm" : "rounded-full",
+                        isSelected
+                          ? "bg-fg-primary border-fg-primary"
+                          : "border-border-primary",
+                      )}
+                    >
+                      {isSelected && multiSelect && (
+                        <Check className="h-2.5 w-2.5 text-bg-primary" />
+                      )}
+                      {isSelected && !multiSelect && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
+                      )}
+                    </span>
+                    <span className="flex-1 leading-tight">
+                      <span className="block text-fg-primary">{opt.label}</span>
+                      {opt.description && (
+                        <span className="block text-xs text-fg-secondary">
+                          {opt.description}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+              <div
+                className={cn(
+                  "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
+                  draft.otherSelected
+                    ? "border-fg-primary bg-bg-primary"
+                    : "border-border-primary bg-bg-primary",
+                  submitted && "opacity-60",
+                )}
+              >
+                <button
+                  ref={(el) => {
+                    radioRefs.current.set(radioKey(qi, otherIndex), el);
+                  }}
+                  type="button"
+                  role={multiSelect ? "checkbox" : "radio"}
+                  aria-checked={draft.otherSelected}
+                  aria-label="Other"
+                  tabIndex={tabIndexFor(otherIndex)}
+                  disabled={submitted}
+                  onClick={() => selectOther(qi, multiSelect)}
+                  onKeyDown={
+                    multiSelect
+                      ? undefined
+                      : (e) => handleRadioKeyDown(e, qi, otherIndex, radioCount)
+                  }
+                  className={cn(
+                    "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
+                    multiSelect ? "rounded-sm" : "rounded-full",
+                    draft.otherSelected
+                      ? "bg-fg-primary border-fg-primary"
+                      : "border-border-primary",
+                    submitted && "cursor-not-allowed",
+                  )}
+                >
+                  {draft.otherSelected && multiSelect && (
+                    <Check className="h-2.5 w-2.5 text-bg-primary" />
+                  )}
+                  {draft.otherSelected && !multiSelect && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
+                  )}
+                </button>
+                <input
+                  type="text"
+                  disabled={submitted}
+                  placeholder="Other (type your own answer)"
+                  value={draft.custom}
+                  onChange={(e) => setCustom(qi, e.target.value, multiSelect)}
+                  className={cn(
+                    "flex-1 bg-transparent text-fg-primary",
+                    "focus:outline-none placeholder:text-fg-tertiary",
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCancel}
+          disabled={submitted}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSubmit}
+          disabled={submitted || !canSubmit}
+        >
+          Submit
+        </Button>
+      </div>
     </div>
   );
 }

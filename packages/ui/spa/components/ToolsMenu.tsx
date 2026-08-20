@@ -83,6 +83,8 @@ export function ToolsMenu() {
     setSessionName,
     loadSession,
     isLoadingSession,
+    answerToolQuestions,
+    cancelToolQuestion,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
     onSessionBorn: (id) => {
@@ -158,7 +160,6 @@ export function ToolsMenu() {
               </div>
             )}
           <PatchErrorsDisplay />
-          <TransientErrorsDisplay />
           <ValidationAndCompareRow
             fieldsWithErrors={fieldsWithErrors}
             errorPaths={errorPaths}
@@ -184,6 +185,8 @@ export function ToolsMenu() {
             onFetchSessions={getSessions}
             onSetSessionName={setSessionName}
             isLoadingSession={isLoadingSession}
+            onAnswerToolQuestions={answerToolQuestions}
+            onCancelToolQuestion={cancelToolQuestion}
           />
         </div>
       )}
@@ -411,6 +414,7 @@ export function ToolsMenuButtons() {
     <div className="flex flex-col">
       <div className="flex gap-2 justify-between items-center p-4 w-full">
         <div className="flex gap-2 justify-end items-center w-full">
+          <TransientErrorsDisplay />
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
               <Tooltip>

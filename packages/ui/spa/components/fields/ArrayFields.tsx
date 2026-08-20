@@ -118,26 +118,31 @@ export function ArrayFields({
             );
           }}
           className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}
-          renderItem={({ path: itemPath, id }) => (
-            <InlineSortableItem id={id} disabled={readonly}>
-              <Field
-                path={itemPath}
-                type={schema.item.type}
-                readonly={readonly}
-                compact={compact}
-                errorDisplay={errorDisplay}
-              >
-                <AnyField
+          renderItem={({ path: itemPath, id }) => {
+            if (schema.item.hidden) {
+              return null;
+            }
+            return (
+              <InlineSortableItem id={id} disabled={readonly}>
+                <Field
                   path={itemPath}
-                  schema={schema.item}
-                  readonly={readonly}
+                  type={schema.item.type}
+                  readonly={readonly || schema.item.readonly}
                   compact={compact}
-                  inline={inline}
                   errorDisplay={errorDisplay}
-                />
-              </Field>
-            </InlineSortableItem>
-          )}
+                >
+                  <AnyField
+                    path={itemPath}
+                    schema={schema.item}
+                    readonly={readonly || schema.item.readonly}
+                    compact={compact}
+                    inline={inline}
+                    errorDisplay={errorDisplay}
+                  />
+                </Field>
+              </InlineSortableItem>
+            );
+          }}
         />
       </div>
     );

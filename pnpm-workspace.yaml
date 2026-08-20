@@ -12,6 +12,11 @@ packages:
   - examples/next
   - packages/server/test/example-projects/*
 
+allowBuilds:
+  esbuild: true
+  less: true
+  unrs-resolver: true
+
 ignoredBuiltDependencies:
   - less
   - unrs-resolver

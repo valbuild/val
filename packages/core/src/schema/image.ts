@@ -33,6 +33,8 @@ export type SerializedImageSchema = {
   remote?: boolean;
   customValidate?: boolean;
   referencedModule?: string;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -61,6 +63,8 @@ export class ImageSchema<
       ModulePath,
       Record<string, ImagesEntryMetadata>
     > = {},
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -73,6 +77,8 @@ export class ImageSchema<
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -84,6 +90,8 @@ export class ImageSchema<
       true,
       this.customValidateFunctions,
       this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     ) as ImageSchema<Src | RemoteSource<ImageMetadata | undefined>>;
   }
@@ -95,6 +103,8 @@ export class ImageSchema<
       this.isRemote,
       [...this.customValidateFunctions, validationFunction],
       this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -378,6 +388,34 @@ export class ImageSchema<
       this.isRemote,
       this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): ImageSchema<Src> {
+    return new ImageSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): ImageSchema<Src> {
+    return new ImageSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      true,
       this.description,
     );
   }
@@ -396,6 +434,8 @@ export class ImageSchema<
         this.customValidateFunctions?.length > 0,
       referencedModule:
         modulePaths.length > 0 ? (modulePaths[0] as string) : undefined,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

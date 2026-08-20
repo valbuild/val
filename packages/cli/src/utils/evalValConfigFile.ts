@@ -11,11 +11,19 @@ const ValConfigSchema = z.object({
   root: z.string().optional(),
   files: z
     .object({
-      directory: z
-        .string()
-        .refine((val): val is `/public/val` => val.startsWith("/public/val"), {
-          message: "files.directory must start with '/public/val'",
-        }),
+      directory: z.string().refine(
+        (val): val is `/public` | `/public/${string}` =>
+          (val === "/public" ||
+            (val.startsWith("/public/") && !val.endsWith("/"))) &&
+          // Reject path traversal so the directory cannot escape /public
+          !val
+            .split("/")
+            .some((segment) => segment === "." || segment === ".."),
+        {
+          message:
+            "files.directory must start with '/public', must not end with '/' and must not contain '.' or '..' segments",
+        },
+      ),
     })
     .optional(),
   gitCommit: z.string().optional(),

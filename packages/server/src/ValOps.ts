@@ -2,15 +2,14 @@
 import {
   FILE_REF_PROP,
   FileMetadata,
-  FileSchema,
   FileSource,
   ImageMetadata,
   ImageSchema,
   Internal,
+  type Json,
   ModuleFilePath,
   PatchId,
   RemoteSource,
-  RichTextSchema,
   Schema,
   SelectorSource,
   SerializedSchema,
@@ -21,6 +20,7 @@ import {
   ValModules,
   ValidationError,
   ValidationErrors,
+  extractValModules,
 } from "@valbuild/core";
 import { pipe, result } from "@valbuild/core/fp";
 import {
@@ -42,9 +42,8 @@ import { ParentPatchId } from "@valbuild/core";
 import {
   ValCommit,
   ValDeployment,
-  filterRoutesByPatterns,
-  validateRoutePatterns,
-  type SerializedRegExpPattern,
+  resolveSchemaSourceFixForError,
+  type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import { ReifiedRender } from "@valbuild/core";
 
@@ -64,7 +63,6 @@ export type Sources = {
   [key: ModuleFilePath]: Source;
 };
 
-const textEncoder = new TextEncoder();
 const jsonOps = new JSONOps();
 const tsOps = new TSOps((document) => {
   return pipe(
@@ -108,60 +106,6 @@ export abstract class ValOps {
     this.sourcesSha = null;
     this.configSha = null;
     this.modulesErrors = null;
-  }
-
-  private hash(input: string | object): string {
-    if (typeof input === "object") {
-      return this.hashObject(input);
-    }
-    return Internal.getSHA256Hash(textEncoder.encode(input));
-  }
-
-  private hashObject(obj: object): string {
-    const collector: string[] = [];
-    this.collectObjectRecursive(obj, collector);
-    return Internal.getSHA256Hash(textEncoder.encode(collector.join("")));
-  }
-
-  private collectObjectRecursive(
-    item: object | string | number,
-    collector: string[],
-  ): void {
-    if (typeof item === "string") {
-      collector.push(`"`, item, `"`);
-      return;
-    } else if (typeof item === "number") {
-      collector.push(item.toString());
-      return;
-    } else if (typeof item === "object") {
-      if (Array.isArray(item)) {
-        collector.push("[");
-        for (let i = 0; i < item.length; i++) {
-          this.collectObjectRecursive(item[i], collector);
-          if (i !== item.length - 1) collector.push(",");
-        }
-        collector.push("]");
-      } else {
-        collector.push("{");
-        const keys = Object.keys(item).sort();
-        keys.forEach((key, i) => {
-          collector.push(`"${key}":`);
-          this.collectObjectRecursive(
-            (item as Record<string, string | number | object>)[key],
-            collector,
-          );
-          if (i !== keys.length - 1) collector.push(",");
-        });
-        collector.push("}");
-      }
-      return;
-    } else {
-      console.warn(
-        "Unknown type encountered when hashing object",
-        typeof item,
-        item,
-      );
-    }
   }
 
   // #region stat
@@ -227,127 +171,23 @@ export abstract class ValOps {
       this.schemas === null ||
       this.modulesErrors === null
     ) {
-      const currentModulesErrors: ModulesError[] = [];
-      const addModuleError = (
-        message: string,
-        index: number,
-        path?: SourcePath,
-      ) => {
-        currentModulesErrors[index] = {
-          message,
-          path: path as string as ModuleFilePath,
-        };
+      const extracted = await extractValModules(this.valModules);
+      this.sources = extracted.sources;
+      this.schemas = extracted.schemas;
+      this.baseSha = extracted.baseSha as BaseSha;
+      this.schemaSha = extracted.schemaSha as SchemaSha;
+      this.sourcesSha = extracted.sourcesSha as SourcesSha;
+      this.configSha = extracted.configSha as ConfigSha;
+      this.modulesErrors = extracted.moduleErrors;
+      return {
+        baseSha: this.baseSha,
+        schemaSha: this.schemaSha,
+        sourcesSha: this.sourcesSha,
+        configSha: this.configSha,
+        sources: extracted.sources,
+        schemas: extracted.schemas,
+        moduleErrors: extracted.moduleErrors,
       };
-      const currentSources: Sources = {};
-      const currentSchemas: Schemas = {};
-      const configSha = this.hash(JSON.stringify(this.valModules.config));
-      let sourcesSha = "";
-      let baseSha = configSha;
-      let schemaSha = configSha;
-      for (
-        let moduleIdx = 0;
-        moduleIdx < this.valModules.modules.length;
-        moduleIdx++
-      ) {
-        const module = this.valModules.modules[moduleIdx];
-        if (!module.def) {
-          addModuleError("val.modules is missing 'def' property", moduleIdx);
-          continue;
-        }
-        if (typeof module.def !== "function") {
-          addModuleError(
-            "val.modules 'def' property is not a function",
-            moduleIdx,
-          );
-          continue;
-        }
-        await module.def().then((value) => {
-          if (!value) {
-            addModuleError(
-              `val.modules 'def' did not return a value`,
-              moduleIdx,
-            );
-            return;
-          }
-          if (!value.default) {
-            addModuleError(
-              `val.modules 'def' did not return a default export`,
-              moduleIdx,
-            );
-            return;
-          }
-
-          const path = Internal.getValPath(value.default);
-          if (path === undefined) {
-            addModuleError(`path is undefined`, moduleIdx);
-            return;
-          }
-          const schema = Internal.getSchema(value.default);
-          if (schema === undefined) {
-            addModuleError(
-              `schema in path '${path}' is undefined`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          if (!(schema instanceof Schema)) {
-            addModuleError(
-              `schema in path '${path}' is not an instance of Schema`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          if (typeof schema["executeSerialize"] !== "function") {
-            addModuleError(
-              `schema.serialize in path '${path}' is not a function`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          const source = Internal.getSource(value.default);
-          if (source === undefined) {
-            addModuleError(`source in ${path} is undefined`, moduleIdx, path);
-            return;
-          }
-          let serializedSchema: SerializedSchema;
-          try {
-            serializedSchema = schema["executeSerialize"]();
-          } catch (e) {
-            const message = e instanceof Error ? e.message : JSON.stringify(e);
-            addModuleError(
-              `Could not serialize module: '${path}'. Error: ${message}`,
-              moduleIdx,
-              path,
-            );
-            return;
-          }
-          const pathM = path as string as ModuleFilePath;
-          currentSources[pathM] = source;
-          currentSchemas[pathM] = schema;
-          // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
-          sourcesSha = this.hash(sourcesSha + JSON.stringify({ path, source }));
-          baseSha = this.hash(
-            baseSha +
-              JSON.stringify({
-                path,
-                schema: serializedSchema,
-                source,
-                modulesErrors: currentModulesErrors,
-              }),
-          );
-          schemaSha = this.hash(schemaSha + JSON.stringify(serializedSchema));
-        });
-      }
-      this.sources = currentSources;
-      this.schemas = currentSchemas;
-      this.baseSha = baseSha as BaseSha;
-      this.schemaSha = schemaSha as SchemaSha;
-      this.sourcesSha = sourcesSha as SourcesSha;
-      this.configSha = configSha as ConfigSha;
-      this.modulesErrors = currentModulesErrors;
     }
     return {
       baseSha: this.baseSha,
@@ -370,6 +210,17 @@ export abstract class ValOps {
   }
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);
+  }
+  async getSerializedSchemas(): Promise<
+    Record<ModuleFilePath, SerializedSchema>
+  > {
+    const schemas = await this.getSchemas();
+    const serialized: Record<ModuleFilePath, SerializedSchema> = {};
+    for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
+      serialized[moduleFilePathS as ModuleFilePath] =
+        schema["executeSerialize"]();
+    }
+    return serialized;
   }
   async getModuleErrors(): Promise<ModulesError[]> {
     return this.initSources().then((result) => result.moduleErrors);
@@ -410,6 +261,7 @@ export abstract class ValOps {
       if (patch.appliedAt) {
         continue;
       }
+      let hasSourceFileOps = false;
       for (const op of patch.patch) {
         if (op.op === "file") {
           const filePath = op.filePath;
@@ -420,6 +272,13 @@ export abstract class ValOps {
           };
           continue;
         }
+        hasSourceFileOps = true;
+      }
+      // Once per patch, NOT once per op: prepare() re-looks-up the patch by id
+      // and applies the whole thing for every entry, so a patch with two source
+      // ops used to be applied twice. Idempotent for "replace", destructive for
+      // array add/remove/move.
+      if (hasSourceFileOps) {
         const path = patch.path;
         if (!patchesByModule[path]) {
           patchesByModule[path] = [];
@@ -567,6 +426,25 @@ export abstract class ValOps {
     return { sources: patchedSources, errors };
   }
 
+  /**
+   * Every module's source, with the pending patches applied.
+   *
+   * `getSources(analysis)` returns ONLY the modules that had patches, which is
+   * not enough to validate with: cross-module checks (keyOf, router routes)
+   * resolve against other modules' sources and report spurious errors when they
+   * are absent. `/sources/~` overlays the two for exactly this reason.
+   */
+  async getSourcesWithPatchesApplied(
+    analysis: PatchAnalysis & OrderedPatches,
+  ): Promise<Awaited<ReturnType<ValOps["getSources"]>>> {
+    const unpatched = await this.getSources();
+    const patched = await this.getSources(analysis);
+    return {
+      sources: { ...unpatched.sources, ...patched.sources },
+      errors: patched.errors,
+    };
+  }
+
   // #region validateSources
   async validateSources(
     schemas: Schemas,
@@ -583,101 +461,6 @@ export abstract class ValOps {
     files: Record<SourcePath, FileSource>;
     remoteFiles: Record<SourcePath, RemoteSource>;
   }> {
-    const checkKeyIsValid = async (
-      key: string,
-      sourcePath: string,
-    ): Promise<{ error: false } | { error: true; message: string }> => {
-      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
-        sourcePath as SourcePath,
-      );
-      const keyOfModuleSource = sources[moduleFilePath];
-      const keyOfModuleSchema = schemas[moduleFilePath]?.["executeSerialize"]();
-      if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
-        return {
-          error: true,
-          message: `Expected key at ${sourcePath} to be of type 'record'`,
-        };
-      }
-      if (
-        keyOfModuleSource &&
-        typeof keyOfModuleSource === "object" &&
-        key in keyOfModuleSource
-      ) {
-        return { error: false };
-      }
-      if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
-        return {
-          error: true,
-          message: `Expected ${sourcePath} to be a truthy object`,
-        };
-      }
-      return {
-        error: true,
-        message: `Key '${key}' does not exist in ${sourcePath}.`,
-      };
-    };
-
-    const checkRouteIsValid = async (
-      route: string,
-      includePattern?: SerializedRegExpPattern,
-      excludePattern?: SerializedRegExpPattern,
-    ): Promise<{ error: false } | { error: true; message: string }> => {
-      // Find all router modules (record schemas with router property)
-      const routerModules: { path: ModuleFilePath; routes: string[] }[] = [];
-      for (const [moduleFilePath, schema] of Object.entries(schemas)) {
-        const serializedSchema = schema["executeSerialize"]();
-        if (serializedSchema.type === "record" && serializedSchema.router) {
-          const source = sources[moduleFilePath as ModuleFilePath];
-          if (source && typeof source === "object") {
-            routerModules.push({
-              path: moduleFilePath as ModuleFilePath,
-              routes: Object.keys(source),
-            });
-          }
-        }
-      }
-
-      if (routerModules.length === 0) {
-        return {
-          error: true,
-          message: `No router modules found. Route validation requires at least one s.record().router() module.`,
-        };
-      }
-
-      // Check if route exists in any router module
-      const allRoutes = routerModules.flatMap((m) => m.routes);
-      const routeExists = allRoutes.includes(route);
-
-      if (!routeExists) {
-        // Filter routes by include/exclude patterns for suggestions
-        const validRoutes = filterRoutesByPatterns(
-          allRoutes,
-          includePattern,
-          excludePattern,
-        );
-
-        return {
-          error: true,
-          message: `Route '${route}' does not exist in any router module. Available routes: ${validRoutes.slice(0, 10).join(", ")}${validRoutes.length > 10 ? "..." : ""}`,
-        };
-      }
-
-      // Validate against include/exclude patterns
-      const patternValidation = validateRoutePatterns(
-        route,
-        includePattern,
-        excludePattern,
-      );
-      if (!patternValidation.valid) {
-        return {
-          error: true,
-          message: patternValidation.message,
-        };
-      }
-
-      return { error: false };
-    };
-
     const errors: Record<
       ModuleFilePath,
       {
@@ -691,8 +474,17 @@ export abstract class ValOps {
     // Build a map of gallery directory → [ModuleFilePath, ...] across ALL modules
     // (must include all modules, not just those being validated, since conflicts can come from any module)
     const galleryDirectoryToModules = new Map<string, ModuleFilePath[]>();
+    // Build a schema/source snapshot so the shared resolver can cross-reference
+    // keyof:check-keys and router:check-route against every module's data.
+    const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
     for (const [moduleFilePathS, schema] of entries) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
       const serialized = schema["executeSerialize"]();
+      snapshot.schemas[moduleFilePath] = serialized;
+      const sourceForModule = sources[moduleFilePath];
+      if (sourceForModule !== undefined) {
+        snapshot.sources[moduleFilePath] = sourceForModule as Json;
+      }
       if (
         serialized.type === "record" &&
         serialized.mediaType &&
@@ -701,11 +493,9 @@ export abstract class ValOps {
         const dir = serialized.directory;
         const existing = galleryDirectoryToModules.get(dir);
         if (existing) {
-          existing.push(moduleFilePathS as ModuleFilePath);
+          existing.push(moduleFilePath);
         } else {
-          galleryDirectoryToModules.set(dir, [
-            moduleFilePathS as ModuleFilePath,
-          ]);
+          galleryDirectoryToModules.set(dir, [moduleFilePath]);
         }
       }
     }
@@ -770,111 +560,18 @@ export abstract class ValOps {
               validationError.fixes?.includes("file:check-remote")
             ) {
               remoteFiles[sourcePath] = validationError.value as RemoteSource;
-            } else if (validationError.fixes?.includes("keyof:check-keys")) {
-              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
-              if (!validationError.value) {
-                addError({
-                  message: `Could not find a value for keyOf at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                  // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                  typeError: true,
-                });
-              } else {
-                if (typeof validationError.value !== "object") {
-                  addError({
-                    message: `Expected keyOf validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
-                    // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                    typeError: true,
-                  });
-                } else {
-                  const key =
-                    "key" in validationError.value && validationError.value.key;
-                  const validationErrorSourcePath =
-                    "sourcePath" in validationError.value &&
-                    validationError.value.sourcePath;
-                  if (typeof key !== "string") {
-                    addError({
-                      message: `Expected keyOf validation error 'value' to have property 'key' of type 'string'. Found: ${typeof key}. ${TYPE_ERROR_MESSAGE}`,
-                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                      typeError: true,
-                    });
-                  } else if (typeof validationErrorSourcePath !== "string") {
-                    addError({
-                      message: `Expected keyOf validation error 'value' to have property 'sourcePath' of type 'string'. Found: ${typeof validationErrorSourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
-                      typeError: true,
-                    });
-                  } else {
-                    const res = await checkKeyIsValid(
-                      key,
-                      validationErrorSourcePath,
-                    );
-                    if (res.error) {
-                      addError({
-                        message: res.message,
-                      });
-                    }
-                  }
-                }
+            } else if (
+              validationError.fixes?.includes("keyof:check-keys") ||
+              validationError.fixes?.includes("router:check-route")
+            ) {
+              const resolved = resolveSchemaSourceFixForError(
+                validationError,
+                snapshot,
+              );
+              if (resolved && resolved.status === "remaining") {
+                addError(resolved.error);
               }
-            } else if (validationError.fixes?.includes("router:check-route")) {
-              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
-              if (!validationError.value) {
-                addError({
-                  message: `Could not find a value for route at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
-                  typeError: true,
-                });
-              } else {
-                if (typeof validationError.value !== "object") {
-                  addError({
-                    message: `Expected route validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
-                    typeError: true,
-                  });
-                } else {
-                  const route =
-                    "route" in validationError.value &&
-                    validationError.value.route;
-                  const includePattern =
-                    "include" in validationError.value &&
-                    validationError.value.include;
-                  const excludePattern =
-                    "exclude" in validationError.value &&
-                    validationError.value.exclude;
-
-                  if (typeof route !== "string") {
-                    addError({
-                      message: `Expected route validation error 'value' to have property 'route' of type 'string'. Found: ${typeof route}. ${TYPE_ERROR_MESSAGE}`,
-                      typeError: true,
-                    });
-                  } else {
-                    const res = await checkRouteIsValid(
-                      route,
-                      includePattern &&
-                        typeof includePattern === "object" &&
-                        "source" in includePattern &&
-                        "flags" in includePattern
-                        ? (includePattern as {
-                            source: string;
-                            flags: string;
-                          })
-                        : undefined,
-                      excludePattern &&
-                        typeof excludePattern === "object" &&
-                        "source" in excludePattern &&
-                        "flags" in excludePattern
-                        ? (excludePattern as {
-                            source: string;
-                            flags: string;
-                          })
-                        : undefined,
-                    );
-                    if (res.error) {
-                      addError({
-                        message: res.message,
-                      });
-                    }
-                  }
-                }
-              }
+              // resolved.status === "resolved" → drop silently
             } else if (
               validationError.fixes?.includes("images:check-unique-folder") ||
               validationError.fixes?.includes("files:check-unique-folder")
@@ -1130,12 +827,31 @@ export abstract class ValOps {
   }
 
   // #region prepareCommit
+  /**
+   * Applies the pending patches to the source files so they can be committed.
+   *
+   * @param options.continueOnError Diagnosis only. By default a patch that
+   * cannot be applied aborts the rest of that module's chain, which is what
+   * /save requires: the commit is refused and nothing is written. With this
+   * flag the failing patch is recorded in `unappliablePatches` and the chain
+   * continues on the unchanged source file, so a single run reports *every*
+   * unappliable patch instead of only the first one per module. The commit is
+   * still refused (`hasErrors` stays true) - this only makes the report
+   * complete.
+   */
   async prepare(
     patchAnalysis: PatchAnalysis & OrderedPatches,
+    options?: { continueOnError?: boolean },
   ): Promise<PreparedCommit> {
+    const continueOnError = options?.continueOnError ?? false;
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
+    const partiallyPatchedSourceFiles: Record<ModuleFilePath, string> = {};
+    const unappliablePatches: Record<
+      PatchId,
+      { moduleFilePath: ModuleFilePath; message: string }
+    > = {};
 
     const applySourceFilePatches = async (
       path: ModuleFilePath,
@@ -1183,9 +899,13 @@ export abstract class ValOps {
           (p) => p.patchId === patchId,
         );
         if (!patchData) {
-          errors.push({
-            message: `Analysis required non-existing patch: ${patchId}`,
-          });
+          const message = `Analysis required non-existing patch: ${patchId}`;
+          errors.push({ message });
+          unappliablePatches[patchId] = { moduleFilePath: path, message };
+          triedPatches.push(patchId);
+          if (continueOnError) {
+            continue;
+          }
           break;
         }
         const patch = patchData.patch;
@@ -1225,11 +945,30 @@ export abstract class ValOps {
             );
             errors.push(patchRes.error);
           }
+          unappliablePatches[patchId] = {
+            moduleFilePath: path,
+            message: formatPatchSourceError(patchRes.error),
+          };
           triedPatches.push(patchId);
+          if (continueOnError) {
+            // Continue from the unchanged source file: the failing patch made
+            // no change, so the rest of the chain applies on top of the state
+            // it had before it. This mirrors what the client already does in
+            // ValSyncEngine.getPatchedSource.
+            continue;
+          }
           break;
         }
         appliedPatches.push(patchId);
         tsSourceFile = patchRes.value;
+      }
+      if (errors.length > 0 && continueOnError) {
+        // Diagnosis: expose what the source file would look like with the
+        // appliable patches applied, so a caller can diff it even though the
+        // commit is (correctly) refused.
+        partiallyPatchedSourceFiles[path] = unescape(
+          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u"),
+        );
       }
       if (errors.length === 0) {
         // https://github.com/microsoft/TypeScript/issues/36174
@@ -1334,14 +1073,30 @@ export abstract class ValOps {
       hasErrors,
       sourceFilePatchErrors,
       binaryFilePatchErrors,
+      unappliablePatches,
       patchedSourceFiles,
       previousSourceFiles,
+      partiallyPatchedSourceFiles,
       patchedBinaryFilesDescriptors,
       appliedPatches,
       skippedPatches,
       triedPatches,
     };
     return res;
+  }
+
+  /**
+   * Reads a project file as text at whatever revision this ops instance points
+   * at: the deployed commit in http mode, the working tree in fs mode.
+   *
+   * Public counterpart of `getSourceFile`, for the CLI's debug snapshot. The
+   * snapshot has to capture the exact text `prepare` patches, which in http mode
+   * is NOT the local working copy.
+   */
+  async readProjectFile(
+    path: string,
+  ): Promise<WithGenericError<{ data: string }>> {
+    return this.getSourceFile(path);
   }
 
   // #region createPatch
@@ -1413,7 +1168,7 @@ export abstract class ValOps {
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
-    path: ModuleFilePath,
+    path: string,
   ): Promise<WithGenericError<{ data: string }>>;
   abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
@@ -1516,6 +1271,17 @@ export type PatchSourceError =
   | ValSyntaxError
   | ValSyntaxErrorTree;
 
+export function formatPatchSourceError(error: PatchSourceError): string {
+  if ("message" in error) {
+    return error.message;
+  } else if (Array.isArray(error)) {
+    return error.map(formatPatchSourceError).join("\n");
+  } else {
+    const _exhaustiveCheck: never = error;
+    return "Unknown patch source error: " + JSON.stringify(_exhaustiveCheck);
+  }
+}
+
 export type MetadataOfType<T extends "file" | "image"> = T extends "image"
   ? Omit<ImageMetadata, "hotspot">
   : FileMetadata;
@@ -1548,6 +1314,12 @@ export type PreparedCommit = {
    */
   previousSourceFiles: Record<ModuleFilePath, string>;
   /**
+   * Diagnosis only: what the source file looks like with the appliable patches
+   * applied, for modules that had at least one unappliable patch. Populated
+   * only when `prepare` is called with `continueOnError`. Never committed.
+   */
+  partiallyPatchedSourceFiles: Record<ModuleFilePath, string>;
+  /**
    * The file path and patch id in which they appear of binary files that are ready to be committed / saved
    */
   patchedBinaryFilesDescriptors: Record<
@@ -1562,6 +1334,19 @@ export type PreparedCommit = {
   hasErrors: boolean;
   sourceFilePatchErrors: Record<ModuleFilePath, PatchSourceError[]>;
   binaryFilePatchErrors: Record<string, { message: string }>;
+  /**
+   * The patches that could not be applied, keyed by patch id.
+   *
+   * Same information as `sourceFilePatchErrors`, but attributed to the patch
+   * that caused it, which is what a caller needs in order to report or remove
+   * it. Without `continueOnError` this holds the first failing patch of each
+   * module (the rest of that module's chain is never tried); with it, all of
+   * them.
+   */
+  unappliablePatches: Record<
+    PatchId,
+    { moduleFilePath: ModuleFilePath; message: string }
+  >;
   skippedPatches: Record<ModuleFilePath, PatchId[]>;
   triedPatches: Record<ModuleFilePath, PatchId[]>;
 };

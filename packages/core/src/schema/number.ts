@@ -21,6 +21,8 @@ export type SerializedNumberSchema = {
   options?: NumberOptions;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -29,6 +31,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     private readonly options?: NumberOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -39,6 +43,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -50,6 +56,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.options,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -149,6 +157,30 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       this.options,
       true,
       [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): NumberSchema<Src> {
+    return new NumberSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): NumberSchema<Src> {
+    return new NumberSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
       this.description,
     );
   }
@@ -158,6 +190,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       { ...this.options, max },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -167,6 +201,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       { ...this.options, min },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -179,6 +215,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }
