@@ -6,7 +6,7 @@
 "@valbuild/ui": patch
 ---
 
-Add `s.color()` for picking colors. Colors are stored as CSS color strings so they can be used directly in a `style` attribute, a CSS custom property or a Tailwind arbitrary value.
+Add `s.color()` for picking colors. Colors are stored as CSS color strings so they can be used directly in a `style` attribute or set as a CSS custom property.
 
 The notation is chosen with the `format` option — `"hsl"` (the default), `"hex"`, `"rgb"` or `"oklch"`:
 

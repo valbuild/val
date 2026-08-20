@@ -55,6 +55,7 @@
   - [Image](#image)
   - [keyOf](#keyof)
   - [Route](#route)
+  - [Color](#color)
 
 ## Installation
 
@@ -885,6 +886,106 @@ export default c.define("/components/link.val.ts", linkSchema, {
   href: "/", // This must exist in a router module
 });
 ```
+
+## Color
+
+The `color` schema represents a color, stored as a CSS color string. Because the value is a plain CSS string, it can be used directly in a `style` attribute or set as a CSS custom property - there is nothing to convert in your components.
+
+### Color Schema
+
+```ts
+s.color(); // <- Schema<string>
+```
+
+### Output format
+
+The `format` option decides which CSS notation the color is stored in. It defaults to `"hsl"`.
+
+```ts
+s.color(); // hsl(217.22 91.22% 59.8%)
+s.color({ format: "hex" }); // #3b82f6
+s.color({ format: "rgb" }); // rgb(59 130 246)
+s.color({ format: "oklch" }); // oklch(0.6231 0.188 259.81)
+```
+
+The Val editor writes the value back in this format, so an editor who pastes `#3b82f6` into a field declared as `s.color()` gets `hsl(217.22 91.22% 59.8%)` stored.
+
+### Transparency
+
+Colors are fully opaque unless you opt into an alpha channel with `alpha: true`. A color with an alpha channel is a validation error in a field that does not allow it, so you can be sure an opaque color stays opaque.
+
+```ts
+s.color({ format: "hsl", alpha: true }); // hsl(217.22 91.22% 59.8% / 0.5)
+```
+
+With `alpha: true` the editor also gets an alpha slider next to the color picker.
+
+### Validation
+
+Validation is lenient about the syntax and strict about the format:
+
+- both the modern and the legacy notation of the declared format are accepted, so `hsl(0 100% 50%)` and `hsl(0, 100%, 50%)` are both valid `hsl` values, and `#f00` is a valid `hex` value
+- a color written in another format is an error which tells you the equivalent value in the right notation:
+  `Expected a color in the 'hsl' format (e.g. 'hsl(217.22 91.22% 59.8%)'), got '#ff0000'. Did you mean 'hsl(0 100% 50%)'?`
+- named colors (`red`), `lab()`, `color()` and `color-mix()` are not supported
+
+Colors can be nullable and can use `.describe()` and `.validate()` like any other schema:
+
+```ts
+s.color().nullable().describe("Optional highlight color");
+
+s.color({ format: "hex" }).validate((color) => {
+  if (color === "#000000") {
+    return "Pure black is too harsh - pick a dark grey instead";
+  }
+  return false;
+});
+```
+
+### Initializing color content
+
+```ts
+import { s, c, type t } from "../val.config";
+
+export const schema = s.object({
+  brand: s.color().describe("Primary brand color"),
+  background: s.color({ format: "hex" }).describe("Page background"),
+  overlay: s.color({ format: "hsl", alpha: true }).describe("Overlay tint"),
+});
+
+export type Theme = t.inferSchema<typeof schema>;
+export default c.define("/content/theme.val.ts", schema, {
+  brand: "hsl(217.22 91.22% 59.8%)",
+  background: "#0b1020",
+  overlay: "hsl(217.22 91.22% 59.8% / 0.15)",
+});
+```
+
+### Using colors
+
+The value is a string, so use it wherever CSS expects a color:
+
+```tsx
+import { fetchVal } from "../val/rsc";
+import themeVal from "../content/theme.val";
+
+export default async function Hero() {
+  const theme = await fetchVal(themeVal);
+  return (
+    <section style={{ background: theme.background, color: theme.brand }}>
+      <h1 style={{ borderBottom: `2px solid ${theme.brand}` }}>Hello</h1>
+    </section>
+  );
+}
+```
+
+To hand a color to a stylesheet instead, set it as a CSS custom property:
+
+```tsx
+<div style={{ "--brand": theme.brand } as React.CSSProperties}>
+```
+
+**NOTE**: colors are not steganographically tagged, since the value ends up in CSS where the invisible characters would break the declaration. Colors therefore do not participate in click-then-edit visual editing (the same is true of dates) - edit them from the studio instead.
 
 # Custom validation
 

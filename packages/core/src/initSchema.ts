@@ -182,7 +182,7 @@ export type InitSchema = {
    * Define a color.
    *
    * Stored as a CSS color string, so it can be used directly in `style`
-   * attributes, CSS custom properties and Tailwind arbitrary values.
+   * attributes or set as a CSS custom property.
    *
    * The notation is decided by the `format` option, which defaults to `"hsl"`.
    * Set `alpha: true` to allow transparency.

@@ -2,9 +2,9 @@
  * Parsing / formatting of the CSS color strings stored by `s.color()`.
  *
  * Colors are stored as plain CSS strings so that they can be used directly in
- * `style` attributes, CSS custom properties and Tailwind arbitrary values. The
- * schema decides which family (`hex`, `rgb`, `hsl` or `oklch`) the string is
- * written in, this module does the conversion between them.
+ * `style` attributes and CSS custom properties. The schema decides which family
+ * (`hex`, `rgb`, `hsl` or `oklch`) the string is written in, this module does
+ * the conversion between them.
  *
  * All colors are sRGB: `oklch` is only used as an output notation, so any
  * `oklch` value that falls outside the sRGB gamut is clipped when converted
