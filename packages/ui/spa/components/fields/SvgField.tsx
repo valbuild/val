@@ -18,6 +18,12 @@ import {
 import React, { useMemo, useRef, useState } from "react";
 import { Button } from "../designSystem/button";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../designSystem/accordion";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -53,12 +59,12 @@ function isSvgSource(source: unknown): source is GenericSvgSource {
 
 function colorAttrValue(
   value: unknown,
-  overrides: Record<string, string>,
+  resolved: Record<string, string>,
 ): string | null {
   if (isSvgVarRef(value)) {
-    // In the editor we resolve variables eagerly, so the preview can show the
-    // example colors - and a dark mode override - without a stylesheet.
-    return overrides[value.var] ?? `var(--val-svg-${value.var}, currentColor)`;
+    // The editor resolves variables eagerly so the preview shows real colors
+    // rather than unresolved custom properties.
+    return resolved[value.var] ?? `var(--val-svg-${value.var}, currentColor)`;
   }
   if (typeof value === "string") {
     return value;
@@ -69,7 +75,7 @@ function colorAttrValue(
 function buildNode(
   node: GenericSvgNode,
   key: number,
-  overrides: Record<string, string>,
+  resolved: Record<string, string>,
 ): React.ReactElement | null {
   if (!node || typeof node !== "object" || typeof node.tag !== "string") {
     return null;
@@ -77,7 +83,7 @@ function buildNode(
   const props: Record<string, unknown> = { key };
   for (const [name, value] of Object.entries(node.attrs ?? {})) {
     if ((SVG_COLOR_ATTRS as readonly string[]).includes(name)) {
-      const color = colorAttrValue(value, overrides);
+      const color = colorAttrValue(value, resolved);
       if (color !== null) {
         props[name] = color;
       }
@@ -88,7 +94,7 @@ function buildNode(
     }
   }
   const children = (node.children ?? [])
-    .map((child, i) => buildNode(child, i, overrides))
+    .map((child, i) => buildNode(child, i, resolved))
     .filter((child): child is React.ReactElement => child !== null);
   return React.createElement(
     node.tag,
@@ -100,10 +106,9 @@ function buildNode(
 /**
  * Renders an svg source.
  *
- * Deliberately a separate implementation from `ValSvg` in `@valbuild/react`:
- * the editor cannot depend on that package, and it needs to resolve variables
- * eagerly so the preview shows real colors rather than unresolved custom
- * properties.
+ * A separate implementation from `ValSvg` in `@valbuild/react`, which the
+ * editor cannot depend on - and which resolves variables through css rather
+ * than eagerly, as the preview needs to.
  */
 export function SvgRender({
   source,
@@ -148,12 +153,13 @@ export function SvgRender({
 }
 
 /**
- * One row per literal color the import could not place, with the set of
- * variables it may be assigned to.
+ * One row per color the import could not place, with the colors it is allowed
+ * to become.
  *
  * We never snap a color to the nearest variable on our own: a brand color that
- * is quietly rewritten is worse than one the editor asks about. A variable can
- * opt in to fuzzy matching with `tolerance`, and then it never reaches here.
+ * is quietly rewritten is worse than one the editor is asked about. A variable
+ * can opt in to fuzzy matching with `tolerance`, and then it never reaches
+ * here.
  */
 export function SvgColorMapper({
   unmatched,
@@ -172,12 +178,17 @@ export function SvgColorMapper({
     return null;
   }
   const variableNames = Object.keys(variables);
+  const remaining = unmatched.filter(
+    (color) => value[color.normalized ?? color.raw] === undefined,
+  ).length;
   return (
     <div className="flex flex-col gap-2">
       <div className="text-sm text-text-secondary">
-        {unmatched.length === 1
-          ? "1 color is not in the palette. Pick where it should go:"
-          : `${unmatched.length} colors are not in the palette. Pick where they should go:`}
+        {remaining === 0
+          ? "All colors mapped."
+          : remaining === 1
+            ? "1 color is not in the palette. Pick what it should become:"
+            : `${remaining} colors are not in the palette. Pick what they should become:`}
       </div>
       {unmatched.map((color) => {
         const key = color.normalized ?? color.raw;
@@ -221,12 +232,20 @@ export function SvgColorMapper({
               }}
             >
               <SelectTrigger className="w-56">
-                <SelectValue placeholder="Choose a variable" />
+                <SelectValue placeholder="Choose a color" />
               </SelectTrigger>
               <SelectContent>
                 {variableNames.map((name) => (
                   <SelectItem key={name} value={`var:${name}`}>
-                    {name}
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-sm border border-border-primary"
+                        style={{
+                          background: svgVariableValue(variables[name]),
+                        }}
+                      />
+                      {name}
+                    </span>
                   </SelectItem>
                 ))}
                 {KEYWORD_OPTIONS.map((keyword) => (
@@ -247,10 +266,132 @@ export function SvgColorMapper({
 }
 
 /**
- * The presentational half of the svg field: paste markup in, get a source out.
+ * The tile an icon lives in, and the only thing on screen most of the time.
  *
- * Kept free of Val providers so it can be driven directly from storybook and
- * from tests.
+ * Icons are read far more often than they are replaced, so the tile *is* the
+ * control: drop an svg on it, paste markup into it, or click it to pick a file.
+ * Nothing else is rendered until one of those happens.
+ */
+export function SvgDropTile({
+  source,
+  pending,
+  variables,
+  overrides,
+  readonly,
+  onMarkup,
+  onFile,
+}: {
+  source: GenericSvgSource | null;
+  /** The icon shown is an import in progress, not what is stored. */
+  pending?: boolean;
+  variables: Variables;
+  overrides?: Record<string, string>;
+  readonly?: boolean;
+  onMarkup: (markup: string) => void;
+  onFile: (file: File) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const interactive = !readonly;
+  return (
+    <div
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={
+        interactive
+          ? "Icon. Drop an svg file, paste svg markup, or press enter to choose a file."
+          : undefined
+      }
+      className={cn(
+        "relative flex items-center justify-center w-24 h-24 rounded-md border shrink-0 transition-colors",
+        overrides ? "bg-black text-white" : "bg-bg-primary",
+        dragging
+          ? "border-border-brand-primary border-dashed bg-bg-secondary"
+          : pending
+            ? "border-border-brand-primary border-dashed"
+            : "border-border-primary",
+        interactive &&
+          "cursor-pointer hover:border-border-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+      onClick={() => interactive && fileInput.current?.click()}
+      onKeyDown={(ev) => {
+        if (interactive && (ev.key === "Enter" || ev.key === " ")) {
+          ev.preventDefault();
+          fileInput.current?.click();
+        }
+      }}
+      onPaste={(ev) => {
+        if (!interactive) return;
+        const text = ev.clipboardData.getData("text");
+        const file = Array.from(ev.clipboardData.files)[0];
+        if (file) {
+          ev.preventDefault();
+          onFile(file);
+        } else if (text.trim()) {
+          ev.preventDefault();
+          onMarkup(text);
+        }
+      }}
+      onDragOver={(ev) => {
+        if (!interactive) return;
+        ev.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(ev) => {
+        if (!interactive) return;
+        ev.preventDefault();
+        setDragging(false);
+        const file = Array.from(ev.dataTransfer.files)[0];
+        if (file) {
+          onFile(file);
+          return;
+        }
+        const text = ev.dataTransfer.getData("text");
+        if (text.trim()) {
+          onMarkup(text);
+        }
+      }}
+    >
+      {source ? (
+        <SvgRender
+          source={source}
+          variables={variables}
+          overrides={overrides}
+          size={48}
+        />
+      ) : (
+        <span className="px-2 text-xs text-center text-text-secondary">
+          Drop or paste an svg
+        </span>
+      )}
+      {dragging && (
+        <span className="absolute inset-0 flex items-center justify-center px-2 text-xs text-center rounded-md bg-bg-primary/80 text-text-primary">
+          Drop to replace
+        </span>
+      )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/svg+xml,.svg"
+        className="hidden"
+        onChange={(ev) => {
+          const file = ev.target.files?.[0];
+          if (file) {
+            onFile(file);
+          }
+          ev.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * The presentational half of the svg field: an icon you can drop onto, and the
+ * mapping controls that appear only when an import needs a decision.
+ *
+ * Kept free of Val providers so it can be driven from storybook and tests.
  */
 export function SvgEditor({
   schema,
@@ -265,7 +406,7 @@ export function SvgEditor({
 }) {
   const variables = (schema.options?.variables ?? {}) as Variables;
   const literals = schema.options?.literals ?? "forbid";
-  const [markup, setMarkup] = useState("");
+  const [markup, setMarkup] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [unmatched, setUnmatched] = useState<SvgUnmatchedColor[]>([]);
@@ -273,14 +414,36 @@ export function SvgEditor({
     {},
   );
   const [dark, setDark] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * The icon being imported, shown in the tile while its colors are mapped.
+   *
+   * Unmapped colors are previewed as they came in - an explicit `literal`
+   * override keeps a color whatever the schema's `literals` says - so you can
+   * see the icon you dropped, and watch it move onto the palette as you pick.
+   */
+  const pending = useMemo(() => {
+    if (markup === null || unmatched.length === 0) {
+      return null;
+    }
+    const asLiterals: Record<string, SvgColorOverride> = {};
+    for (const color of unmatched) {
+      asLiterals[color.normalized ?? color.raw] = { type: "literal" };
+    }
+    const result = parseSvg(markup, schema.options ?? {}, {
+      overrides: { ...asLiterals, ...overrides },
+    });
+    return result.status === "success"
+      ? (result.source as unknown as GenericSvgSource)
+      : null;
+  }, [markup, unmatched, overrides, schema.options]);
 
   const darkOverrides = useMemo(() => {
     if (!dark) {
       return undefined;
     }
-    // A stand-in for the app's dark mode stylesheet: invert the example colors
-    // so it is obvious which parts of the icon are actually themeable.
+    // Stands in for the app's dark mode stylesheet, so it is obvious which
+    // parts of the icon are actually themeable.
     const map: Record<string, string> = {};
     for (const name of Object.keys(variables)) {
       map[name] = "#f5f5f5";
@@ -292,10 +455,6 @@ export function SvgEditor({
     input: string,
     colorOverrides: Record<string, SvgColorOverride>,
   ) => {
-    if (!input.trim()) {
-      setError("Paste some svg markup first");
-      return;
-    }
     const result = parseSvg(input, schema.options ?? {}, {
       overrides: colorOverrides,
     });
@@ -316,9 +475,31 @@ export function SvgEditor({
       nextNotes.push(`Removed attributes: ${attrs.join(", ")}`);
     }
     setNotes(nextNotes);
+    // Only commit once every color has somewhere to go: a half mapped icon
+    // would silently lose fills.
     if (result.unmatched.length === 0) {
+      setMarkup(null);
       onChange(result.source as unknown as GenericSvgSource);
     }
+  };
+
+  const onNewMarkup = (input: string) => {
+    if (!input.trim()) {
+      setError("That does not look like svg markup");
+      return;
+    }
+    setMarkup(input);
+    setOverrides({});
+    runImport(input, {});
+  };
+
+  const onNewFile = (file: File) => {
+    // Read as text: an svg field stores the tree in the module, so there is no
+    // binary to upload and no file op to create.
+    const reader = new FileReader();
+    reader.onerror = () => setError(`Could not read ${file.name}`);
+    reader.onload = () => onNewMarkup(String(reader.result ?? ""));
+    reader.readAsText(file);
   };
 
   const onOverridesChange = (next: Record<string, SvgColorOverride>) => {
@@ -326,37 +507,36 @@ export function SvgEditor({
     const allChosen = unmatched.every(
       (color) => next[color.normalized ?? color.raw] !== undefined,
     );
-    if (allChosen) {
+    if (allChosen && markup !== null) {
       runImport(markup, next);
     }
   };
 
+  const hasFeedback =
+    error !== null || notes.length > 0 || unmatched.length > 0;
+
   return (
     <div className="flex flex-col gap-3">
-      {source && (
-        <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              "flex items-center justify-center w-24 h-24 rounded border border-border-primary shrink-0",
-              dark ? "bg-black text-white" : "bg-bg-primary",
-            )}
-          >
-            <SvgRender
-              source={source}
-              variables={variables}
-              overrides={darkOverrides}
-              size={48}
-            />
-          </div>
-          <div className="flex flex-col gap-2 text-sm">
-            <div className="text-text-secondary">
-              viewBox <code>{source.viewBox}</code>
-            </div>
+      <div className="flex items-start gap-4">
+        <SvgDropTile
+          source={pending ?? source}
+          pending={pending !== null}
+          variables={variables}
+          overrides={darkOverrides}
+          readonly={readonly}
+          onMarkup={onNewMarkup}
+          onFile={onNewFile}
+        />
+        {source && (
+          <div className="flex flex-col gap-2 pt-1 text-xs text-text-secondary">
+            <span>
+              <code>{source.viewBox}</code>
+            </span>
             <div className="flex flex-wrap gap-2">
               {Object.entries(variables).map(([name, variable]) => (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1 text-xs"
+                  className="inline-flex items-center gap-1"
                   title={svgVariableValue(variable)}
                 >
                   <span
@@ -370,83 +550,16 @@ export function SvgEditor({
                 </span>
               ))}
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
+            <button
               type="button"
+              className="self-start underline underline-offset-2"
               onClick={() => setDark((d) => !d)}
             >
               {dark ? "Preview light" : "Preview dark"}
-            </Button>
+            </button>
           </div>
-        </div>
-      )}
-      {!readonly && (
-        <>
-          <textarea
-            className="w-full min-h-24 rounded-md border border-border-primary bg-bg-primary px-3 py-2 text-sm font-mono"
-            placeholder="Paste svg markup here"
-            value={markup}
-            spellCheck={false}
-            onChange={(ev) => setMarkup(ev.target.value)}
-          />
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                setOverrides({});
-                runImport(markup, {});
-              }}
-            >
-              Import svg
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => fileInput.current?.click()}
-            >
-              Upload .svg
-            </Button>
-            {source && (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  setMarkup(svgToString(source, { variables, pretty: true }));
-                }}
-              >
-                Copy current as svg
-              </Button>
-            )}
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/svg+xml,.svg"
-              className="hidden"
-              onChange={(ev) => {
-                const file = ev.target.files?.[0];
-                if (!file) {
-                  return;
-                }
-                // Read as text: an svg field stores the tree in the module, so
-                // there is no binary to upload and no file op to create.
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const text = String(reader.result ?? "");
-                  setMarkup(text);
-                  setOverrides({});
-                  runImport(text, {});
-                };
-                reader.readAsText(file);
-                ev.target.value = "";
-              }}
-            />
-          </div>
-        </>
-      )}
+        )}
+      </div>
       {error && <div className="text-sm text-text-error">{error}</div>}
       {notes.map((note) => (
         <div key={note} className="text-xs text-text-secondary">
@@ -460,6 +573,38 @@ export function SvgEditor({
         onChange={onOverridesChange}
         allowLiterals={literals === "allow" || Array.isArray(literals)}
       />
+      {unmatched.length > 0 && (
+        <div>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setMarkup(null);
+              setUnmatched([]);
+              setOverrides({});
+              setNotes([]);
+              setError(null);
+            }}
+          >
+            Cancel import
+          </Button>
+        </div>
+      )}
+      {source && !hasFeedback && (
+        <Accordion type="single" collapsible>
+          <AccordionItem value="markup" className="border-b-0">
+            <AccordionTrigger className="py-1 text-xs text-text-secondary">
+              Markup
+            </AccordionTrigger>
+            <AccordionContent>
+              <pre className="p-2 overflow-x-auto text-xs rounded bg-bg-secondary">
+                {svgToString(source, { variables, pretty: true })}
+              </pre>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </div>
   );
 }
@@ -514,7 +659,7 @@ export function SvgField({
   }
   const source = sourceAtPath.data;
   return (
-    <div id={path} className={cn(readonly && "pointer-events-none opacity-70")}>
+    <div id={path} className={cn(readonly && "opacity-70")}>
       <ValidationErrors path={path} />
       <SvgEditor
         schema={schemaAtPath.data}

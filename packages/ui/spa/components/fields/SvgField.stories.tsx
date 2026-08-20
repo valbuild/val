@@ -59,9 +59,10 @@ const meta: Meta<typeof SvgEditor> = {
 export default meta;
 
 /**
- * The field as it looks with an icon already stored: a live preview, the
- * palette the schema declares, and a dark mode toggle that swaps the CSS
- * variables the icon references.
+ * The default, and what an editor sees almost every time: just the icon, the
+ * palette it uses, and a dark mode toggle. Icons are read far more often than
+ * they are replaced, so nothing else is on screen until you drop an svg on the
+ * tile, paste markup into it, or click it to pick a file.
  */
 export const WithIcon: StoryObj<typeof SvgEditor> = {
   render: () => {
@@ -74,7 +75,7 @@ export const WithIcon: StoryObj<typeof SvgEditor> = {
   },
 };
 
-/** An empty field, waiting for markup to be pasted or a file to be dropped. */
+/** An empty field. The tile is the drop target and the file picker. */
 export const Empty: StoryObj<typeof SvgEditor> = {
   render: () => {
     const [source, setSource] = useState<GenericSvgSource | null>(null);
@@ -86,9 +87,26 @@ export const Empty: StoryObj<typeof SvgEditor> = {
   },
 };
 
+/** Read only: the tile is inert, and the icon is all there is. */
+export const Readonly: StoryObj<typeof SvgEditor> = {
+  render: () => (
+    <div className="max-w-2xl">
+      <SvgEditor
+        schema={iconSchema}
+        source={bell}
+        onChange={() => {}}
+        readonly
+      />
+    </div>
+  ),
+};
+
 /**
- * Paste an export whose colors are not in the palette and the field asks where
- * each one should go, rather than guessing. Press "Import svg" to see it.
+ * Dropping an export whose colors are not in the palette. The mapping controls
+ * appear only now, and the icon is not committed until every color has
+ * somewhere to go - a half mapped icon would silently lose fills.
+ *
+ * Copy the markup below and paste it onto the tile to drive it yourself.
  */
 export const UnmatchedColors: StoryObj<typeof SvgEditor> = {
   render: () => {
@@ -97,7 +115,7 @@ export const UnmatchedColors: StoryObj<typeof SvgEditor> = {
       <div className="max-w-2xl">
         <SvgEditor schema={iconSchema} source={source} onChange={setSource} />
         <p className="mt-4 text-xs text-text-secondary">
-          Paste this, then press Import svg:
+          Paste this onto the tile:
         </p>
         <pre className="mt-1 p-2 text-xs bg-bg-secondary rounded overflow-x-auto">
           {`<svg width="24" height="24" viewBox="0 0 24 24">

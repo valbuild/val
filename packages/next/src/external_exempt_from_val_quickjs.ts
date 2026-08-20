@@ -38,6 +38,7 @@ export {
   ValRichText,
   ValSvg,
   type ValSvgProps,
+  type SvgVars,
 } from "@valbuild/react/internal";
 
 // Stega

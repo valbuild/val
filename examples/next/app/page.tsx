@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { fetchVal, fetchValRoute } from "../val/rsc";
 import pageVal from "./page.val";
-import { svgVarsCss, ValImage, ValRichText, ValSvg } from "@valbuild/next";
+import { ValImage, ValRichText, ValSvg } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
-import iconsVal, { iconSchema } from "../content/icons.val";
+import iconsVal from "../content/icons.val";
 import Link from "next/link";
 import { val } from "../val.config";
 
@@ -55,27 +55,42 @@ export default async function Home({ params }: { params: unknown }) {
         <video src={page.video.file.url} controls />
       </section>
       <section>
-        {/* Turns the schema's example colors into the CSS custom properties the
-            icons reference. Redefine any of them - in a media query, a
-            [data-theme] block, or inline - to retheme every icon at once. */}
-        <style>{svgVarsCss(iconSchema)}</style>
         <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
-          {/* Short form: the icon renders with the schema's example colors. */}
-          <ValSvg src={icons.bookmark} size={32} />
-          {/* The `line` variable is declared as currentColor, so the bell's
-              clapper follows the surrounding text color. */}
+          {/* Every declared variable must be mapped. Adding one to the schema
+              is a compile error here until it is given a color, the same way
+              ValRichText's theme works. */}
+          <ValSvg
+            src={icons.bookmark}
+            size={32}
+            vars={{ brand: "#0055ff", line: "currentColor", surface: "#fff" }}
+          />
+          {/* `line` is mapped to currentColor, so the bell's clapper follows
+              the surrounding text color. */}
           <span
             style={{ color: "#b91c1c", display: "inline-flex", gap: ".5rem" }}
           >
-            <ValSvg src={icons.bell} size={32} />
+            <ValSvg
+              src={icons.bell}
+              size={32}
+              vars={{
+                brand: "currentColor",
+                line: "currentColor",
+                surface: "#fff",
+              }}
+            />
             Inherits currentColor
           </span>
-          {/* Long form: override one variable for this usage only. */}
+          {/* Mapped to css custom properties this app owns, so a dark mode
+              stylesheet can retheme the icon without re-rendering. */}
           <ValSvg
             src={icons.check}
             size={32}
             title="Done"
-            vars={{ brand: "#15803d", surface: "#f0fdf4" }}
+            vars={{
+              brand: "var(--icon-brand, #15803d)",
+              line: null,
+              surface: "var(--icon-surface, #f0fdf4)",
+            }}
           />
         </div>
       </section>

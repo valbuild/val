@@ -21,6 +21,7 @@ ImageSource            →  ImageSelector
 FileSource<M>          →  FileSelector<M>
 RemoteSource<M>        →  GenericSelector
 RichTextSource<O>      →  RichTextSelector<O>
+SvgSource<O>           →  SvgSelector<O>
 SourceObject           →  ObjectSelector<T>
 SourceArray            →  ArraySelector<T>
 string/number/boolean  →  StringSelector/NumberSelector/BooleanSelector
@@ -38,7 +39,8 @@ export type Source =
   | RemoteSource
   | FileSource
   | ImageSource
-  | RichTextSource<RichTextOptions>;
+  | RichTextSource<RichTextOptions>
+  | SvgSource<AllSvgOptions>;
 ```
 
 **SelectorSource** (`packages/core/src/selector/index.ts`):
@@ -53,6 +55,7 @@ export type SelectorSource =
   | FileSource
   | RemoteSource
   | RichTextSource<AllRichTextOptions>
+  | SvgSource<AllSvgOptions>
   | GenericSelector<Source>;
 ```
 
@@ -103,6 +106,7 @@ Each Schema class validates and types its corresponding Source type:
 | `ImageSchema<T>`    | `ImageSource`       | `s.image()`           |
 | `FileSchema<T>`     | `FileSource`        | `s.file()`            |
 | `RichTextSchema<O>` | `RichTextSource<O>` | `s.richtext(options)` |
+| `SvgSchema<O>`      | `SvgSource<O>`      | `s.svg(options)`      |
 | `ObjectSchema<T>`   | `SourceObject`      | `s.object({...})`     |
 | `ArraySchema<T>`    | `SourceArray`       | `s.array(schema)`     |
 
@@ -473,6 +477,53 @@ This handles both local and remote refs, with or without pending patches. The `M
 #### Server-side file serving
 
 The `/api/val/files` endpoint (`ValServer.ts`) serves draft files by loading them from the patch directory (via `getBase64EncodedBinaryFileFromPatch`) and published files directly from the filesystem (`getBinaryFile`). No auth is required on this endpoint (patch IDs serve as unguessable tokens).
+
+## Working with Svg
+
+`s.svg()` stores an svg as a **json node tree**, not a file. Colors are
+**variables**, not baked hexes, so an icon can be rethemed at render time.
+
+### Shape
+
+```typescript
+// packages/core/src/source/svg.ts
+type SvgSource<O> = {
+  viewBox: string;
+  width: number | null; // null, never undefined: undefined is not Json
+  height: number | null;
+  children: SvgNode<O>[];
+  readonly [SVG_VAL_PATH]?: string; // injected by stega, never stored
+};
+type SvgNode<O> = { tag: SvgTag; attrs: SvgAttrs<O>; children: SvgNode<O>[] };
+```
+
+`SvgAttrs<O>` is a **per-attribute mapped type**, not `Record<string, unknown>`:
+`fill` / `stroke` take `SvgColorValue<O>`, geometry attributes take `number`,
+`stroke-linecap` and friends take their enum, and `d` / `points` / `transform` /
+`stroke-dasharray` are the only free strings. This makes the palette constraint
+a _compile_ error, not only a validation error: with the default
+`literals: "forbid"`, `fill: "#f00"` does not typecheck.
+
+### Rules when touching svg code
+
+1. **Never stega encode an svg.** Every string in one (`d`, `viewBox`,
+   `points`, `transform`) is machine parsed; invisible characters corrupt the
+   icon. `stegaEncode` returns the source untouched and attaches the path as
+   `SVG_VAL_PATH`, which `ValSvg` turns into `data-val-path`.
+2. **The allowlist in `packages/core/src/schema/svg/allowlist.ts` is the entire
+   security boundary.** `ValSvg` builds React elements, and React renders
+   unknown attributes on host elements verbatim - `onload` does fire on svg
+   elements. It must stay a strict per-tag allowlist of exact attribute names,
+   never an `on*` denylist. Do not add a tag or attribute to it without
+   thinking about what it can load, execute or leak.
+3. **The parser is not a security boundary.** `packages/shared/src/internal/svg`
+   parses, then everything goes through the allowlist, then through validation.
+   Keep that order.
+4. **`ValSvg`'s `vars` is exhaustive when given**, exactly like
+   `ValRichText`'s `theme`. That is deliberate: a new variable should break the
+   call sites so someone revisits them.
+5. **The palette lives only in the schema.** Do not mirror it into the source -
+   that is what creates drift and repair fixes.
 
 ## Common Fixes
 
