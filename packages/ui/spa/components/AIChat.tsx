@@ -167,14 +167,16 @@ export type AIChatProps = {
   mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
   sessions?: AISession[];
-  /** The currently active session ID */
-  currentSessionId?: string;
+  /** The currently active session ID; null when the session is unborn (no message sent yet). */
+  currentSessionId?: string | null;
   /** Called to load a previous session */
   onLoadSession?: (sessionId: string) => void;
   /** Called to trigger a sessions fetch */
   onFetchSessions?: () => void;
   /** Called to rename a session */
   onSetSessionName?: (sessionId: string, name: string) => void;
+  /** True while a previous session's messages are being fetched from the server. */
+  isLoadingSession?: boolean;
   /** Called when the user submits answers to an ask_user_question tool call */
   onAnswerToolQuestions?: (
     toolCallId: string,
@@ -252,6 +254,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onLoadSession,
     onFetchSessions,
     onSetSessionName,
+    isLoadingSession,
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
@@ -836,6 +839,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         <div className="flex flex-col gap-4 p-4">
           {authError ? (
             <AuthPrompt mode={mode} />
+          ) : isLoadingSession && isEmpty ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-fg-secondary">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading conversation…</span>
+            </div>
           ) : isEmpty ? (
             <EmptyState
               suggestions={effectiveSuggestions}
