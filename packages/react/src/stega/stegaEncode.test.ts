@@ -1,4 +1,4 @@
-import { getModuleIds, stegaEncode } from "./stegaEncode";
+import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
 import {
   ImageMetadata,
   RawString,
@@ -210,6 +210,95 @@ describe("stega transform", () => {
       {},
     );
     expect(transformed).toStrictEqual("2024-08-21");
+  });
+
+  // Colors end up in CSS (a style attribute, a custom property), where the
+  // invisible characters stega appends would break the declaration. They must
+  // therefore come out of stegaEncode byte-for-byte unchanged.
+  test("skip stegaEncode on colors", () => {
+    for (const [schema, color] of [
+      [s.color(), "hsl(217.22 91.22% 59.8%)"],
+      [s.color({ format: "hex" }), "#3b82f6"],
+      [s.color({ format: "rgb" }), "rgb(59 130 246)"],
+      [s.color({ format: "oklch" }), "oklch(0.6231 0.188 259.81)"],
+      [
+        s.color({ format: "hsl", alpha: true }),
+        "hsl(217.22 91.22% 59.8% / 0.5)",
+      ],
+    ] as const) {
+      const transformed = stegaEncode(
+        c.define("/test1.val.ts", schema, color),
+        {},
+      );
+      expect(transformed).toStrictEqual(color);
+      expect(vercelStegaSplit(transformed).encoded).toStrictEqual("");
+    }
+  });
+
+  test("skip stegaEncode on colors, but not on the strings next to them", () => {
+    const schema = s.object({
+      brand: s.color(),
+      overlay: s.color({ format: "hsl", alpha: true }).nullable(),
+      label: s.string(),
+    });
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        brand: "hsl(217.22 91.22% 59.8%)",
+        overlay: "hsl(217.22 91.22% 59.8% / 0.15)",
+        label: "Brand",
+      }),
+      {},
+    );
+    expect(transformed.brand).toStrictEqual("hsl(217.22 91.22% 59.8%)");
+    expect(transformed.overlay).toStrictEqual(
+      "hsl(217.22 91.22% 59.8% / 0.15)",
+    );
+    // the sibling string is still encoded: the color is skipped because of its
+    // schema, not because encoding is off for the whole module
+    expect(vercelStegaSplit(transformed.label).cleaned).toStrictEqual("Brand");
+    expect(vercelStegaDecode(transformed.label)).toStrictEqual({
+      data: {
+        valPath: '/test1.val.ts?p="label"',
+      },
+      origin: "val.build",
+    });
+  });
+
+  test("skip stegaEncode on colors nested in records and arrays", () => {
+    const schema = s.record(s.array(s.object({ fill: s.color() })));
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        theme: [{ fill: "hsl(0 100% 50%)" }, { fill: "hsl(120 100% 50%)" }],
+      }),
+      {},
+    );
+    expect(transformed.theme[0].fill).toStrictEqual("hsl(0 100% 50%)");
+    expect(transformed.theme[1].fill).toStrictEqual("hsl(120 100% 50%)");
+  });
+
+  test("skip stegaEncode on colors inside a tagged union", () => {
+    const schema = s.union(
+      "type",
+      s.object({ type: s.literal("solid"), fill: s.color() }),
+      s.object({ type: s.literal("text"), body: s.string() }),
+    );
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        type: "solid",
+        fill: "hsl(0 100% 50%)",
+      }),
+      {},
+    );
+    expect(transformed.fill).toStrictEqual("hsl(0 100% 50%)");
+  });
+
+  test("stega type of a color is a plain string, not a ValEncodedString", () => {
+    // An arbitrary string is assignable to the stega type of a color. It would
+    // not be if the type claimed the value was encoded, since ValEncodedString
+    // is branded - so this line pins the type to match the runtime skip above.
+    const color: StegaOfSource<SchemaOf<ReturnType<typeof s.color>>> =
+      "hsl(0 100% 50%)" as string;
+    expect(color).toStrictEqual("hsl(0 100% 50%)");
   });
 
   test("skip stegaEncode when using keyOf", () => {
