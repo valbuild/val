@@ -17,6 +17,7 @@ import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
 import { RouteSchema } from "./route";
 import { StringSchema } from "./string";
+import { SvgSchema } from "./svg";
 import { UnionSchema } from "./union";
 
 export function deserializeSchema(
@@ -156,6 +157,15 @@ function deserializeSchemaImpl(
         serialized.description,
       );
     }
+    case "svg":
+      return new SvgSchema(
+        serialized.options ?? {},
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
     case "record":
       return new RecordSchema(
         deserializeSchema(serialized.item),

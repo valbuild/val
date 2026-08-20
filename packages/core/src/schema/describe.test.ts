@@ -3,6 +3,7 @@ import { SelectorSource } from "../selector";
 import { array } from "./array";
 import { boolean } from "./boolean";
 import { date } from "./date";
+import { svg } from "./svg";
 import { deserializeSchema } from "./deserialize";
 import { image } from "./image";
 import { literal } from "./literal";
@@ -36,6 +37,16 @@ describe("Schema.describe()", () => {
     expect(schema["executeSerialize"]()).toMatchObject({
       type: "boolean",
       description: "Is published",
+    });
+  });
+
+  test("svg: describe is serialized", () => {
+    const schema = svg({ variables: { brand: "#0055ff" } }).describe(
+      "Brand icon",
+    );
+    expect(schema["executeSerialize"]()).toMatchObject({
+      type: "svg",
+      description: "Brand icon",
     });
   });
 
@@ -267,6 +278,18 @@ describe("Schema.describe() survives serialize → deserialize round-trip", () =
     expect(roundTrip(date().describe("Birthday"))).toMatchObject({
       type: "date",
       description: "Birthday",
+    });
+  });
+
+  test("svg", () => {
+    expect(
+      roundTrip(
+        svg({ variables: { brand: "#0055ff" } }).describe("Brand icon"),
+      ),
+    ).toMatchObject({
+      type: "svg",
+      description: "Brand icon",
+      options: { variables: { brand: "#0055ff" } },
     });
   });
 

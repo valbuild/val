@@ -11,6 +11,7 @@ import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
+import { SerializedSvgSchema } from "./svg";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
@@ -22,6 +23,7 @@ import {
 } from "./validation/ValidationError";
 import { FileSource } from "../source/file";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
+import { GenericSvgSource, SvgOptions, SvgSource } from "../source/svg";
 import { ReifiedRender } from "../render";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
@@ -37,6 +39,7 @@ export type SerializedSchema =
   | SerializedArraySchema
   | SerializedUnionSchema
   | SerializedRichTextSchema
+  | SerializedSvgSchema
   | SerializedRecordSchema
   | SerializedKeyOfSchema
   | SerializedFileSchema
@@ -67,13 +70,15 @@ export type SchemaAssertResult<Src extends SelectorSource> =
         : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
           Src extends RichTextSource<{}>
           ? GenericRichTextSourceNode[]
-          : Src extends Primitives
-            ? Src
-            : Src extends Array<SelectorSource>
-              ? SelectorSource[]
-              : Src extends { [key: string]: SelectorSource }
-                ? { [key in keyof Src]: SelectorSource }
-                : never;
+          : Src extends SvgSource<SvgOptions>
+            ? GenericSvgSource
+            : Src extends Primitives
+              ? Src
+              : Src extends Array<SelectorSource>
+                ? SelectorSource[]
+                : Src extends { [key: string]: SelectorSource }
+                  ? { [key in keyof Src]: SelectorSource }
+                  : never;
       success: true;
     }
   | { success: false; errors: Record<SourcePath, AssertError[]> };

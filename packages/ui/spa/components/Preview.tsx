@@ -14,6 +14,7 @@ import { DateTimePreview } from "./fields/DateTimeField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
+import { SvgPreview } from "./fields/SvgField";
 import { FilePreview } from "./fields/FileField";
 import { Loader2 } from "lucide-react";
 
@@ -68,6 +69,8 @@ export function Preview({
     return <RecordPreview path={path} size={size} />;
   } else if (type === "richtext") {
     return <RichTextPreview path={path} />;
+  } else if (type === "svg") {
+    return <SvgPreview path={path} />;
   } else if (type === "file") {
     return <FilePreview path={path} />;
   } else {

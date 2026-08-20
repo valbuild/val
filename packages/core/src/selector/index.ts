@@ -11,8 +11,10 @@ import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
 import { FileSource } from "../source/file";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
+import { AllSvgOptions, SvgSource } from "../source/svg";
 import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
+import { SvgSelector } from "./svg";
 import { ImageSource } from "../source/image";
 import { RemoteSource } from "../source/remote";
 
@@ -24,19 +26,21 @@ export type Selector<T extends Source> = Source extends T
       ? FileSelector<M>
       : T extends RichTextSource<infer O>
         ? RichTextSelector<O>
-        : T extends SourceObject
-          ? ObjectSelector<T>
-          : T extends SourceArray
-            ? ArraySelector<T>
-            : T extends string
-              ? StringSelector<T>
-              : T extends number
-                ? NumberSelector<T>
-                : T extends boolean
-                  ? BooleanSelector<T>
-                  : T extends null
-                    ? PrimitiveSelector<null>
-                    : never;
+        : T extends SvgSource<infer SO>
+          ? SvgSelector<SO>
+          : T extends SourceObject
+            ? ObjectSelector<T>
+            : T extends SourceArray
+              ? ArraySelector<T>
+              : T extends string
+                ? StringSelector<T>
+                : T extends number
+                  ? NumberSelector<T>
+                  : T extends boolean
+                    ? BooleanSelector<T>
+                    : T extends null
+                      ? PrimitiveSelector<null>
+                      : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -49,6 +53,7 @@ export type SelectorSource =
   | FileSource
   | RemoteSource
   | RichTextSource<AllRichTextOptions>
+  | SvgSource<AllSvgOptions>
   | GenericSelector<Source>;
 
 // Identity symbols are registered in the global Symbol registry so that

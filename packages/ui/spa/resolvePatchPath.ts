@@ -263,13 +263,16 @@ export function resolvePatchPath(
       }
       currentSource = currentObjectSourceRes.source[part];
       addPart(JSON.stringify(part));
-    } else if (currentSchema.type === "richtext") {
+    } else if (
+      currentSchema.type === "richtext" ||
+      currentSchema.type === "svg"
+    ) {
       for (const part of patchPath.slice(i)) {
         i++;
         if (currentSource === null) {
           return {
             success: false,
-            error: `Invalid source type in rich text: '${patchPath.join(
+            error: `Invalid source type in ${currentSchema.type}: '${patchPath.join(
               "/",
             )}'. Expected an object but got 'null' at part ${i} (sliced: ${patchPath
               .slice(0, i + 1)
@@ -282,7 +285,7 @@ export function resolvePatchPath(
           if (!Number.isSafeInteger(Number(part))) {
             return {
               success: false,
-              error: `Invalid array index in rich text: '${patchPath.join(
+              error: `Invalid array index in ${currentSchema.type}: '${patchPath.join(
                 "/",
               )}'. Expected an integer but got '${part}' at part ${i} (sliced: ${patchPath
                 .slice(0, i + 1)
@@ -310,7 +313,7 @@ export function resolvePatchPath(
         } else {
           return {
             success: false,
-            error: `Invalid source type in rich text: '${patchPath.join(
+            error: `Invalid source type in ${currentSchema.type}: '${patchPath.join(
               "/",
             )}'. Expected an object but got '${typeof currentSource}' at part ${i} (sliced: ${patchPath
               .slice(0, i + 1)

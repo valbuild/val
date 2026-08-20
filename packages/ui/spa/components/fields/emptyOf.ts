@@ -44,6 +44,13 @@ export function emptyOf(schema: SerializedSchema): Json {
     return null;
   } else if (schema.type === "richtext") {
     return [];
+  } else if (schema.type === "svg") {
+    return {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [],
+    };
   } else if (schema.type === "string") {
     return "";
   } else if (schema.type === "boolean") {

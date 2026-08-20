@@ -6,6 +6,7 @@ import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
 import { richtext } from "./schema/richtext";
+import { svg } from "./schema/svg";
 import { image } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
@@ -99,6 +100,38 @@ export type InitSchema = {
    * ]);
    */
   readonly richtext: typeof richtext;
+  /**
+   * Define an svg icon.
+   *
+   * The svg is stored as a json tree, so colors can be constrained to a set of
+   * named variables. Each variable declares an example color, which is what the
+   * editor previews, what `svgVarsCss` emits, and what literal fills are matched
+   * against when an svg is pasted in. The color that actually renders is
+   * resolved from `--val-svg-<name>`, so an icon supports `currentColor`, dark
+   * mode and per-usage overrides.
+   *
+   * Render it with `ValSvg`.
+   *
+   * @example
+   * const schema = s.svg({
+   *   width: 24,
+   *   height: 24,
+   *   variables: { brand: "#0055ff", line: "currentColor" },
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   viewBox: "0 0 24 24",
+   *   width: 24,
+   *   height: 24,
+   *   children: [
+   *     {
+   *       tag: "path",
+   *       attrs: { d: "M4 12h16", stroke: { var: "line" }, fill: "none" },
+   *       children: [],
+   *     },
+   *   ],
+   * });
+   */
+  readonly svg: typeof svg;
   /**
    * Define an image.
    *
@@ -267,6 +300,7 @@ export function initSchema() {
     union,
     // oneOf,
     richtext,
+    svg,
     image,
     literal,
     keyOf,

@@ -233,6 +233,10 @@ function rec(
           source,
       );
     }
+  } else if (schema.type === "svg") {
+    // Nothing searchable inside an icon: index it by its path only, so it can
+    // still be found by field name.
+    addTokenizedSourcePath(sourcePathIndex, path);
   } else if (schema.type === "boolean") {
     // ignore booleans
   } else if (schema.type === "route") {

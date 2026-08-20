@@ -27,6 +27,9 @@ export function schemaTypesOfPath(
     } else if (current.type === "richtext") {
       // richtext has internal structure (nodes with indices and tags), allow traversal
       break;
+    } else if (current.type === "svg") {
+      // svg has internal structure (nodes, attrs), allow traversal
+      break;
     } else if (current.type === "union") {
       if (typeof current.key === "string") {
         const types = current.items;

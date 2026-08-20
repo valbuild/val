@@ -1385,6 +1385,7 @@ export type ShallowSource = EnsureAllTypes<{
   };
   literal: string;
   richtext: unknown[];
+  svg: { readonly [key: string]: Json };
 }>;
 
 export function useCurrentProfile() {
@@ -1793,6 +1794,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       return {
         status: "error",
         error: `Expected richtext (i.e. array), got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "svg") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected svg (i.e. object), got ${typeof source}`,
       };
     }
     return {

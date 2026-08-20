@@ -5,6 +5,7 @@ import {
   Schema,
   SelectorSource,
   initVal,
+  SVG_VAL_PATH,
 } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
@@ -295,3 +296,83 @@ describe("stega transform", () => {
 
 type SchemaOf<T extends Schema<SelectorSource>> =
   T extends Schema<infer S> ? S : never;
+
+describe("stega transform: svg", () => {
+  const iconSchema = s.svg({
+    variables: { brand: "#0055ff", line: "currentColor" },
+  });
+  const icon = {
+    viewBox: "0 0 24 24",
+    width: 24,
+    height: 24,
+    children: [
+      {
+        tag: "path" as const,
+        attrs: {
+          d: "M12 2C8.7 2 6 4.7 6 8v5l-2 3h16l-2-3V8c0-3.3-2.7-6-6-6z",
+          transform: "translate(1 1)",
+          fill: { var: "brand" as const },
+        },
+        children: [],
+      },
+      {
+        tag: "polyline" as const,
+        attrs: { points: "1,2 3,4 5,6", stroke: { var: "line" as const } },
+        children: [],
+      },
+    ],
+  };
+
+  test("leaves every string byte identical", () => {
+    const valModule = c.define("/icon.val.ts", iconSchema, icon);
+    const transformed = stegaEncode(valModule, {});
+
+    // No invisible characters anywhere: an svg is machine parsed, so encoding
+    // d / viewBox / points / transform would corrupt the icon.
+    expect(transformed.viewBox).toBe(icon.viewBox);
+    expect(transformed.children[0].attrs.d).toBe(icon.children[0].attrs.d);
+    expect(transformed.children[0].attrs.transform).toBe(
+      icon.children[0].attrs.transform,
+    );
+    expect(transformed.children[1].attrs.points).toBe(
+      icon.children[1].attrs.points,
+    );
+    expect(vercelStegaDecode(transformed.children[0].attrs.d)).toBe(undefined);
+    expect(vercelStegaDecode(transformed.viewBox)).toBe(undefined);
+    expect(vercelStegaSplit(transformed.children[0].attrs.d).encoded).toBe("");
+  });
+
+  test("attaches the source path as a plain field, for ValSvg", () => {
+    const valModule = c.define("/icon.val.ts", iconSchema, icon);
+    const transformed = stegaEncode(valModule, {});
+    expect(transformed[SVG_VAL_PATH]).toBe("/icon.val.ts");
+  });
+
+  test("carries the path of a nested svg", () => {
+    const schema = s.record(iconSchema);
+    const valModule = c.define("/icons.val.ts", schema, { bell: icon });
+    const transformed = stegaEncode(valModule, {});
+    expect(transformed.bell[SVG_VAL_PATH]).toBe('/icons.val.ts?p="bell"');
+  });
+
+  test("attaches nothing when stega is disabled", () => {
+    const valModule = c.define("/icon.val.ts", iconSchema, icon);
+    const transformed = stegaEncode(valModule, { disabled: true });
+    expect(transformed[SVG_VAL_PATH]).toBe(undefined);
+    expect(transformed.viewBox).toBe(icon.viewBox);
+  });
+
+  test("does not disturb stega encoding of sibling fields", () => {
+    const schema = s.object({ title: s.string(), icon: iconSchema });
+    const valModule = c.define("/page.val.ts", schema, {
+      title: "Notifications",
+      icon,
+    });
+    const transformed = stegaEncode(valModule, {});
+    expect(vercelStegaDecode(transformed.title)).toStrictEqual({
+      data: { valPath: '/page.val.ts?p="title"' },
+      origin: "val.build",
+    });
+    expect(transformed.icon.children[0].attrs.d).toBe(icon.children[0].attrs.d);
+  });
+});

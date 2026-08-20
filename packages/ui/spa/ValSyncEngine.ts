@@ -3437,6 +3437,7 @@ const nonInterDependentTypes = [
   "date",
   "dateTime",
   "richtext",
+  "svg",
   "file",
   "image",
 ];

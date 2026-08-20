@@ -47,6 +47,7 @@ describe("Schema.hidden()", () => {
     expect(s.number().hidden()["executeSerialize"]().hidden).toBe(true);
     expect(s.boolean().hidden()["executeSerialize"]().hidden).toBe(true);
     expect(s.date().hidden()["executeSerialize"]().hidden).toBe(true);
+    expect(s.svg().hidden()["executeSerialize"]().hidden).toBe(true);
     expect(s.array(s.string()).hidden()["executeSerialize"]().hidden).toBe(
       true,
     );
