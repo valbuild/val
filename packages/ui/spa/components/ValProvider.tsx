@@ -34,6 +34,7 @@ import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
+import { createValidationWorker } from "../validation/createValidationWorker";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
 import {
@@ -50,6 +51,7 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import { AIChatActionsProvider } from "./AIChatActionsContext";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -314,11 +316,15 @@ export function ValProvider({
 
   const syncEngine = useMemo(
     () =>
-      new ValSyncEngine(client, (moduleFilePath, newSource) => {
-        if (dispatchValEvents) {
-          defaultOverlayEmitter(moduleFilePath, newSource);
-        }
-      }),
+      new ValSyncEngine(
+        client,
+        (moduleFilePath, newSource) => {
+          if (dispatchValEvents) {
+            defaultOverlayEmitter(moduleFilePath, newSource);
+          }
+        },
+        createValidationWorker,
+      ),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
@@ -673,31 +679,33 @@ export function ValProvider({
       }}
     >
       <TooltipProvider>
-        {theme !== undefined && setTheme ? (
-          <ValThemeProvider
-            theme={theme}
-            setTheme={setTheme}
-            config={runtimeConfig}
-          >
-            <ValErrorProvider syncEngine={syncEngine}>
-              <ValPortalProvider>
-                <ValRemoteProvider remoteFiles={remoteFiles}>
-                  <ValFieldProvider
-                    syncEngine={syncEngine}
-                    getDirectFileUploadSettings={getDirectFileUploadSettings}
-                    config={runtimeConfig}
-                  >
-                    <LocalModulesErrorBanner syncEngine={syncEngine} />
-                    {children}
-                    <SchemaOutOfDateGate syncEngine={syncEngine} />
-                  </ValFieldProvider>
-                </ValRemoteProvider>
-              </ValPortalProvider>
-            </ValErrorProvider>
-          </ValThemeProvider>
-        ) : (
-          children
-        )}
+        <AIChatActionsProvider isAIChatEnabled={wsEnabled}>
+          {theme !== undefined && setTheme ? (
+            <ValThemeProvider
+              theme={theme}
+              setTheme={setTheme}
+              config={runtimeConfig}
+            >
+              <ValErrorProvider syncEngine={syncEngine}>
+                <ValPortalProvider>
+                  <ValRemoteProvider remoteFiles={remoteFiles}>
+                    <ValFieldProvider
+                      syncEngine={syncEngine}
+                      getDirectFileUploadSettings={getDirectFileUploadSettings}
+                      config={runtimeConfig}
+                    >
+                      <LocalModulesErrorBanner syncEngine={syncEngine} />
+                      {children}
+                      <SchemaOutOfDateGate syncEngine={syncEngine} />
+                    </ValFieldProvider>
+                  </ValRemoteProvider>
+                </ValPortalProvider>
+              </ValErrorProvider>
+            </ValThemeProvider>
+          ) : (
+            children
+          )}
+        </AIChatActionsProvider>
       </TooltipProvider>
     </ValContext.Provider>
   );

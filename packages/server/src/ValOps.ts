@@ -12,6 +12,7 @@ import {
   RemoteSource,
   Schema,
   SelectorSource,
+  SerializedSchema,
   Source,
   SourcePath,
   VAL_EXTENSION,
@@ -210,6 +211,17 @@ export abstract class ValOps {
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);
   }
+  async getSerializedSchemas(): Promise<
+    Record<ModuleFilePath, SerializedSchema>
+  > {
+    const schemas = await this.getSchemas();
+    const serialized: Record<ModuleFilePath, SerializedSchema> = {};
+    for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
+      serialized[moduleFilePathS as ModuleFilePath] =
+        schema["executeSerialize"]();
+    }
+    return serialized;
+  }
   async getModuleErrors(): Promise<ModulesError[]> {
     return this.initSources().then((result) => result.moduleErrors);
   }
@@ -249,6 +261,7 @@ export abstract class ValOps {
       if (patch.appliedAt) {
         continue;
       }
+      let hasSourceFileOps = false;
       for (const op of patch.patch) {
         if (op.op === "file") {
           const filePath = op.filePath;
@@ -259,6 +272,13 @@ export abstract class ValOps {
           };
           continue;
         }
+        hasSourceFileOps = true;
+      }
+      // Once per patch, NOT once per op: prepare() re-looks-up the patch by id
+      // and applies the whole thing for every entry, so a patch with two source
+      // ops used to be applied twice. Idempotent for "replace", destructive for
+      // array add/remove/move.
+      if (hasSourceFileOps) {
         const path = patch.path;
         if (!patchesByModule[path]) {
           patchesByModule[path] = [];
@@ -404,6 +424,25 @@ export abstract class ValOps {
       }
     }
     return { sources: patchedSources, errors };
+  }
+
+  /**
+   * Every module's source, with the pending patches applied.
+   *
+   * `getSources(analysis)` returns ONLY the modules that had patches, which is
+   * not enough to validate with: cross-module checks (keyOf, router routes)
+   * resolve against other modules' sources and report spurious errors when they
+   * are absent. `/sources/~` overlays the two for exactly this reason.
+   */
+  async getSourcesWithPatchesApplied(
+    analysis: PatchAnalysis & OrderedPatches,
+  ): Promise<Awaited<ReturnType<ValOps["getSources"]>>> {
+    const unpatched = await this.getSources();
+    const patched = await this.getSources(analysis);
+    return {
+      sources: { ...unpatched.sources, ...patched.sources },
+      errors: patched.errors,
+    };
   }
 
   // #region validateSources
@@ -788,12 +827,31 @@ export abstract class ValOps {
   }
 
   // #region prepareCommit
+  /**
+   * Applies the pending patches to the source files so they can be committed.
+   *
+   * @param options.continueOnError Diagnosis only. By default a patch that
+   * cannot be applied aborts the rest of that module's chain, which is what
+   * /save requires: the commit is refused and nothing is written. With this
+   * flag the failing patch is recorded in `unappliablePatches` and the chain
+   * continues on the unchanged source file, so a single run reports *every*
+   * unappliable patch instead of only the first one per module. The commit is
+   * still refused (`hasErrors` stays true) - this only makes the report
+   * complete.
+   */
   async prepare(
     patchAnalysis: PatchAnalysis & OrderedPatches,
+    options?: { continueOnError?: boolean },
   ): Promise<PreparedCommit> {
+    const continueOnError = options?.continueOnError ?? false;
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
+    const partiallyPatchedSourceFiles: Record<ModuleFilePath, string> = {};
+    const unappliablePatches: Record<
+      PatchId,
+      { moduleFilePath: ModuleFilePath; message: string }
+    > = {};
 
     const applySourceFilePatches = async (
       path: ModuleFilePath,
@@ -841,9 +899,13 @@ export abstract class ValOps {
           (p) => p.patchId === patchId,
         );
         if (!patchData) {
-          errors.push({
-            message: `Analysis required non-existing patch: ${patchId}`,
-          });
+          const message = `Analysis required non-existing patch: ${patchId}`;
+          errors.push({ message });
+          unappliablePatches[patchId] = { moduleFilePath: path, message };
+          triedPatches.push(patchId);
+          if (continueOnError) {
+            continue;
+          }
           break;
         }
         const patch = patchData.patch;
@@ -883,11 +945,30 @@ export abstract class ValOps {
             );
             errors.push(patchRes.error);
           }
+          unappliablePatches[patchId] = {
+            moduleFilePath: path,
+            message: formatPatchSourceError(patchRes.error),
+          };
           triedPatches.push(patchId);
+          if (continueOnError) {
+            // Continue from the unchanged source file: the failing patch made
+            // no change, so the rest of the chain applies on top of the state
+            // it had before it. This mirrors what the client already does in
+            // ValSyncEngine.getPatchedSource.
+            continue;
+          }
           break;
         }
         appliedPatches.push(patchId);
         tsSourceFile = patchRes.value;
+      }
+      if (errors.length > 0 && continueOnError) {
+        // Diagnosis: expose what the source file would look like with the
+        // appliable patches applied, so a caller can diff it even though the
+        // commit is (correctly) refused.
+        partiallyPatchedSourceFiles[path] = unescape(
+          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u"),
+        );
       }
       if (errors.length === 0) {
         // https://github.com/microsoft/TypeScript/issues/36174
@@ -992,14 +1073,30 @@ export abstract class ValOps {
       hasErrors,
       sourceFilePatchErrors,
       binaryFilePatchErrors,
+      unappliablePatches,
       patchedSourceFiles,
       previousSourceFiles,
+      partiallyPatchedSourceFiles,
       patchedBinaryFilesDescriptors,
       appliedPatches,
       skippedPatches,
       triedPatches,
     };
     return res;
+  }
+
+  /**
+   * Reads a project file as text at whatever revision this ops instance points
+   * at: the deployed commit in http mode, the working tree in fs mode.
+   *
+   * Public counterpart of `getSourceFile`, for the CLI's debug snapshot. The
+   * snapshot has to capture the exact text `prepare` patches, which in http mode
+   * is NOT the local working copy.
+   */
+  async readProjectFile(
+    path: string,
+  ): Promise<WithGenericError<{ data: string }>> {
+    return this.getSourceFile(path);
   }
 
   // #region createPatch
@@ -1071,7 +1168,7 @@ export abstract class ValOps {
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
-    path: ModuleFilePath,
+    path: string,
   ): Promise<WithGenericError<{ data: string }>>;
   abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
@@ -1174,6 +1271,17 @@ export type PatchSourceError =
   | ValSyntaxError
   | ValSyntaxErrorTree;
 
+export function formatPatchSourceError(error: PatchSourceError): string {
+  if ("message" in error) {
+    return error.message;
+  } else if (Array.isArray(error)) {
+    return error.map(formatPatchSourceError).join("\n");
+  } else {
+    const _exhaustiveCheck: never = error;
+    return "Unknown patch source error: " + JSON.stringify(_exhaustiveCheck);
+  }
+}
+
 export type MetadataOfType<T extends "file" | "image"> = T extends "image"
   ? Omit<ImageMetadata, "hotspot">
   : FileMetadata;
@@ -1206,6 +1314,12 @@ export type PreparedCommit = {
    */
   previousSourceFiles: Record<ModuleFilePath, string>;
   /**
+   * Diagnosis only: what the source file looks like with the appliable patches
+   * applied, for modules that had at least one unappliable patch. Populated
+   * only when `prepare` is called with `continueOnError`. Never committed.
+   */
+  partiallyPatchedSourceFiles: Record<ModuleFilePath, string>;
+  /**
    * The file path and patch id in which they appear of binary files that are ready to be committed / saved
    */
   patchedBinaryFilesDescriptors: Record<
@@ -1220,6 +1334,19 @@ export type PreparedCommit = {
   hasErrors: boolean;
   sourceFilePatchErrors: Record<ModuleFilePath, PatchSourceError[]>;
   binaryFilePatchErrors: Record<string, { message: string }>;
+  /**
+   * The patches that could not be applied, keyed by patch id.
+   *
+   * Same information as `sourceFilePatchErrors`, but attributed to the patch
+   * that caused it, which is what a caller needs in order to report or remove
+   * it. Without `continueOnError` this holds the first failing patch of each
+   * module (the rest of that module's chain is never tried); with it, all of
+   * them.
+   */
+  unappliablePatches: Record<
+    PatchId,
+    { moduleFilePath: ModuleFilePath; message: string }
+  >;
   skippedPatches: Record<ModuleFilePath, PatchId[]>;
   triedPatches: Record<ModuleFilePath, PatchId[]>;
 };

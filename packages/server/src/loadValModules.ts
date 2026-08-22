@@ -1,10 +1,20 @@
 import path from "path";
+import fs from "fs";
 import vm from "node:vm";
-import { createRequire } from "node:module";
+import { Module } from "node:module";
 import ts from "typescript";
 import type { ValModules } from "@valbuild/core";
 import { getCompilerOptions } from "./getCompilerOptions";
-import { IValFSHost } from "./ValFSHost";
+
+/**
+ * The filesystem seam `loadValModules` reads through.
+ *
+ * Defaults to `ts.sys`, i.e. the real filesystem. An editor integration (see
+ * `@valbuild/language-server`) passes a host that overlays unsaved buffers, so
+ * that evaluation sees what the user is looking at rather than what was last
+ * saved.
+ */
+export type ValModulesHost = ts.ParseConfigHost & ts.ModuleResolutionHost;
 
 /**
  * Loads the project's root `val.modules.ts` (or `.js`) using Node's `vm`
@@ -17,16 +27,19 @@ import { IValFSHost } from "./ValFSHost";
  * user modules share the exact same `@valbuild/core` instance that
  * `extractValModules` uses.
  *
- * All project file reads / existence checks go through `host`, so a custom
- * `IValFSHost` (virtual FS, patched reads, ...) is respected. Only actual
- * `node_modules` packages bypass it, since those must be the same instances
- * the server itself is running.
- *
  * Mirrors the pattern already used by the CLI's `evalValConfigFile`.
+ *
+ * SECURITY: The `vm` context is NOT a security sandbox. It deliberately exposes
+ * `process` and a `require` that falls back to the real Node resolver (so user
+ * modules share the same `@valbuild/core` instance). This loader must therefore
+ * only ever be used to evaluate the project's own first-party, trusted files
+ * (`val.modules` and the local `*.val.ts`/`val.config.ts` it imports) — i.e. the
+ * same trust level as running the project's build. It must never be used to
+ * evaluate untrusted or third-party modules.
  */
 export function loadValModules(
   projectRoot: string,
-  host: IValFSHost,
+  host: ValModulesHost = ts.sys,
 ): ValModules {
   const valModulesPath = findValModulesPath(projectRoot, host);
   if (!valModulesPath) {
@@ -48,7 +61,7 @@ export function loadValModules(
 
 function findValModulesPath(
   projectRoot: string,
-  host: IValFSHost,
+  host: ValModulesHost,
 ): string | null {
   for (const fileName of ["val.modules.ts", "val.modules.js"]) {
     const candidate = path.join(projectRoot, fileName);
@@ -108,7 +121,7 @@ function loadModule(
   absPath: string,
   cache: Record<string, { exports: Record<string, unknown> }>,
   compilerOptions: ts.CompilerOptions,
-  host: IValFSHost,
+  host: ValModulesHost,
 ): { exports: Record<string, unknown> } {
   const cached = cache[absPath];
   if (cached) {
@@ -116,7 +129,7 @@ function loadModule(
   }
   const code = host.readFile(absPath);
   if (code === undefined) {
-    throw Error(`Could not read file: '${absPath}'`);
+    throw Error(`Could not read Val module file: '${absPath}'`);
   }
   const transpiled = ts.transpileModule(code, {
     compilerOptions: {
@@ -133,7 +146,7 @@ function loadModule(
   cache[absPath] = moduleObj;
 
   const dirName = path.dirname(absPath);
-  const realRequire = createRequire(absPath);
+  const realRequire = Module.createRequire(absPath);
   const customRequire = (spec: string): unknown => {
     if (isStubbedSpecifier(spec)) {
       return makeStub(spec);
@@ -188,11 +201,10 @@ function loadModule(
 function resolveRelative(
   dirName: string,
   spec: string,
-  host: IValFSHost,
+  host: ValModulesHost,
 ): string | null {
   const base = path.resolve(dirName, spec);
-  // Exact file (with extension). fileExists is false for directories, so this
-  // does not shadow the directory-index probe below.
+  // Exact file (with extension)
   if (host.fileExists(base)) {
     return base;
   }
@@ -204,10 +216,12 @@ function resolveRelative(
     }
   }
   // Directory index
-  for (const ext of RESOLVE_EXTENSIONS) {
-    const candidate = path.join(base, "index" + ext);
-    if (host.fileExists(candidate)) {
-      return candidate;
+  if (host.directoryExists?.(base) ?? fs.existsSync(base)) {
+    for (const ext of RESOLVE_EXTENSIONS) {
+      const candidate = path.join(base, "index" + ext);
+      if (host.fileExists(candidate)) {
+        return candidate;
+      }
     }
   }
   return null;

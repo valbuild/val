@@ -33,7 +33,7 @@ function createTestHost(overrides?: Partial<IValFSHost>): IValFSHost {
 
 describe("createService", () => {
   test("lists only the modules registered in val.modules", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     expect(service.getModuleFilePaths().sort()).toEqual([
       "/content/basic-errors.val.ts",
@@ -43,7 +43,7 @@ describe("createService", () => {
   });
 
   test("get returns source and schema for a valid module", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/basic-valid.val.ts" as ModuleFilePath,
@@ -56,7 +56,7 @@ describe("createService", () => {
   });
 
   test("get resolves a nested module path to the sub-source and sub-schema", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/basic-nested.val.ts" as ModuleFilePath,
@@ -68,7 +68,7 @@ describe("createService", () => {
   });
 
   test("get returns the whole module source when module path is empty", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/basic-nested.val.ts" as ModuleFilePath,
@@ -85,7 +85,7 @@ describe("createService", () => {
   });
 
   test("get returns validation errors for an invalid module", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/basic-errors.val.ts" as ModuleFilePath,
@@ -98,19 +98,19 @@ describe("createService", () => {
   });
 
   test("get skips validation when the validate option is false", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/basic-errors.val.ts" as ModuleFilePath,
       "" as ModulePath,
-      { validate: false, source: true, schema: true },
+      { validate: false },
     );
 
     expect(res.errors).toBe(false);
   });
 
   test("get returns a fatal error for a module that is not in val.modules", async () => {
-    const service = await createService(BASIC_FIXTURE, {}, createTestHost());
+    const service = await createService(BASIC_FIXTURE, createTestHost());
 
     const res = await service.get(
       "/content/not-registered.val.ts" as ModuleFilePath,
@@ -128,7 +128,6 @@ describe("createService", () => {
   test("resolves val modules imported via a tsconfig paths alias", async () => {
     const service = await createService(
       PATHS_ALIAS_FIXTURE,
-      {},
       createTestHost(),
     );
 
@@ -158,7 +157,7 @@ export default c.define("/content/basic-valid.val.ts", s.string(), "Patched by h
       },
     });
 
-    const service = await createService(BASIC_FIXTURE, {}, host);
+    const service = await createService(BASIC_FIXTURE, host);
     const res = await service.get(
       "/content/basic-valid.val.ts" as ModuleFilePath,
       "" as ModulePath,
@@ -180,7 +179,7 @@ export default c.define("/content/basic-valid.val.ts", s.string(), "Patched by h
           : ts.sys.fileExists(fileName),
     });
 
-    await expect(createService(BASIC_FIXTURE, {}, host)).rejects.toThrow(
+    await expect(createService(BASIC_FIXTURE, host)).rejects.toThrow(
       /Could not find 'val.modules.ts' nor 'val.modules.js'/,
     );
   });

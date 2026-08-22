@@ -85,7 +85,8 @@ export async function createFilePatch(
           textEncoder,
         ),
         fileHash: remoteFileHash,
-        filePath: `${directory.slice(1)}/${newFilePath}` as `public/${string}`,
+        filePath:
+          `${(directory ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
       })
     : filePath;
   return {

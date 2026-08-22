@@ -8,21 +8,19 @@ import {
 import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
 import path from "path";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
   // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
   const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
     /^\//,
     "",
   );
 
-  const service = await createService(projectRoot, {});
+  const service = await createService(projectRoot);
   const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
@@ -39,8 +37,6 @@ export async function listUnusedFiles({ root }: { root?: string }) {
     }
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
-      source: true,
-      schema: true,
     });
     // TODO: not sure using validation is the best way to do this, but it works currently.
     if (valModule.errors) {

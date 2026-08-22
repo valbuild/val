@@ -12,6 +12,7 @@ export function RouteForm({
   defaultParams,
   onCancel,
   defaultValue,
+  keyDescription,
 }: {
   routePattern: RoutePattern[];
   existingKeys: string[];
@@ -22,6 +23,7 @@ export function RouteForm({
   };
   onCancel: () => void;
   defaultValue?: string;
+  keyDescription?: string;
 }) {
   const [params, setParams] = useState<{
     [paramName: string]: string | string[];
@@ -75,12 +77,17 @@ export function RouteForm({
 
   return (
     <form
-      className="p-4 space-y-3"
+      // NB: no padding here - the container (a popover) provides it, so that the
+      // route inputs line up with the key description shown above the form
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit(fullPath);
       }}
     >
+      {keyDescription && (
+        <div className="text-sm text-fg-tertiary">{keyDescription}</div>
+      )}
       <div className="flex items-center">
         {routePattern.map((part, i) => (
           <span key={i} className="truncate">

@@ -65,5 +65,7 @@ module.exports = defineConfig([
     "**/out",
     "**/tsconfig.tsbuildinfo",
     "**/*.js",
+    // Unzipped `val debug` snapshots: customer source, not ours to lint.
+    "debug/*/",
   ]),
 ]);

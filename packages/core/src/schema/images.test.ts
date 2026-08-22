@@ -597,6 +597,113 @@ describe("ImagesSchema", () => {
     });
   });
 
+  describe("defaults", () => {
+    test("should default accept to image/* when options are omitted", () => {
+      const schema = images();
+      const serialized = schema["executeSerialize"]();
+      expect((serialized as SerializedImagesSchema).mediaType).toBe("images");
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/val");
+      expect(serialized.remote).toBe(false);
+      expect(serialized.opt).toBe(false);
+    });
+
+    test("should default accept to image/* when options are empty", () => {
+      const serialized = images({})["executeSerialize"]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/val");
+    });
+
+    test("should default accept to image/* when only directory is given", () => {
+      const serialized = images({ directory: "/public/images" })[
+        "executeSerialize"
+      ]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/images");
+    });
+
+    test("should default alt to a nullable string when options are omitted", () => {
+      const serialized = images()["executeSerialize"]();
+      expect(serialized.alt).toMatchObject({ type: "string", opt: true });
+    });
+
+    test("should accept any image mime type when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/public/val/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      expect(
+        filterCheckErrors(schema["executeValidate"]("path" as SourcePath, src)),
+      ).toBeFalsy();
+    });
+
+    test("should reject non-image mime types when options are omitted", () => {
+      const schema = images();
+      const src = {
+        "/public/val/test.pdf": {
+          width: 800,
+          height: 600,
+          mimeType: "application/pdf",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"](
+        "path" as SourcePath,
+        src as unknown as Record<string, ImagesEntryMetadata>,
+      );
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasMimeError = errors.some((e: { message: string }) =>
+        e.message.includes("Mime type mismatch"),
+      );
+      expect(hasMimeError).toBe(true);
+    });
+
+    test("should use the default /public/val directory when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/public/other/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasDirError = errors.some((e: { message: string }) =>
+        e.message.includes("must be within the /public/val/ directory"),
+      );
+      expect(hasDirError).toBe(true);
+    });
+
+    test("should not allow remote refs when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: null,
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasRemoteError = errors.some((e: { message: string }) =>
+        e.message.includes("Remote URLs are not allowed"),
+      );
+      expect(hasRemoteError).toBe(true);
+    });
+  });
+
   describe("custom validation", () => {
     test("should support custom validation function", () => {
       const schema = images({ accept: "image/webp" }).validate((src) => {

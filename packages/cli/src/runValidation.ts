@@ -547,7 +547,7 @@ export async function handleUniqueFolderCheck(
     const otherModule = await ctx.service.get(
       otherModuleFilePath,
       "" as ModulePath,
-      { source: false, schema: true, validate: false },
+      { validate: false },
     );
     const schema = otherModule.schema as
       | { type?: string; directory?: string; mediaType?: string }
@@ -724,7 +724,7 @@ export async function* runValidation({
 }): AsyncGenerator<ValidationEvent> {
   const projectRoot = path.resolve(root);
 
-  const service = await createService(projectRoot, {}, fs);
+  const service = await createService(projectRoot, fs);
 
   // Modules registered in the project's val.modules. Files found on disk that
   // are not registered here are not validated (a warning is emitted instead).
@@ -739,8 +739,6 @@ export async function* runValidation({
   const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
   for (const moduleFilePath of registered) {
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: false,
     });
     if (valModule.schema) {
@@ -759,8 +757,6 @@ export async function* runValidation({
     }
     const start = Date.now();
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
-      source: true,
-      schema: true,
       validate: true,
     });
     const remoteFiles: Record<

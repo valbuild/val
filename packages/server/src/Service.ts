@@ -20,18 +20,8 @@ import {
 import path from "path";
 import { loadValModules } from "./loadValModules";
 
-export type ServiceOptions = {
-  /**
-   * Disable cache for transpilation
-   *
-   * @default false
-   */
-  disableCache?: boolean;
-};
-
 export async function createService(
   projectRoot: string,
-  opts: ServiceOptions,
   host: IValFSHost = {
     ...ts.sys,
     writeFile: (fileName, data, encoding) => {
@@ -58,6 +48,8 @@ export async function createService(
     compilerOptions,
     host,
   );
+  // Read val.modules (and everything it imports) through the same host, so an
+  // embedder that overlays unsaved editor buffers evaluates what the user sees.
   const valModules = loadValModules(projectRoot, host);
   const extracted = await extractValModules(valModules);
   return new Service(projectRoot, sourceFileHandler, extracted);
@@ -86,9 +78,9 @@ export class Service {
   async get(
     moduleFilePath: ModuleFilePath,
     modulePath: ModulePath,
-    options?: { validate: boolean; source: boolean; schema: boolean },
+    options?: { validate: boolean },
   ): Promise<SerializedModuleContent> {
-    const opts = options ?? { validate: true, source: true, schema: true };
+    const opts = options ?? { validate: true };
     const source = this.extracted.sources[moduleFilePath] as Source | undefined;
     const schema = this.extracted.schemas[moduleFilePath] as
       | Schema<SelectorSource>

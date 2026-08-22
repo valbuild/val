@@ -136,7 +136,20 @@ function resolveRange(
   return {
     relativeFile: moduleFilePath.replace(/^\//, ""),
     lines: cached.lines,
-    range,
+    // Defensive: a bad range must degrade to an odd-looking frame, never a
+    // crash - the caret math below does `" ".repeat(start.character)`, which
+    // throws a RangeError on a negative count.
+    range: {
+      start: clampPosition(range.start),
+      end: clampPosition(range.end),
+    },
+  };
+}
+
+function clampPosition(position: Position): Position {
+  return {
+    line: Math.max(0, position.line),
+    character: Math.max(0, position.character),
   };
 }
 

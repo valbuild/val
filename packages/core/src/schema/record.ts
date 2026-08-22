@@ -134,9 +134,7 @@ export class RecordSchema<
       } as ValidationErrors;
     }
     const routerValidations = this.getRouterValidations(path, src);
-    if (routerValidations) {
-      return routerValidations;
-    }
+    error = this.mergeValidationErrors(error, routerValidations);
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -202,15 +200,7 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-          if (error) {
-            if (error[keyPath]) {
-              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
-            } else {
-              error[keyPath] = keyError[keyPath];
-            }
-          } else {
-            error = keyError;
-          }
+          error = this.mergeValidationErrors(error, keyError);
         }
       }
 
@@ -231,26 +221,19 @@ export class RecordSchema<
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
           this.markKeyErrorsAtPath(keyErr, subPath);
-          error = this.mergeValidationErrors(error, keyErr);
         }
+        error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
-          error = this.mergeValidationErrors(error, entryErr);
         }
+        error = this.mergeValidationErrors(error, entryErr);
       } else {
         const subError = this.item["executeValidate"](
           subPath,
           elem as SelectorSource,
         );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     });
     return error;
@@ -258,29 +241,6 @@ export class RecordSchema<
 
   private isRemoteUrl(url: string): boolean {
     return url.startsWith("https://") || url.startsWith("http://");
-  }
-
-  /**
-   * Merges `next` into `prev`, concatenating the messages reported at the same
-   * path. A plain spread would drop `prev`'s messages whenever both report at
-   * the same path - which is exactly what the media key/entry checks below do.
-   */
-  private mergeValidationErrors(
-    prev: ValidationErrors,
-    next: ValidationErrors,
-  ): ValidationErrors {
-    if (!next) {
-      return prev;
-    }
-    if (!prev) {
-      return next;
-    }
-    const merged: Record<SourcePath, ValidationError[]> = { ...prev };
-    for (const path of Object.keys(next) as SourcePath[]) {
-      const existing = merged[path];
-      merged[path] = existing ? [...existing, ...next[path]] : next[path];
-    }
-    return merged;
   }
 
   /** Marks the validation errors reported at `path` as key errors (in place). */
