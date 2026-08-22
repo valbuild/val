@@ -35,9 +35,27 @@ function getTextEncoder(): TextEncoder {
 }
 
 function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : JSON.stringify(e);
+  // NOT `e instanceof Error`. Val modules are evaluated inside a `node:vm`
+  // context, so an error thrown from inside the sandbox is built from THAT
+  // realm's Error constructor and fails the instanceof check - and
+  // JSON.stringify flattens it to "{}", throwing away the only useful part.
+  // Duck-type the message instead (the same reason the schema check below
+  // avoids `instanceof Schema`).
+  if (typeof e === "object" && e !== null && "message" in e) {
+    const message = (e as { message: unknown }).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  if (typeof e === "string") {
+    return e;
+  }
+  try {
+    return JSON.stringify(e) ?? String(e);
+  } catch {
+    return String(e);
+  }
 }
-
 function hash(input: string | object): string {
   if (typeof input === "object") {
     return hashObject(input);

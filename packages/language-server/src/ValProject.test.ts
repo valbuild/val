@@ -144,19 +144,30 @@ describe("createValProject — evaluating the example app", () => {
     expect(reverted.content.errors).toBe(false);
   });
 
-  test("reports a buffer that cannot be evaluated as a project error", async () => {
-    // `createService` evaluates the whole `val.modules` graph, so a module that
-    // throws while being evaluated takes the evaluation down with it rather than
-    // producing per-module errors. That must surface as an error *value*, and the
-    // next good buffer must recover.
+  test("reports a buffer that cannot be evaluated as a fatal module error", async () => {
+    // A module that throws while being evaluated used to take the whole
+    // `val.modules` evaluation down with it, so this surfaced as a project-level
+    // `service-failed`. `extractValModules` now catches a rejecting `def()` and
+    // records it as a module error, so the project still starts and the failure
+    // arrives as a fatal error on the module itself - which is what the editor
+    // can actually put a diagnostic on. The next good buffer must still recover.
     const absolute = path.join(EXAMPLE_APP, modulePath);
     const onDisk = fs.readFileSync(absolute, "utf8");
 
     open.set(absolute, onDisk.replace("c.define(", "c.defineBROKEN("));
     const dirty = await project.getModule(modulePath);
-    expect(dirty.status).toBe("error");
-    if (dirty.status !== "error") return;
-    expect(dirty.error.code).toBe("service-failed");
+    expect(dirty.status).toBe("ok");
+    if (dirty.status !== "ok") return;
+    const errors = dirty.content.errors;
+    expect(errors).not.toBe(false);
+    if (errors === false) return;
+    expect(errors.invalidModulePath).toBe(modulePath);
+    // The load failure has to be in there: a module whose `def()` threw is
+    // recorded without a path, so "was not found in val.modules" on its own
+    // would point at a registration that is present and fine.
+    const messages = (errors.fatal ?? []).map((e) => e.message).join("\n");
+    expect(messages).toContain("could not be loaded");
+    expect(messages).toContain("defineBROKEN");
 
     open.set(absolute, onDisk);
     const reverted = await project.getModule(modulePath);

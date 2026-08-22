@@ -97,6 +97,49 @@ describe("extractValModules", () => {
     ]);
   });
 
+  test("an error thrown from another realm keeps its message", async () => {
+    // Val modules are evaluated inside a `node:vm` context, so a genuine
+    // TypeError thrown from inside the sandbox is built from THAT realm's Error
+    // constructor and fails `instanceof Error`. Reporting it via
+    // JSON.stringify flattened it to "{}" - the message, i.e. the only useful
+    // part, was thrown away. Simulated here with a cross-realm-shaped value:
+    // has a string `message`, is not an `Error`.
+    const crossRealmError = {
+      name: "TypeError",
+      message: "c.defineBROKEN is not a function",
+      stack: "TypeError: c.defineBROKEN is not a function\n    at <anonymous>",
+    };
+    const extracted = await extractValModules(
+      modules({ project: "team/project" }, [
+        { def: () => Promise.reject(crossRealmError) },
+      ]),
+    );
+
+    expect(extracted.moduleErrors).toHaveLength(1);
+    // The message itself, not a JSON dump of the error object: stringifying it
+    // would give `Error: {"name":"TypeError","message":"...","stack":"..."}`.
+    expect(extracted.moduleErrors[0].message).toContain(
+      "Error: c.defineBROKEN is not a function",
+    );
+    expect(extracted.moduleErrors[0].message).not.toContain('"stack"');
+  });
+
+  test("a thrown value with no message at all still reports something", async () => {
+    const extracted = await extractValModules(
+      modules({ project: "team/project" }, [
+        { def: () => Promise.reject("just a string") },
+        { def: () => Promise.reject(undefined) },
+      ]),
+    );
+
+    expect(extracted.moduleErrors).toHaveLength(2);
+    // Unquoted: JSON.stringify would render it as `Error: "just a string"`.
+    expect(extracted.moduleErrors[0].message).toContain("Error: just a string");
+    // `JSON.stringify(undefined)` is undefined, so this must not interpolate
+    // the word "undefined" from a missing return value.
+    expect(extracted.moduleErrors[1].message).toContain("at index 1");
+  });
+
   test("moduleErrors is dense so consumers using find() do not crash", async () => {
     const extracted = await extractValModules(
       modules({ project: "team/project" }, [
