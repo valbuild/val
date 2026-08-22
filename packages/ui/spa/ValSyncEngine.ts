@@ -64,6 +64,15 @@ import { partitionValidationErrors } from "./validation/partitionValidationError
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
+  /**
+   * When the first syncPatches run finished with every patch's data present.
+   *
+   * Distinct from `initializedAt`, which `setValModules` sets as soon as local
+   * modules are adopted so content can render before /stat arrives - i.e. it can
+   * be non-null while the patch sets are still empty because nothing has been
+   * read yet, not because there is nothing pending.
+   */
+  private initialPatchSyncCompletedAt: number | null;
   private autoPublish: boolean = false;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
@@ -259,6 +268,7 @@ export class ValSyncEngine {
       | undefined = undefined,
   ) {
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
@@ -390,6 +400,7 @@ export class ValSyncEngine {
   reset() {
     console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
@@ -2715,9 +2726,24 @@ export class ValSyncEngine {
       };
     }
 
+    if (this.initialPatchSyncCompletedAt === null) {
+      this.initialPatchSyncCompletedAt = Date.now();
+      // Emit even when didUpdatePatchSet is false: a project with no pending
+      // patches still has to move usePatchSets off "not-asked", and the
+      // patch-sets listener is the one it subscribes to.
+      this.invalidatePatchSets();
+    }
     return {
       status: "done",
     };
+  }
+
+  /**
+   * Whether the first patch sync has completed, i.e. the patch sets can be
+   * trusted to be empty-because-empty rather than empty-because-unread.
+   */
+  hasCompletedInitialPatchSync(): boolean {
+    return this.initialPatchSyncCompletedAt !== null;
   }
 
   /**

@@ -926,12 +926,15 @@ export function usePatchSets():
     () => syncEngine.getSerializedPatchSetsSnapshot(),
     () => syncEngine.getSerializedPatchSetsSnapshot(),
   );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    // Before the engine has synced its patches, the patch sets are empty
-    // because nothing has been read yet - not because there is nothing to
-    // show. Reporting success here makes callers render their empty state
-    // until the first sync lands.
+  // NOT initializedAt: setValModules sets that as soon as local modules are
+  // adopted, so content can render before /stat arrives. With local modules
+  // present it is therefore non-null while the patch sets are still empty
+  // because nothing has been read yet - not because there is nothing to show -
+  // and callers would render their empty state ("No pending changes") first.
+  // hasCompletedInitialPatchSync is only true once syncPatches has run with
+  // every patch's data present; it invalidates patch-sets when it flips, which
+  // is the store this hook already subscribes to.
+  if (!syncEngine.hasCompletedInitialPatchSync()) {
     return { status: "not-asked" };
   }
   return { status: "success", data: serializedPatchSets };

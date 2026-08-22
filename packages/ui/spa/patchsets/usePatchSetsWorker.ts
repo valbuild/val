@@ -106,13 +106,22 @@ export function usePatchSetsWorker(
     workerRef.current.postMessage(request);
   }, []);
 
-  const previousReloadKeyRef = useRef(reloadKey);
+  // Reset DURING render, not in an effect. An effect runs after the render that
+  // saw the new key has already returned, so that render still hands back the
+  // previous trees with hasComputed: true - i.e. the consumer paints the stale
+  // pre-publish diff for a frame, which is exactly what reloadKey exists to
+  // prevent. Setting state while rendering makes React re-run this component
+  // with the cleared state before committing anything (the documented
+  // "adjusting state when a prop changes" pattern).
+  const [computedForKey, setComputedForKey] = useState(reloadKey);
+  if (computedForKey !== reloadKey) {
+    setComputedForKey(reloadKey);
+    setTrees([]);
+    setHasComputed(false);
+    setIsComputing(true);
+  }
+
   useEffect(() => {
-    if (previousReloadKeyRef.current !== reloadKey) {
-      previousReloadKeyRef.current = reloadKey;
-      setTrees([]);
-      setHasComputed(false);
-    }
     compute(patchSets);
   }, [patchSets, compute, reloadKey]);
 
