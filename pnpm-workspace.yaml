@@ -3,6 +3,7 @@ packages:
   - packages/ui
   - packages/shared
   - packages/server
+  - packages/language-server
   - packages/next
   - packages/react
   - packages/cli
@@ -11,6 +12,11 @@ packages:
   - packages/eslint-plugin
   - examples/next
   - packages/server/test/example-projects/*
+
+allowBuilds:
+  esbuild: true
+  less: true
+  unrs-resolver: true
 
 ignoredBuiltDependencies:
   - less

@@ -63,12 +63,14 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "image:download-remote":
     case "image:check-remote":
     case "images:check-remote":
+    case "images:upload-remote":
     case "file:add-metadata":
     case "file:check-metadata":
     case "file:upload-remote":
     case "file:download-remote":
     case "file:check-remote":
     case "files:check-remote":
+    case "files:upload-remote":
     case "images:check-unique-folder":
     case "files:check-unique-folder":
     case "images:check-all-files":

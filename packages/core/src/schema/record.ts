@@ -74,6 +74,15 @@ export type JsonValuesRecordSrc<
   JsonSource<JsonOf<SelectorOfSchema<T>>> | SelectorOfSchema<T>
 >;
 
+type RecordRenderInput<T extends Schema<SelectorSource>> = {
+  layout: "list";
+  select: (input: { key: string; val: RenderSelector<T> }) => {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | RemoteSource<ImageMetadata> | null;
+  };
+};
+
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
@@ -94,6 +103,7 @@ export class RecordSchema<
     private readonly description?: string,
     /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
     private readonly isJsonValues: boolean = false,
+    private readonly renderInput: RecordRenderInput<T> | null = null,
   ) {
     super();
   }
@@ -110,6 +120,7 @@ export class RecordSchema<
       this.isHidden,
       description ?? undefined,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -127,6 +138,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -166,9 +178,7 @@ export class RecordSchema<
       } as ValidationErrors;
     }
     const routerValidations = this.getRouterValidations(path, src);
-    if (routerValidations) {
-      return routerValidations;
-    }
+    error = this.mergeValidationErrors(error, routerValidations);
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -234,15 +244,7 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-          if (error) {
-            if (error[keyPath]) {
-              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
-            } else {
-              error[keyPath] = keyError[keyPath];
-            }
-          } else {
-            error = keyError;
-          }
+          error = this.mergeValidationErrors(error, keyError);
         }
       }
 
@@ -263,13 +265,13 @@ export class RecordSchema<
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
           this.markKeyErrorsAtPath(keyErr, subPath);
-          error = error ? { ...error, ...keyErr } : keyErr;
         }
+        error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
-          error = error ? { ...error, ...entryErr } : entryErr;
         }
+        error = this.mergeValidationErrors(error, entryErr);
       } else if (this.isJsonValues && isJson(elem)) {
         // jsonValues record, entry not loaded: the value is a lazy JsonSource
         // marker. Deep validation is deferred and run per-entry once the backing
@@ -283,14 +285,7 @@ export class RecordSchema<
           subPath,
           elem as SelectorSource,
         );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     });
     return error;
@@ -363,6 +358,22 @@ export class RecordSchema<
           ],
         };
       }
+      // Local path in a remote gallery: needs to be uploaded to remote.
+      const uploadRemoteFix =
+        type === "images"
+          ? ("images:upload-remote" as const)
+          : ("files:upload-remote" as const);
+      return {
+        [path]: [
+          {
+            message: `Expected a remote ${
+              type === "images" ? "image" : "file"
+            }, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: ${key}`,
+            value: key,
+            fixes: [uploadRemoteFix],
+          },
+        ],
+      };
     } else {
       // When remote is disabled, only accept local paths
       if (isRemoteUrl) {
@@ -573,6 +584,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -588,6 +600,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -603,6 +616,7 @@ export class RecordSchema<
       true,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -618,6 +632,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -633,6 +648,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -677,6 +693,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       true,
+      this.renderInput,
     ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
   }
 
@@ -780,15 +797,6 @@ export class RecordSchema<
     return result;
   }
 
-  private renderInput: {
-    layout: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
-    };
-  } | null = null;
-
   /**
    * Validate the loaded content of a single `.jsonValues()` entry against the
    * item schema. The server calls this once it has loaded the backing
@@ -877,12 +885,23 @@ export class RecordSchema<
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
-  }) {
-    this.renderInput = {
-      layout: input.as,
-      select: input.select,
-    };
-    return this;
+  }): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      {
+        layout: input.as,
+        select: input.select,
+      },
+    );
   }
 }
 

@@ -50,6 +50,7 @@ import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
+import type { ReifiedRender } from "@valbuild/core";
 import {
   ValCommit,
   ValDeployment,
@@ -570,6 +571,30 @@ export abstract class ValOps {
       patchesByModule,
       fileLastUpdatedByPatchId,
     };
+  }
+
+  // #region getRenders
+  /**
+   * Reifies each module's render from its schema INSTANCE.
+   *
+   * Kept even though the Studio also computes renders client-side: `select` is a
+   * user function that lives on the instance and is not part of the serialized
+   * schema, so a host app that does not render `<ValModulesClient>` has no
+   * instances in the browser and would otherwise get no renders at all. See
+   * #470.
+   */
+  async getRenders(
+    schemas: Schemas,
+    sources: Sources,
+  ): Promise<{
+    renders: Record<ModuleFilePath, ReifiedRender | null>;
+  }> {
+    const renders: Record<ModuleFilePath, ReifiedRender | null> = {};
+    for (const [pathS, schema] of Object.entries(schemas)) {
+      const path = pathS as ModuleFilePath;
+      renders[path] = schema["executeRender"](path, sources[path]);
+    }
+    return { renders };
   }
 
   // #region getSources

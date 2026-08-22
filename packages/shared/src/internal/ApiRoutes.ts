@@ -41,12 +41,14 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:upload-remote"),
   z.literal("image:download-remote"),
   z.literal("images:check-remote"),
+  z.literal("images:upload-remote"),
   z.literal("file:add-metadata"),
   z.literal("file:check-metadata"),
   z.literal("file:check-remote"),
   z.literal("file:upload-remote"),
   z.literal("file:download-remote"),
   z.literal("files:check-remote"),
+  z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
   z.literal("router:check-route"),
   z.literal("images:check-unique-folder"),
@@ -873,6 +875,7 @@ export const Api = {
             modules: z.record(
               ModuleFilePath,
               z.object({
+                render: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
                 baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
                 patches: z

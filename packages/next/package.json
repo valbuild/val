@@ -12,7 +12,7 @@
     "next",
     "react"
   ],
-  "version": "0.97.6",
+  "version": "0.99.1",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",
+    "@valbuild/language-server": "workspace:*",
     "@valbuild/react": "workspace:*",
     "@valbuild/server": "workspace:*",
     "@valbuild/shared": "workspace:*",
