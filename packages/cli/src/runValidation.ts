@@ -479,11 +479,30 @@ export async function handleRemoteGalleryFileUpload(
   // The gallery item schema is an ObjectSchema, not an image/file schema, so
   // synthesize the serialized image/file schema (matching how single fields
   // serialize) for the remote ref's validation hash.
-  const moduleSchema = ctx.valModule.schema;
-  const accept =
-    moduleSchema.type === "record" ? moduleSchema.accept : undefined;
-  const directory =
-    moduleSchema.type === "record" ? moduleSchema.directory : undefined;
+  //
+  // `accept`/`directory` come from the RECORD that holds the entry, resolved
+  // from the entry's PARENT path - not from the module root, which is only the
+  // record when the gallery is the whole module. A nested gallery
+  // (s.object({ gallery: s.images(...) })) would otherwise synthesize a schema
+  // with no options and bake a validation hash into the remote ref that can
+  // never validate, so a mismatch fails fast instead of uploading.
+  const [, parentModulePath] = Internal.splitModuleFilePathAndModulePath(
+    Internal.parentOfSourcePath(ctx.sourcePath),
+  );
+  const recordSchema = Internal.resolvePath(
+    parentModulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).schema;
+  if (recordSchema?.type !== "record") {
+    return {
+      success: false,
+      errorMessage: `Expected a gallery record at the parent of ${ctx.sourcePath}, got ${
+        recordSchema?.type ?? "nothing"
+      }`,
+    };
+  }
+  const { accept, directory } = recordSchema;
   const schema: SerializedImageSchema | SerializedFileSchema =
     mediaType === "image"
       ? {
