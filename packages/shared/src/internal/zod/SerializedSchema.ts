@@ -18,6 +18,7 @@ import {
   type SerializedDateTimeSchema as SerializedDateTimeSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
   type SerializedSvgSchema as SerializedSvgSchemaT,
+  type SvgOptions as SvgOptionsT,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
 
@@ -190,21 +191,45 @@ const SvgSizeConstraint = z.union([
   z.number(),
   z.object({ min: z.number().optional(), max: z.number().optional() }),
 ]);
-export const SvgOptions = z.object({
+/**
+ * `aspectRatio` is `number | \`${number}:${number}\`` in core. A plain
+ * `z.string()` parses to `string`, which is not assignable to the template
+ * literal - that mismatch is what used to force an `as any` on the whole
+ * options object, silencing every other field with it. Narrow just this one
+ * field instead.
+ */
+const SvgAspectRatio: z.ZodType<number | `${number}:${number}`> = z.union([
+  z.number(),
+  z.custom<`${number}:${number}`>(
+    (val) => {
+      if (typeof val !== "string") {
+        return false;
+      }
+      const parts = val.split(":");
+      // Mirrors `${number}:${number}`: two number-ish parts, so exotic but
+      // legal spellings ("1e3:2") parse rather than being rejected here.
+      return (
+        parts.length === 2 &&
+        parts.every((part) => part !== "" && Number.isFinite(Number(part)))
+      );
+    },
+    { message: 'Expected a number or a "w:h" ratio' },
+  ),
+]);
+export const SvgOptions: z.ZodType<SvgOptionsT> = z.object({
   variables: z.record(z.string(), SvgVariable).optional(),
   literals: z
     .union([z.literal("forbid"), z.literal("allow"), z.array(z.string())])
     .optional(),
   width: SvgSizeConstraint.optional(),
   height: SvgSizeConstraint.optional(),
-  aspectRatio: z.union([z.number(), z.string()]).optional(),
+  aspectRatio: SvgAspectRatio.optional(),
   maxNodes: z.number().optional(),
   maxDepth: z.number().optional(),
 });
 export const SerializedSvgSchema: z.ZodType<SerializedSvgSchemaT> = z.object({
   type: z.literal("svg"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  options: SvgOptions.optional() as any,
+  options: SvgOptions.optional(),
   opt: z.boolean(),
   customValidate: z.boolean().optional(),
   readonly: z.boolean().optional(),

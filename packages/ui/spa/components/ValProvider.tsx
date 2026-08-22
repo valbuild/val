@@ -31,6 +31,7 @@ import {
   getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { runtimeKind } from "../utils/runtimeKind";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
@@ -1804,7 +1805,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     if (typeof source !== "object" || source === null || isJsonArray(source)) {
       return {
         status: "error",
-        error: `Expected svg (i.e. object), got ${typeof source}`,
+        error: `Expected svg (i.e. object), got ${runtimeKind(source)}`,
       };
     }
     return {

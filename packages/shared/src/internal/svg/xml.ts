@@ -30,15 +30,30 @@ const ENTITIES: Readonly<Record<string, string>> = {
   apos: "'",
 };
 
+/**
+ * `String.fromCodePoint` THROWS a RangeError on anything outside 0..0x10FFFF,
+ * and `&#1114112;` / `&#x7FFFFFFF;` parse to finite numbers that are outside it.
+ * Since this runs on imported svg markup, an unguarded call turns a malformed
+ * entity into a crash in the middle of parsing. Leave an out-of-range entity as
+ * written instead: the surrounding validation reports the markup, the parser
+ * does not die on it.
+ */
+function codePointToString(code: number, match: string): string {
+  if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) {
+    return match;
+  }
+  return String.fromCodePoint(code);
+}
+
 export function decodeXmlEntities(input: string): string {
   return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, body) => {
-    if (body.startsWith("#x") || body.startsWith("#X")) {
-      const code = parseInt(body.slice(2), 16);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    // Lowercase `x` only, per the XML CharRef production - which is also all the
+    // regex above can match, so `&#X43;` is left as written.
+    if (body.startsWith("#x")) {
+      return codePointToString(parseInt(body.slice(2), 16), match);
     }
     if (body.startsWith("#")) {
-      const code = parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+      return codePointToString(parseInt(body.slice(1), 10), match);
     }
     const named = ENTITIES[body as keyof typeof ENTITIES];
     return named === undefined ? match : named;

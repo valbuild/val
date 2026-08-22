@@ -1,5 +1,6 @@
 import { SvgOptions } from "@valbuild/core";
 import { parseSvg } from "./parseSvg";
+import { decodeXmlEntities } from "./xml";
 import { svgToString } from "./svgToString";
 import { normalizeColor } from "./colors";
 
@@ -278,6 +279,46 @@ describe("parseSvg", () => {
       if (result.status !== "success") throw new Error(result.message);
       expect(result.source.children[0].attrs).not.toHaveProperty("d");
     });
+  });
+});
+
+describe("decodeXmlEntities", () => {
+  test("decodes the named and numeric entities it knows", () => {
+    expect(
+      decodeXmlEntities("a &amp; b &lt;c&gt; &quot;d&quot; &apos;e&apos;"),
+    ).toBe(`a & b <c> "d" 'e'`);
+    expect(decodeXmlEntities("&#65;&#x42;")).toBe("AB");
+    expect(decodeXmlEntities("&#x1F600;")).toBe("\u{1F600}");
+  });
+
+  test("leaves an out-of-range numeric entity alone instead of throwing", () => {
+    // `String.fromCodePoint` throws a RangeError above 0x10FFFF, and these all
+    // parse to finite numbers - so an unguarded call crashes the parse of any
+    // svg that contains one.
+    for (const value of [
+      "&#1114112;",
+      "&#x110000;",
+      "&#x7FFFFFFF;",
+      "&#99999999999;",
+    ]) {
+      expect(decodeXmlEntities(value)).toBe(value);
+    }
+  });
+
+  test("leaves an unknown named entity alone", () => {
+    expect(decodeXmlEntities("&nbsp;&foo;")).toBe("&nbsp;&foo;");
+  });
+
+  test("leaves an uppercase-X hex entity alone", () => {
+    // Not a legal XML character reference (the production is lowercase `x`), so
+    // it stays as written rather than being decoded.
+    expect(decodeXmlEntities("&#X43;")).toBe("&#X43;");
+  });
+
+  test("an out-of-range entity in markup parses rather than crashing", () => {
+    expect(() =>
+      parse(`<svg viewBox="0 0 8 8"><title>&#x110000;</title></svg>`),
+    ).not.toThrow();
   });
 });
 
