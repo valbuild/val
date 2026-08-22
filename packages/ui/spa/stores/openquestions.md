@@ -10,7 +10,7 @@
 
 ---
 
-## 1. Nothing has been measured. This is the go/no-go. 🔴
+## 1. Nothing has been measured IN A BROWSER. This is the go/no-go. 🔴
 
 **The question:** does per-path eventing + lazy compute actually beat the current
 engine, in a browser, on a real project?
@@ -24,6 +24,16 @@ This matters more than it sounds: `ValSyncEngine` already had four independent
 fixes landed (Step 0 on this branch), and it is entirely possible those bought
 most of the available win. If so, the correct decision is to stop here and keep
 the engine.
+
+Partly addressed, and worth being precise about how: work COUNTS are now
+asserted in node (`activity.ts`, `activityCost.test.ts`) — one keystroke costs
+one clone, one apply, one registry scan and exactly one woken field; a
+40-keystroke burst costs zero renders and zero validations. That channel already
+earned its keep by catching a demand-driven render fix that had put one
+whole-module render back on every keystroke.
+
+What it does NOT give is durations, bytes, or any comparison against the current
+engine. A count is exactly reproducible in node; a duration is not.
 
 - [ ] Build the bench harness (a `StringField` burst against a `handboka`-shaped
       407 KB fixture) and record: commits/keystroke, deepClone bytes, validation
@@ -70,7 +80,7 @@ much cheaper before hooks exist than after.
 
 ---
 
-## 3. Renders are not path-scoped, and fixing that means changing `packages/core`. 🔴
+## 3. Renders are not path-scoped, and fixing that means changing `packages/core`. 🔴 STILL OPEN — now with a number
 
 **The question:** do we add a core entry point that renders ONE path, or accept
 whole-module renders?
@@ -86,6 +96,16 @@ change-then-read**. Real, but it is not the fix.
 What the fix needs: a way to evaluate `render` for a single `SourcePath` without
 walking siblings. That is a change to schema internals in `packages/core`, and it
 is the thing that would make renders affordable on the worst case.
+
+Now measured rather than argued: one listener on one row of a three-row list
+costs **3** `select` invocations to serve **1**. The test is
+`demandDriven.test.ts` → "runs select only for the path being listened to",
+marked `it.failing`, so it will fail loudly the day this is fixed.
+
+Note what the fix actually is, because it is more than a parameter:
+`ArraySchema`'s list render is `src.map(select)` — the payload IS the whole list
+— so scoping it means making a list render **windowed**, across the ~16 schema
+classes that implement `executeRender`.
 
 - [ ] Decide whether this experiment is allowed to change `packages/core`.
 - [ ] If not: say so, and accept that the `handboka` render cost is unaddressed —
@@ -153,7 +173,7 @@ ever been tested against writes that cannot fail.
 
 ---
 
-## 7. HMR will break, because there is no rebase. 🟡
+## 7. ~~HMR will break, because there is no rebase.~~ ✅ CLOSED
 
 **The question:** where does base source live?
 
@@ -164,9 +184,12 @@ would read as though rebase worked.
 
 `PUT /sources/~` needs the same operation, so it is not HMR-only machinery.
 
-- [ ] Decide whether base source lives in the source store or the host store, and
-      implement rebase. Until then, editing a `.val.ts` file in dev discards
-      pending patches or corrupts them.
+- [x] Base source lives in the **source store**, alongside a per-module chain of
+      every record it has seen. `receive()` replays the chain onto the new base,
+      so the comment claiming it already did this is now true. Closing this also
+      closed two defects with the same cause: a patch announced before its module
+      loaded was lost for good and left the head `partial` forever, and re-intake
+      silently discarded the user's pending edits.
 
 ---
 
@@ -180,7 +203,7 @@ which is how the real client learns it must refetch schemas or sources.
 
 ---
 
-## 9. Five of the nine stores have no committed test. 🟡
+## 9. ~~Five of the nine stores have no committed test.~~ ✅ CLOSED
 
 `host`, `render`, `validation`, `search` and `patch sets` were verified end to end
 by hand — render routed through the host, a custom validator's own message came
@@ -189,7 +212,11 @@ was **deleted** rather than committed, per instruction.
 
 `system.test.ts` covers only the source / patch / stat path.
 
-- [ ] Commit tests for the other five, or accept the risk explicitly.
+- [x] Committed. `systemFlow` walks one session in order; `systemInvariants`
+      takes one claim per test; `activityCost` asserts how many times each
+      expensive thing runs; `demandDriven` asserts that render and search run
+      only for what is being looked at. Between them they found six defects, of
+      which five are fixed and one — item 3 — needs the decision below.
 
 ---
 
@@ -199,16 +226,14 @@ was **deleted** rather than committed, per instruction.
       stale, so it re-asks and gets its unchanged value back. Correct, never
       wrong — but the volume is unmeasured. If it is high, a per-module revision
       alongside the global head fixes it.
-- [ ] **`source:patch-apply` can emit with everything empty.** The early return
-      only covers `records.length === 0`; if every record targets an unloaded
-      module, the event fires with empty `success`, `failed` and `modules`. Should
-      it emit at all?
-- [ ] **A patch that targets an unloaded module is silently skipped.** Not
-      recorded as failed, not retried — it relies on intake re-applying the chain,
-      which is the rebase that does not exist (item 7).
-- [ ] **`PatchRecord.createdAt` is optional and defaults to the epoch**, which
-      sorts such a patch to the bottom of the review list. Should `createdAt` be
-      required on the record instead?
+- [x] **`source:patch-apply` no longer emits with everything empty.** It is not
+      news, and every consumer would otherwise have to defend against it.
+- [x] **A patch that targets an unloaded module is retained, not skipped.** It is
+      recorded in that module's chain and applied by `receive()` — see item 7.
+- [x] **`createPatch` stamps `createdAt`.** Every local edit was falling back to
+      the epoch and sorting below every other change in a review list documented
+      as newest-first. The field stays optional on the type, for a record that
+      genuinely has no timestamp; nothing the system creates is such a record.
 - [ ] **A `failed` head is terminal.** A patch that cannot apply stays in the
       chain and the head stays `*-failed` forever. There is no recovery or
       skip-and-continue path.

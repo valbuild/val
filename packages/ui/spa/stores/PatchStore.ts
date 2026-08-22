@@ -42,6 +42,14 @@ export class PatchStore {
   private failedById = new Map<PatchId, string>();
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
+  /**
+   * Bumped whenever the chain or its data changes.
+   *
+   * A monotonic counter rather than a hash, for the same reason the module
+   * revision is one: the only question it answers is "is what I built still
+   * current", and that needs one `===`, not a walk.
+   */
+  private version = 0;
 
   constructor(
     private readonly fetchPatches: FetchPatches,
@@ -96,6 +104,7 @@ export class PatchStore {
         !announced.has(patchId) && this.originById.get(patchId) === "internal",
     );
     this.ordered = [...patchIds, ...localTail];
+    this.version++;
 
     const missing = patchIds.filter(
       (patchId) => !this.dataById.has(patchId) && !this.fetching.has(patchId),
@@ -117,6 +126,7 @@ export class PatchStore {
       this.fetching.delete(record.patchId);
       this.dataById.set(record.patchId, record);
       received.push(record.patchId);
+      this.version++;
     }
     for (const [patchId, message] of Object.entries(res.errors ?? {})) {
       this.fetching.delete(patchId as PatchId);
@@ -139,10 +149,21 @@ export class PatchStore {
     meta?: Record<string, Json>,
   ): Promise<PatchRecord> {
     const patchId = this.newPatchId();
-    const record: PatchRecord = { patchId, moduleFilePath, patch, meta };
+    // Stamped here rather than left to default downstream. The patch-set store
+    // orders the review list by this and shows newest first, so an unstamped
+    // local edit fell back to the epoch and sorted below every other change —
+    // the exact outcome the comment on that fallback said must not happen.
+    const record: PatchRecord = {
+      patchId,
+      moduleFilePath,
+      patch,
+      meta,
+      createdAt: new Date().toISOString(),
+    };
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");
     this.ordered = [...this.ordered, patchId];
+    this.version++;
     this.activity.work("patch:create", patchId);
     this.events.emit({ type: "patch:create", patches: [patchId] });
     return record;
@@ -167,6 +188,23 @@ export class PatchStore {
       if (record) records.push(record);
     }
     return records;
+  }
+
+  /**
+   * The whole chain, in order, for the records whose data is known.
+   *
+   * Exists so patch sets can be built from the chain ON DEMAND instead of being
+   * accumulated on every keystroke. The patch store is already the authority on
+   * order and already holds every record, so a second incremental copy of that
+   * fact was bookkeeping nobody had asked for.
+   */
+  allRecords(): PatchRecord[] {
+    return this.recordsFor(this.ordered);
+  }
+
+  /** Changes whenever the chain does, so a lazy consumer can tell if it is stale. */
+  chainVersion(): number {
+    return this.version;
   }
 
   originOf(patchId: PatchId): PatchOrigin {

@@ -54,6 +54,17 @@ export class RenderStore {
   private stale = new Set<ModuleFilePath>();
   /** In-flight requests, so N fields asking at once produce ONE host call. */
   private inFlight = new Map<ModuleFilePath, Promise<void>>();
+  /**
+   * How many readers are registered on paths in each module.
+   *
+   * This is the demand signal, and it is the reason this store listens to the
+   * source store's registry rather than waiting to be called. A render is only
+   * worth computing if someone is looking at it; a listener existing at a path
+   * is the system's own record that someone is. `get()` cannot serve as that
+   * signal — it is a caller choosing to pay, which a speculative or
+   * already-unmounted caller can also do.
+   */
+  private listenersByModule = new Map<ModuleFilePath, number>();
 
   constructor(
     private readonly host: HostBridge,
@@ -67,6 +78,36 @@ export class RenderStore {
    * the schema half is how an HMR edit leaves a stale render on screen.
    */
   listenTo(): () => void {
+    // Demand arriving: a field mounted on a path in this module, so its render
+    // is now wanted. Computed at that point — which is the "user clicks to a
+    // path that needs a render" case — rather than when someone calls `get()`.
+    const offListen = this.sourceStore.events.on("source:listen", (event) => {
+      const before = this.listenersByModule.get(event.moduleFilePath) ?? 0;
+      this.listenersByModule.set(event.moduleFilePath, before + 1);
+      if (
+        this.stale.has(event.moduleFilePath) ||
+        !this.renders.has(event.moduleFilePath)
+      ) {
+        void this.refresh(event.moduleFilePath);
+      }
+    });
+    // Demand leaving. The cache is dropped once nobody is looking, so a module
+    // nobody has on screen cannot be re-rendered by a later change to it, and
+    // does not hold a render nobody will read.
+    const offUnlisten = this.sourceStore.events.on(
+      "source:unlisten",
+      (event) => {
+        const before = this.listenersByModule.get(event.moduleFilePath) ?? 0;
+        const after = before - 1;
+        if (after > 0) {
+          this.listenersByModule.set(event.moduleFilePath, after);
+          return;
+        }
+        this.listenersByModule.delete(event.moduleFilePath);
+        this.renders.delete(event.moduleFilePath);
+        this.stale.delete(event.moduleFilePath);
+      },
+    );
     const offApply = this.sourceStore.events.on(
       "source:patch-apply",
       (event) => {
@@ -80,6 +121,8 @@ export class RenderStore {
       this.invalidate(event.modules);
     });
     return () => {
+      offListen();
+      offUnlisten();
       offApply();
       offInit();
       offSchema();
@@ -100,6 +143,16 @@ export class RenderStore {
     if (newlyStale.length > 0) {
       this.events.emit({ type: "render:invalidate", modules: newlyStale });
     }
+    // And that is ALL a change does. It deliberately does not recompute, not
+    // even for a module someone is looking at: a burst of 40 keystrokes would
+    // then cost 40 whole-module renders, which is precisely the per-keystroke
+    // render cost this design exists to remove.
+    //
+    // Nothing is lost by waiting, because the change already wakes the fields
+    // on the affected paths (the source store dispatches to them in the same
+    // call), and a woken field re-reads. So the read that follows is what pays,
+    // once, however many changes preceded it. The eager case is demand
+    // ARRIVING — see `source:listen` above — not demand being disturbed.
   }
 
   /**

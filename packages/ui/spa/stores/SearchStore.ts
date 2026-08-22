@@ -85,6 +85,19 @@ export class SearchStore {
   }
 
   /**
+   * Is a build owed before the next query can be answered honestly?
+   *
+   * True when there is no index at all, and when modules have changed since the
+   * one there is was built. The host side asks this so that a QUERY pays for the
+   * index — answering `no-index` instead put the burden on the caller to know it
+   * had to prime the store first, and a caller that forgot got an empty result
+   * set, which reads as "nothing found" rather than "nothing indexed".
+   */
+  needsIndex(): boolean {
+    return this.index === null || this.stale.size > 0;
+  }
+
+  /**
    * Build (or rebuild) the index from the given snapshot.
    *
    * A full rebuild, not an incremental update: FlexSearch can remove and re-add

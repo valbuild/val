@@ -31,7 +31,7 @@ describe("system flow", () => {
       patchStore,
       stat,
       validationStore,
-      patchSetStore,
+      getPatchSets,
       searchStore,
       buildSearchIndex,
       ledger,
@@ -110,7 +110,7 @@ describe("system flow", () => {
     ).toEqual({ status: "resolved-head", data: "Hello World" });
 
     // ------------------------------------------------- patch sets, first look
-    const patchSetsAfterLocal = await patchSetStore.getPatchSets();
+    const patchSetsAfterLocal = await getPatchSets();
     expect(
       patchSetContaining(patchSetsAfterLocal, localTitle.patchId),
     ).toBeDefined();
@@ -224,7 +224,7 @@ describe("system flow", () => {
     );
 
     // ------------------------------------------------ patch sets, second look
-    const patchSetsAfterExternal = await patchSetStore.getPatchSets();
+    const patchSetsAfterExternal = await getPatchSets();
     for (const record of externalEdits) {
       expect(
         patchSetContaining(patchSetsAfterExternal, record.patchId),
@@ -274,7 +274,9 @@ describe("system flow", () => {
         { op: "replace", path: ["headline"], value: "patched before load" },
       ]),
     ]);
-    await ledger.has({ type: "stat:receive", patches: ["ext-4"] });
+    // Not pinned to a one-element list: `/stat` announces the WHOLE ordered
+    // chain every time, so by this point it carries every id in the session.
+    await ledger.has({ type: "patch:receive", patches: ["ext-4"] });
 
     await sourceStore.testReceive([
       c.define("/late.val.ts", s.object({ headline: s.string() }), {

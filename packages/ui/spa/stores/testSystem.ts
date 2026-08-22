@@ -293,6 +293,15 @@ export type TestSystem = {
    * worker realm — cannot reach the source it would need to gather.
    */
   buildSearchIndex: System["buildSearchIndex"];
+  /**
+   * Gathers the chain and builds the grouping on demand.
+   *
+   * On the system rather than the store for the same reason `buildSearchIndex`
+   * is: the patch-set store is in the worker realm and cannot reach the chain.
+   */
+  getPatchSets: System["getPatchSets"];
+  /** Search, indexing first if a build is owed. The query is what pays. */
+  search: System["search"];
   ledger: Ledger;
   /**
    * What each store DID, as opposed to what it announced.
@@ -436,6 +445,8 @@ export function initTestSystem(): TestSystem {
     validationStore: system.validationStore,
     searchStore: system.searchStore,
     buildSearchIndex: () => system.buildSearchIndex(),
+    getPatchSets: () => system.getPatchSets(),
+    search: (query, limit, offset) => system.search(query, limit, offset),
     sourceStore: {
       get: (path, head) => system.sourceStore.get(path as SourcePath, head),
       async testReceive(modules) {

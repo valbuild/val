@@ -226,8 +226,7 @@ describe("patch set store: ordering in the review list", () => {
    */
   it("does not timestamp a local edit at the epoch", async () => {
     const { c, s } = initVal();
-    const { sourceStore, patchStore, patchSetStore, dispose } =
-      initTestSystem();
+    const { sourceStore, patchStore, getPatchSets, dispose } = initTestSystem();
 
     await sourceStore.testReceive([
       c.define("/t.val.ts", s.object({ title: s.string() }), {
@@ -238,7 +237,7 @@ describe("patch set store: ordering in the review list", () => {
       { op: "replace", path: ["title"], value: "user edit" },
     ]);
 
-    const patchSets = await patchSetStore.getPatchSets();
+    const patchSets = await getPatchSets();
     const set = patchSets.find((candidate) =>
       candidate.patches.some((patch) => patch.patchId === local.patchId),
     );

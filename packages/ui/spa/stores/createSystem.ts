@@ -19,7 +19,12 @@ import { HostStore } from "./HostStore";
 import { RenderStore } from "./RenderStore";
 import { PatchSetStore } from "./PatchSetStore";
 import { ValidationStore } from "./ValidationStore";
-import { SearchStore, type SourceSnapshot } from "./SearchStore";
+import {
+  SearchStore,
+  type SearchResult,
+  type SourceSnapshot,
+} from "./SearchStore";
+import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
 
@@ -58,6 +63,26 @@ export type System = HostRealm &
       new: ModuleFilePath[];
       all: ModuleFilePath[];
     }>;
+    /**
+     * The patch-set grouping, gathered and built on demand.
+     *
+     * On the system rather than on the store for the same reason
+     * `buildSearchIndex` is: the store is in the worker realm and cannot reach
+     * the chain it needs, so the host side gathers and passes.
+     */
+    getPatchSets(): Promise<SerializedPatchSet>;
+    /**
+     * Search, indexing first if the index is missing or stale.
+     *
+     * The query is the demand signal, so it is the query that pays. Going
+     * through the system is what makes that possible: the search store cannot
+     * gather the snapshot itself.
+     */
+    search(
+      query: string,
+      limit?: number,
+      offset?: number,
+    ): Promise<SearchResult>;
     dispose(): void;
   };
 
@@ -156,18 +181,6 @@ export function createSystem(options: SystemOptions): System {
     // These exist because an event dispatched in the host realm is not
     // observable in the worker realm: `EventTarget` dispatch is per-realm. So
     // the host side subscribes and forwards, carrying the data with it.
-    patchStore.events.on("patch:receive", (event) => {
-      patchSetStore.insert(
-        patchStore.recordsFor(event.patches),
-        schemaStore.all(),
-      );
-    }),
-    patchStore.events.on("patch:create", (event) => {
-      patchSetStore.insert(
-        patchStore.recordsFor(event.patches),
-        schemaStore.all(),
-      );
-    }),
     sourceStore.events.on("source:patch-apply", (event) => {
       searchStore.markStale(event.modules);
     }),
@@ -186,6 +199,19 @@ export function createSystem(options: SystemOptions): System {
     validationStore,
     searchStore,
     patchSetStore,
+    async getPatchSets() {
+      return patchSetStore.getPatchSets(
+        patchStore.allRecords(),
+        schemaStore.all(),
+        patchStore.chainVersion(),
+      );
+    },
+    async search(query, limit, offset) {
+      if (searchStore.needsIndex()) {
+        await this.buildSearchIndex();
+      }
+      return searchStore.search(query, limit, offset);
+    },
     async buildSearchIndex() {
       const schemas = schemaStore.all();
       const snapshot: SourceSnapshot = {};

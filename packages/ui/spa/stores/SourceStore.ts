@@ -57,7 +57,30 @@ export class SourceStore {
    * that nothing ever reads would read as though it did.
    */
   private sources: Record<ModuleFilePath, Json> = {};
-  private appliedIds: PatchId[] = [];
+
+  /**
+   * The source as authored, before any patch.
+   *
+   * Now genuinely kept, because `receive()` genuinely rebuilds from it. It
+   * replaces an `appliedIds` array that was written twice and never read — the
+   * state a rebuild needs, declared but unused, which is what made the "lands as
+   * soon as the module arrives" comment below false.
+   */
+  private baseSources: Record<ModuleFilePath, Json> = {};
+
+  /**
+   * Every patch this store has seen for a module, in order, whether or not it
+   * applied.
+   *
+   * Retained so that a module arriving late, or arriving AGAIN with new base
+   * text (HMR, `PUT /sources/~`), can be rebuilt as base + chain. Without it a
+   * patch announced before its module loaded was dropped and could never land,
+   * and re-intake silently discarded the user's pending edits.
+   */
+  private chains = new Map<
+    ModuleFilePath,
+    { record: PatchRecord; origin: PatchOrigin }[]
+  >();
 
   /**
    * One `EventTarget` per REGISTERED path, not per module.
@@ -103,14 +126,28 @@ export class SourceStore {
     // mutate it from outside.
     for (const [moduleFilePath, source] of Object.entries(sources)) {
       this.activity.work("source:clone-module", moduleFilePath);
-      this.sources[moduleFilePath as ModuleFilePath] = deepClone(
-        source as JSONValue,
-      );
+      const base = deepClone(source as JSONValue);
+      this.baseSources[moduleFilePath as ModuleFilePath] = base;
+      this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
     }
     this.events.emit({
       type: "source:init",
       sources: Object.keys(sources) as ModuleFilePath[],
     });
+    // The rebase. Base source has just been replaced under whatever patches
+    // already exist, so the chain has to be re-applied on top of it or the new
+    // base silently wins and the user's pending edits vanish.
+    //
+    // Emitted as its own `source:patch-apply` after `source:init` rather than
+    // being folded into it: consumers that invalidate on init have already been
+    // told the module changed, and the apply is what tells the patch store which
+    // ids landed — which is how the head settles for a patch that arrived
+    // before its module.
+    for (const moduleFilePath of Object.keys(sources) as ModuleFilePath[]) {
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined || chain.length === 0) continue;
+      this.applyEntries(chain);
+    }
   }
 
   /**
@@ -187,12 +224,17 @@ export class SourceStore {
     };
     registered.target.addEventListener(FIELD_EVENT, handler);
     registered.count++;
+    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+    // Announced so demand-driven consumers can act on it. The render store is
+    // the reason this exists: a field mounting is what asks for a render.
+    this.events.emit({ type: "source:listen", path, moduleFilePath });
     let removed = false;
     return () => {
       if (removed) return;
       removed = true;
       registered.target.removeEventListener(FIELD_EVENT, handler);
       registered.count--;
+      this.events.emit({ type: "source:unlisten", path, moduleFilePath });
       // `EventTarget` exposes no listener count, so the store keeps its own.
       // Dropping empty entries matters: the intersection below walks every
       // registered path on every patch, so a registry that only ever grows
@@ -206,14 +248,43 @@ export class SourceStore {
     };
   }
 
+  /**
+   * Record these patches in their modules' chains, then apply them.
+   *
+   * Recording happens BEFORE the loaded check, which is the whole fix for a
+   * patch that arrives ahead of its module: it is remembered now and applied by
+   * `receive()` later, rather than dropped.
+   */
   private applyPatches(records: PatchRecord[], origin: PatchOrigin): void {
     if (records.length === 0) return;
+    const entries = records.map((record) => ({ record, origin }));
+    for (const entry of entries) {
+      const moduleFilePath = entry.record.moduleFilePath;
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined) {
+        this.chains.set(moduleFilePath, [entry]);
+      } else {
+        chain.push(entry);
+      }
+    }
+    this.applyEntries(entries);
+  }
+
+  /**
+   * Apply already-recorded entries. Used both for new patches and for the
+   * replay in `receive()`, so one code path decides what "applied" means.
+   */
+  private applyEntries(
+    entries: { record: PatchRecord; origin: PatchOrigin }[],
+  ): void {
+    if (entries.length === 0) return;
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
-    for (const record of records) {
+    const wokenBy = new Map<PatchOrigin, SourcePath[]>();
+    for (const { record, origin } of entries) {
       const current = this.sources[record.moduleFilePath];
       if (current === undefined) {
         // The module is not loaded, so there is nothing to apply the patch to
@@ -227,7 +298,6 @@ export class SourceStore {
       const patchableOps = record.patch.filter((op) => op.op !== "file");
       if (patchableOps.length === 0) {
         success.push(record.patchId);
-        this.appliedIds.push(record.patchId);
         continue;
       }
       // Two units of work, counted separately on purpose: the clone is
@@ -242,13 +312,29 @@ export class SourceStore {
       );
       if (result.isOk(res)) {
         this.sources[record.moduleFilePath] = res.value;
-        this.appliedIds.push(record.patchId);
         success.push(record.patchId);
         changedModules.add(record.moduleFilePath);
-        touched.push(...touchedSourcePaths(record));
+        const paths = touchedSourcePaths(record);
+        touched.push(...paths);
+        // Grouped by origin, because a replay can mix a local edit and a
+        // foreign one and a field has to be told which its event came from.
+        const existing = wokenBy.get(origin);
+        if (existing === undefined) {
+          wokenBy.set(origin, [...paths]);
+        } else {
+          existing.push(...paths);
+        }
       } else {
         failed.push({ patchId: record.patchId, message: res.error.message });
       }
+    }
+
+    // An apply in which nothing applied is not news, and every consumer would
+    // otherwise have to defend against an event whose three payloads are all
+    // empty. Reached whenever every record targeted a module that is not
+    // loaded — which is now a deferral rather than a loss.
+    if (success.length === 0 && failed.length === 0) {
+      return;
     }
 
     // Emitted BEFORE the field events, and the ordering is load-bearing:
@@ -273,10 +359,13 @@ export class SourceStore {
       this.listenerTargets.size,
     );
     for (const [path, entry] of this.listenerTargets) {
-      if (!touchesPath(touched, path)) continue;
-      this.activity.work("source:wake-listener", path);
-      const detail: FieldEvent = { type: `${origin}-patch`, path, head };
-      entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
+      for (const [origin, paths] of wokenBy) {
+        if (!touchesPath(paths, path)) continue;
+        this.activity.work("source:wake-listener", path);
+        const detail: FieldEvent = { type: `${origin}-patch`, path, head };
+        entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
+        break;
+      }
     }
   }
 }
@@ -312,9 +401,36 @@ function touchedSourcePaths(record: PatchRecord): SourcePath[] {
     add(op.path);
     if (op.op === "move" || op.op === "copy") {
       add(op.from);
+      addShiftedContainer(op.from);
+    }
+    // An insert or a removal at an array index shifts EVERY later index, so the
+    // value at each of them changed without any of them appearing in an op
+    // path. Reporting the container covers them, because `touchesPath` matches
+    // an ancestor of a registered path as well as a descendant.
+    //
+    // Only for the ops that shift: a `replace` at an index changes that index
+    // alone, and reporting its container would wake every sibling in the array
+    // on every keystroke — the module-granular fan-out this design replaces.
+    if (op.op === "add" || op.op === "remove" || op.op === "move") {
+      addShiftedContainer(op.path);
     }
   }
   return paths;
+
+  /**
+   * Report the parent of an op path when the last segment is an array index.
+   *
+   * Whether the container really is an array is not knowable from the op alone,
+   * so a numeric key on an object also reports its parent. That is a false
+   * positive costing one extra wake, against a false negative that leaves a
+   * field displaying a value the store no longer holds.
+   */
+  function addShiftedContainer(patchPath: string[]): void {
+    if (patchPath.length === 0) return;
+    const last = patchPath[patchPath.length - 1];
+    if (!Number.isInteger(Number(last))) return;
+    add(patchPath.slice(0, -1));
+  }
 }
 
 function resolveAtModulePath(source: Json, modulePath: string): Resolved {

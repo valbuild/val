@@ -197,6 +197,34 @@ All three also only **announce** staleness when it is news — when something
 cached actually went stale. Without that rule, intake alone emits an invalidate
 per module per store and the signal that matters drowns in it.
 
+## Render and search run for what is being looked at
+
+Neither may run because something CHANGED. The demand signal for a render is **a
+listener existing at a path**; for search it is **a query**.
+
+A listener is the system's own record that a field is on screen showing a path,
+which makes it the only trustworthy signal that the work behind that path is
+wanted. `get()` is not that signal: it is a caller choosing to pay, and a
+speculative or already-unmounted caller can do that too.
+
+Two moments, and the distinction between them is load-bearing:
+
+- **Demand arriving** — a field mounts, so `source:listen` fires and the render
+  is computed then. This is the "user clicks to a path that needs a render" case.
+- **Demand disturbed** — the source changed under a field. This only MARKS.
+  Recomputing here would cost one whole-module render per keystroke, which is the
+  cost this design exists to remove. Nothing is lost by waiting, because the same
+  call that changed the source wakes the fields on the affected paths, and a
+  woken field re-reads — so the following read pays once, however many changes
+  preceded it.
+
+Demand leaving (`source:unlisten`) drops the module's cached render, so a module
+nobody is looking at cannot be re-rendered by a later change to it.
+
+Patch sets follow the same rule for a different reason: they are built from the
+chain when the review UI asks, not accumulated per patch. The store always said
+so; the wiring used not to.
+
 ## The invariants
 
 ### 1. If an event went out, the source behind it is already applied
@@ -301,24 +329,32 @@ finished work.
 - **Renders are not path-scoped.** The interface is; the execution is not. This
   is the largest open question — it is what would fix the `handboka` worst case,
   and it needs a new entry point in `packages/core`.
-- **No rebase.** HMR and `PUT /sources/~` swap a module's base source under
-  existing patches. That needs "replace base for M, re-apply M's chain, bump M".
-  The source store deliberately does not keep a base source, because holding one
-  that nothing reads would read as though rebase worked.
+- ~~**No rebase.**~~ **Done.** The source store now keeps base source and the
+  per-module chain, and `receive()` genuinely rebuilds from base + chain. This
+  also closed two defects that shared its cause: a patch announced before its
+  module loaded was dropped for good (and left the head `partial` forever), and
+  re-intake silently discarded pending local edits.
 - **No real worker.** Both realms run in one thread today, behind the seams that
   would let them split (`SchemaValidationBridge`, and the snapshot arguments).
   Nothing has been wired to `postMessage`.
 - **No per-module patch-set reset.** `PatchSets` has no per-module removal, so
   `PatchSetStore.reset(modules)` throws rather than quietly resetting everything.
 - **Search rebuilds whole.** Incremental update needs a per-module document-id
-  list this prototype does not keep.
+  list this prototype does not keep. It is at least lazy now: a QUERY builds the
+  index, so a caller can no longer get an empty result set because it forgot to
+  prime the store.
 - **`stat` has no real input.** No polling, no websocket, and it ignores
   `baseSha`/`schemaSha`/`sourcesSha`. Those are inputs to `schemaStore.receive`,
   not new events.
 - **No local patch write-back.** `createPatch` never issues `PUT /patches`, so
   nothing exercises optimistic state, retry, or `patch-head-conflict`.
 - **No hooks.** Nothing consumes any of this from React yet.
-- **Only the source/patch/stat path is tested.** Host, render, validation, search
-  and patch sets were verified end to end by hand but have no committed test.
-- **Unmeasured.** Every performance claim above is read off the code. Nothing
-  has been profiled in a browser.
+- ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
+  search and patch sets are now covered: `systemFlow` (one session-order flow),
+  `systemInvariants` (one claim per test), `activityCost` (how many times each
+  expensive thing runs), `demandDriven` (render and search only run for what is
+  being looked at).
+- **Unmeasured in a browser.** Work COUNTS are now asserted in node via the
+  activity channel — see `activity.ts` — which is what caught render being put
+  back on the keystroke path. Durations, and the absolute claim, still need a
+  real profile.

@@ -37,18 +37,34 @@ export class PatchSetStore {
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
 
+  /** The chain version this grouping was built from; -1 until first built. */
+  private builtVersion = -1;
+
   /**
-   * Pushed in from the host realm on `patch:receive` / `patch:create`.
+   * Build the grouping from the whole chain, if it is not already current.
+   *
+   * Lazy, and that is the correction this store's own doc asked for: it said
+   * patch sets are wanted "only when someone opens the review or publish UI",
+   * and that folding them in "would put patch-set bookkeeping on the keystroke
+   * path to serve a screen that is usually not open". The store did not fold
+   * them in — but the wiring did, calling `insert` on every `patch:create`. So
+   * every keystroke paid for a screen that was usually shut.
+   *
+   * Rebuilding from the whole chain rather than appending is what makes it
+   * possible to be lazy at all: the patch store is already the authority on
+   * order and already holds every record, so nothing is lost by not keeping a
+   * second incremental copy. `chainVersion` is the one `===` that decides
+   * whether the rebuild is needed.
    *
    * Driven by patches EXISTING, not by them applying: a patch that failed to
    * apply to source is still a patch the user made and still belongs in the
    * review UI — showing it is how they find out it failed.
    */
-  insert(
+  private rebuild(
     records: PatchRecord[],
     schemas: Record<ModuleFilePath, SerializedSchema>,
   ): void {
-    if (records.length === 0) return;
+    this.patchSets.reset();
     const touchedPatchSetPaths = new Set<string>();
     for (const record of records) {
       const schema = schemas[record.moduleFilePath];
@@ -66,8 +82,11 @@ export class PatchSetStore {
           schema,
           op,
           record.patchId,
-          // `PatchSets` orders by this, so a missing timestamp must not sort as
-          // the epoch and bury a real edit at the bottom of the review list.
+          // `PatchSets` orders by this and the review list shows newest first,
+          // so a missing timestamp buries a real edit at the bottom.
+          // `PatchStore.createPatch` now stamps every local patch and the server
+          // stamps every remote one, so this fallback is for a record that has
+          // neither — where the epoch is at least honest about knowing nothing.
           record.createdAt ?? new Date(0).toISOString(),
           record.authorId ?? null,
         );
@@ -84,8 +103,22 @@ export class PatchSetStore {
     });
   }
 
-  /** Async: this is a main-thread-facing read. */
-  async getPatchSets(): Promise<SerializedPatchSet> {
+  /**
+   * The grouping, built now if the chain has moved since it last was.
+   *
+   * Takes its data as arguments, like {@link SearchStore.buildIndex}: this store
+   * is in the worker realm, so it could not read a store even if it wanted to,
+   * and putting the records in the signature keeps that visible.
+   */
+  async getPatchSets(
+    records: PatchRecord[],
+    schemas: Record<ModuleFilePath, SerializedSchema>,
+    chainVersion: number,
+  ): Promise<SerializedPatchSet> {
+    if (chainVersion !== this.builtVersion) {
+      this.rebuild(records, schemas);
+      this.builtVersion = chainVersion;
+    }
     this.activity.work("patch-set:serialize");
     return this.patchSets.serialize();
   }
@@ -104,6 +137,7 @@ export class PatchSetStore {
       );
     }
     this.patchSets.reset();
+    this.builtVersion = -1;
     this.events.emit({ type: "patch-set:update", patchSetPaths: [] });
   }
 }

@@ -113,6 +113,23 @@ export type SystemEvent =
   | { type: "host:receive"; modules: ModuleFilePath[] }
   | { type: "schema:init"; modules: ModuleFilePath[] }
   | { type: "source:init"; sources: ModuleFilePath[] }
+  /**
+   * A reader registered interest in a path, or dropped it.
+   *
+   * This IS coordination rather than observation, which is why it is a
+   * `SystemEvent` and not a work record: the render store reacts to it. A
+   * listener existing at a path is the system's own record that a field is on
+   * screen showing it, and therefore the only trustworthy signal that the
+   * expensive work behind that path is actually wanted. A caller invoking
+   * `get()` is not the same thing — that is a caller choosing to pay, which a
+   * speculative or already-unmounted one can also do.
+   */
+  | { type: "source:listen"; path: SourcePath; moduleFilePath: ModuleFilePath }
+  | {
+      type: "source:unlisten";
+      path: SourcePath;
+      moduleFilePath: ModuleFilePath;
+    }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | { type: "stat:receive"; patches: PatchId[] }
   /** Patch *data* has arrived for these ids and is now readable. */
