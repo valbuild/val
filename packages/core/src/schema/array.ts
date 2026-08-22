@@ -9,7 +9,10 @@ import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";

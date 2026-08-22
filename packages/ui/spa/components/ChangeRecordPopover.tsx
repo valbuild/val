@@ -90,7 +90,6 @@ export function ChangeRecordPopover({
     return [];
   }, [parentSource]);
   const syncEngine = useSyncEngine();
-  const parentSchema = useSchemaAtPath(parentPath);
   // A `.jsonValues()` entry's content is lazily loaded. If we move an entry that
   // is still an opaque marker, the marker (not the content) lands on the new key
   // and opening it would fetch `/json?key=<newKey>` — which 404s, since the base

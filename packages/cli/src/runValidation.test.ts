@@ -483,6 +483,8 @@ describe("runValidation", () => {
     // untracked, and the remote URL key must not be reported as missing.
     expect(events.at(-1)).toEqual({ type: "summary-success" });
     expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
+  });
+
   describe("jsonValues", () => {
     const runOn = async (valFiles: string[]) => {
       const events: ValidationEvent[] = [];
