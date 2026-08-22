@@ -48,7 +48,9 @@ export async function createService(
     compilerOptions,
     host,
   );
-  const valModules = loadValModules(projectRoot);
+  // Read val.modules (and everything it imports) through the same host, so an
+  // embedder that overlays unsaved editor buffers evaluates what the user sees.
+  const valModules = loadValModules(projectRoot, host);
   const extracted = await extractValModules(valModules);
   return new Service(projectRoot, sourceFileHandler, extracted);
 }
