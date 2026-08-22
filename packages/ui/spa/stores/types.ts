@@ -60,31 +60,69 @@ export type HeadStatus = "complete" | "partial" | "failed";
  * data.
  */
 export type Head =
-  | { type: "empty" }
+  | { type: "empty"; seq: number }
   | {
       type: `${PatchOrigin}-${HeadStatus}`;
       patchId: PatchId;
       /** `null` while the id is known but the data has not been fetched. */
       patch: PatchRecord | null;
+      /**
+       * Monotonic, bumped by the patch store on every change to the chain.
+       *
+       * Heads have to be ORDERABLE, not just comparable, because a reader
+       * handles out-of-order replies by keeping the newest head it has accepted
+       * and discarding anything not newer. Ordering by position in the chain
+       * would mean a lookup per comparison; a counter makes it one `<`.
+       *
+       * Conservative in the right direction: a bump that did not actually change
+       * a given path can only make a reader prefer a newer read, never an older
+       * one.
+       */
+      seq: number;
     };
+
+/**
+ * Is `candidate` strictly newer than `held`?
+ *
+ * The whole of out-of-order reply handling. A reader keeps the newest head it has
+ * accepted and drops any reply that is not newer — safe precisely because a drop
+ * can only happen once something better has arrived, so there is always a value
+ * and it is always the newest. No retry, no timer, and no way to cycle: dropping
+ * schedules nothing.
+ */
+export function isNewerHead(candidate: Head, held: Head): boolean {
+  return candidate.seq > held.seq;
+}
 
 /**
  * The answer to `SourceStore.get(path, head)`.
  *
- * `resolved-head` is the only status that means "this value is current as of the
- * head you quoted". Everything else tells the caller what to do next, so a
- * stale answer can never be mistaken for a fresh one.
+ * Every answer that says anything about the value carries **the head it was
+ * computed at**. That is what lets a reader handle out-of-order replies by
+ * keeping the newest and dropping the rest — see {@link isNewerHead}.
+ *
+ * There is deliberately no "re-ask" status. An earlier version refused to answer
+ * a read whose quoted head had moved, which meant a caller had to retry, which
+ * needed a retry cap and was the one way the design could hang. Answering always
+ * makes progress in a single round trip.
  */
 export type SourceRead =
-  | { status: "resolved-head"; data: Json }
-  /** The quoted head is not the one behind this value. Re-ask at `head`. */
-  | { status: "resolved-out-of-date"; head: Head }
+  | { status: "resolved-head"; data: Json; head: Head }
+  /**
+   * The head you quoted is still current, so what you already hold is right and
+   * no value was marshalled.
+   *
+   * The reason to pass a head at all: once source is across a worker seam, the
+   * cheap answer is the difference between a read costing a structured clone and
+   * costing nothing.
+   */
+  | { status: "unchanged"; head: Head }
   /**
    * DEFINITIVE: the module is loaded, every known patch is applied, and the
    * path is not there. Distinct from `module-loading`, which says nothing at
    * all about the path.
    */
-  | { status: "absent" }
+  | { status: "absent"; head: Head }
   | { status: "module-loading" }
   | { status: "error"; message: string };
 

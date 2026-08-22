@@ -79,7 +79,7 @@ export class SourceStore {
    */
   private chains = new Map<
     ModuleFilePath,
-    { record: PatchRecord; origin: PatchOrigin }[]
+    { record: PatchRecord; origin: PatchOrigin; creatorFieldId?: string }[]
   >();
 
   /**
@@ -93,7 +93,7 @@ export class SourceStore {
    */
   private listenerTargets = new Map<
     SourcePath,
-    { target: EventTarget; count: number }
+    Map<string, { target: EventTarget; count: number }>
   >();
 
   constructor(
@@ -110,10 +110,20 @@ export class SourceStore {
    */
   listenTo(patchStore: PatchStore): () => void {
     const offReceive = patchStore.events.on("patch:receive", (event) => {
-      this.applyPatches(patchStore.recordsFor(event.patches), "external");
+      this.applyPatches(
+        patchStore.recordsFor(event.patches),
+        "external",
+        // A patch fetched from the server was made elsewhere, so it is foreign
+        // to every field here — there is nobody to leave asleep.
+        () => undefined,
+      );
     });
     const offCreate = patchStore.events.on("patch:create", (event) => {
-      this.applyPatches(patchStore.recordsFor(event.patches), "internal");
+      this.applyPatches(
+        patchStore.recordsFor(event.patches),
+        "internal",
+        (id) => patchStore.creatorOf(id),
+      );
     });
     return () => {
       offReceive();
@@ -159,14 +169,24 @@ export class SourceStore {
    * overwrite a newer value. Without it, a read racing a patch would silently
    * win with stale data.
    */
-  async get(path: SourcePath, head: Head): Promise<SourceRead> {
+  async get(path: SourcePath, head: Head | null): Promise<SourceRead> {
     const current = this.readHead();
-    if (!headsEqual(head, current)) {
-      return { status: "resolved-out-of-date", head: current };
-    }
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
     const source = this.sources[moduleFilePath];
+    // The cheap answer: what you hold is still right, so nothing is marshalled.
+    // This is the only reason to pass a head — once source is across a worker
+    // seam it is the difference between a read costing a clone and costing
+    // nothing. It is checked before `module-loading` only for a loaded module,
+    // so an unloaded one still says so rather than claiming to be unchanged.
+    if (
+      head !== null &&
+      headsEqual(head, current) &&
+      source !== undefined &&
+      this.schemaStore.get(moduleFilePath) !== undefined
+    ) {
+      return { status: "unchanged", head: current };
+    }
     // `absent` is only ever returned when we know enough to say so. Without
     // the schema we do not: a module whose schema has not loaded may resolve
     // this path once it has. Collapsing the two is the bug this split exists
@@ -180,12 +200,27 @@ export class SourceStore {
     this.activity.work("source:read-path", path);
     const resolved = resolveAtModulePath(source, modulePath);
     if (resolved.status === "absent") {
-      return { status: "absent" };
+      return { status: "absent", head: current };
     }
     if (resolved.status === "error") {
       return { status: "error", message: resolved.message };
     }
-    return { status: "resolved-head", data: resolved.value };
+    // The head travels with the value. A reader with two reads in flight keeps
+    // the newest head it has accepted and drops the rest — see `isNewerHead`.
+    return { status: "resolved-head", data: resolved.value, head: current };
+  }
+
+  /**
+   * Is this head still the current one?
+   *
+   * The same question `get` answers, without the value. For a slow watchdog:
+   * monotonic acceptance handles out-of-order replies, but nothing handles a
+   * notification that was never delivered, so something has to be able to ask
+   * cheaply. Async like every other field-facing read, so moving source behind a
+   * worker does not rewrite the caller.
+   */
+  async isCurrent(head: Head): Promise<boolean> {
+    return headsEqual(head, this.readHead());
   }
 
   /**
@@ -211,14 +246,29 @@ export class SourceStore {
    */
   addListener(
     path: SourcePath,
+    /**
+     * The field INSTANCE registering. Two instances can show one path — a studio
+     * field and an inline overlay — and what is internal to one is foreign to the
+     * other, so suppression has to be per instance. One `EventTarget` per
+     * (path, fieldId) is what makes "wake everyone except the one that caused
+     * it" expressible at all: a single target per path could only be dispatched
+     * to wholesale.
+     */
+    fieldId: string,
     listener: (event: FieldEvent) => void,
   ): () => void {
-    let entry = this.listenerTargets.get(path);
+    let byField = this.listenerTargets.get(path);
+    if (!byField) {
+      byField = new Map();
+      this.listenerTargets.set(path, byField);
+    }
+    let entry = byField.get(fieldId);
     if (!entry) {
       entry = { target: new EventTarget(), count: 0 };
-      this.listenerTargets.set(path, entry);
+      byField.set(fieldId, entry);
     }
     const registered = entry;
+    const fields = byField;
     const handler = (ev: Event) => {
       listener((ev as CustomEvent<FieldEvent>).detail);
     };
@@ -239,11 +289,11 @@ export class SourceStore {
       // Dropping empty entries matters: the intersection below walks every
       // registered path on every patch, so a registry that only ever grows
       // would make a long session progressively slower.
-      if (
-        registered.count <= 0 &&
-        this.listenerTargets.get(path) === registered
-      ) {
-        this.listenerTargets.delete(path);
+      if (registered.count <= 0 && fields.get(fieldId) === registered) {
+        fields.delete(fieldId);
+        if (fields.size === 0 && this.listenerTargets.get(path) === fields) {
+          this.listenerTargets.delete(path);
+        }
       }
     };
   }
@@ -255,9 +305,17 @@ export class SourceStore {
    * patch that arrives ahead of its module: it is remembered now and applied by
    * `receive()` later, rather than dropped.
    */
-  private applyPatches(records: PatchRecord[], origin: PatchOrigin): void {
+  private applyPatches(
+    records: PatchRecord[],
+    origin: PatchOrigin,
+    creatorOf: (patchId: PatchId) => string | undefined,
+  ): void {
     if (records.length === 0) return;
-    const entries = records.map((record) => ({ record, origin }));
+    const entries = records.map((record) => ({
+      record,
+      origin,
+      creatorFieldId: creatorOf(record.patchId),
+    }));
     for (const entry of entries) {
       const moduleFilePath = entry.record.moduleFilePath;
       const chain = this.chains.get(moduleFilePath);
@@ -275,7 +333,11 @@ export class SourceStore {
    * replay in `receive()`, so one code path decides what "applied" means.
    */
   private applyEntries(
-    entries: { record: PatchRecord; origin: PatchOrigin }[],
+    entries: {
+      record: PatchRecord;
+      origin: PatchOrigin;
+      creatorFieldId?: string;
+    }[],
   ): void {
     if (entries.length === 0) return;
     const success: PatchId[] = [];
@@ -283,8 +345,14 @@ export class SourceStore {
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
-    const wokenBy = new Map<PatchOrigin, SourcePath[]>();
-    for (const { record, origin } of entries) {
+    // Grouped by (origin, creator): a replay can mix a local edit and a foreign
+    // one, and the creator decides which single listener stays asleep.
+    const wokenBy: {
+      origin: PatchOrigin;
+      creatorFieldId?: string;
+      paths: SourcePath[];
+    }[] = [];
+    for (const { record, origin, creatorFieldId } of entries) {
       const current = this.sources[record.moduleFilePath];
       if (current === undefined) {
         // The module is not loaded, so there is nothing to apply the patch to
@@ -316,13 +384,14 @@ export class SourceStore {
         changedModules.add(record.moduleFilePath);
         const paths = touchedSourcePaths(record);
         touched.push(...paths);
-        // Grouped by origin, because a replay can mix a local edit and a
-        // foreign one and a field has to be told which its event came from.
-        const existing = wokenBy.get(origin);
+        const existing = wokenBy.find(
+          (group) =>
+            group.origin === origin && group.creatorFieldId === creatorFieldId,
+        );
         if (existing === undefined) {
-          wokenBy.set(origin, [...paths]);
+          wokenBy.push({ origin, creatorFieldId, paths: [...paths] });
         } else {
-          existing.push(...paths);
+          existing.paths.push(...paths);
         }
       } else {
         failed.push({ patchId: record.patchId, message: res.error.message });
@@ -358,12 +427,23 @@ export class SourceStore {
       undefined,
       this.listenerTargets.size,
     );
-    for (const [path, entry] of this.listenerTargets) {
-      for (const [origin, paths] of wokenBy) {
-        if (!touchesPath(paths, path)) continue;
-        this.activity.work("source:wake-listener", path);
-        const detail: FieldEvent = { type: `${origin}-patch`, path, head };
-        entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
+    for (const [path, byField] of this.listenerTargets) {
+      for (const group of wokenBy) {
+        if (!touchesPath(group.paths, path)) continue;
+        for (const [fieldId, entry] of byField) {
+          // The one listener that caused this stays asleep. Everyone else on the
+          // path is woken — which is what makes a studio field and an inline
+          // overlay on one path both update, while the instance being typed into
+          // is not interrupted by its own keystroke.
+          if (fieldId === group.creatorFieldId) continue;
+          this.activity.work("source:wake-listener", path);
+          const detail: FieldEvent = {
+            type: `${group.origin}-patch`,
+            path,
+            head,
+          };
+          entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
+        }
         break;
       }
     }
@@ -372,11 +452,15 @@ export class SourceStore {
 
 const FIELD_EVENT = "val:field-changed";
 
+/**
+ * Two heads describe the same chain state iff their sequence matches.
+ *
+ * `seq` is bumped by the patch store on every change to the chain, so it is the
+ * identity of a chain state — comparing type and patch id as well would add a
+ * way for the two to disagree without adding information.
+ */
 function headsEqual(a: Head, b: Head): boolean {
-  if (a.type === "empty" || b.type === "empty") {
-    return a.type === b.type;
-  }
-  return a.type === b.type && a.patchId === b.patchId;
+  return a.seq === b.seq;
 }
 
 /**

@@ -42,10 +42,17 @@ describe("store test rig", () => {
     // as defined. This is the baseline the external patch below moves off.
     const emptyHead = await patchStore.getHead();
     expect(emptyHead).toMatchObject({ type: "empty" });
-    expect(await sourceStore.get('/test.val.ts?p="field"', emptyHead)).toEqual({
-      status: "resolved-head",
-      data: "initial",
-    });
+    // `null`, not `emptyHead`. The head passed to `get` is a claim about what the
+    // caller has already INCORPORATED, so the only two legal values are `null`
+    // ("I hold nothing") and a head a previous `get` returned. Quoting a head
+    // obtained any other way — `getHead()`, say — asserts something untrue, and
+    // the store will answer `unchanged` to a caller that has nothing.
+    expect(await sourceStore.get('/test.val.ts?p="field"', null)).toMatchObject(
+      {
+        status: "resolved-head",
+        data: "initial",
+      },
+    );
 
     const fieldListener = listeners.set('/test.val.ts?p="field"');
     const nonVisibleFieldListener = listeners.set(
@@ -80,17 +87,31 @@ describe("store test rig", () => {
     });
     // When we get something from system, we need to pass in what we believe is the head
     // the reason we want to do this is to know when we need to compute
-    const fieldResult1 = await sourceStore.get('/test.val.ts?p="field"', head1);
-    expect(fieldResult1).toEqual({
-      status: "resolved-head", // if head was wrong: "resolved-out-of-date",
+    // Quoting the CURRENT head gets the cheap answer: what you hold is right, and
+    // no value is marshalled. That is the only reason to pass a head.
+    expect(
+      await sourceStore.get('/test.val.ts?p="field"', head1),
+    ).toMatchObject({ status: "unchanged" });
+
+    // Quoting nothing gets the value, and the head it was computed at.
+    const fieldResult1 = await sourceStore.get('/test.val.ts?p="field"', null);
+    expect(fieldResult1).toMatchObject({
+      status: "resolved-head",
       data: "external",
+      head: { seq: head1.seq },
     });
 
-    // A read quoting a head the system has moved past is refused rather than
-    // answered, and the refusal carries the head to re-ask at.
-    expect(await sourceStore.get('/test.val.ts?p="field"', emptyHead)).toEqual({
-      status: "resolved-out-of-date",
-      head: head1,
+    // A read quoting a head the system has moved past is ANSWERED, not refused,
+    // with the current value and the current head. The earlier protocol refused
+    // and made the caller re-ask, which needed a retry cap and was the one way
+    // this design could hang. A reader with two reads in flight keeps the newest
+    // head it has accepted and drops the rest — see `isNewerHead`.
+    expect(
+      await sourceStore.get('/test.val.ts?p="field"', emptyHead),
+    ).toMatchObject({
+      status: "resolved-head",
+      data: "external",
+      head: { seq: head1.seq },
     });
 
     //
@@ -113,8 +134,8 @@ describe("store test rig", () => {
     });
     const head2 = await patchStore.getHead();
     expect(head2).toMatchObject({ type: "internal-complete" });
-    const fieldValue2 = await sourceStore.get('/test.val.ts?p="field"', head2);
-    expect(fieldValue2).toEqual({
+    const fieldValue2 = await sourceStore.get('/test.val.ts?p="field"', null);
+    expect(fieldValue2).toMatchObject({
       status: "resolved-head",
       data: "updated",
     });
@@ -126,10 +147,10 @@ describe("store test rig", () => {
     // A path that is genuinely not in the source is `absent`, which is a
     // different answer from "the module has not loaded" — the whole reason the
     // two statuses are separate.
-    expect(await sourceStore.get('/test.val.ts?p="missing"', head2)).toEqual({
-      status: "absent",
-    });
-    expect(await sourceStore.get('/other.val.ts?p="field"', head2)).toEqual({
+    expect(
+      await sourceStore.get('/test.val.ts?p="missing"', null),
+    ).toMatchObject({ status: "absent" });
+    expect(await sourceStore.get('/other.val.ts?p="field"', null)).toEqual({
       status: "module-loading",
     });
 

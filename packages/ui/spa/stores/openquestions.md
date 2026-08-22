@@ -45,7 +45,78 @@ both pointless if the answer here is no.
 
 ---
 
-## 2. A field is woken by its own edit. 🔴
+## 2. A field is woken by its own edit. 🟢 DECIDED — being implemented
+
+**Decided (2026-08-22).** Suppression is per FIELD INSTANCE, and the read hands
+back the head instead of the field asking for it.
+
+The read protocol:
+
+- `get(path, head | null)` returns the source **and** the head it was computed
+  at. `null` means "I hold nothing yet".
+- It never refuses. The earlier `resolved-out-of-date` made the caller re-ask,
+  which needed a retry cap and was the one way the design could hang. Answering
+  always makes progress in one round trip.
+- Passing the head you hold buys the cheap path: if it is still current the answer
+  is `unchanged` and no value is marshalled — which is what keeps a read
+  affordable once source is across a worker seam.
+- `isCurrent(head)` is the same question without the value, for a watchdog.
+
+**Out-of-order replies are handled at the field, by monotonic acceptance.** Every
+reply carries the head it was computed at; the field keeps the newest head it has
+accepted and DISCARDS any reply not newer. Discarding is safe precisely because it
+can only happen once something better has arrived, so the field always holds the
+newest value. This needs heads to be orderable, so `Head` carries a monotonic
+`seq` (the patch store's chain version) and comparison is one `<`.
+
+Rejected: _asking for the head after every response_ — it doubles round trips and
+converts an ordering problem into a retry loop that need not converge. Kept only
+as a slow watchdog, using `isCurrent`, to catch a LOST event (a dropped
+notification, or a path-matching miss like the array-shift defect); it is a
+backstop, never the mechanism.
+
+**Attribution is per field instance, client-side.** The same path can be rendered
+more than once — studio field and inline overlay — so what is internal to one
+instance is foreign to the other. A listener registers with a `fieldId`; a write
+carries one; the patch store keeps `patchId → fieldId` for patches created in this
+session, and dispatch skips only the listener that caused the patch. Everyone else
+wakes.
+
+Rejected: _encoding the field id inside the patch id_. The instinct was right —
+the patch id is the one thing the server echoes back, since `sessionId` is sent on
+`PUT /patches` and never returned. But `ValServer` validates
+`patchId.length === 36`, so there is no room to prefix without eating random bits
+and risking collisions between fields; it would persist a UI-lifetime concern into
+the chain, the review UI, upload paths and `?patch_id=` URLs forever; and it is
+unnecessary, because attribution is only ever needed for patches created in THIS
+session — anything from another tab is foreign to every local field by definition.
+`ValSyncEngine` already keeps exactly this map as `creatorId`; what was broken was
+never the map but the rule on top of it (`isEditedByComponent` asks "is my last
+patch the last patch overall?", which fails under concurrent edits).
+
+### Cycles are prevented structurally, not by convention
+
+1. A read is issued only on **mount** or on a **foreign event** — never in
+   response to a reply. No reply→read edge, so no loop.
+2. A reply is accepted or dropped. Dropping schedules nothing.
+3. Events fire only for source that actually changed; a patch that fails to apply
+   changes nothing.
+4. A field's own writes never wake it, so typing cannot feed itself.
+
+Leaving `event → read → reply → (accept | drop)`, which terminates. The one way
+back to a cycle is a field that WRITES on read — stated as a rule so it is not
+left to convention.
+
+### Still open
+
+- [ ] `getHead()` stays for tests and for the patch store's own use, but nothing
+      field-facing may call it. Worth an eslint rule rather than a comment?
+- [ ] The watchdog interval is unpicked. It must be slow enough not to be a
+      polling loop and use `isCurrent` so a quiet system does zero reads.
+- [ ] Does a field re-read on REMOUNT, or can it trust a head it held before
+      unmounting? Trusting it is wrong if the store dropped the module meanwhile.
+
+## 2b. Original framing, kept for the reasoning 🔴
 
 **The question:** is `PatchOrigin` (`internal` / `external`) the right
 granularity, or does an event need to name the field instance that caused it?

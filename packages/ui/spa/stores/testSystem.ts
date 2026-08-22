@@ -210,6 +210,8 @@ export class Ledger {
 /** One registered field listener, plus the assertions a test makes about it. */
 export type FieldListener = {
   readonly path: SourcePath;
+  /** The field instance this listener registered as. */
+  readonly fieldId: string;
   readonly received: readonly FieldEvent[];
   /** Wait for a matching event; resolves to a cursor past it. */
   didReceive(
@@ -230,16 +232,23 @@ export type FieldListener = {
 
 export type Listeners = {
   /**
-   * Register a listener at `path`.
+   * Register a listener at `path`, as one field INSTANCE.
+   *
+   * `fieldId` defaults to a fresh id, so two `set()` calls on one path are two
+   * instances — which is the studio-field-plus-inline-overlay case, and the
+   * default a test almost always wants. Pass one explicitly to say "this is the
+   * field that made that edit".
    *
    * Takes a plain string, not a `SourcePath`: branding a literal in a test buys
    * nothing and costs a cast at every call site.
    */
-  set(path: string): FieldListener;
+  set(path: string, fieldId?: string): FieldListener;
 };
 
 export type TestSourceStore = {
-  get(path: string, head: Head): Promise<SourceRead>;
+  get(path: string, head: Head | null): Promise<SourceRead>;
+  /** The cheap probe: is this head still current? */
+  isCurrent(head: Head): Promise<boolean>;
   /**
    * Convenience forward to `host.receive` — the real entry point.
    *
@@ -274,12 +283,14 @@ export type TestPatchStore = {
     moduleFilePath: string,
     patch: Patch,
     meta?: Record<string, Json>,
+    fieldId?: string,
   ): Promise<PatchRecord>;
   /** Create a patch and hand back the whole result, failures included. */
   tryCreatePatch(
     moduleFilePath: string,
     patch: Patch,
     meta?: Record<string, Json>,
+    fieldId?: string,
   ): Promise<CreatePatchResult>;
 };
 
@@ -422,8 +433,10 @@ export function initTestSystem(): TestSystem {
 
   const registered: FieldListener[] = [];
 
+  let nextFieldId = 0;
   const listeners: Listeners = {
-    set(path) {
+    set(path, fieldId) {
+      const instanceId = fieldId ?? `field-${++nextFieldId}`;
       const received: FieldEvent[] = [];
       const waiters: {
         expected: Loose<FieldEvent>;
@@ -432,19 +445,24 @@ export function initTestSystem(): TestSystem {
       }[] = [];
       let waiting = waiters;
       const sourcePath = path as SourcePath;
-      const off = system.sourceStore.addListener(sourcePath, (event) => {
-        received.push(event);
-        const cursor = received.length;
-        waiting = waiting.filter((waiter) => {
-          if (cursor - 1 >= waiter.since && matches(event, waiter.expected)) {
-            waiter.resolve(cursor);
-            return false;
-          }
-          return true;
-        });
-      });
+      const off = system.sourceStore.addListener(
+        sourcePath,
+        instanceId,
+        (event) => {
+          received.push(event);
+          const cursor = received.length;
+          waiting = waiting.filter((waiter) => {
+            if (cursor - 1 >= waiter.since && matches(event, waiter.expected)) {
+              waiter.resolve(cursor);
+              return false;
+            }
+            return true;
+          });
+        },
+      );
       const listener: FieldListener = {
         path: sourcePath,
+        fieldId: instanceId,
         received,
         async didReceive(expected, options) {
           const since = options?.since ?? 0;
@@ -525,6 +543,7 @@ export function initTestSystem(): TestSystem {
     search: (query, limit, offset) => system.search(query, limit, offset),
     sourceStore: {
       get: (path, head) => system.sourceStore.get(path as SourcePath, head),
+      isCurrent: (head) => system.sourceStore.isCurrent(head),
       async testReceive(modules) {
         system.host.receive(modules);
         await settle();
@@ -532,11 +551,12 @@ export function initTestSystem(): TestSystem {
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),
-      async tryCreatePatch(moduleFilePath, patch, meta) {
+      async tryCreatePatch(moduleFilePath, patch, meta, fieldId) {
         const res = await system.patchStore.createPatch(
           moduleFilePath as ModuleFilePath,
           patch,
           meta,
+          fieldId,
         );
         if (res.status === "created") {
           // A locally created patch is also on the server as far as every later
@@ -548,8 +568,13 @@ export function initTestSystem(): TestSystem {
         await settle();
         return res;
       },
-      async createPatch(moduleFilePath, patch, meta) {
-        const res = await this.tryCreatePatch(moduleFilePath, patch, meta);
+      async createPatch(moduleFilePath, patch, meta, fieldId) {
+        const res = await this.tryCreatePatch(
+          moduleFilePath,
+          patch,
+          meta,
+          fieldId,
+        );
         if (res.status !== "created") {
           throw new Error(
             `createPatch failed: ${res.message}. Use tryCreatePatch if the failure is the point.`,

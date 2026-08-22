@@ -71,12 +71,11 @@ describe("system flow", () => {
 
     const emptyHead = await patchStore.getHead();
     expect(emptyHead).toMatchObject({ type: "empty" });
-    expect(await sourceStore.get('/blogs.val.ts?p="title"', emptyHead)).toEqual(
-      {
-        status: "resolved-head",
-        data: "Hello",
-      },
-    );
+    // `null` on a first read: see the note in `system.test.ts` — the head is a
+    // claim about what has been incorporated, and nothing has been yet.
+    expect(
+      await sourceStore.get('/blogs.val.ts?p="title"', null),
+    ).toMatchObject({ status: "resolved-head", data: "Hello" });
 
     // Three listeners: the field the user edits, a SIBLING that must stay
     // asleep, and a field in another module that must also stay asleep.
@@ -106,8 +105,8 @@ describe("system flow", () => {
       patchId: localTitle.patchId,
     });
     expect(
-      await sourceStore.get('/blogs.val.ts?p="title"', headAfterLocal),
-    ).toEqual({ status: "resolved-head", data: "Hello World" });
+      await sourceStore.get('/blogs.val.ts?p="title"', null),
+    ).toMatchObject({ status: "resolved-head", data: "Hello World" });
 
     // ------------------------------------------------- patch sets, first look
     const patchSetsAfterLocal = await getPatchSets();
@@ -188,11 +187,8 @@ describe("system flow", () => {
     // Another session's edit IS news, in both modules.
     await authorListener.didReceive({ type: "external-patch" });
     expect(
-      await sourceStore.get(
-        '/authors.val.ts?p="name"',
-        await patchStore.getHead(),
-      ),
-    ).toEqual({ status: "resolved-head", data: "Grace Hopper" });
+      await sourceStore.get('/authors.val.ts?p="name"', null),
+    ).toMatchObject({ status: "resolved-head", data: "Grace Hopper" });
 
     // A replace at tags[0] does not change tags[1], so the sibling stays asleep.
     const quietAfterTag0 = await tag1Listener.noMessages({
@@ -211,10 +207,9 @@ describe("system flow", () => {
     ]);
     await ledger.has({ type: "source:patch-apply", success: ["ext-3"] });
 
-    const headAfterInsert = await patchStore.getHead();
     expect(
-      await sourceStore.get('/blogs.val.ts?p="tags".1', headAfterInsert),
-    ).toEqual({ status: "resolved-head", data: "ALPHA" });
+      await sourceStore.get('/blogs.val.ts?p="tags".1', null),
+    ).toMatchObject({ status: "resolved-head", data: "ALPHA" });
     // THE CLAIM: "only registered paths are woken" is a guarantee about which
     // fields are woken, and it is only sound if every field whose VALUE changed
     // is among them.
@@ -284,10 +279,9 @@ describe("system flow", () => {
       }),
     ]);
 
-    const finalHead = await patchStore.getHead();
     expect(
-      await sourceStore.get('/late.val.ts?p="headline"', finalHead),
-    ).toEqual({ status: "resolved-head", data: "patched before load" });
+      await sourceStore.get('/late.val.ts?p="headline"', null),
+    ).toMatchObject({ status: "resolved-head", data: "patched before load" });
 
     dispose();
   });

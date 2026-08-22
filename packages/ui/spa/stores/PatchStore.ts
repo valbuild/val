@@ -86,6 +86,14 @@ export class PatchStore {
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
   /**
+   * Which field instance created each locally created patch.
+   *
+   * The same path can be rendered more than once — a studio field and an inline
+   * overlay — so "this session made it" is too coarse to decide who to wake: what
+   * is internal to one instance is foreign to the other.
+   */
+  private creatorByPatchId = new Map<PatchId, string>();
+  /**
    * Bumped whenever the chain or its data changes.
    *
    * A monotonic counter rather than a hash, for the same reason the module
@@ -225,6 +233,15 @@ export class PatchStore {
     moduleFilePath: ModuleFilePath,
     patch: Patch,
     meta?: Record<string, Json>,
+    /**
+     * The field instance making this edit, so it can be left asleep when the
+     * patch lands while every other reader of the path is woken.
+     *
+     * Positional and optional rather than folded into `meta`: `meta` is
+     * persisted and sent to the server, and this is neither — it is meaningless
+     * outside this session.
+     */
+    fieldId?: string,
   ): Promise<CreatePatchResult> {
     const patchId = this.newPatchId();
     const { patchOps, fileOps } = splitPatchFileOps(patch);
@@ -301,6 +318,9 @@ export class PatchStore {
     };
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");
+    if (fieldId !== undefined) {
+      this.creatorByPatchId.set(patchId, fieldId);
+    }
     this.ordered = [...this.ordered, patchId];
     this.version++;
     this.activity.work("patch:create", patchId);
@@ -372,18 +392,31 @@ export class PatchStore {
    * the apply/emit ordering in {@link SourceStore} impossible to guarantee.
    */
   currentHead(): Head {
+    const seq = this.version;
     if (this.ordered.length === 0) {
-      return { type: "empty" };
+      return { type: "empty", seq };
     }
     const patchId = this.ordered[this.ordered.length - 1];
     const origin = this.originOf(patchId);
     const patch = this.dataById.get(patchId) ?? null;
     if (this.failedById.has(patchId)) {
-      return { type: `${origin}-failed`, patchId, patch };
+      return { type: `${origin}-failed`, patchId, patch, seq };
     }
     if (patch === null || !this.appliedIds.has(patchId)) {
-      return { type: `${origin}-partial`, patchId, patch };
+      return { type: `${origin}-partial`, patchId, patch, seq };
     }
-    return { type: `${origin}-complete`, patchId, patch };
+    return { type: `${origin}-complete`, patchId, patch, seq };
+  }
+
+  /**
+   * Which field instance created this patch, if this session created it.
+   *
+   * Client-only and never persisted: attribution is only ever needed for patches
+   * made here, because a patch from another tab is foreign to every local field
+   * by definition. So it never has to survive a round trip — which is why it does
+   * not need to be encoded into the patch id.
+   */
+  creatorOf(patchId: PatchId): string | undefined {
+    return this.creatorByPatchId.get(patchId);
   }
 }

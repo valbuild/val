@@ -325,17 +325,57 @@ Because the same function does both, in that order, a field woken by an event
 can read immediately and cannot get a pre-patch value. Structural, not a
 convention someone has to remember.
 
-### 2. A read quotes the head it believes is current
+### 2. A read hands back the head it was computed at
 
-`sourceStore.get(path, head)` compares the quoted head against the current one.
-If they differ the answer is not a value — it is
-`{ status: "resolved-out-of-date", head }`. A slow reply can therefore never
-overwrite a newer value, which is what makes an **async** read path safe.
+`sourceStore.get(path, head | null)` always answers, and every answer that says
+anything about the value carries the head behind it. Nothing asks the system
+"what is current?" in order to then read — the read IS how you learn that.
 
-The head is **one global linear head**, mirroring the server's single patch
+The head passed IN is a claim about what the caller has already **incorporated**.
+Only two values are legal: `null` ("nothing yet") and a head a previous `get`
+returned. Quoting one obtained any other way asserts something untrue, and the
+store will answer `unchanged` to a caller that holds nothing. `getHead()` exists
+for the patch store and for tests; nothing field-facing may call it.
+
+Passing what you hold buys the cheap answer: if it is still current the reply is
+`unchanged` and no value is marshalled — which, once source is behind a worker
+seam, is the difference between a read costing a structured clone and costing
+nothing.
+
+**Out-of-order replies are handled by the reader, not by refusing.** Keep the
+newest head accepted and drop any reply not newer (`isNewerHead`). Safe precisely
+because a drop can only happen once something better has arrived, so there is
+always a value and it is always the newest. This needs heads ORDERABLE, so `Head`
+carries a monotonic `seq` — the patch store's chain version — and comparison is
+one `<`.
+
+An earlier version refused a stale read and made the caller re-ask. That needed a
+retry cap and was the one way the design could hang; answering always makes
+progress in a single round trip.
+
+The remaining hazard is a notification that is never delivered — a dropped event,
+or a path-matching miss. Monotonic acceptance cannot see that, so
+`isCurrent(head)` exists for a slow watchdog. A backstop, never the mechanism:
+polling after every reply would double round trips and turn an ordering problem
+into a loop.
+
+The head is still **one global linear head**, mirroring the server's single patch
 chain (`parentRef: { type: "patch", patchId }`). The cost is that a patch in
 module A makes a module-B reader's head stale, so it re-asks once and gets its
-unchanged value back — a wasted read, never wrong data.
+unchanged value back — and now that costs an `unchanged`, not a re-sent value.
+
+### 2b. Cycles are prevented structurally
+
+1. A read is issued only on **mount** or on a **foreign event** — never in
+   response to a reply. No reply→read edge, so no loop.
+2. A reply is accepted or dropped. Dropping schedules nothing.
+3. Events fire only for source that actually changed; a patch that fails to apply
+   changes nothing, so it wakes nobody.
+4. A field's own writes never wake it, so typing cannot feed itself.
+
+Leaving `event → read → reply → (accept | drop)`, which terminates. The one route
+back to a cycle is a field that WRITES on read — stated as a rule so it is not
+left to convention.
 
 ### 3. `absent` is a different answer from `module-loading`
 
@@ -345,10 +385,27 @@ answer is `module-loading`, which says nothing about the path. Collapsing these
 two is a long-standing bug source in the current engine, where
 `source-not-found` means both.
 
+### 3b. Suppression is per field INSTANCE
+
+One path can be rendered twice — a studio field and an inline overlay — so what
+is internal to one instance is foreign to the other. A listener registers with a
+`fieldId`, a write carries one, and the patch store keeps `patchId → fieldId` for
+patches created here. Dispatch skips exactly the listener that caused the patch;
+everyone else on the path wakes. That is why the registry is one `EventTarget`
+per (path, fieldId) rather than per path — a single target per path could only be
+dispatched to wholesale.
+
+The map is client-only and never persisted, because attribution is only ever
+needed for patches made in THIS session: a patch from another tab is foreign to
+every local field by definition. So it never has to survive a round trip, which
+is why it is not encoded into the patch id — and could not be, since the server
+validates `patchId.length === 36`.
+
 ### 4. Only registered paths are woken
 
 The source store keeps a registry of watched paths, one `EventTarget` per
-registered path, and intersects a patch's touched paths against it. A field whose
+(registered path, field instance), and intersects a patch's touched paths against
+it. A field whose
 path was not touched is **never invoked** — not "invoked and returns early".
 That is what makes "this field got no messages" a guarantee rather than an
 accident of a callback's own filtering.

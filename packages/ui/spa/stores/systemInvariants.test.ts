@@ -23,8 +23,7 @@ describe("source store: which fields get woken", () => {
    */
   it("wakes a later array index when an insert shifts it", async () => {
     const { c, s } = initVal();
-    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
-      initTestSystem();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
 
     await sourceStore.testReceive([
       c.define("/t.val.ts", s.object({ tags: s.array(s.string()) }), {
@@ -42,9 +41,10 @@ describe("source store: which fields get woken", () => {
     await ledger.has({ type: "source:patch-apply", success: ["ins-1"] });
 
     // The store now holds "a" at tags[1] where it held "b".
-    expect(
-      await sourceStore.get('/t.val.ts?p="tags".1', await patchStore.getHead()),
-    ).toEqual({ status: "resolved-head", data: "a" });
+    expect(await sourceStore.get('/t.val.ts?p="tags".1', null)).toMatchObject({
+      status: "resolved-head",
+      data: "a",
+    });
 
     await tag1.didReceive({ type: "external-patch" }, { since: quiet });
     dispose();
@@ -55,8 +55,7 @@ describe("source store: which fields get woken", () => {
    */
   it("wakes a later array index when a remove shifts it", async () => {
     const { c, s } = initVal();
-    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
-      initTestSystem();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
 
     await sourceStore.testReceive([
       c.define("/t.val.ts", s.object({ tags: s.array(s.string()) }), {
@@ -73,9 +72,10 @@ describe("source store: which fields get woken", () => {
     ]);
     await ledger.has({ type: "source:patch-apply", success: ["rm-1"] });
 
-    expect(
-      await sourceStore.get('/t.val.ts?p="tags".1', await patchStore.getHead()),
-    ).toEqual({ status: "resolved-head", data: "c" });
+    expect(await sourceStore.get('/t.val.ts?p="tags".1', null)).toMatchObject({
+      status: "resolved-head",
+      data: "c",
+    });
 
     await tag1.didReceive({ type: "external-patch" }, { since: quiet });
     dispose();
@@ -93,7 +93,7 @@ describe("source store: a patch that arrives before its module", () => {
    */
   it("applies the patch once the module arrives", async () => {
     const { c, s } = initVal();
-    const { sourceStore, patchStore, stat, ledger, dispose } = initTestSystem();
+    const { sourceStore, stat, ledger, dispose } = initTestSystem();
 
     stat.simulateExternal([
       externalPatch("early-1", "/late.val.ts", [
@@ -109,11 +109,8 @@ describe("source store: a patch that arrives before its module", () => {
     ]);
 
     expect(
-      await sourceStore.get(
-        '/late.val.ts?p="headline"',
-        await patchStore.getHead(),
-      ),
-    ).toEqual({ status: "resolved-head", data: "patched" });
+      await sourceStore.get('/late.val.ts?p="headline"', null),
+    ).toMatchObject({ status: "resolved-head", data: "patched" });
     dispose();
   });
 
@@ -200,16 +197,18 @@ describe("source store: re-intake", () => {
     await patchStore.createPatch("/t.val.ts", [
       { op: "replace", path: ["title"], value: "user edit" },
     ]);
-    expect(
-      await sourceStore.get('/t.val.ts?p="title"', await patchStore.getHead()),
-    ).toEqual({ status: "resolved-head", data: "user edit" });
+    expect(await sourceStore.get('/t.val.ts?p="title"', null)).toMatchObject({
+      status: "resolved-head",
+      data: "user edit",
+    });
 
     // HMR: the same module comes back, its base text edited in the editor.
     await sourceStore.testReceive([module("authored, then edited on disk")]);
 
-    expect(
-      await sourceStore.get('/t.val.ts?p="title"', await patchStore.getHead()),
-    ).toEqual({ status: "resolved-head", data: "user edit" });
+    expect(await sourceStore.get('/t.val.ts?p="title"', null)).toMatchObject({
+      status: "resolved-head",
+      data: "user edit",
+    });
     dispose();
   });
 });
@@ -402,8 +401,7 @@ describe("source store: patches that carry files", () => {
    * is sent, which is why the op's value is a hash and not data.
    */
   it("applies the json half of an image edit and wakes the field", async () => {
-    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
-      initTestSystem();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
 
     await sourceStore.testReceive([imageModule()]);
     const hero = listeners.set('/img.val.ts?p="hero"');
@@ -433,10 +431,7 @@ describe("source store: patches that carry files", () => {
     await ledger.has({ type: "source:patch-apply", success: ["img-1"] });
 
     await hero.didReceive({ type: "external-patch" }, { since: quiet });
-    const read = await sourceStore.get(
-      '/img.val.ts?p="hero"',
-      await patchStore.getHead(),
-    );
+    const read = await sourceStore.get('/img.val.ts?p="hero"', null);
     expect(read).toMatchObject({
       status: "resolved-head",
       data: { _ref: "/public/val/uploaded.png" },
