@@ -1,11 +1,11 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import { PatchSets, type SerializedPatchSet } from "../utils/PatchSets";
 import { StoreBus } from "./StoreBus";
 import type { PatchRecord, SystemEvent } from "./types";
-import type { SchemaStore } from "./SchemaStore";
-import type { PatchStore } from "./PatchStore";
 
 /**
+ * REALM: worker.
+ *
  * Groups patches into patch SETS — runs of patches that touch the same place and
  * therefore have to be reviewed, published or reverted together.
  *
@@ -23,46 +23,32 @@ import type { PatchStore } from "./PatchStore";
  * Folding them together would put patch-set bookkeeping on the keystroke path
  * to serve a screen that is usually not open — which is the shape of the problem
  * this architecture exists to remove.
+ *
+ * Holds no reference to any other store: it is across a thread boundary, so the
+ * patch records and the schemas it needs are pushed in as arguments. That puts
+ * the structured clone in the signature rather than hiding it behind a store
+ * reference that would silently stop working once this really moved.
  */
 export class PatchSetStore {
   readonly events = new StoreBus<SystemEvent>();
 
   private patchSets = new PatchSets();
-  private schemaStore: SchemaStore;
-
-  constructor(schemaStore: SchemaStore) {
-    this.schemaStore = schemaStore;
-  }
 
   /**
-   * Reacts to patches existing, NOT to them applying.
+   * Pushed in from the host realm on `patch:receive` / `patch:create`.
    *
-   * A patch that fails to apply to source is still a patch the user made and
-   * still belongs in the review UI — showing it is how they find out it failed.
-   * So this listens to `patch:receive`/`patch:create` rather than to
-   * `source:patch-apply`.
+   * Driven by patches EXISTING, not by them applying: a patch that failed to
+   * apply to source is still a patch the user made and still belongs in the
+   * review UI — showing it is how they find out it failed.
    */
-  listenTo(patchStore: PatchStore): () => void {
-    const handle = (patchIds: PatchId[]) => {
-      this.insert(patchStore.recordsFor(patchIds));
-    };
-    const offReceive = patchStore.events.on("patch:receive", (event) =>
-      handle(event.patches),
-    );
-    const offCreate = patchStore.events.on("patch:create", (event) =>
-      handle(event.patches),
-    );
-    return () => {
-      offReceive();
-      offCreate();
-    };
-  }
-
-  private insert(records: PatchRecord[]): void {
+  insert(
+    records: PatchRecord[],
+    schemas: Record<ModuleFilePath, SerializedSchema>,
+  ): void {
     if (records.length === 0) return;
     const touchedPatchSetPaths = new Set<string>();
     for (const record of records) {
-      const schema = this.schemaStore.get(record.moduleFilePath);
+      const schema = schemas[record.moduleFilePath];
       for (const op of record.patch) {
         this.patchSets.insert(
           record.moduleFilePath,

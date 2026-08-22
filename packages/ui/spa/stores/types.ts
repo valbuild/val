@@ -109,6 +109,8 @@ export type FieldEvent = {
  * store spoke.
  */
 export type SystemEvent =
+  /** The host app handed over modules (intake, or an HMR re-run). */
+  | { type: "host:receive"; modules: ModuleFilePath[] }
   | { type: "schema:init"; modules: ModuleFilePath[] }
   | { type: "source:init"; sources: ModuleFilePath[] }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
@@ -148,12 +150,23 @@ export type SystemEvent =
       moduleFilePath: ModuleFilePath;
       errors: ValidationErrors;
       /**
-       * Where this module's custom validators have to run. The store cannot run
-       * them: it holds a DESERIALIZED schema, which has no user functions in it
-       * at all. Whoever holds the real `Schema` instances executes these.
+       * Where this module's custom validators were found. The store found them
+       * by walking the SERIALIZED schema; it cannot run them, because a
+       * deserialized schema has no user functions in it. The host store does
+       * that, and its result is merged into `errors` before this is emitted.
        */
       customValidatePaths: SourcePath[];
+      /** Whether the custom half actually ran, or the host could not do it. */
+      customValidateStatus: "ran" | "not-needed" | "unavailable" | "error";
     }
+  /** Cached renders for these modules are stale. Nothing was recomputed. */
+  | { type: "render:invalidate"; modules: ModuleFilePath[] }
+  | { type: "render:result"; moduleFilePath: ModuleFilePath }
+  /**
+   * A render threw. Deliberately not fatal: a render is decoration, and a
+   * schema whose render throws must not take the module's fields down with it.
+   */
+  | { type: "render:error"; moduleFilePath: ModuleFilePath; message: string }
   | { type: "search:invalidate"; modules: ModuleFilePath[] }
   | {
       type: "search:build-index";

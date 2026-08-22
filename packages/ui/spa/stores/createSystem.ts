@@ -1,11 +1,12 @@
-import {
-  Internal,
-  type Json,
-  type ModuleFilePath,
-  type SelectorSource,
-  type SerializedSchema,
-  type ValModule,
+import type {
+  ModuleFilePath,
+  SelectorSource,
+  SerializedSchema,
+  Source,
+  ValModule,
+  ValidationErrors,
 } from "@valbuild/core";
+import { SchemaValidator } from "../validation/validateModule";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore } from "./SourceStore";
 import {
@@ -14,49 +15,101 @@ import {
   type FetchPatches,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
+import { HostStore } from "./HostStore";
+import { RenderStore } from "./RenderStore";
 import { PatchSetStore } from "./PatchSetStore";
 import { ValidationStore } from "./ValidationStore";
-import { SearchStore } from "./SearchStore";
+import { SearchStore, type SourceSnapshot } from "./SearchStore";
+import type { SchemaValidationBridge } from "./bridges";
 
-export type System = {
+/**
+ * Stores in the HOST realm: they either hold user closures, or need to read
+ * something that does.
+ */
+export type HostRealm = {
+  host: HostStore;
   stat: StatStore;
   schemaStore: SchemaStore;
-  patchStore: PatchStore;
   sourceStore: SourceStore;
-  patchSetStore: PatchSetStore;
+  patchStore: PatchStore;
+  renderStore: RenderStore;
   validationStore: ValidationStore;
-  searchStore: SearchStore;
-  /**
-   * The serialization boundary.
-   *
-   * Takes real `ValModule`s — which hold `Schema` INSTANCES, so they carry the
-   * user's `select` and custom `validate` closures — and hands the stores only
-   * serialized schemas and plain JSON source. Everything past this call is
-   * structured-cloneable, which is the precondition for putting the whole set
-   * of stores inside a worker.
-   */
-  receiveModules(modules: ValModule<SelectorSource>[]): void;
-  dispose(): void;
 };
+
+/**
+ * Stores in the WORKER realm: lazy, snapshot-shaped consumers holding no
+ * reference to anything in the host realm.
+ */
+export type WorkerRealm = {
+  searchStore: SearchStore;
+  patchSetStore: PatchSetStore;
+};
+
+export type System = HostRealm &
+  WorkerRealm & {
+    /**
+     * Gather the snapshot the search index needs and hand it across the worker
+     * seam. Explicit, because this is the one operation in the system that
+     * copies every module — it must be a thing someone chose to do, not a side
+     * effect of an edit.
+     */
+    buildSearchIndex(): Promise<{
+      new: ModuleFilePath[];
+      all: ModuleFilePath[];
+    }>;
+    dispose(): void;
+  };
 
 export type SystemOptions = {
   fetchPatches: FetchPatches;
   createPatchId?: CreatePatchId;
+  /**
+   * The worker seam for schema validation. Defaults to an in-process
+   * implementation so the prototype runs in one thread; a real
+   * `postMessage`-backed one drops in without any store changing, because the
+   * source and schema it needs are already arguments rather than reads.
+   */
+  schemaValidation?: SchemaValidationBridge;
 };
 
 /**
- * Builds the store graph and wires it up.
+ * In-process stand-in for the schema-validation worker.
  *
- * See `architecture.md` in this directory for the graph and the reasoning.
+ * Async on purpose even though it resolves immediately: if any caller were
+ * allowed to depend on it being synchronous, swapping in the real worker would
+ * be a rewrite of that caller.
+ */
+class InProcessSchemaValidation implements SchemaValidationBridge {
+  private validator = new SchemaValidator();
+  async validate(
+    moduleFilePath: ModuleFilePath,
+    source: Source,
+    serializedSchema: SerializedSchema,
+    schemaVersion: string,
+  ): Promise<ValidationErrors> {
+    return this.validator.validate(
+      moduleFilePath,
+      source,
+      serializedSchema,
+      schemaVersion,
+    );
+  }
+}
+
+/**
+ * Builds the store graph across both realms and wires it up.
  *
- * Every arrow between stores is a native event on the emitting store's own bus.
- * The only exceptions are plain synchronous READS (`schemaStore.get`,
- * `patchStore.currentHead`, `sourceStore.moduleSource`) — never mutations — and
- * they are sync precisely because all stores share a realm; see
- * {@link StoreBus}. Nothing here touches `window`, `document` or React, so the
- * same graph runs on the main thread, inside one worker, or in a node test.
+ * See `architecture.md` for the graph, the realm split, and the reasoning.
+ *
+ * Within a realm, stores talk by native `CustomEvent` on the emitting store's
+ * own bus, plus plain synchronous READS (never mutations) — those are sync
+ * precisely because the realm is shared. ACROSS the worker seam nothing is
+ * observable, so the host side explicitly pushes: that is what the `listenTo`
+ * calls at the bottom of this function are, and why they pass data rather than
+ * store references.
  */
 export function createSystem(options: SystemOptions): System {
+  // --- host realm -----------------------------------------------------------
   const schemaStore = new SchemaStore();
   const patchStore = new PatchStore(
     options.fetchPatches,
@@ -66,57 +119,91 @@ export function createSystem(options: SystemOptions): System {
     patchStore.currentHead(),
   );
   const stat = new StatStore();
-  const patchSetStore = new PatchSetStore(schemaStore);
-  const validationStore = new ValidationStore(schemaStore, sourceStore);
-  const searchStore = new SearchStore(schemaStore, sourceStore);
+  const host = new HostStore(schemaStore, sourceStore);
+  const renderStore = new RenderStore(host, sourceStore, schemaStore);
+  const validationStore = new ValidationStore(
+    schemaStore,
+    sourceStore,
+    options.schemaValidation ?? new InProcessSchemaValidation(),
+    host,
+  );
+
+  // --- worker realm ---------------------------------------------------------
+  const searchStore = new SearchStore();
+  const patchSetStore = new PatchSetStore();
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
-    patchSetStore.listenTo(patchStore),
+    renderStore.listenTo(),
     validationStore.listenTo(),
-    searchStore.listenTo(),
+
+    // --- host → worker pushes ---------------------------------------------
+    // These exist because an event dispatched in the host realm is not
+    // observable in the worker realm: `EventTarget` dispatch is per-realm. So
+    // the host side subscribes and forwards, carrying the data with it.
+    patchStore.events.on("patch:receive", (event) => {
+      patchSetStore.insert(
+        patchStore.recordsFor(event.patches),
+        schemaStore.all(),
+      );
+    }),
+    patchStore.events.on("patch:create", (event) => {
+      patchSetStore.insert(
+        patchStore.recordsFor(event.patches),
+        schemaStore.all(),
+      );
+    }),
+    sourceStore.events.on("source:patch-apply", (event) => {
+      searchStore.markStale(event.modules);
+    }),
+    sourceStore.events.on("source:init", (event) => {
+      searchStore.markStale(event.sources);
+    }),
   ];
 
   return {
+    host,
     stat,
     schemaStore,
-    patchStore,
     sourceStore,
-    patchSetStore,
+    patchStore,
+    renderStore,
     validationStore,
     searchStore,
-    receiveModules(modules) {
-      const schemas: Record<ModuleFilePath, SerializedSchema> = {};
-      const sources: Record<ModuleFilePath, Json> = {};
-      for (const module of modules) {
-        const path = Internal.getValPath(module);
-        if (path === undefined) {
-          throw new Error("Module has no path");
-        }
-        const moduleFilePath = path as string as ModuleFilePath;
-        const schema = Internal.getSchema(module);
-        if (schema === undefined) {
-          throw new Error(`Module '${moduleFilePath}' has no schema`);
-        }
-        // Bracket access, as `extractValModules` does: `instanceof Schema`
-        // cannot be used because the SPA and the host bundle each ship their
-        // own copy of @valbuild/core, so the class identity differs.
-        schemas[moduleFilePath] = schema["executeSerialize"]();
-        // JSON round-trip so what the stores hold is exactly what would survive
-        // a structured clone — no `Schema` instance can leak through by accident.
-        sources[moduleFilePath] = JSON.parse(
-          JSON.stringify(Internal.getSource(module)),
-        ) as Json;
+    patchSetStore,
+    async buildSearchIndex() {
+      const schemas = schemaStore.all();
+      const snapshot: SourceSnapshot = {};
+      for (const moduleFilePath of sourceStore.loadedModules()) {
+        const schema = schemas[moduleFilePath];
+        const source = sourceStore.moduleSource(moduleFilePath);
+        // A module without a schema cannot be walked — the walk is
+        // schema-driven. Skipping keeps it out of `all`, so it reads as
+        // not-indexed rather than as indexed-and-empty.
+        if (schema === undefined || source === undefined) continue;
+        snapshot[moduleFilePath] = { source, schema };
       }
-      // Schemas first: `SourceStore.get` refuses to answer `absent` for a
-      // module whose schema is unknown, so arriving in the other order would
-      // make the first read after init say `module-loading`.
-      schemaStore.receive(schemas);
-      sourceStore.receive(sources);
+      return searchStore.buildIndex(snapshot);
     },
     dispose() {
       for (const off of unsubscribe) off();
     },
   };
 }
+
+/**
+ * Intake, kept as a free function so the entry point reads the same as the real
+ * app's: the host app owns the modules and hands them in.
+ *
+ * `HostStore.receive` is what actually does it — this only names the boundary.
+ */
+export function receiveModules(
+  system: System,
+  modules: ValModule<SelectorSource>[],
+): void {
+  system.host.receive(modules);
+}
+
+/** Re-exported so `SourceSnapshot`'s shape is visible from the system module. */
+export type { SourceSnapshot };

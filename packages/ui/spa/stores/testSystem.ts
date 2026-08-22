@@ -200,9 +200,11 @@ export type Listeners = {
 export type TestSourceStore = {
   get(path: string, head: Head): Promise<SourceRead>;
   /**
-   * Seed the system with real `ValModule`s, as if `/schema` + `/sources` had
-   * answered. Test-only: the real system receives serialized schemas and JSON,
-   * never module objects.
+   * Convenience forward to `host.receive` — the real entry point.
+   *
+   * Kept because it reads well at the top of a test, but it is a forward, not a
+   * shortcut: modules go in through the HOST store, which keeps the `Schema`
+   * instances and pushes only the serialized halves down. Nothing bypasses that.
    */
   testReceive(modules: ValModule<SelectorSource>[]): Promise<void>;
 };
@@ -231,14 +233,26 @@ export type TestSystem = {
   patchStore: TestPatchStore;
   stat: TestStatStore;
   /**
-   * Handed through unwrapped: unlike source/patch/stat, nothing about these
-   * three needs a test-only method. Their whole API is already on-demand
-   * (`buildIndex`, `validate`, `getPatchSets`), which is exactly what a test
-   * wants to drive.
+   * The host store, holding the real `Schema` instances. Handed through so a
+   * test can drive intake the way the app does, and can assert that renders and
+   * custom validation actually reached an instance.
    */
+  host: System["host"];
+  /**
+   * Handed through unwrapped: unlike source/patch/stat, nothing about these
+   * needs a test-only method. Their whole API is already on-demand (`get`,
+   * `validate`, `getPatchSets`, `search`), which is what a test wants to drive.
+   */
+  renderStore: System["renderStore"];
   patchSetStore: System["patchSetStore"];
   validationStore: System["validationStore"];
   searchStore: System["searchStore"];
+  /**
+   * Gathers the snapshot and pushes it across the worker seam. On the system
+   * rather than on the search store because the search store — being in the
+   * worker realm — cannot reach the source it would need to gather.
+   */
+  buildSearchIndex: System["buildSearchIndex"];
   ledger: Ledger;
   listeners: Listeners;
   dispose(): void;
@@ -280,6 +294,8 @@ export function initTestSystem(): TestSystem {
     system.patchSetStore.events.onAny((event) => ledger.record(event)),
     system.validationStore.events.onAny((event) => ledger.record(event)),
     system.searchStore.events.onAny((event) => ledger.record(event)),
+    system.host.events.onAny((event) => ledger.record(event)),
+    system.renderStore.events.onAny((event) => ledger.record(event)),
   ];
 
   const registered: FieldListener[] = [];
@@ -360,13 +376,16 @@ export function initTestSystem(): TestSystem {
   return {
     ledger,
     listeners,
+    host: system.host,
+    renderStore: system.renderStore,
     patchSetStore: system.patchSetStore,
     validationStore: system.validationStore,
     searchStore: system.searchStore,
+    buildSearchIndex: () => system.buildSearchIndex(),
     sourceStore: {
       get: (path, head) => system.sourceStore.get(path as SourcePath, head),
       async testReceive(modules) {
-        system.receiveModules(modules);
+        system.host.receive(modules);
         await settle();
       },
     },

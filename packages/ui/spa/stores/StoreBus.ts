@@ -31,8 +31,16 @@ export class StoreBus<E extends { type: string }> {
   private static readonly ANY = "val:any";
 
   emit(event: E): void {
-    this.target.dispatchEvent(new CustomEvent(event.type, { detail: event }));
+    // ANY first, and the order is load-bearing for observers.
+    //
+    // Dispatch is synchronous, so a listener on the named event can emit its own
+    // consequence before this call returns. If the named event went first, that
+    // consequence would reach an ANY observer BEFORE its cause — a ledger would
+    // read `validation:invalidate` then `schema:init`, inverting causality and
+    // making an event log useless for debugging exactly the ordering it exists
+    // to show.
     this.target.dispatchEvent(new CustomEvent(StoreBus.ANY, { detail: event }));
+    this.target.dispatchEvent(new CustomEvent(event.type, { detail: event }));
   }
 
   on<T extends E["type"]>(
