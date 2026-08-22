@@ -439,3 +439,15 @@ export function externalPatch(
 export function patchIds(records: readonly PatchRecord[]): PatchId[] {
   return records.map((record) => record.patchId);
 }
+
+/**
+ * Brand a module file path literal.
+ *
+ * Same reasoning as {@link Loose}: the stores are right to carry branded types,
+ * but a test literal should not have to. Kept here, next to that rationale, so
+ * the assertion is one documented cast in the rig rather than an undocumented
+ * one at every call site in every test.
+ */
+export function mfp(moduleFilePath: string): ModuleFilePath {
+  return moduleFilePath as ModuleFilePath;
+}

@@ -1,0 +1,385 @@
+import { initVal } from "@valbuild/core";
+import { externalPatch, initTestSystem, mfp } from "./testSystem";
+
+/**
+ * Pinpointed reproductions, one invariant per test.
+ *
+ * Each is deliberately the smallest sequence that breaks ONE claim made in
+ * `architecture.md` or in a comment in the stores, so a failure names the claim
+ * rather than the flow that happened to reach it. They are separate `it`s and
+ * not one flow precisely so that fixing one does not hide the next.
+ *
+ * The claim under test is quoted in each test's comment.
+ */
+describe("source store: which fields get woken", () => {
+  /**
+   * CLAIM (`architecture.md`, invariant 4): "A field whose path was not touched
+   * is never invoked — not 'invoked and returns early'. That is what makes 'this
+   * field got no messages' a guarantee rather than an accident."
+   *
+   * A guarantee about who is NOT woken is only sound if everyone whose value
+   * changed IS woken. Inserting into an array shifts every later index, so the
+   * value at `tags[1]` changes without `tags[1]` appearing in any op path.
+   */
+  it("wakes a later array index when an insert shifts it", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ tags: s.array(s.string()) }), {
+        tags: ["a", "b", "c"],
+      }),
+    ]);
+    const tag1 = listeners.set('/t.val.ts?p="tags".1');
+    const quiet = await tag1.noMessages();
+
+    stat.simulateExternal([
+      externalPatch("ins-1", "/t.val.ts", [
+        { op: "add", path: ["tags", "0"], value: "zero" },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["ins-1"] });
+
+    // The store now holds "a" at tags[1] where it held "b".
+    expect(
+      await sourceStore.get('/t.val.ts?p="tags".1', await patchStore.getHead()),
+    ).toEqual({ status: "resolved-head", data: "a" });
+
+    await tag1.didReceive({ type: "external-patch" }, { since: quiet });
+    dispose();
+  });
+
+  /**
+   * Same claim, the other direction: a removal shifts later indexes down.
+   */
+  it("wakes a later array index when a remove shifts it", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ tags: s.array(s.string()) }), {
+        tags: ["a", "b", "c"],
+      }),
+    ]);
+    const tag1 = listeners.set('/t.val.ts?p="tags".1');
+    const quiet = await tag1.noMessages();
+
+    stat.simulateExternal([
+      externalPatch("rm-1", "/t.val.ts", [
+        { op: "remove", path: ["tags", "0"] },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["rm-1"] });
+
+    expect(
+      await sourceStore.get('/t.val.ts?p="tags".1', await patchStore.getHead()),
+    ).toEqual({ status: "resolved-head", data: "c" });
+
+    await tag1.didReceive({ type: "external-patch" }, { since: quiet });
+    dispose();
+  });
+});
+
+describe("source store: a patch that arrives before its module", () => {
+  /**
+   * CLAIM (`SourceStore.applyPatches`, on skipping an unloaded module): "Not a
+   * failure: `receive()` rebuilds from base + chain, so this patch lands as soon
+   * as the module arrives."
+   *
+   * `receive()` assigns base source and emits `source:init`. It does not re-apply
+   * anything, and `appliedIds` is written but never read.
+   */
+  it("applies the patch once the module arrives", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, stat, ledger, dispose } = initTestSystem();
+
+    stat.simulateExternal([
+      externalPatch("early-1", "/late.val.ts", [
+        { op: "replace", path: ["headline"], value: "patched" },
+      ]),
+    ]);
+    await ledger.has({ type: "patch:receive", patches: ["early-1"] });
+
+    await sourceStore.testReceive([
+      c.define("/late.val.ts", s.object({ headline: s.string() }), {
+        headline: "as authored",
+      }),
+    ]);
+
+    expect(
+      await sourceStore.get(
+        '/late.val.ts?p="headline"',
+        await patchStore.getHead(),
+      ),
+    ).toEqual({ status: "resolved-head", data: "patched" });
+    dispose();
+  });
+
+  /**
+   * CLAIM (`types.ts`, on `HeadStatus`): `partial` means "the id is known but the
+   * data has not arrived, or has not been applied yet".
+   *
+   * Once the data HAS arrived and the module IS loaded, the head has to settle.
+   * A head that stays `partial` forever means no reader can ever observe the
+   * system as up to date.
+   */
+  it("settles the head to complete once the module arrives", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, stat, ledger, dispose } = initTestSystem();
+
+    stat.simulateExternal([
+      externalPatch("early-2", "/late.val.ts", [
+        { op: "replace", path: ["headline"], value: "patched" },
+      ]),
+    ]);
+    await ledger.has({ type: "patch:receive", patches: ["early-2"] });
+    await sourceStore.testReceive([
+      c.define("/late.val.ts", s.object({ headline: s.string() }), {
+        headline: "as authored",
+      }),
+    ]);
+
+    expect(await patchStore.getHead()).toMatchObject({
+      type: "external-complete",
+    });
+    dispose();
+  });
+
+  /**
+   * CLAIM (`openquestions.md`, item 10): "`source:patch-apply` can emit with
+   * everything empty. The early return only covers `records.length === 0`."
+   *
+   * Listed there as an open question; pinned here so the answer is recorded as a
+   * test rather than as prose. An event that says nothing happened is one every
+   * downstream consumer has to defend against.
+   */
+  it("does not announce an apply in which nothing applied", async () => {
+    const { stat, ledger, dispose } = initTestSystem();
+    const before = ledger.position();
+
+    stat.simulateExternal([
+      externalPatch("early-3", "/never-loaded.val.ts", [
+        { op: "replace", path: ["headline"], value: "patched" },
+      ]),
+    ]);
+    await ledger.has({ type: "patch:receive" }, { since: before });
+
+    const emptyApplies = ledger.entries
+      .slice(before)
+      .filter(
+        (event) =>
+          event.type === "source:patch-apply" &&
+          event.success.length === 0 &&
+          event.failed.length === 0 &&
+          event.modules.length === 0,
+      );
+    expect(emptyApplies).toEqual([]);
+    dispose();
+  });
+});
+
+describe("source store: re-intake", () => {
+  /**
+   * CLAIM (`HostStore.receive`): "Re-callable: HMR re-runs this with new
+   * instances for the same paths."
+   *
+   * This is the known `no rebase` gap in `architecture.md`, pinned as a test
+   * because the observable effect is silent loss of the user's pending edit —
+   * worse than the "HMR will break" the doc records.
+   */
+  it("keeps a pending local edit when the module is re-received", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+
+    const module = (title: string) =>
+      c.define("/t.val.ts", s.object({ title: s.string() }), { title });
+
+    await sourceStore.testReceive([module("authored")]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "user edit" },
+    ]);
+    expect(
+      await sourceStore.get('/t.val.ts?p="title"', await patchStore.getHead()),
+    ).toEqual({ status: "resolved-head", data: "user edit" });
+
+    // HMR: the same module comes back, its base text edited in the editor.
+    await sourceStore.testReceive([module("authored, then edited on disk")]);
+
+    expect(
+      await sourceStore.get('/t.val.ts?p="title"', await patchStore.getHead()),
+    ).toEqual({ status: "resolved-head", data: "user edit" });
+    dispose();
+  });
+});
+
+describe("patch set store: ordering in the review list", () => {
+  /**
+   * CLAIM (`PatchSetStore.insert`): "`PatchSets` orders by this, so a missing
+   * timestamp must not sort as the epoch and bury a real edit at the bottom of
+   * the review list."
+   *
+   * The line the comment is attached to passes `new Date(0).toISOString()`, and
+   * `PatchStore.createPatch` never sets `createdAt` — so every local edit is
+   * timestamped at the epoch.
+   */
+  it("does not timestamp a local edit at the epoch", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, patchSetStore, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ title: s.string() }), {
+        title: "authored",
+      }),
+    ]);
+    const local = await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "user edit" },
+    ]);
+
+    const patchSets = await patchSetStore.getPatchSets();
+    const set = patchSets.find((candidate) =>
+      candidate.patches.some((patch) => patch.patchId === local.patchId),
+    );
+    if (set === undefined) {
+      throw new Error("the local patch is not in the review list at all");
+    }
+    expect(set.lastUpdated).not.toEqual(new Date(0).toISOString());
+    dispose();
+  });
+});
+
+describe("validation store", () => {
+  /**
+   * CLAIM (`ValidationStore.listenTo`): "A module is stale when its source
+   * changed OR its schema changed. Both, or validation silently reports errors
+   * against a schema that no longer exists."
+   *
+   * A control: this one should pass. It is here so a failure elsewhere in this
+   * file cannot be read as "the rig cannot see validation at all".
+   */
+  it("recomputes after the source changes under a cached result", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, validationStore, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define(
+        "/t.val.ts",
+        s.object({
+          slug: s
+            .string()
+            .validate((src) =>
+              src.includes(" ") ? "no spaces allowed" : false,
+            ),
+        }),
+        { slug: "fine" },
+      ),
+    ]);
+
+    const clean = await validationStore.validate(mfp("/t.val.ts"));
+    expect(clean).toMatchObject({ errors: false, customValidateStatus: "ran" });
+
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["slug"], value: "not fine" },
+    ]);
+
+    const dirty = await validationStore.validate(mfp("/t.val.ts"));
+    if (dirty.status !== "validated" || dirty.errors === false) {
+      throw new Error("expected an error after the source was made invalid");
+    }
+    expect(JSON.stringify(dirty.errors)).toContain("no spaces allowed");
+    dispose();
+  });
+});
+
+describe("source store: path matching at the edges", () => {
+  /**
+   * CLAIM (`pathMatch.ts`): "`changed` is an ANCESTOR of `path` — a patch
+   * replaced the whole object my field lives in, so my value may have changed
+   * underneath me."
+   *
+   * The extreme case of an ancestor is the module root, which is what a revert
+   * or a `PUT /sources/~` result looks like: one op at `path: []`.
+   */
+  it("wakes a nested field when the module root is replaced", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ title: s.string() }), {
+        title: "authored",
+      }),
+    ]);
+    const title = listeners.set('/t.val.ts?p="title"');
+    const quiet = await title.noMessages();
+
+    stat.simulateExternal([
+      externalPatch("root-1", "/t.val.ts", [
+        { op: "replace", path: [], value: { title: "reverted" } },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["root-1"] });
+
+    await title.didReceive({ type: "external-patch" }, { since: quiet });
+    dispose();
+  });
+
+  /**
+   * CLAIM (`pathMatch.ts`): "`ModuleFilePathSep` (`?p=`) separates the module
+   * file path from the module path — so a listener registered on the bare module
+   * file path is matched by anything inside it."
+   */
+  it("wakes a listener on the bare module file path", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ title: s.string() }), {
+        title: "authored",
+      }),
+    ]);
+    const whole = listeners.set("/t.val.ts");
+    const quiet = await whole.noMessages();
+
+    stat.simulateExternal([
+      externalPatch("mod-1", "/t.val.ts", [
+        { op: "replace", path: ["title"], value: "changed" },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["mod-1"] });
+
+    await whole.didReceive({ type: "external-patch" }, { since: quiet });
+    dispose();
+  });
+
+  /**
+   * CLAIM (`openquestions.md`, item 2): "two field instances on the same path
+   * must both update — the studio field and the inline overlay field are
+   * different components showing one path."
+   */
+  it("wakes both listeners registered on one path", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, stat, listeners, ledger, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([
+      c.define("/t.val.ts", s.object({ title: s.string() }), {
+        title: "authored",
+      }),
+    ]);
+    const studio = listeners.set('/t.val.ts?p="title"');
+    const overlay = listeners.set('/t.val.ts?p="title"');
+
+    stat.simulateExternal([
+      externalPatch("dual-1", "/t.val.ts", [
+        { op: "replace", path: ["title"], value: "changed" },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["dual-1"] });
+
+    await studio.didReceive({ type: "external-patch" });
+    await overlay.didReceive({ type: "external-patch" });
+    dispose();
+  });
+});
