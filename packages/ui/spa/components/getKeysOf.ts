@@ -61,6 +61,7 @@ export function getKeysOf(
       schema.type === "image" ||
       schema.type === "file" ||
       schema.type === "richtext" ||
+      schema.type === "svg" ||
       schema.type === "route"
     ) {
       // ignore these

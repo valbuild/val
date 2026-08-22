@@ -49,6 +49,7 @@ export function getReferencedFiles(
       schema.type === "image" ||
       schema.type === "file" ||
       schema.type === "richtext" ||
+      schema.type === "svg" ||
       schema.type === "route"
     ) {
       // ignore these

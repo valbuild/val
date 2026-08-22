@@ -43,6 +43,23 @@ export type {
   SpanNode,
   UnorderedListNode,
 } from "./source/richtext";
+export type {
+  AllSvgOptions,
+  GenericSvgNode,
+  GenericSvgSource,
+  SvgAttrs,
+  SvgColorValue,
+  SvgKeywordColor,
+  SvgLiterals,
+  SvgNode,
+  SvgOptions,
+  SvgSource,
+  SvgTag,
+  SvgVarRef,
+  SvgVariable,
+  SvgVariableName,
+} from "./source/svg";
+export { SVG_VAL_PATH, isSvgVarRef, svgVariableValue } from "./source/svg";
 export {
   type Val,
   type SerializedVal,
@@ -145,6 +162,22 @@ export {
   type SerializedRichTextSchema,
   RichTextSchema,
 } from "./schema/richtext";
+export { type SerializedSvgSchema, SvgSchema, svgVarsCss } from "./schema/svg";
+export {
+  SVG_TAGS,
+  SVG_COMMON_ATTRS,
+  SVG_TAG_ATTRS,
+  SVG_COLOR_ATTRS,
+  SVG_NUMBER_ATTRS,
+  SVG_ENUM_ATTRS,
+  SVG_STRING_ATTRS,
+  SVG_KEYWORD_COLORS,
+  SVG_DEFAULT_MAX_NODES,
+  SVG_DEFAULT_MAX_DEPTH,
+  isSvgTag,
+  isAllowedSvgAttr,
+  parseSvgViewBox,
+} from "./schema/svg/allowlist";
 export {
   type SerializedUnionSchema,
   UnionSchema,

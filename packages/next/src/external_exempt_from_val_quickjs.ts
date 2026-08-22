@@ -4,6 +4,13 @@ export type { SourceObject, SourcePrimitive, Source } from "@valbuild/core";
 export type { ValModule, SerializedModule } from "@valbuild/core";
 export type { FileSource } from "@valbuild/core";
 export type { RichTextSource } from "@valbuild/core";
+export type {
+  SvgSource,
+  SvgOptions,
+  SvgVariable,
+  SvgNode,
+} from "@valbuild/core";
+export { svgVarsCss, SVG_VAL_PATH } from "@valbuild/core";
 export {
   type Val,
   type SerializedVal,
@@ -27,7 +34,12 @@ export {
 } from "@valbuild/core";
 
 // React
-export { ValRichText } from "@valbuild/react/internal";
+export {
+  ValRichText,
+  ValSvg,
+  type ValSvgProps,
+  type SvgVars,
+} from "@valbuild/react/internal";
 
 // Stega
 export {
@@ -35,6 +47,7 @@ export {
   type File,
   type Image,
   type RichText,
+  type Svg,
 } from "@valbuild/react/stega";
 
 // Next specific

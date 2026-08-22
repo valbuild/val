@@ -75,6 +75,12 @@ export function traverseSchemaSource(
     return;
   }
 
+  // Handle svg - the whole icon is one leaf
+  if (schema.type === "svg") {
+    callback({ source, schema, path });
+    return;
+  }
+
   // Handle file/image - extract filename from _ref
   if (schema.type === "file" || schema.type === "image") {
     if (

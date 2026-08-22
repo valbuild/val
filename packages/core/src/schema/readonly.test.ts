@@ -40,6 +40,7 @@ describe("Schema.readonly()", () => {
     expect(s.number().readonly()["executeSerialize"]().readonly).toBe(true);
     expect(s.boolean().readonly()["executeSerialize"]().readonly).toBe(true);
     expect(s.date().readonly()["executeSerialize"]().readonly).toBe(true);
+    expect(s.svg().readonly()["executeSerialize"]().readonly).toBe(true);
     expect(s.array(s.string()).readonly()["executeSerialize"]().readonly).toBe(
       true,
     );

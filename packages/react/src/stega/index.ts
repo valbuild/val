@@ -10,6 +10,7 @@ export {
   type File,
   type Image,
   type RichText,
+  type Svg,
 } from "./stegaEncode";
 export { stegaDecodeStrings } from "./stegaDecodeStrings";
 export { attrs } from "./attrs";

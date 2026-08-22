@@ -17,6 +17,7 @@ import {
   ToggleRight,
   HelpCircle,
   Layers,
+  Shapes,
 } from "lucide-react";
 
 export function NodeIcon({
@@ -47,6 +48,8 @@ export function NodeIcon({
       return <List size={size} className={className} />;
     case "union":
       return <Split size={size} className={className} />;
+    case "svg":
+      return <Shapes size={size} className={className} />;
     case "richtext":
       return <FileText size={size} className={className} />;
     case "record":

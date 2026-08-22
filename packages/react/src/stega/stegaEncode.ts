@@ -19,6 +19,10 @@ import {
   SerializedDateSchema,
   SerializedDateTimeSchema,
   SerializedColorSchema,
+  SerializedSvgSchema,
+  SvgOptions,
+  SvgSource,
+  SVG_VAL_PATH,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -211,29 +215,41 @@ export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
   readonly __brand?: "RichText";
 };
 
+/**
+ * Svg sources are never stega encoded: every string in an svg (`d`, `viewBox`,
+ * `points`, ...) is machine parsed, so injecting invisible characters into them
+ * corrupts the icon. The source therefore passes through unchanged, with the
+ * source path attached as an ordinary field for `ValSvg` to read.
+ */
+export type Svg<O extends SvgOptions> = SvgSource<O> & {
+  readonly [SVG_VAL_PATH]?: string;
+};
+
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
     ? RichText<O>
-    : T extends ImageSource
-      ? Image
-      : T extends FileSource<infer M>
-        ? M extends FileMetadata
-          ? File<M>
-          : never
-        : T extends SourceObject
-          ? {
-              [key in keyof T]: StegaOfSource<T[key]>;
-            }
-          : T extends SourceArray
-            ? StegaOfSource<T[number]>[]
-            : T extends RawString
-              ? string
-              : string extends T
-                ? ValEncodedString
-                : T extends JsonPrimitive
-                  ? T
-                  : never;
+    : T extends SvgSource<infer SO>
+      ? Svg<SO>
+      : T extends ImageSource
+        ? Image
+        : T extends FileSource<infer M>
+          ? M extends FileMetadata
+            ? File<M>
+            : never
+          : T extends SourceObject
+            ? {
+                [key in keyof T]: StegaOfSource<T[key]>;
+              }
+            : T extends SourceArray
+              ? StegaOfSource<T[number]>[]
+              : T extends RawString
+                ? string
+                : string extends T
+                  ? ValEncodedString
+                  : T extends JsonPrimitive
+                    ? T
+                    : never;
 
 /**
  * Resolves the matching sub-schema for a tagged union based on the discriminator key.
@@ -417,6 +433,20 @@ export function stegaEncode(
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
       return handleRichTextSchema(sourceOrSelector, recOpts, rec);
     }
+    if (recOpts?.schema && isSvgSchema(recOpts.schema)) {
+      // Deliberately not encoded: see the note on `Svg` above. The path is
+      // attached as a plain field instead, which ValSvg turns into
+      // data-val-path. A symbol would not survive RSC serialization.
+      if (
+        opts.disabled ||
+        !recOpts.path ||
+        typeof sourceOrSelector !== "object" ||
+        sourceOrSelector === null
+      ) {
+        return sourceOrSelector;
+      }
+      return { ...sourceOrSelector, [SVG_VAL_PATH]: recOpts.path };
+    }
 
     if (typeof sourceOrSelector === "object") {
       if (!sourceOrSelector) {
@@ -599,6 +629,12 @@ function isRichTextSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedObjectSchema {
   return schema?.type === "richtext";
+}
+
+function isSvgSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedSvgSchema {
+  return schema?.type === "svg";
 }
 
 function isObjectSchema(

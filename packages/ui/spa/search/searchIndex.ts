@@ -77,6 +77,15 @@ export function buildSearchIndex(
         // Use first 50 chars as label
         label = searchText.substring(0, 50) || "richtext";
       }
+      // Nothing inside an icon is searchable text, so index it by its path
+      // only - `index.add` below already prefixes the cleaned path, and a
+      // non-empty searchText is what gets the entry in at all. "svg" doubles as
+      // a way to list every icon, the same way "richtext" is a richtext's
+      // fallback label.
+      else if (schema.type === "svg") {
+        searchText = "svg";
+        label = "svg";
+      }
       // Handle file/image - extract filename from _ref
       else if (schema.type === "file" || schema.type === "image") {
         if (

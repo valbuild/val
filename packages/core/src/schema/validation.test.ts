@@ -20,12 +20,17 @@ import { define } from "../module";
 import { union } from "./union";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { date } from "./date";
+import { svg } from "./svg";
 import { initFile } from "../source/file";
 
 const fileVal = initFile();
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
   return createValPathOfItem(testPath, p);
+};
+/** testPath with a sub-path appended, keeping the SourcePath brand. */
+const subPathOf = (p: string | symbol | number, rest: string) => {
+  return (createValPathOfItem(testPath, p) + rest) as SourcePath;
 };
 const ValidationTestCases: {
   description: string;
@@ -465,6 +470,250 @@ const ValidationTestCases: {
     input: "2021-01-01",
     schema: date().from("2022-01-01").to("2019-12-31"),
     expected: [testPath],
+  },
+
+  // svg
+  {
+    description: "basic svg",
+    input: {
+      viewBox: "0 0 24 24",
+      width: 24,
+      height: 24,
+      children: [
+        {
+          tag: "path",
+          attrs: { d: "M4 12h16", stroke: { var: "line" }, fill: "none" },
+          children: [],
+        },
+      ],
+    },
+    schema: svg({ variables: { brand: "#0055ff", line: "currentColor" } }),
+    expected: false,
+  },
+  {
+    description: "svg with an unsupported tag",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "script", attrs: {}, children: [] }],
+    },
+    schema: svg(),
+    expected: [subPathOf("children", ".0." + '"tag"')],
+  },
+  {
+    description: "svg with an event handler attribute",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [
+        { tag: "circle", attrs: { onload: "alert(1)" }, children: [] },
+      ],
+    },
+    schema: svg(),
+    expected: [subPathOf("children", ".0." + '"attrs"."onload"')],
+  },
+  {
+    description: "svg with an attribute that is not valid on that tag",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "circle", attrs: { d: "M0 0" }, children: [] }],
+    },
+    schema: svg(),
+    expected: [subPathOf("children", ".0." + '"attrs"."d"')],
+  },
+  {
+    description: "svg with a raw color, literals forbidden (default)",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "circle", attrs: { fill: "#ff0000" }, children: [] }],
+    },
+    schema: svg({ variables: { brand: "#0055ff" } }),
+    expected: [subPathOf("children", ".0." + '"attrs"."fill"')],
+  },
+  {
+    description: "svg with a raw color that is in the literals allowlist",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "circle", attrs: { fill: "#000000" }, children: [] }],
+    },
+    schema: svg({ variables: {}, literals: ["#000000"] }),
+    expected: false,
+  },
+  {
+    description: "svg with a raw color that is not in the literals allowlist",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "circle", attrs: { fill: "#ff0000" }, children: [] }],
+    },
+    schema: svg({ variables: {}, literals: ["#000000"] }),
+    expected: [subPathOf("children", ".0." + '"attrs"."fill"')],
+  },
+  {
+    description: "svg with any raw color, literals allowed",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [{ tag: "circle", attrs: { fill: "#ff0000" }, children: [] }],
+    },
+    schema: svg({ variables: {}, literals: "allow" }),
+    expected: false,
+  },
+  {
+    description: "svg referencing a variable that is not declared",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [
+        { tag: "circle", attrs: { fill: { var: "nope" } }, children: [] },
+      ],
+    },
+    schema: svg({ variables: { brand: "#0055ff" } }),
+    expected: [subPathOf("children", ".0." + '"attrs"."fill"')],
+  },
+  {
+    description: "svg with the always allowed color keywords",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [
+        {
+          tag: "circle",
+          attrs: { fill: "none", stroke: "currentColor" },
+          children: [],
+        },
+      ],
+    },
+    schema: svg(),
+    expected: false,
+  },
+  {
+    description: "svg with a malformed viewBox",
+    input: {
+      viewBox: "0 0 24",
+      width: null,
+      height: null,
+      children: [],
+    },
+    schema: svg(),
+    expected: [pathOf("viewBox")],
+  },
+  {
+    description: "svg with a viewBox that violates an exact width",
+    input: {
+      viewBox: "0 0 32 24",
+      width: null,
+      height: null,
+      children: [],
+    },
+    schema: svg({ width: 24 }),
+    expected: [pathOf("viewBox")],
+  },
+  {
+    description: "svg with a viewBox outside a min / max range",
+    input: {
+      viewBox: "0 0 128 128",
+      width: null,
+      height: null,
+      children: [],
+    },
+    schema: svg({ width: { min: 16, max: 64 } }),
+    expected: [pathOf("viewBox")],
+  },
+  {
+    description: "svg with the wrong aspect ratio",
+    input: {
+      viewBox: "0 0 32 24",
+      width: null,
+      height: null,
+      children: [],
+    },
+    schema: svg({ aspectRatio: "1:1" }),
+    expected: [pathOf("viewBox")],
+  },
+  {
+    description: "svg with a float viewBox that is within the ratio epsilon",
+    input: {
+      viewBox: "0 0 23.99999 24",
+      width: null,
+      height: null,
+      children: [],
+    },
+    schema: svg({ aspectRatio: 1 }),
+    expected: false,
+  },
+  {
+    description: "svg where width contradicts a satisfied viewBox",
+    input: {
+      viewBox: "0 0 24 24",
+      width: 100,
+      height: 24,
+      children: [],
+    },
+    schema: svg({ width: 24 }),
+    expected: [pathOf("width")],
+  },
+  {
+    description: "svg with too many nodes",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [
+        { tag: "circle", attrs: {}, children: [] },
+        { tag: "circle", attrs: {}, children: [] },
+        { tag: "circle", attrs: {}, children: [] },
+      ],
+    },
+    schema: svg({ maxNodes: 2 }),
+    expected: [testPath],
+  },
+  {
+    description: "svg nested too deeply",
+    input: {
+      viewBox: "0 0 24 24",
+      width: null,
+      height: null,
+      children: [
+        {
+          tag: "g",
+          attrs: {},
+          children: [
+            {
+              tag: "g",
+              attrs: {},
+              children: [{ tag: "g", attrs: {}, children: [] }],
+            },
+          ],
+        },
+      ],
+    },
+    schema: svg({ maxDepth: 2 }),
+    expected: [subPathOf("children", ".0." + '"children".0."children".0')],
+  },
+  {
+    description: "svg is null",
+    input: null,
+    schema: svg(),
+    expected: [testPath],
+  },
+  {
+    description: "nullable svg is null",
+    input: null,
+    schema: svg().nullable(),
+    expected: false,
   },
 
   // TODO: oneOf

@@ -7,6 +7,7 @@ import { NumberField } from "./fields/NumberField";
 import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
 import { RichTextField } from "./fields/RichTextField";
+import { SvgField } from "./fields/SvgField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
@@ -123,6 +124,8 @@ export function AnyField({
         {...leafProps}
       />
     );
+  } else if (schema.type === "svg") {
+    leaf = <SvgField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "date") {
     leaf = <DateField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "dateTime") {

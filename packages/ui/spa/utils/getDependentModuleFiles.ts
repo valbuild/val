@@ -42,6 +42,7 @@ export function getDependentModuleFiles(
       }
     } else if (
       schemaNode.type === "richtext" ||
+      schemaNode.type === "svg" ||
       schemaNode.type === "boolean" ||
       schemaNode.type === "string" ||
       schemaNode.type === "literal" ||

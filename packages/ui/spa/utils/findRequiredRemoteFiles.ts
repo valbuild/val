@@ -40,6 +40,7 @@ export function findRequiredRemoteFiles(schema: SerializedSchema) {
     schema.type === "color" ||
     schema.type === "keyOf" ||
     schema.type === "route" ||
+    schema.type === "svg" ||
     schema.type === "literal"
   ) {
     return false;

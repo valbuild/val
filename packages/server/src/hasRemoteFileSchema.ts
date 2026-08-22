@@ -55,7 +55,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
     schema.type === "dateTime" ||
     schema.type === "color" ||
     schema.type === "keyOf" ||
-    schema.type === "route"
+    schema.type === "route" ||
+    schema.type === "svg"
   ) {
     return false;
   } else {

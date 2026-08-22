@@ -14,6 +14,7 @@ import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
+import { SerializedSvgSchema, SvgSchema } from "./schema/svg";
 import {
   ImageMetadata,
   ImageSchema,
@@ -22,6 +23,7 @@ import {
 import { FILE_REF_PROP, FileSource } from "./source/file";
 import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
+import { AllSvgOptions, SvgSource } from "./source/svg";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
@@ -256,6 +258,17 @@ function isRichTextSchema(
   );
 }
 
+function isSvgSchema(
+  schema: Schema<SelectorSource> | SerializedSchema,
+): schema is
+  | SvgSchema<AllSvgOptions, SvgSource<AllSvgOptions>>
+  | SerializedSvgSchema {
+  return (
+    schema instanceof SvgSchema ||
+    (typeof schema === "object" && "type" in schema && schema.type === "svg")
+  );
+}
+
 function isImageSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
@@ -460,6 +473,10 @@ export function resolvePath<
               : resolvedSchema
             : resolvedSchema;
       }
+      resolvedSource = resolvedSource[part];
+    } else if (isSvgSchema(resolvedSchema)) {
+      // Svg sources are edited as a whole: the schema stays pinned while the
+      // path walks down into the node tree (same as richtext).
       resolvedSource = resolvedSource[part];
     } else {
       throw Error(
@@ -733,6 +750,9 @@ export function safeResolvePath<
               : resolvedSchema
             : resolvedSchema;
       }
+      resolvedSource = resolvedSource[part];
+    } else if (isSvgSchema(resolvedSchema)) {
+      // See the note in resolvePath.
       resolvedSource = resolvedSource[part];
     } else {
       return {

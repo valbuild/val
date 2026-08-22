@@ -3,6 +3,7 @@ import { ImageSource } from "./image";
 import { JsonSource } from "./json";
 import { RemoteSource } from "./remote";
 import { RichTextOptions, RichTextSource } from "./richtext";
+import { AllSvgOptions, SvgSource } from "./svg";
 
 export type Source =
   | SourcePrimitive
@@ -12,7 +13,8 @@ export type Source =
   | FileSource
   | ImageSource
   | JsonSource
-  | RichTextSource<RichTextOptions>;
+  | RichTextSource<RichTextOptions>
+  | SvgSource<AllSvgOptions>;
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:

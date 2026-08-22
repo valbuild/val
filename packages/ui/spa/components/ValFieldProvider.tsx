@@ -24,6 +24,7 @@ import {
 import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { runtimeKind } from "../utils/runtimeKind";
 import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
 import { getNavPathFromAll } from "./getNavPath";
 import { z } from "zod";
@@ -983,6 +984,7 @@ type ShallowSource = {
   };
   literal: string;
   richtext: unknown[];
+  svg: { readonly [key: string]: Json };
 };
 
 function getShallowSourceAtSourcePath<
@@ -1095,6 +1097,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       return {
         status: "error",
         error: `Expected richtext (i.e. array), got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "svg") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected svg (i.e. object), got ${runtimeKind(source)}`,
       };
     }
     return {

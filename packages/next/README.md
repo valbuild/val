@@ -52,6 +52,7 @@
   - [Router](#router)
   - [Object](#object)
   - [Rich text](#richtext)
+  - [Svg](#svg)
   - [Image](#image)
   - [keyOf](#keyof)
   - [Route](#route)
@@ -711,6 +712,258 @@ export function ValRichText({
   return <div {...val.attrs(content)}>{content.map(build)}</div>;
 }
 type MyRichTextOptions = AnyRichTextOptions; // you can reduce the surface of what you need to render, by restricting the `options` in `s.richtext(options)`
+```
+
+## Svg
+
+<details>
+<summary>Svg in Val is stored as <strong>json</strong>, not as a file, and its colors are <strong>variables</strong> rather than baked in.</summary>
+
+An svg stored with `s.image()` or `s.file()` is an opaque blob: it cannot be recolored, it cannot be checked against your design system, and it cannot be diffed. `s.svg()` stores the same icon as a json node tree instead, so Val can validate what is in it and your app can retheme it.
+
+The flip-side, as with RichText, is that Val supports a subset: the shapes an icon is made of. Animation, filters, gradients, embedded raster images and scripting are not part of it.
+
+</details>
+
+### Svg Schema
+
+```ts
+s.svg({
+  // options
+});
+```
+
+### Initializing svg content
+
+```ts
+import { s, c } from "./val.config";
+
+export const iconSchema = s.svg({
+  // geometry, checked against the viewBox
+  width: 24,
+  height: 24,
+  aspectRatio: "1:1",
+
+  // the color palette. Every fill and stroke must resolve to one of these.
+  variables: {
+    // shorthand: the example color
+    brand: "#0055ff",
+    // long form
+    line: {
+      value: "currentColor",
+      description: "Strokes. Follows the surrounding text color.",
+    },
+    surface: {
+      value: "#ffffff",
+      // colors that should also map onto this variable on import, because
+      // exports from design tools drift
+      match: ["#fff", "#fefefe"],
+      // optionally, also match anything within this distance (0..1)
+      // tolerance: 0.05,
+    },
+  },
+
+  // what to do with a color that is not a variable:
+  //   "forbid" (default) - a raw color is an error, and the editor makes you
+  //                        map it onto the palette on import
+  //   "allow"            - any raw color passes
+  //   string[]           - only these raw colors pass
+  literals: "forbid",
+});
+
+export const schema = s.record(iconSchema);
+
+export default c.define("/content/icons.val.ts", schema, {
+  bell: {
+    viewBox: "0 0 24 24",
+    width: 24,
+    height: 24,
+    children: [
+      {
+        tag: "path",
+        attrs: { d: "M12 2.5A5.5 5.5 0 0 0 …", fill: { var: "brand" } },
+        children: [],
+      },
+      {
+        tag: "path",
+        attrs: {
+          d: "M9.6 18.5a2.4 2.4 0 0 0 4.8 0",
+          stroke: { var: "line" },
+          "stroke-width": 1.6,
+          "stroke-linecap": "round",
+          fill: "none",
+        },
+        children: [],
+      },
+    ],
+  },
+});
+```
+
+The `value` on a variable is an **example**. It is what the editor previews and what a pasted literal color is matched against. What actually renders is decided by the app - see below.
+
+Colors are type-checked, not only validated: with the default `literals: "forbid"`, writing `fill: "#ff0000"` is a TypeScript error, because the only things assignable are `{ var: … }`, `currentColor`, `none` and `transparent`.
+
+### Rendering svg
+
+Use the `ValSvg` component.
+
+```tsx
+"use client";
+import { ValSvg } from "@valbuild/next";
+import iconsVal from "./icons.val";
+import { useVal } from "./val/val.client";
+
+export default function Page() {
+  const icons = useVal(iconsVal);
+  return (
+    <ValSvg
+      src={icons.bell}
+      size={24}
+      vars={{
+        brand: "var(--brand-500)",
+        line: "currentColor",
+        surface: "#fff",
+      }}
+    />
+  );
+}
+```
+
+#### ValSvg: vars property
+
+`vars` maps each of the schema's color variables to the color that should actually render. A value can be any css color, including `currentColor` and a reference to one of your own design tokens.
+
+**NOTE**: if `vars` is defined, you must define a color for **every** variable the schema declares. What variables you have is decided by the `variables` on the `s.svg()` schema.
+
+```tsx
+<ValSvg
+  src={icons.bell}
+  vars={{
+    brand: "var(--brand-500)",
+    line: "currentColor",
+    surface: null, // either a string or null is required
+  }}
+/>
+```
+
+**NOTE**: the reason you must define a color for every variable is the same as for `ValRichText`'s `theme`: it forces you to revisit the places an icon is rendered when the schema changes, instead of a new variable silently rendering as something you did not choose.
+
+`null` means "leave it to css": that attribute is emitted as `var(--val-svg-<name>, currentColor)`, so a stylesheet can set it. Omitting `vars` entirely does the same for every variable, and `svgVarsCss` writes the schema's example colors into those custom properties:
+
+```tsx
+import { svgVarsCss } from "@valbuild/next";
+import { iconSchema } from "./icons.val";
+
+// once, in your layout
+<style>{svgVarsCss(iconSchema)}</style>;
+// :root{--val-svg-brand:#0055ff;--val-svg-line:currentColor;--val-svg-surface:#ffffff}
+```
+
+```css
+/* dark mode, with no React involved */
+[data-theme="dark"] {
+  --val-svg-brand: #6699ff;
+  --val-svg-surface: #111;
+}
+```
+
+#### ValSvg: size, and accessibility
+
+`viewBox` is the single authority for the aspect ratio. `size` sets both width and height; an explicit `width` or `height` wins over it; and if none are given the intrinsic size on the source is used.
+
+```tsx
+<ValSvg src={icons.bell} size={24} />
+<ValSvg src={icons.bell} width={32} height={16} />
+```
+
+Pass `title` when the icon carries meaning on its own - it renders a `<title>` and marks the svg `role="img"`. Leave it out for a decorative icon sitting next to a label, and the svg is marked `aria-hidden` instead.
+
+### Editing svg
+
+In the editor an svg field is a tile showing the icon. Drop an `.svg` file on it, paste svg markup into it, or click it to pick a file.
+
+On import Val reads every color in the markup and maps it onto the palette: an exact match on a variable's `value` or one of its `match` aliases, `currentColor` / `none` / `transparent` kept as they are, and anything within `tolerance` of a variable that opted in. Nothing is snapped to a nearby variable otherwise - a brand color that is quietly rewritten is worse than one you are asked about.
+
+Colors with nowhere to go are listed with a dropdown of the allowed colors, and the icon is not saved until every one of them has been mapped. If the schema's `literals` allows raw colors, keeping the original is offered as one of the choices.
+
+Anything outside the supported subset - `<script>`, `<style>`, `<foreignObject>`, `<a>`, `<use>`, `<image>`, animation and filter elements, and attributes such as `style`, `id`, `class`, `href` and `on*` - is removed on import, and the editor says what it removed.
+
+### The Svg type
+
+The svg source is a tree of the shapes an icon is made of:
+
+```ts
+type SvgSource = {
+  viewBox: string;
+  width: number | null;
+  height: number | null;
+  children: SvgNode[];
+};
+
+type SvgNode = {
+  tag:
+    | "g"
+    | "path"
+    | "circle"
+    | "ellipse"
+    | "rect"
+    | "line"
+    | "polyline"
+    | "polygon";
+  attrs: {
+    // colors: a variable, or one of the always allowed keywords
+    fill?: { var: string } | "currentColor" | "none" | "transparent";
+    stroke?: { var: string } | "currentColor" | "none" | "transparent";
+    // geometry and presentation: d, points, cx, cy, r, x, y, width, height,
+    // stroke-width, stroke-linecap, fill-rule, transform, ...
+    [attr: string]: unknown;
+  };
+  children: SvgNode[];
+};
+```
+
+The root `<svg>` element is the source itself, which is why a nested `<svg>` cannot be represented.
+
+Because the tree is rendered by building React elements one tag at a time - never with `dangerouslySetInnerHTML` - and only allowlisted tags and attributes exist in it, an icon an editor pasted cannot introduce script into your app.
+
+### Svg: full custom
+
+`SvgSource` maps 1-to-1 to svg elements, so writing your own renderer is straightforward. This is a simplified version of `ValSvg`:
+
+```tsx
+export function MyIcon({
+  src,
+  size,
+}: {
+  src: Svg<typeof iconSchema>;
+  size: number;
+}) {
+  const colors: Record<string, string> = {
+    brand: "var(--brand-500)",
+    line: "currentColor",
+    surface: "#fff",
+  };
+  function build(node: SvgNode, key: number): JSX.Element {
+    const attrs: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(node.attrs)) {
+      attrs[name] =
+        typeof value === "object" && value && "var" in value
+          ? colors[(value as { var: string }).var]
+          : value;
+    }
+    return React.createElement(
+      node.tag,
+      { key, ...attrs },
+      node.children.map(build),
+    );
+  }
+  return (
+    <svg viewBox={src.viewBox} width={size} height={size}>
+      {src.children.map(build)}
+    </svg>
+  );
+}
 ```
 
 ## Image
