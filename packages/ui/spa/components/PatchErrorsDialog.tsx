@@ -65,6 +65,18 @@ export function PatchErrorsDialog() {
     [mode, changes],
   );
 
+  // Dismissal is per set of conflicts, not for the session. Otherwise closing
+  // the dialog once hides it for every LATER conflict too, and the only
+  // remaining signal is a disabled publish button - which is the state this
+  // dialog exists to explain. React's documented "adjusting state when a prop
+  // changes" pattern; the condition is false on the immediate re-render.
+  const changeKey = changes.map((change) => change.patchId).join("|");
+  const [dismissedFor, setDismissedFor] = useState(changeKey);
+  if (dismissedFor !== changeKey) {
+    setDismissedFor(changeKey);
+    setDismissed(false);
+  }
+
   if (changes.length === 0) {
     return null;
   }
