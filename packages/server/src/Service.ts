@@ -16,6 +16,7 @@ import {
   SerializedSchema,
   Source,
   extractValModules,
+  ValidationError,
 } from "@valbuild/core";
 import path from "path";
 import { loadValModules } from "./loadValModules";
@@ -162,7 +163,19 @@ export class Service {
           moduleFilePath,
         );
         if (Object.keys(entryErrors).length > 0) {
-          validation = { ...(validation || {}), ...entryErrors };
+          // Concatenate per path, never overwrite: an entry written inline is
+          // reported BOTH by the record-level validation (which checks the
+          // inline value against the item schema) and here (which reports the
+          // inlining itself). A spread would drop whichever came first, hiding
+          // a real content error behind the inlining error or vice versa.
+          const merged: Record<SourcePath, ValidationError[]> = {
+            ...(validation || {}),
+          };
+          for (const [entryPathS, errs] of Object.entries(entryErrors)) {
+            const entryPath = entryPathS as SourcePath;
+            merged[entryPath] = (merged[entryPath] || []).concat(errs);
+          }
+          validation = merged;
         }
       }
     }

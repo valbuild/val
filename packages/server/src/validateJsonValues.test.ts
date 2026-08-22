@@ -40,6 +40,21 @@ describe("validateJsonValuesEntries", () => {
     );
   });
 
+  test("reports an entry written inline in the .val.ts as fixable", async () => {
+    const source = {
+      "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
+      // hand-authored inline instead of c.json(() => import(...))
+      "/inline": { title: "legal shape, wrong place" },
+    };
+    const errors = await validateJsonValuesEntries(schema, source, modulePath);
+    const keys = Object.keys(errors);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toContain("/inline");
+    const [error] = errors[keys[0] as keyof typeof errors];
+    expect(error.fixes).toEqual(["jsonValues:extract-entry"]);
+    expect(error.message).toContain("written inline");
+  });
+
   test("skips non-jsonValues records (no content loading)", async () => {
     const plainSchema = s.record(s.object({ title: s.string() }));
     let loaded = false;

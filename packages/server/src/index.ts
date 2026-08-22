@@ -60,6 +60,7 @@ export {
   getModulePathRange,
 } from "./modulePathMap";
 export { findJsonEntryFilePath } from "./jsonEntryLocation";
+export { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which
 // need to drive the same ops the app's api routes drive.
