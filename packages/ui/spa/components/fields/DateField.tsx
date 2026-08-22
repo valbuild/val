@@ -23,6 +23,7 @@ import {
 } from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
+import { formatLocalDay, parseLocalDay } from "../../utils/localDay";
 
 export function DateField({
   path,
@@ -44,12 +45,11 @@ export function DateField({
       if (sourceAtPath.data === null) {
         setCurrentValue(sourceAtPath.data);
       } else {
-        try {
-          const date = new Date(sourceAtPath.data);
-          setCurrentValue(date);
-        } catch {
+        const date = parseLocalDay(sourceAtPath.data);
+        if (date === null) {
           console.error("Cannot parse invalid date:", sourceAtPath.data);
         }
+        setCurrentValue(date);
       }
     }
   }, [sourceAtPath]);
@@ -91,8 +91,10 @@ export function DateField({
   }
 
   const schema = schemaAtPath.data;
-  const minDate = schema.options?.from ? new Date(schema.options.from) : null;
-  const maxDate = schema.options?.to ? new Date(schema.options.to) : null;
+  const minDate = schema.options?.from
+    ? parseLocalDay(schema.options.from)
+    : null;
+  const maxDate = schema.options?.to ? parseLocalDay(schema.options.to) : null;
   const clampedValue =
     currentValue == null
       ? null
@@ -147,7 +149,7 @@ export function DateField({
                   [
                     {
                       op: "replace",
-                      value: date.toISOString().slice(0, 10),
+                      value: formatLocalDay(date),
                       path: patchPath,
                     },
                   ],
@@ -182,9 +184,10 @@ export function DatePreview({ path }: { path: SourcePath }) {
   if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
   }
+  const day = parseLocalDay(sourceAtPath.data);
   return (
     <div className="truncate">
-      {new Date(sourceAtPath.data).toLocaleString()}
+      {day ? day.toLocaleDateString() : sourceAtPath.data}
     </div>
   );
 }

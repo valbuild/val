@@ -566,8 +566,23 @@ export class ValSyncEngine {
 
   // #region Subscribe
   private listeners: Partial<
-    Record<SyncEngineListenerType, Record<string, (() => void)[]>>
+    Record<SyncEngineListenerType, Record<string, Set<() => void>>>
   >;
+
+  /**
+   * Memoised per (type, paths).
+   *
+   * `useSyncExternalStore` re-subscribes whenever the subscribe function's
+   * identity changes, and almost every call site calls this inline in render - so
+   * returning a fresh closure meant tearing down and re-adding every subscription
+   * on every render. Caching here fixes all ~40 call sites at once, and cannot be
+   * forgotten by a new one.
+   *
+   * The cached closures hold no listener state (they read `this.listeners` on
+   * each call), so they stay valid across `reset()`.
+   */
+  private subscribeFns: Map<string, (listener: () => void) => () => void> =
+    new Map();
   subscribe(
     type: "source",
     path: ModuleFilePath,
@@ -633,48 +648,57 @@ export class ValSyncEngine {
     path?: string | string[],
   ): (listener: () => void) => () => void {
     const paths = Array.isArray(path) ? path : [path || globalNamespace];
-    return (listener: () => void) => {
-      // Our TS version is too low to figure out what is possible undefined here, so we do any's...
-      // On TS 5.8+ we should be able to remove const listeners and replace listeners with this.listeners
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const listeners = this.listeners as any;
-      if (!listeners[type]) {
-        listeners[type] = {};
-      }
-      // Register a per-subscription wrapper, not `listener` itself. Removal is
-      // by identity (see below), and the caller's identity is not unique to a
-      // subscription: subscribing the SAME callback twice - once to `a`, again
-      // to `[a, b]` - puts it in the `a` bucket twice, and unsubscribing the
-      // second would remove the first's registration and leave the second live.
+    const key = `${type}\u0000${paths.join("\u0001")}`;
+    const cached = this.subscribeFns.get(key);
+    if (cached) {
+      return cached;
+    }
+    const subscribeFn = (listener: () => void) => {
+      // Register a per-subscription wrapper, not `listener` itself. Removal is by
+      // identity, and the caller's identity is not unique to a subscription:
+      // subscribing the SAME callback twice - once to `a`, again to `[a, b]` -
+      // puts one function into the `a` bucket twice, where a Set collapses it to
+      // a single entry and the first unsubscribe silences the other too.
       const registered = () => listener();
       for (const p of paths) {
-        if (!listeners[type][p]) {
-          listeners[type][p] = [];
-        }
-        listeners[type][p].push(registered);
+        this.listenersAt(type, p).add(registered);
       }
       return () => {
-        // NOTE: remove by identity, never by an index captured at subscribe
-        // time. Unsubscribing is not ordered: once any earlier listener in the
-        // same bucket is removed every later one shifts down, so a stored index
-        // would splice out an unrelated component's listener and that component
-        // would silently stop re-rendering.
+        // Remove by identity, never by an index captured at subscribe time:
+        // unsubscribing is not ordered, so a stored index would detach an
+        // unrelated component's listener and it would silently stop rendering.
         for (const p of paths) {
-          const bucket = listeners[type]?.[p];
-          if (!bucket) {
-            continue;
-          }
-          const idx = bucket.indexOf(registered);
-          if (idx !== -1) {
-            bucket.splice(idx, 1);
-          }
+          this.listeners[type]?.[p]?.delete(registered);
         }
       };
     };
+    this.subscribeFns.set(key, subscribeFn);
+    return subscribeFn;
   }
-  private emit(listeners?: (() => void)[]) {
+
+  private listenersAt(
+    type: SyncEngineListenerType,
+    path: string,
+  ): Set<() => void> {
+    let byPath = this.listeners[type];
+    if (!byPath) {
+      byPath = {};
+      this.listeners[type] = byPath;
+    }
+    let listeners = byPath[path];
+    if (!listeners) {
+      listeners = new Set();
+      byPath[path] = listeners;
+    }
+    return listeners;
+  }
+
+  private emit(listeners?: Set<() => void>) {
     if (listeners) {
-      for (const listener of listeners) {
+      // Iterate a copy: a listener is free to unsubscribe (React does exactly
+      // that when a re-render unmounts the subscriber), and mutating the set
+      // while iterating it would skip the listeners after it.
+      for (const listener of [...listeners]) {
         listener();
       }
     }
@@ -698,19 +722,10 @@ export class ValSyncEngine {
 
   private invalidateSource(moduleFilePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots !== null) {
-      const keysToRemove: string[] = [];
-      for (const key in this.cachedSourceSnapshots) {
-        if (key === moduleFilePath || key.startsWith(moduleFilePath + "\0")) {
-          keysToRemove.push(key);
-        }
-      }
-      if (keysToRemove.length > 0) {
-        const next = { ...this.cachedSourceSnapshots };
-        for (const key of keysToRemove) {
-          delete next[key];
-        }
-        this.cachedSourceSnapshots = next;
-      }
+      this.cachedSourceSnapshots = {
+        ...this.cachedSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
     }
     if (this.cachedServerSourceSnapshots !== null) {
       this.cachedServerSourceSnapshots = {
@@ -2009,11 +2024,10 @@ export class ValSyncEngine {
   }
 
   private cachedSourceSnapshots: Record<
-    string,
+    ModuleFilePath,
     | {
         status: "success";
         data: Json;
-        optimistic: boolean;
       }
     | {
         data?: undefined;
@@ -2021,34 +2035,53 @@ export class ValSyncEngine {
         message?: string;
       }
   > | null;
-  getSourceSnapshot(sourcePath: ModuleFilePath, creatorId?: string) {
+  /**
+   * The patched source of a module.
+   *
+   * Cached per MODULE, not per subscriber: this deep-clones the whole module, so
+   * a cache key that also varied by the calling component made one keystroke cost
+   * one full clone of the module PER MOUNTED FIELD. Whether a given component was
+   * the last to edit the module is a cheap, separate question - ask
+   * {@link isOptimisticFor}.
+   */
+  getSourceSnapshot(sourcePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    const cacheKey = creatorId ? `${sourcePath}\0${creatorId}` : sourcePath;
-    if (this.cachedSourceSnapshots[cacheKey] === undefined) {
+    if (this.cachedSourceSnapshots[sourcePath] === undefined) {
       const moduleData = this.getPatchedSource(sourcePath);
       if (this.schemas === null) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "no-schemas",
         };
       } else if (!this.schemas[sourcePath]) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "schema-not-found",
         };
       } else if (moduleData === undefined) {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "source-not-found",
         };
       } else {
-        this.cachedSourceSnapshots[cacheKey] = {
+        this.cachedSourceSnapshots[sourcePath] = {
           status: "success",
           data: deepClone(moduleData),
-          optimistic: this.isEditedByComponent(sourcePath, creatorId),
         };
       }
     }
-    return this.cachedSourceSnapshots[cacheKey];
+    return this.cachedSourceSnapshots[sourcePath];
+  }
+
+  /**
+   * Whether `creatorId` created the most recent patch on this module - i.e. the
+   * module's current value is this component's own optimistic edit, so pushing
+   * the engine value back at it would clobber what the user is typing.
+   *
+   * Cheap: a few array-tail comparisons, no cloning. Read it alongside
+   * {@link getSourceSnapshot} rather than baking it into the cached snapshot.
+   */
+  isOptimisticFor(moduleFilePath: ModuleFilePath, creatorId?: string): boolean {
+    return this.isEditedByComponent(moduleFilePath, creatorId);
   }
 
   private cachedServerSourceSnapshots: Record<

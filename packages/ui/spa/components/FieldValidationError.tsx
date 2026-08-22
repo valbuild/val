@@ -7,14 +7,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import {
-  useAllSources,
-  useLoadingStatus,
-  useSchemas,
-} from "./ValFieldProvider";
+import { useGetNavPath, useLoadingStatus } from "./ValFieldProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
-import { getNavPathFromAll } from "./getNavPath";
 
 /**
  * Inline error display rendered below a field in the editor.
@@ -39,8 +34,7 @@ export function FieldValidationError({
 
 export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
+  const getNavPath = useGetNavPath();
   const validationErrors = useAllValidationErrors();
   const loadingStatus = useLoadingStatus();
   const isLoading = loadingStatus === "loading";
@@ -61,9 +55,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
       <TooltipTrigger asChild>
         <button
           onClick={() => {
-            const schemasData =
-              schemas.status === "success" ? schemas.data : undefined;
-            const navPath = getNavPathFromAll(path, allSources, schemasData);
+            const navPath = getNavPath(path);
             navigate(navPath ?? path, {
               scrollToPath: path,
             });
