@@ -9,7 +9,10 @@ import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
@@ -19,6 +22,15 @@ export type SerializedArraySchema = {
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
+};
+
+type ArrayRenderInput<T extends Schema<SelectorSource>> = {
+  as: "list";
+  select: (input: { val: RenderSelector<T> }) => {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | null;
+  };
 };
 
 export class ArraySchema<
@@ -34,6 +46,7 @@ export class ArraySchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: ArrayRenderInput<T> | null = null,
   ) {
     super();
   }
@@ -46,6 +59,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -59,6 +73,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -136,6 +151,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -147,6 +163,7 @@ export class ArraySchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -158,6 +175,18 @@ export class ArraySchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+    );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
     );
   }
 
@@ -174,15 +203,6 @@ export class ArraySchema<
       description: this.description,
     };
   }
-
-  private renderInput: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  } | null = null;
 
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
@@ -236,16 +256,16 @@ export class ArraySchema<
     return res;
   }
 
-  render(input: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  }) {
-    this.renderInput = input;
-    return this;
+  render(input: ArrayRenderInput<T>): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+    );
   }
 }
 

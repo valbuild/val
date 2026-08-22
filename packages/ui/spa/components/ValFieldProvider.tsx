@@ -16,6 +16,7 @@ import {
   ModuleFilePathSep,
   ModulePath,
   PatchId,
+  ReifiedRender,
   SerializedSchema,
   SourcePath,
   ValConfig,
@@ -23,7 +24,7 @@ import {
 import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
 import { z } from "zod";
 
 // --- Source override context ---
@@ -476,9 +477,12 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
+/** `undefined` when the module has nothing to render at this path. */
+type RenderOverrideAtPathResult = ReifiedRender[SourcePath] | undefined;
+
 export function useRenderOverrideAtPath(
   sourcePath: SourcePath | ModuleFilePath,
-) {
+): RenderOverrideAtPathResult {
   const { syncEngine } = useValFieldContext();
   const [moduleFilePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -494,14 +498,14 @@ export function useRenderOverrideAtPath(
     () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  return useMemo(() => {
+  return useMemo<RenderOverrideAtPathResult>(() => {
     const isOptimistic =
       sourcesRes.status === "success" && sourcesRes.optimistic;
     const renderAtPath = renderRes?.[sourcePath];
     if (initializedAt === null || isOptimistic) {
       const renderData =
         renderAtPath && "data" in renderAtPath ? renderAtPath?.data : undefined;
-      return { status: "loading" as const, data: renderData };
+      return { status: "loading", data: renderData };
     }
     return renderAtPath;
   }, [renderRes, initializedAt, sourcesRes, sourcePath]);
@@ -518,6 +522,26 @@ type SchemaWithResolvedPathResult =
   | { status: "loading" }
   | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath }
   | { status: "error"; error: string };
+
+/**
+ * Everything resolving a path against the module's schema and source can come
+ * back with — including the sync engine's own snapshot statuses, which are
+ * returned as-is. {@link useSchemaAtPathInternal} narrows this down to the four
+ * states of {@link SchemaWithResolvedPathResult} that a field renders.
+ */
+type ResolvedSchemaAtPathResult =
+  | { status: "loading" }
+  | {
+      status:
+        | "no-schemas"
+        | "module-schema-not-found"
+        | "schema-not-found"
+        | "source-not-found"
+        | "resolved-schema-not-found";
+      message?: string;
+    }
+  | { status: "error"; error: string }
+  | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath };
 
 function useSchemaAtPathInternal(
   sourcePath: SourcePath | ModuleFilePath,
@@ -537,21 +561,56 @@ function useSchemaAtPathInternal(
     () => syncEngine.getSourceSnapshot(moduleFilePath),
     () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
-  const resolvedSchemaAtPathRes = useMemo(() => {
-    if (schemaRes.status !== "success") {
-      return schemaRes;
-    }
-    const sourceData =
+  const sourceData = useMemo(
+    () =>
       sourceOverride && sourceOverride.moduleFilePath === moduleFilePath
         ? sourceOverride.moduleSource
         : sourcesRes.status === "success"
           ? sourcesRes.data
-          : undefined;
+          : undefined,
+    [sourceOverride, moduleFilePath, sourcesRes],
+  );
+  // Lazily load `.jsonValues()` entry content when the path descends into an
+  // un-loaded marker, and treat the schema as loading until it resolves.
+  const unloadedJsonKey = useMemo(
+    () => findUnloadedJsonEntryKey(modulePath, sourceData),
+    [modulePath, sourceData],
+  );
+  useEffect(() => {
+    if (unloadedJsonKey !== null) {
+      syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
+    }
+  }, [syncEngine, moduleFilePath, unloadedJsonKey]);
+  const jsonEntryError = useSyncExternalStore(
+    syncEngine.subscribe("source", moduleFilePath),
+    () =>
+      unloadedJsonKey === null
+        ? null
+        : syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey),
+    () =>
+      unloadedJsonKey === null
+        ? null
+        : syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey),
+  );
+  const resolvedSchemaAtPathRes = useMemo<ResolvedSchemaAtPathResult>(() => {
+    if (schemaRes.status !== "success") {
+      return schemaRes;
+    }
+    if (unloadedJsonKey !== null) {
+      // A failed load must not render as a perpetual spinner.
+      if (jsonEntryError !== null) {
+        return {
+          status: "error",
+          error: `Could not load entry '${unloadedJsonKey}': ${jsonEntryError}`,
+        };
+      }
+      return { status: "loading" };
+    }
     if (sourceData === undefined) {
       if (sourcesRes.status !== "success") {
         return sourcesRes;
       }
-      return { status: "source-not-found" as const };
+      return { status: "source-not-found" };
     }
 
     try {
@@ -562,18 +621,18 @@ function useSchemaAtPathInternal(
       );
       if (resolvedSchemaAtPathRes.status === "error") {
         return {
-          status: "error" as const,
+          status: "error",
           error: resolvedSchemaAtPathRes.message,
         };
       }
       if (resolvedSchemaAtPathRes.status === "source-undefined") {
         return {
-          status: "source-not-found" as const,
+          status: "source-not-found",
         };
       }
       if (!resolvedSchemaAtPathRes.schema) {
         return {
-          status: "resolved-schema-not-found" as const,
+          status: "resolved-schema-not-found",
         };
       }
       const resolvedModulePath =
@@ -585,7 +644,7 @@ function useSchemaAtPathInternal(
           )
         : (moduleFilePath as unknown as SourcePath);
       return {
-        status: "success" as const,
+        status: "success",
         data: resolvedSchemaAtPathRes.schema,
         resolvedPath: resolvedSourcePath,
       };
@@ -599,13 +658,21 @@ function useSchemaAtPathInternal(
         e,
       );
       return {
-        status: "error" as const,
+        status: "error",
         error: `Error resolving schema at path: ${
           e instanceof Error ? e.message : String(e)
         }`,
       };
     }
-  }, [schemaRes, sourcesRes, moduleFilePath, modulePath, sourceOverride]);
+  }, [
+    schemaRes,
+    sourcesRes,
+    moduleFilePath,
+    modulePath,
+    sourceData,
+    unloadedJsonKey,
+    jsonEntryError,
+  ]);
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
     return { status: "loading" };
@@ -621,6 +688,12 @@ function useSchemaAtPathInternal(
       return { status: "error", error: "No schemas" };
     }
     if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
+      return { status: "not-found" };
+    }
+    // The source snapshot's own "the module has no schema" — same answer as
+    // module-schema-not-found, and without this it fell through to "loading"
+    // and span forever.
+    if (resolvedSchemaAtPathRes.status === "schema-not-found") {
       return { status: "not-found" };
     }
     if (resolvedSchemaAtPathRes.status === "error") {
@@ -677,14 +750,14 @@ export function useSchemas():
 
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
-    return { status: "loading" } as const;
+    return { status: "loading" };
   }
   if (schemas === null) {
     console.warn("Schemas: not found");
     return {
       status: "error",
       error: "Schemas not found",
-    } as const;
+    };
   }
   const definedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
   for (const [moduleFilePathS, moduleSchema] of Object.entries(schemas)) {
@@ -696,7 +769,7 @@ export function useSchemas():
   return {
     status: "success",
     data: definedSchemas,
-  } as const;
+  };
 }
 
 export function useAllSources() {
@@ -709,6 +782,20 @@ export function useAllSources() {
   return sources;
 }
 
+/**
+ * Progress of the current `.jsonValues()` entry load run — spans every module in
+ * flight, so a percentage does not reset at module boundaries. NOTE: `percentage`
+ * is 100 while `status` is `"idle"`, so check the status before showing it.
+ */
+export function useJsonEntriesProgress(): JsonEntriesProgress {
+  const { syncEngine } = useValFieldContext();
+  return useSyncExternalStore(
+    syncEngine.subscribe("json-entries-progress"),
+    () => syncEngine.getJsonEntriesProgressSnapshot(),
+    () => syncEngine.getJsonEntriesProgressSnapshot(),
+  );
+}
+
 export function useAllRenders() {
   const { syncEngine } = useValFieldContext();
   const renders = useSyncExternalStore(
@@ -717,6 +804,40 @@ export function useAllRenders() {
     () => syncEngine.getAllRendersSnapshot(),
   );
   return renders;
+}
+
+/**
+ * Walks `modulePath` against `sourceData` and returns the record key at which
+ * the path descends into a `.jsonValues()` entry whose content has NOT been
+ * loaded yet (the value is still a lazy json marker), or `null` otherwise.
+ *
+ * The sync engine substitutes loaded entry content in place of the marker, so a
+ * marker still present here means the entry isn't loaded — the caller should
+ * trigger `requestJsonEntry` and render a loading state until it resolves.
+ */
+function findUnloadedJsonEntryKey(
+  modulePath: ModulePath,
+  sourceData: Json | undefined,
+): string | null {
+  if (sourceData === undefined) {
+    return null;
+  }
+  let current: Json = sourceData;
+  for (const part of Internal.splitModulePath(modulePath)) {
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      isJsonArray(current)
+    ) {
+      return null;
+    }
+    const next: Json = current[part];
+    if (Internal.isJson(next)) {
+      return part;
+    }
+    current = next;
+  }
+  return null;
 }
 
 function walkSourcePath(
@@ -1125,7 +1246,7 @@ export function useShallowSourceAtPath<
 
 const noopSubscribe = () => () => {};
 const getNull = () => null;
-const NOT_FOUND = { status: "not-found" as const };
+const NOT_FOUND: { status: "not-found" } = { status: "not-found" };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
 export function useSourceAtPath(
@@ -1165,6 +1286,31 @@ export function useSourceAtPath(
     syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
     syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
   );
+  // A `.jsonValues()` entry's content is loaded lazily: if this path descends
+  // into an un-loaded marker, request it and render loading until it resolves.
+  const unloadedJsonKey = useMemo(
+    () =>
+      sourceSnapshot && sourceSnapshot.status === "success"
+        ? findUnloadedJsonEntryKey(modulePath, sourceSnapshot.data)
+        : null,
+    [modulePath, sourceSnapshot],
+  );
+  useEffect(() => {
+    if (syncEngine && unloadedJsonKey !== null) {
+      syncEngine.requestJsonEntry(moduleFilePath, unloadedJsonKey);
+    }
+  }, [syncEngine, moduleFilePath, unloadedJsonKey]);
+  const jsonEntryError = useSyncExternalStore(
+    syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
+    () =>
+      syncEngine && unloadedJsonKey !== null
+        ? syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey)
+        : null,
+    () =>
+      syncEngine && unloadedJsonKey !== null
+        ? syncEngine.getJsonEntryError(moduleFilePath, unloadedJsonKey)
+        : null,
+  );
   return useMemo(() => {
     if (!syncEngine) {
       return NOT_FOUND;
@@ -1174,6 +1320,16 @@ export function useSourceAtPath(
     }
     if (sourceOverride && sourceOverride.moduleFilePath === moduleFilePath) {
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
+    }
+    if (unloadedJsonKey !== null) {
+      // A failed load must not render as a perpetual spinner.
+      if (jsonEntryError !== null) {
+        return {
+          status: "error",
+          error: `Could not load entry '${unloadedJsonKey}': ${jsonEntryError}`,
+        };
+      }
+      return { status: "loading" };
     }
     if (sourceSnapshot && sourceSnapshot.status === "success") {
       return walkSourcePath(modulePath, sourceSnapshot.data);
@@ -1189,6 +1345,8 @@ export function useSourceAtPath(
     modulePath,
     moduleFilePath,
     sourceOverride,
+    unloadedJsonKey,
+    jsonEntryError,
   ]);
 }
 

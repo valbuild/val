@@ -685,6 +685,17 @@ export class RichTextSchema<
     );
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     const serializeAnchorSchema = ():
       | SerializedRouteSchema

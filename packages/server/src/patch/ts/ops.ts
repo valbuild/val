@@ -16,6 +16,7 @@ import {
   findValRemoteNodeArg,
   findValRemoteMetadataArg,
 } from "./syntax";
+import { analyzeValModule } from "./valModule";
 import {
   deepEqual,
   isNotRoot,
@@ -123,6 +124,142 @@ function createValRemoteReference(value: RemoteSource) {
     ),
     undefined,
     args,
+  );
+}
+
+/**
+ * Builds the expression `c.json(() => import("<importPath>"))` used to reference
+ * a lazily-loaded `*.val.json` entry of a `.jsonValues()` record.
+ */
+export function createValJsonReference(importPath: string): ts.Expression {
+  // () => import("<importPath>")
+  // NOTE: an `import` identifier prints as the dynamic-import keyword call,
+  // which avoids casting the ImportKeyword token (not typed as an Expression).
+  const importCall = ts.factory.createCallExpression(
+    ts.factory.createIdentifier("import"),
+    undefined,
+    [ts.factory.createStringLiteral(importPath)],
+  );
+  const thunk = ts.factory.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    importCall,
+  );
+  // c.json(<thunk>)
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("c"),
+      ts.factory.createIdentifier("json"),
+    ),
+    undefined,
+    [thunk],
+  );
+}
+
+/**
+ * Inserts a new `.jsonValues()` entry `"<key>": c.json(() => import("<importPath>"))`
+ * into the record's object literal in a `.val.ts` module. `recordPath` is the
+ * path from the module source to the record (empty for a root record/router).
+ * Fails if the entry key already exists.
+ */
+export function insertValJsonEntry(
+  document: ts.SourceFile,
+  recordPath: string[],
+  key: string,
+  importPath: string,
+): TSOpsResult<ts.SourceFile> {
+  return pipe(
+    analyzeValModule(document),
+    result.flatMap(({ source }) => getAtPath(source, recordPath)),
+    result.flatMap((recordNode: ts.Expression): TSOpsResult<ts.SourceFile> => {
+      if (!ts.isObjectLiteralExpression(recordNode)) {
+        return result.err(
+          new PatchError(
+            "Cannot add jsonValues entry: record source is not an object literal",
+          ),
+        );
+      }
+      return pipe(
+        findObjectPropertyAssignment(recordNode, key),
+        result.flatMap(
+          (
+            assignment: ts.PropertyAssignment | undefined,
+          ): TSOpsResult<ts.SourceFile> => {
+            if (assignment) {
+              return result.err(
+                new PatchError(
+                  `Cannot add jsonValues entry '${key}': it already exists`,
+                ),
+              );
+            }
+            const property = ts.factory.createPropertyAssignment(
+              isValidIdentifier(key)
+                ? ts.factory.createIdentifier(key)
+                : ts.factory.createStringLiteral(key),
+              createValJsonReference(importPath),
+            );
+            return result.ok(
+              insertAt(
+                document,
+                recordNode.properties,
+                recordNode.properties.length,
+                property,
+              ),
+            );
+          },
+        ),
+      );
+    }),
+  );
+}
+
+/**
+ * Removes the `.jsonValues()` entry `"<key>"` from the record's object literal
+ * in a `.val.ts` module. `recordPath` is the path from the module source to the
+ * record (empty for a root record/router). Fails if the entry key is missing.
+ */
+export function removeValJsonEntry(
+  document: ts.SourceFile,
+  recordPath: string[],
+  key: string,
+): TSOpsResult<ts.SourceFile> {
+  return pipe(
+    analyzeValModule(document),
+    result.flatMap(({ source }) => getAtPath(source, recordPath)),
+    result.flatMap((recordNode: ts.Expression): TSOpsResult<ts.SourceFile> => {
+      if (!ts.isObjectLiteralExpression(recordNode)) {
+        return result.err(
+          new PatchError(
+            "Cannot remove jsonValues entry: record source is not an object literal",
+          ),
+        );
+      }
+      return pipe(
+        findObjectPropertyAssignment(recordNode, key),
+        result.flatMap(
+          (
+            assignment: ts.PropertyAssignment | undefined,
+          ): TSOpsResult<ts.SourceFile> => {
+            if (!assignment) {
+              return result.err(
+                new PatchError(
+                  `Cannot remove jsonValues entry '${key}': it does not exist`,
+                ),
+              );
+            }
+            const [doc] = removeAt(
+              document,
+              recordNode.properties,
+              recordNode.properties.indexOf(assignment),
+            );
+            return result.ok(doc);
+          },
+        ),
+      );
+    }),
   );
 }
 

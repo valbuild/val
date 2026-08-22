@@ -10,5 +10,7 @@
     "moduleResolution": "node",
     "skipLibCheck": true
   },
-  "exclude": ["test/**/*"]
+  // Fixture projects are standalone mini val-projects: they are compiled by
+  // the loader under test using their own tsconfig.json, not this one.
+  "exclude": ["test/**/*", "src/__fixtures__/**/*"]
 }
