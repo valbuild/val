@@ -126,10 +126,7 @@ describe("createService", () => {
   });
 
   test("resolves val modules imported via a tsconfig paths alias", async () => {
-    const service = await createService(
-      PATHS_ALIAS_FIXTURE,
-      createTestHost(),
-    );
+    const service = await createService(PATHS_ALIAS_FIXTURE, createTestHost());
 
     expect(service.getModuleFilePaths()).toEqual(["/src/content/page.val.ts"]);
     const res = await service.get(

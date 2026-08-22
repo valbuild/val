@@ -9,8 +9,8 @@ export default c.define(
   }),
   {
     "/public/val/images/logo.png": {
-      width: 944,
-      height: 944,
+      width: 800,
+      height: 600,
       mimeType: "image/png",
       alt: "An example image",
     },
