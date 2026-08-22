@@ -15,6 +15,7 @@ import {
   parseRoutePattern,
 } from "@valbuild/shared/internal";
 import { NavMenuData, SitemapItem, ExplorerItem, NavItemErrors } from "./types";
+import { collectMediaModules } from "./media";
 import { PathNode } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
 import { useAllValidationErrors } from "../ValErrorProvider";
@@ -75,7 +76,11 @@ function transformSitemapNode(
  * fullPath. Directories don't get own errors — descendants are aggregated at
  * render time.
  */
-function transformPathNode(node: PathNode, errorsMap: ErrorsMap): ExplorerItem {
+function transformPathNode(
+  node: PathNode,
+  errorsMap: ErrorsMap,
+  excludedPaths: ReadonlySet<string>,
+): ExplorerItem {
   const isDirectory = !!node.isDirectory;
   const errors =
     !isDirectory && node.fullPath
@@ -86,7 +91,9 @@ function transformPathNode(node: PathNode, errorsMap: ErrorsMap): ExplorerItem {
     fullPath: node.fullPath,
     isDirectory,
     errors,
-    children: node.children.map((child) => transformPathNode(child, errorsMap)),
+    children: node.children
+      .filter((child) => !excludedPaths.has(child.fullPath))
+      .map((child) => transformPathNode(child, errorsMap, excludedPaths)),
   };
 }
 
@@ -149,9 +156,31 @@ export function useNavMenuData(): Remote<NavMenuData> {
       }
     }
 
+    const media =
+      schemas.status === "success"
+        ? collectMediaModules(schemas.data, (moduleFilePath) =>
+            collectErrorsForModuleFilePath(errorsMap, moduleFilePath),
+          )
+        : [];
+    if (media.length > 0) {
+      data.media = media;
+    }
+    const mediaPaths: ReadonlySet<string> = new Set(
+      media.map((m) => m.moduleFilePath as string),
+    );
+
     // Transform explorer tree if available
     if (trees.data.root && trees.data.root.children.length > 0) {
-      data.explorer = transformPathNode(trees.data.root, errorsMap);
+      const explorer = transformPathNode(
+        trees.data.root,
+        errorsMap,
+        mediaPaths,
+      );
+      // A tree that held nothing but galleries is now empty, so drop the
+      // section rather than render an empty Explorer.
+      if (explorer.children.length > 0) {
+        data.explorer = explorer;
+      }
     }
 
     // Add external module if available

@@ -67,6 +67,24 @@ export type ExplorerItem = {
 };
 
 /**
+ * A gallery module - `s.images()` or `s.files()` - shown under Media.
+ *
+ * These are records keyed by file path with a `mediaType` marker, so the useful
+ * unit in the nav menu is the DIRECTORY they are constrained to rather than the
+ * module file. Selecting one opens the module, which renders the gallery.
+ */
+export type MediaModule = {
+  /** Module file path of the gallery module. */
+  moduleFilePath: ModuleFilePath;
+  /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
+  directory: string;
+  /** Whether this gallery holds images or arbitrary files. */
+  mediaType: "files" | "images";
+  /** Validation errors attributable to this module. */
+  errors?: NavItemErrors;
+};
+
+/**
  * External URL module information.
  */
 export type ExternalModule = {
@@ -86,6 +104,8 @@ export type NavMenuData = {
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
+  /** `s.images()` / `s.files()` gallery modules, shown under Media. */
+  media?: MediaModule[];
 };
 
 /**
