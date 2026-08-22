@@ -3,6 +3,12 @@
 > **Status: experiment.** This is a prototype living alongside `ValSyncEngine`,
 > not a replacement for it. Nothing in the app imports it yet. `system.test.ts`
 > is the only consumer.
+>
+> **Read [`openquestions.md`](./openquestions.md) first.** It holds the decisions
+> and measurements that are still missing, including the go/no-go: nothing here
+> has been profiled in a browser. Those questions must be closed — or that file
+> deleted — before this becomes more than an experiment. The list at the bottom of
+> THIS file is different: unfinished work, not undecided questions.
 
 ## The idea
 
@@ -288,7 +294,9 @@ host:receive → schema:init → source:init → search:invalidate
 
 ## Known gaps
 
-Named so they are not mistaken for finished work.
+Unfinished work, as distinct from the undecided questions in
+[`openquestions.md`](./openquestions.md). Named so they are not mistaken for
+finished work.
 
 - **Renders are not path-scoped.** The interface is; the execution is not. This
   is the largest open question — it is what would fix the `handboka` worst case,
