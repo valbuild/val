@@ -403,7 +403,10 @@ export class ValSyncEngine {
     this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
-    this.listeners = {};
+    // NOTE: this.listeners is deliberately NOT cleared. `subscribe` closes over
+    // the listener registry, so replacing it here would leave every mounted
+    // component subscribed to an object that `emit` no longer reads from - the
+    // UI would silently stop updating for the rest of the session.
     this.syncStatus = {};
     this.schemas = null;
     this.serverSideSchemaSha = null;
@@ -533,7 +536,7 @@ export class ValSyncEngine {
     type: SyncEngineListenerType,
     path?: string | string[],
   ): (listener: () => void) => () => void {
-    const p = path || globalNamespace;
+    const paths = Array.isArray(path) ? path : [path || globalNamespace];
     return (listener: () => void) => {
       // Our TS version is too low to figure out what is possible undefined here, so we do any's...
       // On TS 5.8+ we should be able to remove const listeners and replace listeners with this.listeners
@@ -542,29 +545,35 @@ export class ValSyncEngine {
       if (!listeners[type]) {
         listeners[type] = {};
       }
-      if (Array.isArray(p)) {
-        const indices: number[] = [];
-        for (const path of p) {
-          if (!listeners[type][path]) {
-            listeners[type][path] = [];
-          }
-          const idx = listeners[type][path].push(listener) - 1;
-          indices.push(idx);
-        }
-        return () => {
-          for (const idx of indices) {
-            listeners[type]?.[p[idx]]?.splice(idx, 1);
-          }
-        };
-      } else {
+      // Register a per-subscription wrapper, not `listener` itself. Removal is
+      // by identity (see below), and the caller's identity is not unique to a
+      // subscription: subscribing the SAME callback twice - once to `a`, again
+      // to `[a, b]` - puts it in the `a` bucket twice, and unsubscribing the
+      // second would remove the first's registration and leave the second live.
+      const registered = () => listener();
+      for (const p of paths) {
         if (!listeners[type][p]) {
           listeners[type][p] = [];
         }
-        const idx = listeners[type][p].push(listener) - 1;
-        return () => {
-          listeners[type]?.[p].splice(idx, 1);
-        };
+        listeners[type][p].push(registered);
       }
+      return () => {
+        // NOTE: remove by identity, never by an index captured at subscribe
+        // time. Unsubscribing is not ordered: once any earlier listener in the
+        // same bucket is removed every later one shifts down, so a stored index
+        // would splice out an unrelated component's listener and that component
+        // would silently stop re-rendering.
+        for (const p of paths) {
+          const bucket = listeners[type]?.[p];
+          if (!bucket) {
+            continue;
+          }
+          const idx = bucket.indexOf(registered);
+          if (idx !== -1) {
+            bucket.splice(idx, 1);
+          }
+        }
+      };
     };
   }
   private emit(listeners?: (() => void)[]) {
@@ -2024,36 +2033,38 @@ export class ValSyncEngine {
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
     this.mode = mode;
-    if (
-      this.serverSideSchemaSha !== schemaSha ||
-      this.commitSha !== commitSha
-    ) {
-      if (haveLocal) {
-        // Local schemas are authoritative. Flag the divergence (http-only
-        // dialog) but do NOT reset+init — that would discard local state.
-        // Source-sync below continues to run: source updates remain useful
-        // even while the schema-out-of-date dialog is open.
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        this.recomputeSchemaOutOfDate();
-      } else {
-        // No local: classic reset+init. The new SHAs are stashed AFTER
-        // reset() (which clears them) so the recursive init's stat-compare
-        // doesn't immediately re-trigger the reset path.
-        this.reset();
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        return this.init(
-          mode,
-          baseSha,
-          schemaSha,
-          sourcesSha,
-          patchIds,
-          authorId,
-          commitSha,
-          now,
-        );
-      }
+    // A different (schemaSha, commitSha) than the one we last saw means a new
+    // version was deployed while this session was open. On the very first stat
+    // there is nothing to compare against yet, so that is not a redeploy.
+    const isFirstStat = this.serverSideSchemaSha === null;
+    const didRedeploy =
+      !isFirstStat &&
+      (this.serverSideSchemaSha !== schemaSha || this.commitSha !== commitSha);
+    this.serverSideSchemaSha = schemaSha;
+    this.commitSha = commitSha;
+    // Local schemas are authoritative, so a redeploy under them must NOT
+    // reset+init - that would discard local state. The divergence is surfaced
+    // by the (http-only) schema-out-of-date dialog instead, and the source sync
+    // below keeps running: source updates remain useful while it is open.
+    this.recomputeSchemaOutOfDate();
+    if (didRedeploy && !haveLocal) {
+      // Without local modules the server is the only source of truth, so drop
+      // all derived state and re-init against the new deployment. The new SHAs
+      // are stashed AFTER reset() (which clears them) so the recursive init's
+      // stat-compare doesn't immediately re-trigger this path.
+      this.reset();
+      this.serverSideSchemaSha = schemaSha;
+      this.commitSha = commitSha;
+      return this.init(
+        mode,
+        baseSha,
+        schemaSha,
+        sourcesSha,
+        patchIds,
+        authorId,
+        commitSha,
+        now,
+      );
     }
     const previousGlobalServerSidePatchIds = this.globalServerSidePatchIds;
     const patchIdsDidChange =
