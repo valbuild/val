@@ -63,12 +63,14 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "image:download-remote":
     case "image:check-remote":
     case "images:check-remote":
+    case "images:upload-remote":
     case "file:add-metadata":
     case "file:check-metadata":
     case "file:upload-remote":
     case "file:download-remote":
     case "file:check-remote":
     case "files:check-remote":
+    case "files:upload-remote":
     case "images:check-unique-folder":
     case "files:check-unique-folder":
     case "images:check-all-files":
@@ -76,6 +78,11 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
       return true;
     case "keyof:check-keys":
     case "router:check-route":
+    case "jsonValues:extract-entry":
+      // `jsonValues:extract-entry` is an entry inlined in the `.val.ts`. The
+      // browser cannot fix it (that means writing a new `*.val.json` and
+      // rewriting the module) and saving does not repair it either, so surface
+      // it: the message names the command (`val validate --fix`) that does.
       return false;
     default: {
       // Exhaustiveness check: a new ValidationFix code must add a case above.

@@ -1,5 +1,6 @@
 import { FileSource } from "./file";
 import { ImageSource } from "./image";
+import { JsonSource } from "./json";
 import { RemoteSource } from "./remote";
 import { RichTextOptions, RichTextSource } from "./richtext";
 import { AllSvgOptions, SvgSource } from "./svg";
@@ -11,6 +12,7 @@ export type Source =
   | RemoteSource
   | FileSource
   | ImageSource
+  | JsonSource
   | RichTextSource<RichTextOptions>
   | SvgSource<AllSvgOptions>;
 

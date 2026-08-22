@@ -2,6 +2,7 @@ import type {
   ModuleFilePath,
   SerializedSchema,
   Source,
+  SourcePath,
   ValidationErrors,
 } from "@valbuild/core";
 import type {
@@ -9,13 +10,27 @@ import type {
   ValidationWorkerResponse,
 } from "./worker-types";
 import { SchemaValidator } from "./validateModule";
+import { collectCustomValidateTargets } from "./customValidate";
 
 const supportsWorker =
   typeof window !== "undefined" && typeof Worker !== "undefined";
 
+export type ValidationResult = {
+  errors: ValidationErrors;
+  /**
+   * Where this module's custom validate functions have to run, and what has to be
+   * loaded first. Present only when the caller asked for it (i.e. the module
+   * declares at least one custom validator).
+   */
+  customValidate?: {
+    paths: SourcePath[];
+    needsJsonKeys: string[];
+  };
+};
+
 export type ValidationResultCallback = (
   moduleFilePath: ModuleFilePath,
-  errors: ValidationErrors,
+  result: ValidationResult,
 ) => void;
 
 // The factory is injected by the composition root (ValProvider) so the
@@ -62,7 +77,15 @@ export class ValidationWorkerClient {
           return;
         }
         if (response.type === "result") {
-          this.onResult(response.moduleFilePath, response.errors);
+          this.onResult(response.moduleFilePath, {
+            errors: response.errors,
+            customValidate: response.customValidatePaths
+              ? {
+                  paths: response.customValidatePaths,
+                  needsJsonKeys: response.customValidateNeedsJsonKeys ?? [],
+                }
+              : undefined,
+          });
         } else {
           console.error(
             "Validation worker error:",
@@ -71,7 +94,7 @@ export class ValidationWorkerClient {
           );
           // Surface a "no errors" result so the engine doesn't hold stale state
           // forever — bugs in the worker shouldn't block publishing.
-          this.onResult(response.moduleFilePath, false);
+          this.onResult(response.moduleFilePath, { errors: false });
         }
       };
       worker.onerror = (event) => {
@@ -102,6 +125,7 @@ export class ValidationWorkerClient {
     source: Source,
     serializedSchema: SerializedSchema,
     schemaSha: string,
+    collectCustomValidate?: boolean,
   ): void {
     const id = `val-${this.requestIdCounter++}`;
     this.latestRequestId.set(moduleFilePath, id);
@@ -112,6 +136,7 @@ export class ValidationWorkerClient {
       schemaSha,
       serializedSchema,
       source,
+      collectCustomValidate,
     };
     if (this.worker) {
       this.worker.postMessage(request);
@@ -134,14 +159,23 @@ export class ValidationWorkerClient {
         serializedSchema,
         schemaSha,
       );
-      this.onResult(moduleFilePath, errors);
+      this.onResult(moduleFilePath, {
+        errors,
+        customValidate: collectCustomValidate
+          ? collectCustomValidateTargets(
+              moduleFilePath,
+              serializedSchema,
+              source,
+            )
+          : undefined,
+      });
     } catch (error) {
       console.error(
         "Validation fallback failed:",
         moduleFilePath,
         error instanceof Error ? error.message : String(error),
       );
-      this.onResult(moduleFilePath, false);
+      this.onResult(moduleFilePath, { errors: false });
     }
   }
 

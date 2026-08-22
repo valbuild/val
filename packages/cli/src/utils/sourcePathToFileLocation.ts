@@ -2,14 +2,21 @@ import path from "path";
 import nodeFs from "fs";
 import ts from "typescript";
 import picocolors from "picocolors";
-import { Internal, type SourcePath } from "@valbuild/core";
+import { Internal, type ModulePath, type SourcePath } from "@valbuild/core";
 import {
+  createJsonEntryPathMap,
   createModulePathMap,
+  findJsonEntryFilePath,
   getModulePathRange,
   type ModulePathMap,
 } from "@valbuild/server";
 
-type CachedFile = { lines: string[]; map: ModulePathMap | undefined };
+type CachedFile = {
+  lines: string[];
+  map: ModulePathMap | undefined;
+  /** The parsed `.val.ts`, kept so a jsonValues entry's file can be located. */
+  sourceFile?: ts.SourceFile;
+};
 
 /**
  * Per-run cache mapping a moduleFilePath to its parsed source. `null` means the
@@ -129,21 +136,41 @@ function resolveRange(
   }
 
   const range = getModulePathRange(modulePath, cached.map, target);
-  if (!range) {
-    return undefined;
+  if (range) {
+    return {
+      relativeFile: moduleFilePath.replace(/^\//, ""),
+      lines: cached.lines,
+      range: clampRange(range),
+    };
   }
+  // Nothing in the `.val.ts` matches — which is the normal case for a
+  // `.jsonValues()` entry, since the value lives in its own `*.val.json` and the
+  // `.val.ts` only holds the `c.json(() => import(...))` thunk. Follow it.
+  const entryResolved = resolveJsonEntryRange(
+    moduleFilePath,
+    modulePath,
+    projectRoot,
+    cache,
+    target,
+    cached,
+  );
+  // Clamped here too: an entry's range comes from the same resolver, run against
+  // the entry's `*.val.json`, so it can be just as bad.
+  return (
+    entryResolved && {
+      ...entryResolved,
+      range: clampRange(entryResolved.range),
+    }
+  );
+}
 
-  return {
-    relativeFile: moduleFilePath.replace(/^\//, ""),
-    lines: cached.lines,
-    // Defensive: a bad range must degrade to an odd-looking frame, never a
-    // crash - the caret math below does `" ".repeat(start.character)`, which
-    // throws a RangeError on a negative count.
-    range: {
-      start: clampPosition(range.start),
-      end: clampPosition(range.end),
-    },
-  };
+/**
+ * Defensive: a bad range must degrade to an odd-looking frame, never a crash —
+ * the caret math in the code frame does `" ".repeat(start.character)`, which
+ * throws a RangeError on a negative count.
+ */
+function clampRange(range: Range): Range {
+  return { start: clampPosition(range.start), end: clampPosition(range.end) };
 }
 
 function clampPosition(position: Position): Position {
@@ -151,6 +178,99 @@ function clampPosition(position: Position): Position {
     line: Math.max(0, position.line),
     character: Math.max(0, position.character),
   };
+}
+
+/**
+ * Resolves the part of a source path BELOW a `.jsonValues()` entry key against
+ * the entry's backing `*.val.json`.
+ *
+ * Without this a validation error in an entry has no location at all: for a
+ * record with hundreds of entries the report would name the module and the rule
+ * but not which entry, which is barely a report.
+ */
+function resolveJsonEntryRange(
+  moduleFilePath: string,
+  modulePath: string,
+  projectRoot: string,
+  cache: SourceFileCache,
+  target: "key" | "value",
+  cachedModule: CachedFile,
+): { relativeFile: string; lines: string[]; range: Range } | undefined {
+  if (!modulePath || !cachedModule.sourceFile) {
+    return undefined;
+  }
+  let segments: string[];
+  try {
+    segments = Internal.splitModulePath(modulePath as ModulePath);
+  } catch {
+    return undefined;
+  }
+  const [entryKey, ...rest] = segments;
+  if (entryKey === undefined) {
+    return undefined;
+  }
+  const jsonFilePath = findJsonEntryFilePath(
+    moduleFilePath,
+    cachedModule.sourceFile,
+    entryKey,
+  );
+  if (!jsonFilePath) {
+    return undefined;
+  }
+  const cachedJson = getCachedJsonFile(jsonFilePath, projectRoot, cache);
+  if (!cachedJson) {
+    return undefined;
+  }
+  const relativeFile = jsonFilePath.replace(/^\//, "");
+  if (rest.length === 0) {
+    // The error is on the entry as a whole (e.g. it failed to load): point at the
+    // top of its file rather than nowhere.
+    return {
+      relativeFile,
+      lines: cachedJson.lines,
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 0 },
+      },
+    };
+  }
+  if (!cachedJson.map) {
+    return undefined;
+  }
+  const range = getModulePathRange(
+    rest.map((segment) => JSON.stringify(segment)).join("."),
+    cachedJson.map,
+    target,
+  );
+  if (!range) {
+    return undefined;
+  }
+  return { relativeFile, lines: cachedJson.lines, range };
+}
+
+function getCachedJsonFile(
+  jsonFilePath: string,
+  projectRoot: string,
+  cache: SourceFileCache,
+): CachedFile | null {
+  const existing = cache.get(jsonFilePath);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const filePath = path.join(projectRoot, jsonFilePath);
+  let fileContent: string;
+  try {
+    fileContent = nodeFs.readFileSync(filePath, "utf-8");
+  } catch {
+    cache.set(jsonFilePath, null);
+    return null;
+  }
+  const entry: CachedFile = {
+    lines: fileContent.split(/\r?\n/),
+    map: createJsonEntryPathMap(ts.parseJsonText(filePath, fileContent)),
+  };
+  cache.set(jsonFilePath, entry);
+  return entry;
 }
 
 function getCachedFile(
@@ -178,6 +298,7 @@ function getCachedFile(
   const entry: CachedFile = {
     lines: fileContent.split(/\r?\n/),
     map: createModulePathMap(sourceFile),
+    sourceFile,
   };
   cache.set(moduleFilePath, entry);
   return entry;

@@ -194,6 +194,17 @@ export class SvgSchema<
     return this.copy({ options: { ...this.options, aspectRatio } });
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {

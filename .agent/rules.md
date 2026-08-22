@@ -7,6 +7,30 @@ Instructions for AI assistants working with the Val content management system co
 1. Never add @ts-expect-error unless explicitly being allowed to do so
 2. Never use as any unless explicitly being allowed to do so
 3. Ask if you need to use type assertions (`as Something`) - we try to avoid those
+4. Prefer annotating the expected return type over `as const`. Widening a
+   returned literal with `as const` leaves the contract implicit and re-derived
+   at every `return`, so nothing checks that the returns agree or that they
+   cover the union the caller narrows on. Annotate the function - or the
+   `useMemo<T>` / `useCallback<T>` / variable - with the type it is supposed to
+   produce, and drop the `as const`:
+
+   ```typescript
+   // ❌ WRONG - the union is whatever the returns happen to add up to
+   const res = useMemo(() => {
+     if (!data) return { status: "loading" as const };
+     return { status: "success" as const, data };
+   }, [data]);
+
+   // ✅ CORRECT - the union is declared, and every return is checked against it
+   type Result = { status: "loading" } | { status: "success"; data: Data };
+   const res = useMemo<Result>(() => {
+     if (!data) return { status: "loading" };
+     return { status: "success", data };
+   }, [data]);
+   ```
+
+   An `as const` on a return inside a function that already has a return type
+   annotation is pure noise - remove it.
 
 ## Type System Architecture
 
