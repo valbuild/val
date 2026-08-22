@@ -134,9 +134,7 @@ export class RecordSchema<
       } as ValidationErrors;
     }
     const routerValidations = this.getRouterValidations(path, src);
-    if (routerValidations) {
-      return routerValidations;
-    }
+    error = this.mergeValidationErrors(error, routerValidations);
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -202,15 +200,7 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-          if (error) {
-            if (error[keyPath]) {
-              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
-            } else {
-              error[keyPath] = keyError[keyPath];
-            }
-          } else {
-            error = keyError;
-          }
+          error = this.mergeValidationErrors(error, keyError);
         }
       }
 
@@ -231,26 +221,19 @@ export class RecordSchema<
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
           this.markKeyErrorsAtPath(keyErr, subPath);
-          error = error ? { ...error, ...keyErr } : keyErr;
         }
+        error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
-          error = error ? { ...error, ...entryErr } : entryErr;
         }
+        error = this.mergeValidationErrors(error, entryErr);
       } else {
         const subError = this.item["executeValidate"](
           subPath,
           elem as SelectorSource,
         );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     });
     return error;

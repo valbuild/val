@@ -312,6 +312,10 @@ export function DateTimeFieldPure({
               type="time"
               step={1}
               disabled={readonly}
+              // The clock icon of a native time input is painted by the
+              // browser and follows `color-scheme`, not `color`: without this
+              // it stays dark and disappears against the dark theme surface.
+              className="[color-scheme:light] dark:[color-scheme:dark]"
               value={wall.time || "12:00:00"}
               onChange={(e) => {
                 const day =

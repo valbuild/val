@@ -179,6 +179,7 @@ export function SitemapItemNode({
                 <AddRouteForm
                   routePattern={item.routePattern}
                   existingKeys={item.existingKeys || []}
+                  keyDescription={item.keyDescription}
                   onSubmit={handleAddSubmit}
                   onCancel={() => setAddPopoverOpen(false)}
                 />
@@ -215,11 +216,13 @@ export function SitemapItemNode({
 function AddRouteForm({
   routePattern,
   existingKeys,
+  keyDescription,
   onSubmit,
   onCancel,
 }: {
   routePattern: RoutePattern[];
   existingKeys: string[];
+  keyDescription?: string;
   onSubmit: (urlPath: string) => void;
   onCancel: () => void;
 }) {
@@ -263,6 +266,11 @@ function AddRouteForm({
       <div className="text-sm font-medium text-fg-primary mb-2">
         Add new page
       </div>
+      {keyDescription && (
+        <div className="max-w-[240px] text-pretty text-sm text-fg-tertiary">
+          {keyDescription}
+        </div>
+      )}
       <div className="flex items-center text-sm">
         {routePattern.map((part, i) => (
           <span key={i} className="truncate">

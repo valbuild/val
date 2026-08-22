@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SerializedSchema, SourcePath } from "@valbuild/core";
 import { useTrees } from "../useTrees";
 import {
   useShallowModulesAtPaths,
   useNextAppRouterSrcFolder,
 } from "../ValProvider";
+import { useSchemas } from "../ValFieldProvider";
 import { Internal } from "@valbuild/core";
 import {
   getNextAppRouterSitemapTree,
@@ -19,7 +20,10 @@ import { Remote } from "../../utils/Remote";
 /**
  * Transforms a SitemapNode (from shared/internal) to our SitemapItem type.
  */
-function transformSitemapNode(node: SitemapNode | PageNode): SitemapItem {
+function transformSitemapNode(
+  node: SitemapNode | PageNode,
+  schemas?: Record<ModuleFilePath, SerializedSchema>,
+): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
   const routePattern =
     canAddChild && node.pattern ? parseRoutePattern(node.pattern) : undefined;
@@ -29,15 +33,24 @@ function transformSitemapNode(node: SitemapNode | PageNode): SitemapItem {
     ? node.children.map((child) => "/" + child.name)
     : undefined;
 
+  const moduleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
+  const routerSchema =
+    canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
+  const keyDescription =
+    routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
+
   return {
     name: node.name,
     urlPath: node.pattern || "/",
     sourcePath: node.sourcePath as SourcePath | undefined,
-    moduleFilePath: node.moduleFilePath as ModuleFilePath | undefined,
+    moduleFilePath,
     canAddChild,
     routePattern,
     existingKeys,
-    children: node.children.map(transformSitemapNode),
+    keyDescription,
+    children: node.children.map((child) =>
+      transformSitemapNode(child, schemas),
+    ),
   };
 }
 
@@ -66,6 +79,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
 
   const shallowModules = useShallowModulesAtPaths(sitemapPaths, "record");
   const srcFolder = useNextAppRouterSrcFolder();
+  const schemas = useSchemas();
 
   return useMemo((): Remote<NavMenuData> => {
     if (trees.status !== "success") {
@@ -96,7 +110,10 @@ export function useNavMenuData(): Remote<NavMenuData> {
           }
         }
         const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
-        data.sitemap = transformSitemapNode(sitemapTree);
+        data.sitemap = transformSitemapNode(
+          sitemapTree,
+          schemas.status === "success" ? schemas.data : undefined,
+        );
       } else if (
         srcFolder.status === "loading" ||
         shallowModules.status === "loading"
@@ -122,5 +139,5 @@ export function useNavMenuData(): Remote<NavMenuData> {
       status: "success",
       data,
     };
-  }, [trees, sitemapPaths, srcFolder, shallowModules]);
+  }, [trees, sitemapPaths, srcFolder, shallowModules, schemas]);
 }

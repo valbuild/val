@@ -51,6 +51,7 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import { AIChatActionsProvider } from "./AIChatActionsContext";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -678,31 +679,33 @@ export function ValProvider({
       }}
     >
       <TooltipProvider>
-        {theme !== undefined && setTheme ? (
-          <ValThemeProvider
-            theme={theme}
-            setTheme={setTheme}
-            config={runtimeConfig}
-          >
-            <ValErrorProvider syncEngine={syncEngine}>
-              <ValPortalProvider>
-                <ValRemoteProvider remoteFiles={remoteFiles}>
-                  <ValFieldProvider
-                    syncEngine={syncEngine}
-                    getDirectFileUploadSettings={getDirectFileUploadSettings}
-                    config={runtimeConfig}
-                  >
-                    <LocalModulesErrorBanner syncEngine={syncEngine} />
-                    {children}
-                    <SchemaOutOfDateGate syncEngine={syncEngine} />
-                  </ValFieldProvider>
-                </ValRemoteProvider>
-              </ValPortalProvider>
-            </ValErrorProvider>
-          </ValThemeProvider>
-        ) : (
-          children
-        )}
+        <AIChatActionsProvider isAIChatEnabled={wsEnabled}>
+          {theme !== undefined && setTheme ? (
+            <ValThemeProvider
+              theme={theme}
+              setTheme={setTheme}
+              config={runtimeConfig}
+            >
+              <ValErrorProvider syncEngine={syncEngine}>
+                <ValPortalProvider>
+                  <ValRemoteProvider remoteFiles={remoteFiles}>
+                    <ValFieldProvider
+                      syncEngine={syncEngine}
+                      getDirectFileUploadSettings={getDirectFileUploadSettings}
+                      config={runtimeConfig}
+                    >
+                      <LocalModulesErrorBanner syncEngine={syncEngine} />
+                      {children}
+                      <SchemaOutOfDateGate syncEngine={syncEngine} />
+                    </ValFieldProvider>
+                  </ValRemoteProvider>
+                </ValPortalProvider>
+              </ValErrorProvider>
+            </ValThemeProvider>
+          ) : (
+            children
+          )}
+        </AIChatActionsProvider>
       </TooltipProvider>
     </ValContext.Provider>
   );
