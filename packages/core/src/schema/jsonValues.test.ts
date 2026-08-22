@@ -5,11 +5,13 @@ import {
   getJsonImport,
   resolveJsonValues,
   JsonOf,
+  JsonSource,
 } from "../source/json";
 import { Source } from "../source";
 import { VAL_EXTENSION } from "../source";
 import { deserializeSchema } from "./deserialize";
-import { Schema } from ".";
+import { Schema, SelectorOfSchema } from ".";
+import { ReplaceRawStringWithString } from "../module";
 import { SelectorSource } from "../selector";
 import { object } from "./object";
 import { record } from "./record";
@@ -192,6 +194,47 @@ describe("c.define authoring surface (compile-time)", () => {
       },
     );
     expect(mod).toBeDefined();
+  });
+
+  test("define accepts an entry written INLINE next to c.json entries", () => {
+    const { s, c } = initVal();
+    // Hand-authoring an entry inline is a mistake — but a TYPE error here is a
+    // dead end for the author. It typechecks; `validateJsonValuesEntries`
+    // reports it (jsonValues:extract-entry) and `val validate --fix` moves it
+    // into its own `*.val.json`.
+    const mod = c.define(
+      "/test.val.ts",
+      s.record(s.object({ field: s.string() })).jsonValues(),
+      {
+        test1: c.json(() =>
+          Promise.resolve({ default: { field: "from json" } }),
+        ),
+        shouldbelegal: { field: "legal" },
+      },
+    );
+    expect(mod).toBeDefined();
+  });
+
+  test("an inline entry that does NOT match the item schema is still rejected", () => {
+    // Loosening the entry type to allow inline values must not turn the record
+    // into an `any` sink. Asserted at the type level (a `c.define` call with a
+    // bad inline value would simply fail to compile, which a test cannot
+    // observe).
+    const schema = record(object({ field: string() })).jsonValues();
+    type Src = ReplaceRawStringWithString<SelectorOfSchema<typeof schema>>;
+    type Assert<T extends true> = T;
+    type Accepts<Value> = Value extends Src ? true : false;
+
+    type MarkerAccepted = Assert<Accepts<{ a: JsonSource<{ field: string }> }>>;
+    type InlineAccepted = Assert<Accepts<{ a: { field: string } }>>;
+    type WrongLeafTypeRejected = Assert<
+      Accepts<{ a: { field: number } }> extends false ? true : false
+    >;
+
+    const assertions: [MarkerAccepted, InlineAccepted, WrongLeafTypeRejected] =
+      [true, true, true];
+    expect(assertions).toEqual([true, true, true]);
+    expect(schema["executeSerialize"]().jsonValues).toBe(true);
   });
 });
 

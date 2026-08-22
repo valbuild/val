@@ -126,6 +126,85 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("FooBar");
   });
 
+  test("publishCount increments on a successful publish and notifies", async () => {
+    // The compare view uses this as its reload key: if it does not move on a
+    // publish, the view keeps showing the pre-publish diff; if it moves without
+    // notifying, it moves too late to matter.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    let notifications = 0;
+    const unsubscribe = syncEngine.subscribe("published")(() => {
+      notifications++;
+    });
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({ status: "done" });
+
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+    expect(notifications).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
+  test("publishCount does not move when there is nothing to publish", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+    await syncEngine.publish([], undefined, tester.getNextNow());
+    // No patches, so no publish happened and the compare view must not reload.
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+  });
+
+  test("publishCount survives reset so a reload key is never reused", async () => {
+    // reset() clears derived state, but a reload key that repeats a value it
+    // has already had reads as "no reload needed" - the compare view would keep
+    // its stale trees. So this counter is deliberately NOT reset.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    await syncEngine.publish(
+      syncEngine.getPendingClientSidePatchIdsSnapshot(),
+      undefined,
+      tester.getNextNow(),
+    );
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+
+    syncEngine.reset();
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+  });
+
   test("fs publish clears the server-side patch-id snapshot (no Save button re-enable)", async () => {
     // Regression test for the Save button flicker: after publish() empties
     // globalServerSidePatchIds in fs mode, its snapshot must be invalidated too.
@@ -798,6 +877,50 @@ describe("ValSyncEngine", () => {
       expect(kept).toBeGreaterThan(0);
     });
 
+    // Listeners live in a Set and are removed by identity, so the CALLER's
+    // identity cannot be what is registered: a Set collapses the same function
+    // to one entry, and then the first unsubscribe silences the other
+    // subscription too. Each call registers its own wrapper instead.
+    test("the same callback subscribed twice is two independent subscriptions", async () => {
+      const syncEngine = await engineWithTwoModules();
+      let calls = 0;
+      const listener = () => {
+        calls++;
+      };
+      syncEngine.subscribe("all-sources")(listener);
+      const unsubscribeSecond = syncEngine.subscribe("all-sources")(listener);
+
+      unsubscribeSecond();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      // The surviving subscription still fires. Collapsing the two would leave
+      // this at 0.
+      expect(calls).toBeGreaterThan(0);
+    });
+
+    test("overlapping multi-path subscriptions of one callback unsubscribe independently", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const a = toModuleFilePath("/a.val.ts");
+      const b = toModuleFilePath("/b.val.ts");
+      let calls = 0;
+      const listener = () => {
+        calls++;
+      };
+      // Same callback, overlapping paths: `a` is in both, so the `a` bucket
+      // holds two registrations of one function.
+      syncEngine.subscribe("sources", [a])(listener);
+      const unsubscribeBoth = syncEngine.subscribe("sources", [a, b])(listener);
+
+      unsubscribeBoth();
+      syncEngine.setSources({
+        [a]: "next-a",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toBeGreaterThan(0);
+    });
+
     // useSyncExternalStore re-subscribes whenever the subscribe function's
     // identity changes, and nearly every call site calls subscribe() inline in
     // render - so a fresh closure per call meant every render tore down and
@@ -1433,6 +1556,202 @@ describe("ValSyncEngine", () => {
     await engine.setValModules(null);
     expect(engine.getSchemaOutOfDateSnapshot()).toBe(false);
     expect(engine.getPublishDisabledSnapshot()).toBe(false);
+  });
+
+  test("unsubscribing removes only that listener, on every path it subscribed to", async () => {
+    // The unsubscribe closure used to splice by an index captured at subscribe
+    // time. Indices drift as soon as anything else in the same bucket
+    // unsubscribes first, and for the multi-path overload the paths array was
+    // indexed with a listener index (p[idx] instead of p[i]) - so unsubscribing
+    // one component removed another component's listener and left its own
+    // behind, and the victim silently stopped re-rendering.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/a.val.ts", s.string(), "a"),
+        c.define("/b.val.ts", s.string(), "b"),
+      ],
+      config,
+    );
+    const engine = await tester.createInitializedSyncEngine();
+
+    const pathsA = [toModuleFilePath("/a.val.ts")];
+    const pathsAB = [
+      toModuleFilePath("/a.val.ts"),
+      toModuleFilePath("/b.val.ts"),
+    ];
+
+    let first = 0;
+    let second = 0;
+    let multi = 0;
+    const unsubFirst = engine.subscribe(
+      "patch-errors",
+      pathsA,
+    )(() => {
+      first++;
+    });
+    const unsubMulti = engine.subscribe(
+      "patch-errors",
+      pathsAB,
+    )(() => {
+      multi++;
+    });
+    const unsubSecond = engine.subscribe(
+      "patch-errors",
+      pathsA,
+    )(() => {
+      second++;
+    });
+
+    // "patch-errors" is the only listener type with an array-path overload and
+    // it has no public setter, so drive its emit directly.
+    const emitFor = (path: ModuleFilePath) =>
+      engine["invalidatePatchErrors"](path);
+
+    // Drop the first listener: the two registered after it must be untouched.
+    unsubFirst();
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(first).toBe(0);
+    expect(second).toBe(1);
+    expect(multi).toBe(1);
+
+    // The multi-path listener must come off /b.val.ts too, not just /a.val.ts.
+    unsubMulti();
+    emitFor(toModuleFilePath("/b.val.ts"));
+    expect(multi).toBe(1);
+
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(second).toBe(2);
+    expect(multi).toBe(1);
+
+    unsubSecond();
+    emitFor(toModuleFilePath("/a.val.ts"));
+    expect(second).toBe(2);
+  });
+
+  test("a redeploy reset keeps existing subscribers alive", async () => {
+    // reset() used to wipe the listener registry. `subscribe` closes over that
+    // registry, so every mounted component ended up subscribed to an object
+    // `emit` no longer read from and the UI silently froze for the rest of the
+    // session.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "http",
+      [c.define("/test.val.ts", s.string(), "Foo")],
+      config,
+    );
+    const engine = await tester.createInitializedSyncEngine();
+
+    let calls = 0;
+    const unsubscribe = engine.subscribe("all-sources")(() => {
+      calls++;
+    });
+
+    // A new version is deployed: the server now reports another schema SHA.
+    const added = c.define("/added.val.ts", s.string(), "Added");
+    tester.fakeModules.push(added);
+    tester.fakeSchemas["/added.val.ts"] = Internal.getSchema(added)!;
+    tester.fakeSources["/added.val.ts"] = Internal.getSource(added);
+
+    expect(await tester.simulateStatCallback(engine)).toMatchObject({
+      status: "done",
+    });
+    expect(calls).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
+  // Each subscription registers its OWN identity, so two subscriptions sharing
+  // one callback stay independent.
+  //
+  // For the current array buckets this is already true by accident: registrations
+  // of the same callback are interchangeable, so removing "the one equal to
+  // `listener`" leaves the same number behind either way. It stops being an
+  // accident the moment the buckets become Sets - a duplicate callback collapses
+  // to one entry there, and the first unsubscribe would silence both
+  // subscriptions. This test is the guard for that change.
+  test("two subscriptions sharing one callback are independent", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/a.val.ts", s.string().minLength(2), "a"),
+        c.define("/b.val.ts", s.string().minLength(2), "b"),
+      ],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const a = toModuleFilePath("/a.val.ts");
+
+    let calls = 0;
+    const listener = () => {
+      calls++;
+    };
+    const unsubscribeFirst = syncEngine.subscribe("sources", [a])(listener);
+    syncEngine.subscribe("sources", [a])(listener);
+
+    let generation = 0;
+    // Each emit needs a distinct value: setSources only notifies on a change.
+    const emit = () => {
+      calls = 0;
+      generation += 1;
+      syncEngine.setSources({
+        [a]: `next-${generation}`,
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+      return calls;
+    };
+
+    // Two live subscriptions, two notifications.
+    expect(emit()).toBe(2);
+    unsubscribeFirst();
+    // One left, so exactly one notification - not zero.
+    expect(emit()).toBe(1);
+  });
+
+  test("the first stat does not reset the engine", async () => {
+    // serverSideSchemaSha starts out null, so comparing it against the first
+    // stat's SHA always looked like a change and forced a reset + recursive
+    // init on every cold start.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "http",
+      [c.define("/test.val.ts", s.string(), "Foo")],
+      config,
+    );
+    const engine = new ValSyncEngine(tester.createMockClient(), undefined);
+
+    // Assert on reset() directly. Observing the symptoms is not enough any
+    // more: listeners survive a reset now, and a reset followed by the
+    // recursive re-init restores the source too - so both of those would still
+    // look healthy if the regression came back.
+    const resetSpy = jest.spyOn(engine, "reset");
+
+    let calls = 0;
+    const unsubscribe = engine.subscribe("all-sources")(() => {
+      calls++;
+    });
+
+    await engine.init(
+      "http",
+      tester.getBaseSha(),
+      tester.getSchemasSha(),
+      tester.getSourcesSha(),
+      [],
+      null,
+      tester.getCommitSha(),
+      tester.getNextNow(),
+    );
+
+    expect(resetSpy).not.toHaveBeenCalled();
+    // Subscribed before init: the listener must have survived it.
+    expect(calls).toBeGreaterThan(0);
+    expect(
+      engine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("Foo");
+
+    resetSpy.mockRestore();
+    unsubscribe();
   });
 
   test("out-of-order setValModules calls do not regress to a stale registry", async () => {

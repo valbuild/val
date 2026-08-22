@@ -11,7 +11,7 @@ import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
-import { getFilenameFromRef } from "../utils/getFilenameFromRef";
+import { getRefParts } from "../utils/getFilenameFromRef";
 
 /**
  * The search index and the labels to render for its hits.
@@ -84,16 +84,17 @@ export function buildSearchIndex(
           FILE_REF_PROP in source &&
           typeof source[FILE_REF_PROP] === "string"
         ) {
-          const filename = source[FILE_REF_PROP] as string;
-          // Extract just the basename (handles local and remote refs)
-          const filenameOnly = getFilenameFromRef(filename);
+          const ref = source[FILE_REF_PROP] as string;
+          // The label is the bare filename - the folder is shown separately in
+          // the UI - but both are searchable.
+          const { filename, folder } = getRefParts(ref);
           const metadata = source?.metadata;
           const alt =
             metadata && typeof metadata === "object" && "alt" in metadata
               ? metadata.alt
               : "";
-          searchText = filenameOnly + " " + alt;
-          label = filenameOnly;
+          searchText = filename + " " + folder + " " + alt;
+          label = filename;
         }
       }
 

@@ -16,6 +16,7 @@ import {
   SerializedSchema,
   Source,
   extractValModules,
+  ValidationError,
 } from "@valbuild/core";
 import path from "path";
 import { loadValModules } from "./loadValModules";
@@ -50,7 +51,9 @@ export async function createService(
     compilerOptions,
     host,
   );
-  const valModules = loadValModules(projectRoot);
+  // Read val.modules (and everything it imports) through the same host, so an
+  // embedder that overlays unsaved editor buffers evaluates what the user sees.
+  const valModules = loadValModules(projectRoot, host);
   const extracted = await extractValModules(valModules);
   return new Service(projectRoot, sourceFileHandler, extracted);
 }
@@ -92,6 +95,14 @@ export class Service {
     const moduleError = this.extracted.moduleErrors.find(
       (e) => e.path === moduleFilePath,
     );
+    // A module whose `def()` threw is recorded WITHOUT a path: the import never
+    // got far enough to reveal one, so it cannot be matched above. Those errors
+    // are precisely why a module can be missing here, so report them too -
+    // "was not found in val.modules" alone sends the reader hunting for a
+    // registration that is already there.
+    const unattributedModuleErrors = this.extracted.moduleErrors.filter(
+      (e) => e.path === undefined,
+    );
 
     if (
       source === undefined ||
@@ -102,13 +113,16 @@ export class Service {
         path: moduleFilePath as string as SourcePath,
         errors: {
           invalidModulePath: moduleFilePath,
-          fatal: [
-            {
-              message:
-                moduleError?.message ??
-                `Module '${moduleFilePath}' was not found in val.modules`,
-            },
-          ],
+          fatal: moduleError
+            ? [{ message: moduleError.message }]
+            : [
+                {
+                  message: `Module '${moduleFilePath}' was not found in val.modules`,
+                },
+                ...unattributedModuleErrors.map((e) => ({
+                  message: e.message,
+                })),
+              ],
         },
       };
     }
@@ -149,7 +163,19 @@ export class Service {
           moduleFilePath,
         );
         if (Object.keys(entryErrors).length > 0) {
-          validation = { ...(validation || {}), ...entryErrors };
+          // Concatenate per path, never overwrite: an entry written inline is
+          // reported BOTH by the record-level validation (which checks the
+          // inline value against the item schema) and here (which reports the
+          // inlining itself). A spread would drop whichever came first, hiding
+          // a real content error behind the inlining error or vice versa.
+          const merged: Record<SourcePath, ValidationError[]> = {
+            ...(validation || {}),
+          };
+          for (const [entryPathS, errs] of Object.entries(entryErrors)) {
+            const entryPath = entryPathS as SourcePath;
+            merged[entryPath] = (merged[entryPath] || []).concat(errs);
+          }
+          validation = merged;
         }
       }
     }

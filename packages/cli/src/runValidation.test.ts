@@ -384,6 +384,107 @@ describe("runValidation", () => {
     }
   });
 
+  test("reports upload-remote error for local entry in a remote gallery", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-remote.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "summary-errors",
+      count: expect.any(Number),
+    });
+    const errors = events.filter((e) => e.type === "validation-error");
+    expect(
+      errors.some(
+        (e) =>
+          "message" in e &&
+          (e.message as string).includes("needs to be uploaded"),
+      ),
+    ).toBe(true);
+  });
+
+  test("uploads local entry in a remote gallery and rewrites the key when fix is true", async () => {
+    const uploadRemote: IValRemote = {
+      remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      getSettings: async () => ({
+        success: true,
+        data: {
+          publicProjectId: "pubproj",
+          remoteFileBuckets: [{ bucket: "01" }],
+        },
+      }),
+      uploadFile: async () => ({ success: true }),
+    };
+    // Upload requires a personal access token on disk.
+    fs.mkdirSync(path.join(tmpDir, ".val"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, ".val", "pat.json"),
+      JSON.stringify({ pat: "test-pat" }),
+    );
+
+    const events: ValidationEvent[] = [];
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: true,
+      valFiles: ["content/basic-gallery-remote.val.ts"],
+      project: "test/project",
+      remote: uploadRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    expect(events.some((e) => e.type === "remote-uploaded")).toBe(true);
+    expect(events.some((e) => e.type === "fix-applied")).toBe(true);
+
+    const service = await createService(tmpDir, createDefaultValFSHost());
+    try {
+      const result = await service.get(
+        "/content/basic-gallery-remote.val.ts" as ModuleFilePath,
+        "" as ModulePath,
+        { validate: false },
+      );
+      const source = result.source as Record<string, unknown>;
+      // The local-path key is replaced by a remote URL key (file kept on disk).
+      expect(source).not.toHaveProperty("/public/val/images-remote/image.png");
+      const keys = Object.keys(source);
+      expect(keys).toHaveLength(1);
+      expect(keys[0]).toContain("pubproj");
+      expect(keys[0]).toContain("public/val/images-remote/image.png");
+    } finally {
+      service.dispose();
+    }
+  });
+
+  test("does not flag a kept-on-disk file behind a remote gallery key", async () => {
+    const events: ValidationEvent[] = [];
+
+    for await (const event of runValidation({
+      root: tmpDir,
+      fix: false,
+      valFiles: ["content/basic-gallery-remote-existing.val.ts"],
+      project: undefined,
+      remote: mockRemote,
+      fs: createDefaultValFSHost(),
+    })) {
+      events.push(event);
+    }
+
+    // The file kept on disk under the remote URL key must not be reported as
+    // untracked, and the remote URL key must not be reported as missing.
+    expect(events.at(-1)).toEqual({ type: "summary-success" });
+    expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
+  });
+
   describe("jsonValues", () => {
     const runOn = async (valFiles: string[]) => {
       const events: ValidationEvent[] = [];
@@ -429,6 +530,111 @@ describe("runValidation", () => {
           (e) => "sourcePath" in e && e.sourcePath.includes('"/ok"'),
         ),
       ).toHaveLength(0);
+    });
+
+    test("reports an inlined entry as a fixable error", async () => {
+      // The types accept an inline entry (see JsonValuesRecordSrc), so validation
+      // is the thing that has to catch it — otherwise a hand-authored entry
+      // quietly stays in the `.val.ts`, where the Studio cannot edit it and the
+      // lazy-loading the record opted into does not apply.
+      const events = await runOn(["content/basic-inline-json-values.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath: '/content/basic-inline-json-values.val.ts?p="/inline"',
+            fixable: true,
+            message: expect.stringContaining("written inline"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("--fix moves an inlined entry into its own *.val.json", async () => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["content/basic-inline-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fix-applied",
+            sourcePath: '/content/basic-inline-json-values.val.ts?p="/inline"',
+          }),
+        ]),
+      );
+
+      // The content moved to the conventional path for the key...
+      const jsonPath = path.join(
+        tmpDir,
+        "content/basic-inline-json-values/inline.val.json",
+      );
+      expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+        title: "Written inline",
+        order: 3,
+      });
+      // ...and the module now references it lazily, like every other entry.
+      const valTs = fs.readFileSync(
+        path.join(tmpDir, "content/basic-inline-json-values.val.ts"),
+        "utf8",
+      );
+      expect(valTs).toContain(
+        'c.json(() => import("./basic-inline-json-values/inline.val.json"))',
+      );
+      expect(valTs).not.toContain("Written inline");
+
+      // Re-validating the fixed project is clean: the fix is not just silencing
+      // the error, it produces a module that loads and validates.
+      const afterFix: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles: ["content/basic-inline-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        afterFix.push(event);
+      }
+      expect(afterFix.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("keeps the item-schema error alongside the inline-entry error", async () => {
+      // Both validations report at the SAME source path: the record-level one
+      // checks the inline value against the item schema, and the jsonValues one
+      // reports the inlining. Merging them with a spread drops one of the two,
+      // so the author fixes the inlining and only then learns the value was
+      // never valid.
+      const events = await runOn([
+        "content/basic-inline-json-values-invalid.val.ts",
+      ]);
+
+      const sourcePath =
+        '/content/basic-inline-json-values-invalid.val.ts?p="/inline"';
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath,
+            message: expect.stringContaining("written inline"),
+          }),
+          expect.objectContaining({
+            type: "validation-error",
+            sourcePath,
+            message: expect.stringContaining("at least 5"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
     });
 
     test("rejects a nested .jsonValues() instead of reporting it valid", async () => {

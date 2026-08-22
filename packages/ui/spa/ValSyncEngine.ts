@@ -70,6 +70,15 @@ import { partitionValidationErrors } from "./validation/partitionValidationError
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
+  /**
+   * When the first syncPatches run finished with every patch's data present.
+   *
+   * Distinct from `initializedAt`, which `setValModules` sets as soon as local
+   * modules are adopted so content can render before /stat arrives - i.e. it can
+   * be non-null while the patch sets are still empty because nothing has been
+   * read yet, not because there is nothing pending.
+   */
+  private initialPatchSyncCompletedAt: number | null;
   private autoPublish: boolean = false;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
@@ -105,6 +114,16 @@ export class ValSyncEngine {
   private patchIdsByModuleFilePath: Map<ModuleFilePath, Set<PatchId>>;
   private publishDisabled: boolean;
   private isPublishing: boolean;
+  /**
+   * Number of successful publishes in this session.
+   *
+   * A publish invalidates everything a view derived from the patch sets: the
+   * patches it was showing are committed and the base they were diffed
+   * against has moved. Views that show that derived state (the compare view)
+   * subscribe to this so they can rebuild from scratch instead of keeping the
+   * pre-publish result around.
+   */
+  private publishCount: number;
   private patchDataByPatchId: Record<
     PatchId,
     | {
@@ -325,6 +344,7 @@ export class ValSyncEngine {
       | undefined = undefined,
   ) {
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
@@ -358,6 +378,7 @@ export class ValSyncEngine {
     this.authorId = null;
     this.publishDisabled = true;
     this.isPublishing = false;
+    this.publishCount = 0;
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
@@ -456,9 +477,13 @@ export class ValSyncEngine {
   reset() {
     console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
-    this.listeners = {};
+    // NOTE: this.listeners is deliberately NOT cleared. `subscribe` closes over
+    // the listener registry, so replacing it here would leave every mounted
+    // component subscribed to an object that `emit` no longer reads from - the
+    // UI would silently stop updating for the rest of the session.
     this.syncStatus = {};
     this.schemas = null;
     this.serverSideSchemaSha = null;
@@ -608,6 +633,7 @@ export class ValSyncEngine {
     type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
+  subscribe(type: "published"): (listener: () => void) => () => void;
   subscribe(type: "schema-out-of-date"): (listener: () => void) => () => void;
   subscribe(type: "local-modules-status"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
@@ -628,12 +654,21 @@ export class ValSyncEngine {
       return cached;
     }
     const subscribeFn = (listener: () => void) => {
+      // Register a per-subscription wrapper, not `listener` itself. Removal is by
+      // identity, and the caller's identity is not unique to a subscription:
+      // subscribing the SAME callback twice - once to `a`, again to `[a, b]` -
+      // puts one function into the `a` bucket twice, where a Set collapses it to
+      // a single entry and the first unsubscribe silences the other too.
+      const registered = () => listener();
       for (const p of paths) {
-        this.listenersAt(type, p).add(listener);
+        this.listenersAt(type, p).add(registered);
       }
       return () => {
+        // Remove by identity, never by an index captured at subscribe time:
+        // unsubscribing is not ordered, so a stored index would detach an
+        // unrelated component's listener and it would silently stop rendering.
         for (const p of paths) {
-          this.listeners[type]?.[p]?.delete(listener);
+          this.listeners[type]?.[p]?.delete(registered);
         }
       };
     };
@@ -857,6 +892,10 @@ export class ValSyncEngine {
   private invalidatePatchSets() {
     this.cachedSerializedPatchSetsSnapshot = null;
     this.emit(this.listeners["patch-sets"]?.[globalNamespace]);
+  }
+  private invalidatePublishCount() {
+    // publishCount is a plain number, so there is no cached snapshot to clear
+    this.emit(this.listeners["published"]?.[globalNamespace]);
   }
   private invalidatePendingOps() {
     this.cachedPendingOpsCountSnapshot = null;
@@ -2307,6 +2346,13 @@ export class ValSyncEngine {
     return this.cachedSerializedPatchSetsSnapshot;
   }
 
+  /**
+   * Increments on every successful publish. See {@link publishCount}.
+   */
+  getPublishCountSnapshot() {
+    return this.publishCount;
+  }
+
   private cachedInitializedAtSnapshot: { data: number | null } | null;
   getInitializedAtSnapshot() {
     if (this.cachedInitializedAtSnapshot === null) {
@@ -3464,36 +3510,38 @@ export class ValSyncEngine {
     this.sourcesSha = sourcesSha;
     this.baseSha = baseSha;
     this.mode = mode;
-    if (
-      this.serverSideSchemaSha !== schemaSha ||
-      this.commitSha !== commitSha
-    ) {
-      if (haveLocal) {
-        // Local schemas are authoritative. Flag the divergence (http-only
-        // dialog) but do NOT reset+init — that would discard local state.
-        // Source-sync below continues to run: source updates remain useful
-        // even while the schema-out-of-date dialog is open.
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        this.recomputeSchemaOutOfDate();
-      } else {
-        // No local: classic reset+init. The new SHAs are stashed AFTER
-        // reset() (which clears them) so the recursive init's stat-compare
-        // doesn't immediately re-trigger the reset path.
-        this.reset();
-        this.serverSideSchemaSha = schemaSha;
-        this.commitSha = commitSha;
-        return this.init(
-          mode,
-          baseSha,
-          schemaSha,
-          sourcesSha,
-          patchIds,
-          authorId,
-          commitSha,
-          now,
-        );
-      }
+    // A different (schemaSha, commitSha) than the one we last saw means a new
+    // version was deployed while this session was open. On the very first stat
+    // there is nothing to compare against yet, so that is not a redeploy.
+    const isFirstStat = this.serverSideSchemaSha === null;
+    const didRedeploy =
+      !isFirstStat &&
+      (this.serverSideSchemaSha !== schemaSha || this.commitSha !== commitSha);
+    this.serverSideSchemaSha = schemaSha;
+    this.commitSha = commitSha;
+    // Local schemas are authoritative, so a redeploy under them must NOT
+    // reset+init - that would discard local state. The divergence is surfaced
+    // by the (http-only) schema-out-of-date dialog instead, and the source sync
+    // below keeps running: source updates remain useful while it is open.
+    this.recomputeSchemaOutOfDate();
+    if (didRedeploy && !haveLocal) {
+      // Without local modules the server is the only source of truth, so drop
+      // all derived state and re-init against the new deployment. The new SHAs
+      // are stashed AFTER reset() (which clears them) so the recursive init's
+      // stat-compare doesn't immediately re-trigger this path.
+      this.reset();
+      this.serverSideSchemaSha = schemaSha;
+      this.commitSha = commitSha;
+      return this.init(
+        mode,
+        baseSha,
+        schemaSha,
+        sourcesSha,
+        patchIds,
+        authorId,
+        commitSha,
+        now,
+      );
     }
     const previousGlobalServerSidePatchIds = this.globalServerSidePatchIds;
     const patchIdsDidChange =
@@ -4174,9 +4222,24 @@ export class ValSyncEngine {
       };
     }
 
+    if (this.initialPatchSyncCompletedAt === null) {
+      this.initialPatchSyncCompletedAt = Date.now();
+      // Emit even when didUpdatePatchSet is false: a project with no pending
+      // patches still has to move usePatchSets off "not-asked", and the
+      // patch-sets listener is the one it subscribes to.
+      this.invalidatePatchSets();
+    }
     return {
       status: "done",
     };
+  }
+
+  /**
+   * Whether the first patch sync has completed, i.e. the patch sets can be
+   * trusted to be empty-because-empty rather than empty-because-unread.
+   */
+  hasCompletedInitialPatchSync(): boolean {
+    return this.initialPatchSyncCompletedAt !== null;
   }
 
   /**
@@ -4447,8 +4510,9 @@ export class ValSyncEngine {
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
         // The studio client always treats /sources/~ as a pure un-patched
         // read: patch application and validation run on the client (via
-        // getPatchedSource and the validation worker). The server's
-        // apply_patches=false branch skips render generation too.
+        // getPatchedSource and the validation worker). Renders still come
+        // from the server (they are computed on the patched sources there),
+        // since the render select functions cannot be serialized.
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
           query: {
@@ -4523,13 +4587,27 @@ export class ValSyncEngine {
               if (sourceDidChange) {
                 this.markJsonEntriesStale(moduleFilePath);
               }
-              // Renders are computed client-side from the schema instances, so
-              // there is nothing to read off the response any more — but they are
-              // computed against the PATCHED source, so a source that moved has
-              // to recompute them. Gated on `sourceDidChange` for the same reason
-              // the source invalidation below is: a full sync returns every
-              // module and recomputing the untouched ones is pure waste.
-              if (sourceDidChange) {
+              // The server render is the FALLBACK for computeRender: that one
+              // runs the user's own schema instance against the patched source,
+              // but returns null when there are no instances (the host app does
+              // not render `<ValModulesClient>`). So keep recording what the
+              // server sent — #470 restored it on /sources/~ precisely because
+              // `select` cannot be serialized, and without it such an app has no
+              // renders at all.
+              if (this.renders === null) {
+                this.renders = {};
+              }
+              // Reference comparison is enough here: a render that actually
+              // came back from the server is always a fresh object, so this
+              // only skips the emit when the render stayed null.
+              const previousRender = this.renders[moduleFilePath] ?? null;
+              const nextRender = valModule.render || null;
+              this.renders[moduleFilePath] = nextRender;
+              // Either the server render moved, or the source did - a client
+              // render is computed from the patched source, so it has to be
+              // recomputed when that changes. Gated so a full sync (every module
+              // on every tick) does not recompute the untouched ones.
+              if (previousRender !== nextRender || sourceDidChange) {
                 this.invalidateRenders(moduleFilePath);
               }
               if (sourceDidChange) {
@@ -4796,6 +4874,10 @@ export class ValSyncEngine {
         for (const moduleFilePath of affectedModules) {
           this.invalidateSource(moduleFilePath);
         }
+        // Last, so that everything a publish-aware view re-reads when it
+        // rebuilds (patch sets, patches, sources) is already up to date.
+        this.publishCount++;
+        this.invalidatePublishCount();
         return {
           status: "done",
         };
@@ -5072,6 +5154,7 @@ type SyncEngineListenerType =
   | "synced-server-side-patch-ids"
   | "saved-server-side-patch-ids"
   | "publish-disabled"
+  | "published"
   | "schema-out-of-date"
   | "local-modules-status"
   | "pending-ops-count"

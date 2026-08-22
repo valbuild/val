@@ -7,7 +7,7 @@ const { s, c, val, config, nextAppRouter, externalPageRouter } = initVal({
   ai: {
     chat: {
       experimental: {
-        enable: false,
+        enable: true,
       },
       suggestions: [
         "Summarize",
