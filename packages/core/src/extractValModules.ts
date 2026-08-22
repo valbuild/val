@@ -42,7 +42,7 @@ function errorMessage(e: unknown): string {
   // Duck-type the message instead (the same reason the schema check below
   // avoids `instanceof Schema`).
   if (typeof e === "object" && e !== null && "message" in e) {
-    const message = (e as { message: unknown }).message;
+    const { message } = e;
     if (typeof message === "string") {
       return message;
     }
@@ -231,7 +231,14 @@ export async function extractValModules(
           modulesErrors: moduleErrors,
         }),
     );
-    schemaSha = hash(schemaSha + JSON.stringify(serializedSchema));
+    // The PATH is part of the schema set, not just the schema: renaming a
+    // module while leaving its schema byte-identical still changes which paths
+    // exist, and an open client keyed its schema cache by the old path. Hashing
+    // the schema alone left this SHA unchanged, so with no commitSha to fall
+    // back on the client never refetched /schema.
+    schemaSha = hash(
+      schemaSha + JSON.stringify({ path, schema: serializedSchema }),
+    );
   }
   return {
     sources,

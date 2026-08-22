@@ -522,11 +522,17 @@ export class ValSyncEngine {
       if (!listeners[type]) {
         listeners[type] = {};
       }
+      // Register a per-subscription wrapper, not `listener` itself. Removal is
+      // by identity (see below), and the caller's identity is not unique to a
+      // subscription: subscribing the SAME callback twice - once to `a`, again
+      // to `[a, b]` - puts it in the `a` bucket twice, and unsubscribing the
+      // second would remove the first's registration and leave the second live.
+      const registered = () => listener();
       for (const p of paths) {
         if (!listeners[type][p]) {
           listeners[type][p] = [];
         }
-        listeners[type][p].push(listener);
+        listeners[type][p].push(registered);
       }
       return () => {
         // NOTE: remove by identity, never by an index captured at subscribe
@@ -539,7 +545,7 @@ export class ValSyncEngine {
           if (!bucket) {
             continue;
           }
-          const idx = bucket.indexOf(listener);
+          const idx = bucket.indexOf(registered);
           if (idx !== -1) {
             bucket.splice(idx, 1);
           }

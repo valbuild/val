@@ -73,6 +73,35 @@ describe("extractValModules", () => {
     expect(before.schemaSha).not.toBe(after.schemaSha);
   });
 
+  test("schemaSha changes when a module is renamed but its schema is not", async () => {
+    // schemaSha hashed the serialized schemas only, so moving a module to a new
+    // path left it identical. An open client compares it to decide whether to
+    // refetch /schema; with no commitSha to fall back on it kept a schema cache
+    // keyed by the path that no longer exists.
+    const before = await extractValModules(
+      modules({ project: "team/project" }, [
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define("/content/old.val.ts", s.string(), "hello"),
+            }),
+        },
+      ]),
+    );
+    const after = await extractValModules(
+      modules({ project: "team/project" }, [
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define("/content/new.val.ts", s.string(), "hello"),
+            }),
+        },
+      ]),
+    );
+
+    expect(after.schemaSha).not.toBe(before.schemaSha);
+  });
+
   test("a module that throws while importing is reported, not thrown", async () => {
     // A rejecting def() used to abort the whole extraction: on the server that
     // means ValOps.initSources rejects and /stat, /schema and /sources/~ all
@@ -151,8 +180,18 @@ describe("extractValModules", () => {
               default: c.define("/content/page.val.ts", s.string(), "hello"),
             }),
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { def: () => Promise.resolve({ default: undefined as any }) },
+        {
+          def: () => {
+            // A module object with no default export. Built as a valid one and
+            // then stripped, so producing the malformed shape does not need an
+            // `as any` (which CLAUDE.md rules out).
+            const mod = {
+              default: c.define("/content/other.val.ts", s.string(), "hello"),
+            };
+            Reflect.deleteProperty(mod, "default");
+            return Promise.resolve(mod);
+          },
+        },
       ]),
     );
     expect(extracted.moduleErrors).toHaveLength(1);
