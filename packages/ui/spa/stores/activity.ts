@@ -57,6 +57,12 @@ export type WorkKind =
   | "patch:fetch"
   /** A patch was created locally. */
   | "patch:create"
+  /** One file's bytes were POSTed to the server, before its patch existed. */
+  | "patch:upload-file"
+  /** One file was deleted, after the patch that removed its reference landed. */
+  | "patch:delete-file"
+  /** A best-effort cleanup of a file uploaded for a patch that then failed. */
+  | "patch:rollback-file"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------

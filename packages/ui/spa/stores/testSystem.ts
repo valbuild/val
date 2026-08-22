@@ -9,6 +9,7 @@ import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { createSystem, type System } from "./createSystem";
 import { RecordingActivity } from "./activity";
+import type { CreatePatchResult } from "./PatchStore";
 import type {
   FieldEvent,
   Head,
@@ -261,11 +262,44 @@ export type TestStatStore = {
 
 export type TestPatchStore = {
   getHead(): Promise<Head>;
+  /**
+   * Create a patch and assume it worked.
+   *
+   * Throws if it did not, which is a TEST convenience and not a shortcut in the
+   * store: creating a patch can genuinely fail (an upload can fail), and a test
+   * that is not about that should not have to narrow the union at every call.
+   * Use {@link TestPatchStore.tryCreatePatch} when the failure IS the subject.
+   */
   createPatch(
     moduleFilePath: string,
     patch: Patch,
     meta?: Record<string, Json>,
   ): Promise<PatchRecord>;
+  /** Create a patch and hand back the whole result, failures included. */
+  tryCreatePatch(
+    moduleFilePath: string,
+    patch: Patch,
+    meta?: Record<string, Json>,
+  ): Promise<CreatePatchResult>;
+};
+
+/**
+ * The fake file server: what bytes exist, and a way to make the next upload of
+ * a given path fail.
+ *
+ * Keyed by patch id AND path, mirroring the real thing — draft files are per
+ * patch, which is why a draft image URL carries a patch id at all.
+ */
+export type TestFiles = {
+  /** The stored bytes, or `undefined` if there is no such file. */
+  get(patchId: string, filePath: string): string | undefined;
+  /** Every `${patchId}\0${filePath}` key currently stored. */
+  keys(): string[];
+  /** Make uploads AND deletes of this path fail until cleared. */
+  failFor(filePath: string, message?: string): void;
+  /** Make deletes of this path fail, so a rollback leaves an orphan. */
+  failDeletesFor(filePath: string): void;
+  clearFailures(): void;
 };
 
 export type TestSystem = {
@@ -302,6 +336,7 @@ export type TestSystem = {
   getPatchSets: System["getPatchSets"];
   /** Search, indexing first if a build is owed. The query is what pays. */
   search: System["search"];
+  files: TestFiles;
   ledger: Ledger;
   /**
    * What each store DID, as opposed to what it announced.
@@ -326,7 +361,32 @@ export function initTestSystem(): TestSystem {
   const announced: PatchId[] = [];
   let nextPatchId = 0;
 
+  /** Stands in for the server's file store. */
+  const serverFiles = new Map<string, string>();
+  const uploadFailures = new Map<string, string>();
+  const deleteFailures = new Set<string>();
+  const fileKey = (patchId: string, filePath: string) =>
+    `${patchId}\0${filePath}`;
+
   const system = createSystem({
+    uploadFile: async ({ patchId, filePath, data }) => {
+      // Genuinely async, so no store can come to depend on an upload resolving
+      // synchronously — against a real POST it never will.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const failure = uploadFailures.get(filePath);
+      if (failure !== undefined) {
+        return { status: "error", message: failure };
+      }
+      if (data === null) {
+        if (deleteFailures.has(filePath)) {
+          return { status: "error", message: `Could not delete ${filePath}` };
+        }
+        serverFiles.delete(fileKey(patchId, filePath));
+        return { status: "ok" };
+      }
+      serverFiles.set(fileKey(patchId, filePath), data);
+      return { status: "ok" };
+    },
     fetchPatches: async (patchIds) => {
       // Genuinely async, even though the data is in memory: the store must not
       // be allowed to accidentally depend on the fetch resolving synchronously,
@@ -435,7 +495,23 @@ export function initTestSystem(): TestSystem {
     },
   };
 
+  const files: TestFiles = {
+    get: (patchId, filePath) => serverFiles.get(fileKey(patchId, filePath)),
+    keys: () => [...serverFiles.keys()],
+    failFor: (filePath, message) => {
+      uploadFailures.set(filePath, message ?? `Upload of ${filePath} failed`);
+    },
+    failDeletesFor: (filePath) => {
+      deleteFailures.add(filePath);
+    },
+    clearFailures: () => {
+      uploadFailures.clear();
+      deleteFailures.clear();
+    },
+  };
+
   return {
+    files,
     ledger,
     activity,
     listeners,
@@ -456,19 +532,30 @@ export function initTestSystem(): TestSystem {
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),
-      createPatch: async (moduleFilePath, patch, meta) => {
-        const record = await system.patchStore.createPatch(
+      async tryCreatePatch(moduleFilePath, patch, meta) {
+        const res = await system.patchStore.createPatch(
           moduleFilePath as ModuleFilePath,
           patch,
           meta,
         );
-        // A locally created patch is also on the server as far as every later
-        // read is concerned, so the fake table gets it too. Without this, a
-        // later `/stat` announcing it would fetch and fail.
-        serverPatches.set(record.patchId, record);
-        announced.push(record.patchId);
+        if (res.status === "created") {
+          // A locally created patch is also on the server as far as every later
+          // read is concerned, so the fake table gets it too. Without this, a
+          // later `/stat` announcing it would fetch and fail.
+          serverPatches.set(res.record.patchId, res.record);
+          announced.push(res.record.patchId);
+        }
         await settle();
-        return record;
+        return res;
+      },
+      async createPatch(moduleFilePath, patch, meta) {
+        const res = await this.tryCreatePatch(moduleFilePath, patch, meta);
+        if (res.status !== "created") {
+          throw new Error(
+            `createPatch failed: ${res.message}. Use tryCreatePatch if the failure is the point.`,
+          );
+        }
+        return res.record;
       },
     },
     stat: {

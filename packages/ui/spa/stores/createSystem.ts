@@ -13,6 +13,7 @@ import {
   PatchStore,
   type CreatePatchId,
   type FetchPatches,
+  type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
 import { HostStore } from "./HostStore";
@@ -104,6 +105,13 @@ export type SystemOptions = {
    * system may react to a work record, and nothing does.
    */
   activity?: ActivitySink;
+  /**
+   * Where a patch's file bytes are POSTed, and where a removed file is deleted.
+   *
+   * Omitting it means this system refuses any patch carrying files, rather than
+   * accepting one and dropping the bytes — see `PatchStore.createPatch`.
+   */
+  uploadFile?: UploadFile;
 };
 
 /**
@@ -150,6 +158,7 @@ export function createSystem(options: SystemOptions): System {
     options.fetchPatches,
     options.createPatchId,
     activity,
+    options.uploadFile,
   );
   const sourceStore = new SourceStore(
     schemaStore,

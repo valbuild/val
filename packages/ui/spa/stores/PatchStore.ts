@@ -6,6 +6,7 @@ import type { Head, PatchOrigin, PatchRecord, SystemEvent } from "./types";
 import type { StatStore } from "./StatStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import { splitPatchFileOps } from "../hooks/splitPatchFileOps";
 
 /**
  * Fetches the ops for patch ids the system knows about but has no data for.
@@ -20,6 +21,48 @@ export type FetchPatches = (
 ) => Promise<{ patches: PatchRecord[]; errors?: Record<PatchId, string> }>;
 
 export type CreatePatchId = () => PatchId;
+
+/**
+ * POST one file's bytes to wherever files live, or delete one.
+ *
+ * `data: null` IS the delete — the same operation in both directions, which is
+ * how the server already models it (`saveBase64EncodedBinaryFileFromPatch`
+ * deletes when handed null). One method rather than two means a caller cannot
+ * upload through the seam and delete around it.
+ *
+ * Injected like {@link FetchPatches}, so the same store runs against
+ * `POST {baseUrl}/patches/{patchId}/files` in FS mode, against the content host
+ * in HTTP mode, and against an in-memory table in a test. Async because it is
+ * genuinely a network call, and because the ordering below only means anything
+ * if it can fail.
+ */
+export type UploadFile = (request: {
+  patchId: PatchId;
+  filePath: string;
+  /** A data URL, or `null` to delete. */
+  data: string | null;
+  type: "file" | "image";
+  remote: boolean;
+  metadata?: Json;
+}) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
+
+/**
+ * The result of creating a patch, which can fail before the patch exists.
+ *
+ * A union rather than a throw: a field has to render the failure, and an upload
+ * failing is an ordinary outcome (offline, quota, a rejected mime type), not an
+ * exceptional one.
+ */
+export type CreatePatchResult =
+  | { status: "created"; record: PatchRecord }
+  | {
+      status: "upload-failed";
+      message: string;
+      /** Files that were uploaded and have since been cleaned up. */
+      rolledBack: string[];
+      /** Files that were uploaded and could NOT be cleaned up: orphans. */
+      orphaned: string[];
+    };
 
 /**
  * Owns the patch chain: which patches exist, in what order, where each came
@@ -56,6 +99,12 @@ export class PatchStore {
     private readonly newPatchId: CreatePatchId = () =>
       crypto.randomUUID() as PatchId,
     private readonly activity: ActivitySink = noopActivity,
+    /**
+     * Absent means this store cannot accept a patch carrying files at all —
+     * which is the honest default, because silently dropping the bytes is the
+     * failure mode this whole seam exists to prevent.
+     */
+    private readonly uploadFile?: UploadFile,
   ) {}
 
   /**
@@ -138,17 +187,105 @@ export class PatchStore {
   }
 
   /**
-   * Create a patch locally. Its data exists immediately — there is nothing to
-   * fetch — so it is emitted as `patch:create` rather than `patch:receive`, and
-   * the source store treats the two the same except for the origin it reports
-   * to listeners.
+   * Create a patch locally, uploading any files it carries first.
+   *
+   * ## Why the order differs for adding and removing a file
+   *
+   * One rule produces both: **a file must exist for as long as anything
+   * references it.**
+   *
+   * - **Adding** a file: upload, THEN record the patch. The patch is what
+   *   references the file, so the bytes have to be there before it exists. Get
+   *   this backwards and you get the silent failure this seam is for — the patch
+   *   applies, source points at a path, and nothing is there.
+   * - **Removing** a file: record the patch, THEN delete. The patch is what
+   *   stops referencing it, so deleting first would leave the OLD source
+   *   pointing at bytes that are already gone — and if the patch then fails to
+   *   record, that is permanent.
+   *
+   * ## What happens when an upload fails
+   *
+   * The patch is not created. That is the part that matters, and it is a
+   * guarantee: nothing ever references a file that is not there.
+   *
+   * Files already uploaded for this patch are then deleted, best effort. That is
+   * garbage collection, not correctness — an orphan is unreferenced, so it is
+   * wasted bytes rather than a broken state, and a rollback that itself fails
+   * must not turn a recoverable error into a worse one. So a failed rollback is
+   * REPORTED (`orphaned`) rather than retried or thrown: the caller can say "try
+   * again" honestly, and something has to know those bytes are now garbage.
+   * There is no way to make upload-then-record atomic, so the design does not
+   * pretend to.
+   *
+   * Emitted as `patch:create` rather than `patch:receive` because its data
+   * exists immediately; the source store treats the two the same except for the
+   * origin it reports to listeners.
    */
   async createPatch(
     moduleFilePath: ModuleFilePath,
     patch: Patch,
     meta?: Record<string, Json>,
-  ): Promise<PatchRecord> {
+  ): Promise<CreatePatchResult> {
     const patchId = this.newPatchId();
+    const { patchOps, fileOps } = splitPatchFileOps(patch);
+    const toUpload = fileOps.filter(
+      (op): op is typeof op & { value: string } => typeof op.value === "string",
+    );
+    const toDelete = fileOps.filter((op) => op.value === null);
+    if ((toUpload.length > 0 || toDelete.length > 0) && !this.uploadFile) {
+      return {
+        status: "upload-failed",
+        message:
+          "This patch carries files, but no upload seam is configured. Refusing rather than dropping the bytes.",
+        rolledBack: [],
+        orphaned: [],
+      };
+    }
+    const upload = this.uploadFile;
+
+    const uploaded: string[] = [];
+    if (upload) {
+      for (const op of toUpload) {
+        this.activity.work("patch:upload-file", op.filePath);
+        const res = await upload({
+          patchId,
+          filePath: op.filePath,
+          data: op.value,
+          type: op.remote ? "file" : "image",
+          remote: op.remote,
+          metadata: op.metadata,
+        });
+        if (res.status === "error") {
+          // Roll back what did land, then refuse. No patch is created, so
+          // nothing references anything missing.
+          const rolledBack: string[] = [];
+          const orphaned: string[] = [];
+          for (const filePath of uploaded) {
+            this.activity.work("patch:rollback-file", filePath);
+            const undo = await upload({
+              patchId,
+              filePath,
+              data: null,
+              type: "image",
+              remote: false,
+            });
+            if (undo.status === "ok") {
+              rolledBack.push(filePath);
+            } else {
+              orphaned.push(filePath);
+            }
+          }
+          return {
+            status: "upload-failed",
+            message: res.message,
+            rolledBack,
+            orphaned,
+          };
+        }
+        uploaded.push(op.filePath);
+      }
+    }
+
     // Stamped here rather than left to default downstream. The patch-set store
     // orders the review list by this and shows newest first, so an unstamped
     // local edit fell back to the epoch and sorted below every other change —
@@ -156,7 +293,9 @@ export class PatchStore {
     const record: PatchRecord = {
       patchId,
       moduleFilePath,
-      patch,
+      // The HASHED ops, never the bytes. `splitPatchFileOps` explains why the
+      // server silently produces no file if this is got wrong.
+      patch: patchOps,
       meta,
       createdAt: new Date().toISOString(),
     };
@@ -166,7 +305,23 @@ export class PatchStore {
     this.version++;
     this.activity.work("patch:create", patchId);
     this.events.emit({ type: "patch:create", patches: [patchId] });
-    return record;
+
+    // Deletes run only now that the patch that stops referencing these files
+    // has landed. A failure here leaves an orphan, which is wasted bytes; doing
+    // it earlier could leave the old source pointing at bytes already gone.
+    if (upload) {
+      for (const op of toDelete) {
+        this.activity.work("patch:delete-file", op.filePath);
+        await upload({
+          patchId,
+          filePath: op.filePath,
+          data: null,
+          type: op.remote ? "file" : "image",
+          remote: op.remote,
+        });
+      }
+    }
+    return { status: "created", record };
   }
 
   /**

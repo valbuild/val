@@ -232,11 +232,15 @@ was **deleted** rather than committed, per instruction.
       Decide whether the server should reject a `file` op whose value looks like
       a data URL — it is a two-line check and it converts a silent
       no-file into a loud 400.
-- [ ] **This prototype has no upload path.** `SourceStore` filters `file` ops out
-      of the JSON apply, which is right, but then reports a file-only patch as
-      applied while knowing nothing about whether the upload happened. Fine while
-      nothing writes back to the server (item 6); it needs an answer at the same
-      time as `PUT /patches`.
+- [x] **The prototype now has an upload path.** `UploadFile` is a seam on the
+      patch store: add = upload then record, remove = record then delete, and a
+      failed upload creates no patch and rolls back what landed (best effort,
+      reporting `orphaned` when cleanup also fails). Omitting the seam makes a
+      patch carrying files be REFUSED rather than silently stripped. See
+      `fileUpload.test.ts` and the section in `architecture.md`.
+- [ ] **Who sweeps orphaned files?** Rollback is best effort by design, so
+      `orphaned` is a list someone has to act on. A server-side sweep of
+      unreferenced patch files is the only real answer; until then the bytes leak.
 - [ ] **`.jsonValues()` is not handled at all** (see the hypothesis in
       `architecture.md`). The prototype has no marker substitution, so a project
       using `.jsonValues()` would read paths inside unloaded entries as `absent`

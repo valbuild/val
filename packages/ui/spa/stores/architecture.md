@@ -269,6 +269,53 @@ for reads, or entry loads get their own revision. Probably the latter — a
 content load is not an edit, and making it move the patch head would invalidate
 every reader in the project for something no one edited.
 
+## Files in patches: a file must exist for as long as anything references it
+
+Bytes never travel inside a patch. They are POSTed directly — `POST
+{baseUrl}/patches/{patchId}/files` in FS mode, straight to the content host in
+HTTP mode — and the `file` op left in the patch carries a SHA-256 of what was
+uploaded. `UploadFile` is the seam, injected like `fetchPatches`; **omitting it
+makes the patch store REFUSE a patch carrying files**, rather than accepting one
+and dropping the bytes.
+
+That refusal is the shape of the whole problem. The server never reads a `file`
+op's value as data — `ValOps` null-checks it, to decide whether to stamp
+`patch_id` — so bytes left in a patch are not a slower route to the same result.
+They produce no file, silently: the patch applies, source points at a path, and
+nothing is there.
+
+One rule decides all the ordering, and it explains why adding and removing are
+mirror images:
+
+|                  | order                 | why                                                                              |
+| ---------------- | --------------------- | -------------------------------------------------------------------------------- |
+| **add**          | upload → record patch | the patch is what REFERENCES the file, so the bytes must exist first             |
+| **remove**       | record patch → delete | the patch is what STOPS referencing it, so deleting first strands the old source |
+| **upload fails** | no patch at all       | nothing can reference what is not there                                          |
+
+`data: null` is the delete, the same operation in both directions — which is how
+the server already models it. One method, so a caller cannot upload through the
+seam and delete around it.
+
+### Rollback is garbage collection, not correctness
+
+When one upload in a multi-file patch fails, the files that did land are deleted,
+best effort, and the patch is not created. The correctness guarantee is the
+"not created" half: nothing references anything missing. The cleanup is only
+about wasted bytes, because an orphan is by definition unreferenced.
+
+So a rollback that itself fails must not make things worse. It is REPORTED
+(`orphaned`) rather than retried or thrown: the caller can still honestly say
+"try again", and something knows those bytes are now garbage. There is no way to
+make upload-then-record atomic and the design does not pretend there is — which
+is also the argument for a server-side sweep of unreferenced patch files, since
+`orphaned` is a list someone eventually has to act on.
+
+Draft files are per PATCH, not per path: two pending edits to one path each keep
+their own bytes, which is why a draft image URL carries a patch id at all. In FS
+mode they are grouped under the patch's PARENT dir, so a second edit has to
+parent on the first for the two to stay distinguishable.
+
 ## The invariants
 
 ### 1. If an event went out, the source behind it is already applied
@@ -395,7 +442,9 @@ finished work.
   `baseSha`/`schemaSha`/`sourcesSha`. Those are inputs to `schemaStore.receive`,
   not new events.
 - **No local patch write-back.** `createPatch` never issues `PUT /patches`, so
-  nothing exercises optimistic state, retry, or `patch-head-conflict`.
+  nothing exercises optimistic state, retry, or `patch-head-conflict`. File
+  bytes DO now go through a real seam (`UploadFile`) with the ordering and
+  rollback above; the patch itself still does not.
 - **No hooks.** Nothing consumes any of this from React yet.
 - ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
   search and patch sets are now covered: `systemFlow` (one session-order flow),
