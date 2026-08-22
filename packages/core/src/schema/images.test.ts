@@ -6,12 +6,15 @@ import { string } from "./string";
 function filterCheckErrors(
   result:
     | false
-    | Record<string, { message: string; fixes?: string[] }[]>
+    | Record<string, { message: string; fixes?: string[]; value?: unknown }[]>
     | undefined,
 ) {
   if (!result) return result;
   const checkFixes = ["images:check-unique-folder", "images:check-all-files"];
-  const filtered: Record<string, { message: string; fixes?: string[] }[]> = {};
+  const filtered: Record<
+    string,
+    { message: string; fixes?: string[]; value?: unknown }[]
+  > = {};
   for (const [key, errors] of Object.entries(result)) {
     const nonCheck = errors.filter(
       (e) => !e.fixes?.some((f) => checkFixes.includes(f)),
@@ -334,7 +337,7 @@ describe("ImagesSchema", () => {
       expect(filterCheckErrors(result)).toBeFalsy();
     });
 
-    test("should accept local paths when remote is enabled", () => {
+    test("should flag local paths as upload-remote when remote is enabled", () => {
       const schema = images({
         accept: "image/webp",
         directory: "/public/val/images",
@@ -348,19 +351,18 @@ describe("ImagesSchema", () => {
         },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      // Should not have path errors
+      // A local path in a remote gallery is a fixable error (upload to remote).
       const filteredResult2 = filterCheckErrors(result);
-      if (filteredResult2) {
-        const errors = Object.values(filteredResult2 as object).flat();
-        const hasPathError = errors.some(
-          (e: { message: string }) =>
-            e.message.includes("directory") || e.message.includes("Remote"),
-        );
-        expect(hasPathError).toBe(false);
-      }
+      expect(filteredResult2).toBeTruthy();
+      const errors = Object.values(filteredResult2 as object).flat();
+      const uploadError = errors.find((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadError).toBeTruthy();
+      expect(uploadError?.value).toBe("/public/val/images/local.webp");
     });
 
-    test("should accept mixed remote and local when remote is enabled", () => {
+    test("should flag only local paths when mixing remote and local", () => {
       const schema = images({
         accept: "image/webp",
         directory: "/public/val/images",
@@ -381,7 +383,15 @@ describe("ImagesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(filterCheckErrors(result)).toBeFalsy();
+      const filtered = filterCheckErrors(result);
+      expect(filtered).toBeTruthy();
+      const errors = Object.values(filtered as object).flat();
+      // Exactly the local entry is flagged for upload; the remote URL is valid.
+      const uploadErrors = errors.filter((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadErrors).toHaveLength(1);
+      expect(uploadErrors[0]?.value).toBe("/public/val/images/local.webp");
     });
 
     test("should reject invalid remote URLs", () => {
@@ -530,6 +540,35 @@ describe("ImagesSchema", () => {
         );
         expect(hasDirError).toBe(false);
       }
+    });
+
+    test("should report both the key error and the entry error for the same entry", () => {
+      // Key errors (wrong directory) and entry errors (bad metadata) are both
+      // reported at the entry's path, so merging must concatenate them rather
+      // than let one overwrite the other.
+      const schema = images({
+        accept: "image/webp",
+        directory: "/public/val/images",
+      });
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/wrong/path/image.webp": {
+          width: 0,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong path and bad width",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.some((m) => m.includes("must be within the"))).toBe(true);
+      expect(
+        messages.some((m) =>
+          m.includes("Expected 'width' to be a positive number"),
+        ),
+      ).toBe(true);
     });
 
     test("should accept paths in subdirectories", () => {

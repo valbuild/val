@@ -25,14 +25,17 @@ import {
 } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation, useSessionParam, VAL_ERRORS_ROUTE } from "./ValRouter";
+import { useLayout } from "./Layout";
+import { useIsMobile } from "./hooks/use-mobile";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
 import {
@@ -49,6 +52,19 @@ export function ToolsMenu() {
   const mode = useValMode();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  const chatPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isChatEnabled) return;
+    const open = () => {
+      chatPanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    };
+    setOpenAIChatImpl(open);
+    return () => setOpenAIChatImpl(null);
+  }, [isChatEnabled, setOpenAIChatImpl]);
   const [errorModules, fieldsWithErrors, errorPaths] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
     const errorPaths: SourcePath[] = [];
@@ -170,9 +186,13 @@ export function ToolsMenu() {
         </div>
       </div>
       {(mode === "http" || mode === "fs") && isChatEnabled && (
-        <div className="flex-1 min-h-0 border-t border-border-primary">
+        <div
+          ref={chatPanelRef}
+          className="flex-1 min-h-0 border-t border-border-primary"
+        >
           <AIChat
             ref={chatRef}
+            chatEditorRef={chatEditorRef}
             onSendMessage={sendMessage}
             onUploadFile={uploadAiImage}
             onNewSession={newSession}
@@ -332,13 +352,22 @@ function CompareButton({
   isLoading: boolean;
 }) {
   const { navigate } = useNavigation();
+  const { toolsMenu } = useLayout();
+  const isMobile = useIsMobile();
   return (
     <Button
       variant="secondary"
       size="sm"
       className="relative flex shrink-0 items-center gap-2"
       disabled={pendingChanges <= 0 && !isLoading}
-      onClick={() => navigate("/val/compare")}
+      onClick={() => {
+        navigate("/val/compare");
+        if (isMobile) {
+          // This menu is a sheet on mobile: leaving it open would cover the
+          // compare view the click just navigated to.
+          toolsMenu.setOpen(false);
+        }
+      }}
     >
       <GitCompareArrows size={14} />
       <span>Compare</span>

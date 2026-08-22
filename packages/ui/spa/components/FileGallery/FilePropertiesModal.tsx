@@ -59,10 +59,14 @@ export function FilePropertiesModal({
   disabled,
   container,
 }: FilePropertiesModalProps) {
-  const refs = useReferencedFiles(
+  const references = useReferencedFiles(
     parentPath as ModuleFilePath | undefined,
     file?.ref,
   );
+  const refs = references.refs;
+  // Deleting a file whose references have not all been found leaves a dangling
+  // ref behind, so the button waits for a COMPLETE scan — not just an empty one.
+  const referencesChecked = references.status === "success";
   const { navigate, currentSourcePath } = useNavigation();
   const [refsOpen, setRefsOpen] = React.useState(false);
 
@@ -273,7 +277,12 @@ export function FilePropertiesModal({
                           onFileDelete(fileIndex);
                           onOpenChange(false);
                         }}
-                        disabled={disabled || loading || refs.length > 0}
+                        disabled={
+                          disabled ||
+                          loading ||
+                          refs.length > 0 ||
+                          !referencesChecked
+                        }
                         className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-bg-error-primary disabled:opacity-50"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -281,12 +290,24 @@ export function FilePropertiesModal({
                       </button>
                     </span>
                   </TooltipTrigger>
-                  {refs.length > 0 && (
+                  {refs.length > 0 ? (
                     <TooltipContent>
                       Cannot delete: referenced in {refs.length}{" "}
                       {refs.length === 1 ? "place" : "places"}
                     </TooltipContent>
-                  )}
+                  ) : references.status === "loading" ? (
+                    <TooltipContent>
+                      Checking references
+                      {references.percentage > 0
+                        ? ` (${references.percentage}%)`
+                        : ""}
+                      …
+                    </TooltipContent>
+                  ) : references.status === "error" ? (
+                    <TooltipContent>
+                      Cannot delete: references could not be checked
+                    </TooltipContent>
+                  ) : null}
                 </Tooltip>
               </TooltipProvider>
             </div>

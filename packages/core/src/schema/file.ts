@@ -377,6 +377,17 @@ export class FileSchema<
     );
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     const modulePaths = this.moduleMetadata
       ? Object.keys(this.moduleMetadata)

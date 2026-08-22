@@ -4,6 +4,11 @@ import type {
   AskUserQuestionAnswer,
   ChatMessageAttachment,
 } from "../components/AIChat";
+import type { ChatDocument } from "../components/AIChatEditor";
+import {
+  chatDocumentToHtmlText,
+  collectImageNodesFromDoc,
+} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -44,6 +49,11 @@ import {
   isRemoteSchema,
   type BuildResult,
 } from "./aiImageToolPatches";
+import {
+  buildDuplicatePatch,
+  buildEmptyAtPathPatch,
+  describeContainerAtPath,
+} from "./aiSourceToolPatches";
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
@@ -427,6 +437,126 @@ const AskUserQuestionArgs = z.object({
 });
 type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
+const PATH_ARRAY_DESCRIPTION =
+  "JSON Pointer AS AN ARRAY (e.g. ['posts', 'blog-1'] or ['items', '0', 'title']). " +
+  "Array indices are numeric strings. Record keys that contain slashes stay as a single segment, e.g. ['/foo/bar'].";
+const DUPLICATE_SOURCE_TOOL: AITool = {
+  name: "duplicate_source",
+  description:
+    "Duplicate the value at 'source_path' to 'destination_path' within the same Val module. " +
+    "Use the op rule: if the destination's parent is an array or record, the patch uses 'add' (creating a new entry); " +
+    "if the destination's parent is an object, the patch uses 'replace'; if destination_path is empty, replaces the whole module. " +
+    "PREFER this tool over empty_at_path when there is an existing similar entry to copy — copying preserves nested structure, " +
+    "optional fields, and image references correctly, while emptying often produces nulls the model would have to fill in. " +
+    "For richtext destinations or images-gallery destinations, use create_patch or add_session_image_to_gallery instead.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      source_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module to read FROM. " + PATH_ARRAY_DESCRIPTION,
+      },
+      destination_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the SAME module to write TO. " + PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "source_path", "destination_path"],
+  },
+};
+const EMPTY_AT_PATH_TOOL: AITool = {
+  name: "empty_at_path",
+  description:
+    "Create an empty value (built from the schema via emptyOf) at 'destination_path' in a Val module. " +
+    "Same op rule as duplicate_source (array/record parent → 'add', object parent → 'replace', empty path → 'replace'). " +
+    "Use this ONLY when there is no good donor to duplicate from — duplicate_source is almost always better when something similar exists, " +
+    "because empty values for optional fields become null and image/file fields become null (which then need a follow-up upload). " +
+    "For richtext destinations or images-gallery destinations, use create_patch or add_session_image_to_gallery instead.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      destination_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module to write to. " + PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "destination_path"],
+  },
+};
+const COUNT_ENTRIES_TOOL: AITool = {
+  name: "count_entries",
+  description:
+    "Count the entries of the value at 'path' in a Val module — record or gallery keys, object keys, array indices, or richtext top-level blocks. " +
+    "Use this before paging through a large record/array or to answer 'how many X are there?' without pulling the entire module. " +
+    "Returns { kind: 'array' | 'record' | 'object' | 'gallery' | 'richtext', count: number }. " +
+    "Fails for anything that is not a container - primitives, and image/file/union values (which are objects at runtime but hold no entries).",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module pointing at the collection to count. " +
+          "Pass [] for the module root. " +
+          PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "path"],
+  },
+};
+const GET_RECORD_KEYS_TOOL: AITool = {
+  name: "get_record_keys",
+  description:
+    "List the keys of the record (or object) at 'path' in a Val module, with pagination. " +
+    "Use this to enumerate entries without pulling their contents — e.g. to find which slug to operate on next. " +
+    "Returns { kind: 'record' | 'object', keys: string[], total: number }. " +
+    "Fails on arrays, primitives, richtext and galleries - use count_entries for array/richtext sizes and get_source to read a gallery.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module pointing at the record/object. " +
+          "Pass [] for the module root. " +
+          PATH_ARRAY_DESCRIPTION,
+      },
+      limit: {
+        type: "number",
+        description: "Max keys to return (default 100).",
+      },
+      offset: {
+        type: "number",
+        description: "Number of keys to skip for pagination (default 0).",
+      },
+    },
+    required: ["module_file_path", "path"],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -442,6 +572,10 @@ const ALL_TOOLS: AITool[] = [
   SET_SESSION_NAME_TOOL,
   SHOW_COMPARE_VIEW_TOOL,
   ASK_USER_QUESTION_TOOL,
+  DUPLICATE_SOURCE_TOOL,
+  EMPTY_AT_PATH_TOOL,
+  COUNT_ENTRIES_TOOL,
+  GET_RECORD_KEYS_TOOL,
 ];
 
 export type UseAIOptions = {
@@ -1359,6 +1493,378 @@ export function useAI(
             result: { success: true },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (
+          message.name === "duplicate_source" ||
+          message.name === "empty_at_path"
+        ) {
+          const toolName = message.name;
+          const args = message.arguments as {
+            module_file_path?: string;
+            source_path?: unknown;
+            destination_path?: unknown;
+          };
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          (async () => {
+            if (!args.module_file_path) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: "Missing required argument: module_file_path.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const isStringArray = (v: unknown): v is string[] =>
+              Array.isArray(v) && v.every((p) => typeof p === "string");
+            if (!isStringArray(args.destination_path)) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "destination_path must be an array of strings (path segments).",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (
+              toolName === "duplicate_source" &&
+              !isStringArray(args.source_path)
+            ) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "source_path must be an array of strings (path segments).",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const moduleFilePath = args.module_file_path as ModuleFilePath;
+            const schemas = syncEngine.getAllSchemasSnapshot();
+            const moduleSchema = schemas?.[moduleFilePath];
+            if (!moduleSchema) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            let buildResult: BuildResult;
+            if (toolName === "duplicate_source") {
+              const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+              const sourceData =
+                sourceSnap.status === "success"
+                  ? (sourceSnap.data as Source | undefined)
+                  : undefined;
+              buildResult = buildDuplicatePatch(
+                {
+                  sourcePath: args.source_path as string[],
+                  destinationPath: args.destination_path,
+                },
+                moduleSchema,
+                sourceData,
+              );
+            } else {
+              buildResult = buildEmptyAtPathPatch(
+                { destinationPath: args.destination_path },
+                moduleSchema,
+              );
+            }
+            if (buildResult.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
+            const validationResult = syncEngine.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                syncEngine.getAllSchemasSnapshot(),
+                syncEngine.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(
+                      blockingErrors,
+                    )}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+            }
+            const patchId = syncEngine.createPatchId();
+            const patchRes = await syncEngine.addPatchAwaitable(
+              moduleFilePath,
+              moduleSchema.type,
+              patch,
+              patchId,
+              sessionIdRef.current,
+              Date.now(),
+            );
+            if (patchRes.status === "patch-synced") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: true,
+                  patchId: patchRes.patchId,
+                  message:
+                    toolName === "duplicate_source"
+                      ? "Duplicated successfully."
+                      : "Empty value created successfully.",
+                },
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: patchRes.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+            }
+          })();
+        } else if (message.name === "count_entries") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            path?: unknown;
+          };
+          if (
+            !args.module_file_path ||
+            !Array.isArray(args.path) ||
+            !args.path.every((p) => typeof p === "string")
+          ) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "count_entries requires module_file_path (string) and path (string[]).",
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const moduleFilePath = args.module_file_path as ModuleFilePath;
+          const schemas = syncEngine.getAllSchemasSnapshot();
+          const moduleSchema = schemas?.[moduleFilePath];
+          if (!moduleSchema) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+          const sourceData =
+            sourceSnap.status === "success"
+              ? (sourceSnap.data as Source | undefined)
+              : undefined;
+          const described = describeContainerAtPath(
+            moduleSchema,
+            sourceData,
+            args.path,
+          );
+          if (described.kind === "error") {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error: described.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const count = Array.isArray(described.value)
+            ? described.value.length
+            : Object.keys(described.value as Record<string, unknown>).length;
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: true,
+              kind: described.container,
+              count,
+            },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_record_keys") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            path?: unknown;
+            limit?: number;
+            offset?: number;
+          };
+          if (
+            !args.module_file_path ||
+            !Array.isArray(args.path) ||
+            !args.path.every((p) => typeof p === "string")
+          ) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "get_record_keys requires module_file_path (string) and path (string[]).",
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const moduleFilePath = args.module_file_path as ModuleFilePath;
+          const schemas = syncEngine.getAllSchemasSnapshot();
+          const moduleSchema = schemas?.[moduleFilePath];
+          if (!moduleSchema) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+          const sourceData =
+            sourceSnap.status === "success"
+              ? (sourceSnap.data as Source | undefined)
+              : undefined;
+          const described = describeContainerAtPath(
+            moduleSchema,
+            sourceData,
+            args.path,
+          );
+          if (described.kind === "error") {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error: described.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          // Records and objects only, as the tool description promises. A
+          // gallery's keys are file paths whose files live on disk, and richtext
+          // blocks are positional - neither is a key set to hand back.
+          if (
+            described.container !== "record" &&
+            described.container !== "object"
+          ) {
+            const advice =
+              described.container === "array"
+                ? "use count_entries to get the array length"
+                : described.container === "richtext"
+                  ? "use count_entries to get the number of blocks"
+                  : "use get_source to read the gallery's entries";
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Path points to a ${described.container}. get_record_keys only works on records and objects — ${advice}.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const allKeys = Object.keys(
+            described.value as Record<string, unknown>,
+          );
+          // Clamp: these come from the model, and Array.prototype.slice reads a
+          // negative offset from the END and a negative limit as "drop the last
+          // N" - either silently returns a window that is not the page asked
+          // for, with `total` alongside it implying it was.
+          const toIndex = (value: unknown, fallback: number) =>
+            typeof value === "number" && Number.isFinite(value)
+              ? Math.max(0, Math.floor(value))
+              : fallback;
+          const limit = toIndex(args.limit, 100);
+          const offset = toIndex(args.offset, 0);
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: true,
+              kind: described.container,
+              keys: allKeys.slice(offset, offset + limit),
+              total: allKeys.length,
+            },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
           console.error("Received unknown tool call in useAI", message.name);
           sendWsMessage({
@@ -1470,7 +1976,10 @@ export function useAI(
   );
 
   const sendMessage = useCallback(
-    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+    (
+      content: string | ChatDocument,
+      attachments?: ChatMessageAttachment[],
+    ): boolean => {
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
@@ -1480,13 +1989,37 @@ export function useAI(
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
-      let augmentedText = text;
-      if (attachments && attachments.length > 0) {
-        const lines = attachments.map(
+      const baseText =
+        typeof content === "string" ? content : chatDocumentToHtmlText(content);
+      // Pull inline image nodes out of the rich document so their keys are
+      // registered as `image_key` content blocks (the protocol the server
+      // expects), not buried in the HTML text. Drop any still-pending keys —
+      // the editor should already block Send while uploads are in flight, but
+      // this is a defence-in-depth check.
+      const inlineImages =
+        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
+      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
+        .filter((n) => n.key && !n.key.startsWith("pending:"))
+        .map((n) => ({
+          key: n.key,
+          name: n.alt || "inline image",
+          mimeType: n.mimeType,
+          previewUrl: n.previewUrl,
+        }));
+      const mergedAttachments: ChatMessageAttachment[] = [];
+      const seenKeys = new Set<string>();
+      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
+        if (seenKeys.has(a.key)) continue;
+        seenKeys.add(a.key);
+        mergedAttachments.push(a);
+      }
+      let augmentedText = baseText;
+      if (mergedAttachments.length > 0) {
+        const lines = mergedAttachments.map(
           (a) => `- ${a.name}: image_key="${a.key}"`,
         );
         augmentedText =
-          text +
+          baseText +
           "\n\n[Attached images — when calling convert_session_image_to_patch, " +
           "use the exact image_key string from this list (NOT any vision-system file id):\n" +
           lines.join("\n") +
@@ -1494,10 +2027,10 @@ export function useAI(
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
-        ...(attachments?.map((attachment) => ({
+        ...mergedAttachments.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,
-        })) ?? []),
+        })),
       ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
@@ -1512,6 +2045,16 @@ export function useAI(
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+
+## User message format (HTML-esque rich text)
+The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
+- Block tags: <p>, <h1>, <h2>, <h3>, <blockquote>, <ul>, <ol>, <li>.
+- Inline marks: <strong>, <em>, <del>, <code>.
+- Line break: <br/>.
+- Non-standard self-closing tags:
+  - <field path="..."/>: the user explicitly pointed at this Val source path. Treat it as if they typed and named that path; when relevant, call get_source on the corresponding module to read the current value and reference the field by its friendly name in your reply.
+  - <img key="..."/>: an inline image attached by the user. The key is the same as an image_key content block — use it with convert_session_image_to_patch / add_session_image_to_gallery as you would any other session image. Do not try to fetch the URL of an inline image.
+Plain user messages without tags should be treated as plain text.
 
 ## Understanding where user is
 If the get_current_context pathname starts with /val, the user is in the Val Studio. 
