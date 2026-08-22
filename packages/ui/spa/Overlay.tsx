@@ -16,10 +16,12 @@ import { Themes } from "./components/ValThemeProvider";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
+import { useValModules } from "./hooks/useValModules";
 import { VERSION } from "../src";
 
 function Overlay() {
   const config = useConfig();
+  const valModules = useValModules();
   // Theme is initialized by ValNextProvider in session storage
   // We just read it once on init and then rely on React state
   const [theme, setTheme] = useState<Themes | null>(() => {
@@ -101,6 +103,7 @@ function Overlay() {
             client={client}
             dispatchValEvents={draftMode}
             config={config}
+            valModules={valModules}
             theme={theme}
             setTheme={setTheme}
           >

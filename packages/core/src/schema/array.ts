@@ -9,16 +9,15 @@ import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
-import {
-  ValidationError,
-  ValidationErrors,
-} from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
   item: SerializedSchema;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -32,6 +31,8 @@ export class ArraySchema<
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -42,6 +43,8 @@ export class ArraySchema<
       this.item,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -53,6 +56,8 @@ export class ArraySchema<
       this.item,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -65,21 +70,12 @@ export class ArraySchema<
     if (assertRes.data === null) {
       return false;
     }
-    let error: Record<SourcePath, ValidationError[]> = {};
+    let error: ValidationErrors = false;
     for (const [idx, i] of Object.entries(assertRes.data)) {
       const subPath = unsafeCreateSourcePath(path, Number(idx));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const subError = this.item["executeValidate"](subPath, i as any);
-      if (subError) {
-        error = {
-          ...subError,
-          ...error,
-        };
-      }
-    }
-
-    if (Object.keys(error).length === 0) {
-      return false;
+      error = this.mergeValidationErrors(error, subError);
     }
     return error;
   }
@@ -133,7 +129,36 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(this.item, true, [], this.description);
+    return new ArraySchema(
+      this.item,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedArraySchema {
@@ -144,6 +169,8 @@ export class ArraySchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

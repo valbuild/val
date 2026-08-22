@@ -3,6 +3,7 @@ import { buildChatSchema } from "../schema/buildChatSchema";
 import { parseChatDocument } from "../serialize/parseChatDocument";
 import { serializeChatDocument } from "../serialize/serializeChatDocument";
 import { chatDocumentToHtmlText } from "../serialize/chatDocumentToHtmlText";
+import { chatDocumentToPlainText } from "../serialize/chatDocumentToPlainText";
 import {
   collectImageKeysFromDoc,
   collectImageNodesFromDoc,
@@ -308,5 +309,47 @@ describe("buildChatSchema image node spec", () => {
     const rules = imageSpec.parseDOM ?? [];
     expect(rules).toHaveLength(1);
     expect(rules[0].tag).toBe("img[data-val-ai-key]");
+  });
+});
+
+describe("blocks other than paragraphs inside a list item", () => {
+  // `list_item` is `"paragraph block*"`, so a list item can hold a heading or a
+  // blockquote. ChatListItemNode.children used to be typed as paragraph/ul/ol
+  // only, which needed a cast in the serializer and hid these shapes from every
+  // consumer - chatDocumentToPlainText silently dropped them.
+  const doc: ChatDocument = [
+    {
+      tag: "ul",
+      children: [
+        {
+          tag: "li",
+          children: [
+            { tag: "p", children: ["intro"] },
+            { tag: "h3", children: ["a heading"] },
+            {
+              tag: "blockquote",
+              children: [{ tag: "p", children: ["quoted"] }],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("survives a round-trip through ProseMirror", () => {
+    expect(roundTrip(doc)).toEqual(doc);
+  });
+
+  it("renders them as HTML instead of dropping them", () => {
+    expect(chatDocumentToHtmlText(doc)).toBe(
+      "<ul><li><p>intro</p><h3>a heading</h3>" +
+        "<blockquote><p>quoted</p></blockquote></li></ul>",
+    );
+  });
+
+  it("renders them as plain text instead of dropping them", () => {
+    expect(chatDocumentToPlainText(doc)).toBe(
+      ["- intro", "  a heading", "  quoted"].join("\n"),
+    );
   });
 });

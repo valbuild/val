@@ -56,6 +56,77 @@ describe("splitRemoteRef", () => {
     });
   });
 
+  it("should handle a file path directly under public", () => {
+    const ref =
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/images/test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toEqual({
+      status: "success",
+      remoteHost: "https://remote.val.build",
+      projectId: "project123",
+      bucket: "01",
+      version: "1.0.0",
+      validationHash: "abc123",
+      fileHash: "def456",
+      filePath: "public/images/test.png",
+    });
+  });
+
+  it("should return an error if the file path is not within public", () => {
+    const ref =
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/secret/test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toEqual({
+      status: "error",
+      error: "Invalid remote ref: " + ref,
+    });
+  });
+
+  it("should return an error if the file path traverses out of public", () => {
+    const ref =
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/../secret/test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toEqual({
+      status: "error",
+      error: "Invalid remote ref: " + ref,
+    });
+  });
+
+  it("should return an error if the file path contains a current dir segment", () => {
+    const ref =
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/./test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toEqual({
+      status: "error",
+      error: "Invalid remote ref: " + ref,
+    });
+  });
+
+  it("should not confuse a file name containing dots with traversal", () => {
+    const ref =
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/..hidden..test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toMatchObject({
+      status: "success",
+      filePath: "public/val/..hidden..test.png",
+    });
+  });
+
+  it("should return an error for a local ref", () => {
+    const ref = "/public/val/test.png";
+    const result = splitRemoteRef(ref);
+
+    expect(result).toEqual({
+      status: "error",
+      error: "Not a remote ref: " + ref,
+    });
+  });
+
   it("should handle a remote ref with an HTTP host", () => {
     const ref =
       "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png";

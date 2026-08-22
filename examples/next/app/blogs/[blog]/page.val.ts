@@ -18,7 +18,19 @@ const blogSchema = s.object({
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s.router(nextAppRouter, blogSchema),
+  s
+    .router(
+      nextAppRouter,
+      s.string().describe("The URL of the blog post"),
+      blogSchema,
+    )
+    .render({
+      as: "list",
+      select: ({ val }) => ({
+        title: val.title,
+        subtitle: val.author,
+      }),
+    }),
   {
     "/blogs/blog2": {
       title: "Blog 2",
@@ -231,7 +243,7 @@ export default c.define(
       },
     },
     "/blogs/blog-15": {
-      title: "Blog 1",
+      title: "Blog dette er jo sinnsyjt! men hvorfor har vi to feil?",
       content: [
         {
           tag: "p",

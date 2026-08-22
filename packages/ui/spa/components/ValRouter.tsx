@@ -93,7 +93,15 @@ export function ValRouter({
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
-  const [sessionParam, setSessionParamState] = useState<string | null>(null);
+  // Read `?session=` synchronously on the first render: consumers capture this
+  // value once on mount (see initialSessionIdRef in ToolsMenu), so populating
+  // it from the popstate listener alone would miss a session id that was
+  // already in the URL on initial page load.
+  const [sessionParam, setSessionParamState] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("session"),
+  );
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {

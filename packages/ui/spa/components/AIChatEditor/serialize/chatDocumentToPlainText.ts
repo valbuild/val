@@ -37,21 +37,40 @@ function listItemToText(
   indent: string,
 ): string {
   const lines: string[] = [];
-  let isFirstParagraph = true;
+  // The marker goes on the item's first line of text; everything after it is
+  // continuation, aligned under the marker.
+  let isFirstLine = true;
+  const pushTextLine = (text: string) => {
+    lines.push(`${isFirstLine ? `${indent}${marker} ` : `${indent}  `}${text}`);
+    isFirstLine = false;
+  };
   for (const child of item.children) {
-    if (child.tag === "p") {
-      const prefix = isFirstParagraph ? `${indent}${marker} ` : `${indent}  `;
-      lines.push(`${prefix}${inlineContentToText(child.children)}`);
-      isFirstParagraph = false;
-    } else if (child.tag === "ul") {
-      for (const nested of child.children) {
-        lines.push(listItemToText(nested, "-", `${indent}  `));
-      }
-    } else if (child.tag === "ol") {
-      let i = 0;
-      for (const nested of child.children) {
-        lines.push(listItemToText(nested, `${i + 1}.`, `${indent}  `));
-        i += 1;
+    switch (child.tag) {
+      case "p":
+      case "h1":
+      case "h2":
+      case "h3":
+        pushTextLine(inlineContentToText(child.children));
+        break;
+      case "blockquote":
+        // A list item may hold any block (`"paragraph block*"`), so a
+        // blockquote has to be rendered rather than dropped.
+        for (const line of blockToText(child).split("\n")) {
+          pushTextLine(line);
+        }
+        break;
+      case "ul":
+        for (const nested of child.children) {
+          lines.push(listItemToText(nested, "-", `${indent}  `));
+        }
+        break;
+      case "ol": {
+        let i = 0;
+        for (const nested of child.children) {
+          lines.push(listItemToText(nested, `${i + 1}.`, `${indent}  `));
+          i += 1;
+        }
+        break;
       }
     }
   }

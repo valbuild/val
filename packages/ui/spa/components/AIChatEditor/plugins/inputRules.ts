@@ -7,16 +7,36 @@ import {
 import type { MarkType, Schema } from "prosemirror-model";
 import type { Plugin } from "prosemirror-state";
 
-function markingInputRule(regex: RegExp, markType: MarkType): InputRule {
+/**
+ * Turns `*text*`-style markup into a mark as it is typed.
+ *
+ * `regex` must capture the text to mark in group 1 and be delimited by
+ * `delimiter` on both sides. It MAY also match characters in front of the
+ * opening delimiter that are not part of the markup - the italic rule has to
+ * look at the character before the `*` so that the inner `*bold*` of `**bold**`
+ * does not trigger it. Those characters have to survive, so the replacement
+ * starts past them instead of at the start of the match, which would delete
+ * them.
+ *
+ * The offset is measured forward from `start` rather than back from `end`
+ * because the closing delimiter the user just typed is not in the document yet:
+ * `end` is the end of the text that precedes it.
+ */
+function markingInputRule(
+  regex: RegExp,
+  delimiter: string,
+  markType: MarkType,
+): InputRule {
   return new InputRule(regex, (state, match, start, end) => {
     const captured = match[1];
     if (!captured) return null;
+    const prefixLength =
+      match[0].length - (delimiter.length * 2 + captured.length);
+    if (prefixLength < 0) return null;
     const tr = state.tr;
-    const startReplace = start;
-    const endReplace = end;
     tr.replaceWith(
-      startReplace,
-      endReplace,
+      start + prefixLength,
+      end,
       state.schema.text(captured, [markType.create()]),
     );
     tr.removeStoredMark(markType);
@@ -44,10 +64,16 @@ export function buildChatInputRules(schema: Schema): Plugin {
     ),
   );
 
-  rules.push(markingInputRule(/\*\*([^*]+)\*\*$/, schema.marks.bold));
-  rules.push(markingInputRule(/(?:^|[^*])\*([^*]+)\*$/, schema.marks.italic));
-  rules.push(markingInputRule(/~~([^~]+)~~$/, schema.marks.strikethrough));
-  rules.push(markingInputRule(/`([^`]+)`$/, schema.marks.code));
+  rules.push(markingInputRule(/\*\*([^*]+)\*\*$/, "**", schema.marks.bold));
+  // The leading `[^*]` keeps this from firing on the inner `*bold*` of
+  // `**bold**`; markingInputRule preserves whatever it matches.
+  rules.push(
+    markingInputRule(/(?:^|[^*])\*([^*]+)\*$/, "*", schema.marks.italic),
+  );
+  rules.push(
+    markingInputRule(/~~([^~]+)~~$/, "~~", schema.marks.strikethrough),
+  );
+  rules.push(markingInputRule(/`([^`]+)`$/, "`", schema.marks.code));
 
   return inputRules({ rules });
 }

@@ -13,10 +13,12 @@ import { VAL_CSS_PATH, VERSION } from "../src";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
+import { useValModules } from "./hooks/useValModules";
 import { Themes } from "./components/ValThemeProvider";
 
 function App() {
   const config = useConfig();
+  const valModules = useValModules();
   const host = "/api/val"; // TODO: make configurable
   const { client } = useMemo(() => {
     const client = createValClient(host, {
@@ -73,6 +75,7 @@ function App() {
             <ValStudio
               client={client}
               config={config}
+              valModules={valModules}
               cssLoaded={cssLoaded}
               theme={theme}
               setTheme={setTheme}

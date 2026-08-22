@@ -16,6 +16,8 @@ export type SerializedLiteralSchema = {
   value: string;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -24,6 +26,8 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     private readonly value: string,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -34,6 +38,8 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       this.value,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -45,6 +51,8 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       this.value,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -133,6 +141,30 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       this.value,
       true,
       [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): LiteralSchema<Src> {
+    return new LiteralSchema<Src>(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): LiteralSchema<Src> {
+    return new LiteralSchema<Src>(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
       this.description,
     );
   }
@@ -145,6 +177,8 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

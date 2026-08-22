@@ -46,7 +46,13 @@ export interface ChatHeadingNode {
 
 export interface ChatListItemNode {
   tag: "li";
-  children: (ChatParagraphNode | ChatBulletListNode | ChatOrderedListNode)[];
+  /**
+   * Any block, to match the schema: `list_item` is `"paragraph block*"`, so a
+   * list item can hold a heading or a blockquote as well as paragraphs and
+   * nested lists. Narrowing this to paragraph/ul/ol only forced a cast in the
+   * serializer and hid those cases from every consumer.
+   */
+  children: ChatBlockNode[];
 }
 
 export interface ChatBulletListNode {

@@ -15,6 +15,9 @@ export const AITool = z.object({
     properties: z.record(z.string(), z.unknown()),
     required: z.array(z.string()).optional(),
   }),
+  // Optional server-side timeout for waiting on the matching ai_tool_result.
+  // Omitted → server default (30s). A number → wait that many ms. null → wait indefinitely.
+  timeoutMs: z.union([z.number().nonnegative(), z.null()]).optional(),
 });
 
 export type AITool = z.infer<typeof AITool>;

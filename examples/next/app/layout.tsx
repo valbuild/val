@@ -1,5 +1,6 @@
 import { ValProvider } from "@valbuild/next";
 import { config } from "../val.config";
+import { ValModulesClient } from "./ValModulesClient";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -19,7 +20,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ValProvider config={config}>{children}</ValProvider>
+        <ValProvider config={config} suspend>
+          <ValModulesClient />
+          {children}
+        </ValProvider>
       </body>
     </html>
   );

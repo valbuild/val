@@ -11,6 +11,7 @@ import {
   traverseSchemaSource,
   flattenRichText,
 } from "../utils/traverseSchemaSource";
+import { getFilenameFromRef } from "../utils/getFilenameFromRef";
 import type { WorkerRequest, WorkerResponse } from "./worker-types";
 
 let index: Index | null = null;
@@ -43,6 +44,7 @@ function buildIndex(
         schema.type === "number" ||
         schema.type === "boolean" ||
         schema.type === "date" ||
+        schema.type === "dateTime" ||
         schema.type === "keyOf" ||
         schema.type === "route"
       ) {
@@ -67,8 +69,8 @@ function buildIndex(
           typeof source[FILE_REF_PROP] === "string"
         ) {
           const filename = source[FILE_REF_PROP] as string;
-          // Extract just the filename from the path
-          const filenameOnly = filename.replace("/public/val/", "");
+          // Extract just the basename (handles local and remote refs)
+          const filenameOnly = getFilenameFromRef(filename);
           const metadata = source?.metadata;
           const alt =
             metadata && typeof metadata === "object" && "alt" in metadata
