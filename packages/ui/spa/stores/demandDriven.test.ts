@@ -1,5 +1,5 @@
 import { initVal } from "@valbuild/core";
-import { initTestSystem, sp } from "./testSystem";
+import { initTestSystem, mfp, sp } from "./testSystem";
 
 /**
  * Render and search are the two most expensive things in the system, and neither
@@ -409,6 +409,126 @@ describe("search reindexes per module", () => {
       throw new Error("expected results");
     }
     expect(hello.results.map((hit) => hit.path).sort()).toEqual([
+      '/a.val.ts?p="title"',
+      '/c.val.ts?p="title"',
+    ]);
+    dispose();
+  });
+});
+
+describe("search reindexes exactly the modules that changed", () => {
+  const three = () => [
+    plainModule("/a.val.ts"),
+    plainModule("/b.val.ts"),
+    plainModule("/c.val.ts"),
+  ];
+
+  it("reindexes both changed modules and leaves the third alone", async () => {
+    const { sourceStore, patchStore, search, activity, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive(three());
+    await search("Hello");
+
+    await patchStore.createPatch("/a.val.ts", [
+      { op: "replace", path: ["title"], value: "Alpha" },
+    ]);
+    await patchStore.createPatch("/c.val.ts", [
+      { op: "replace", path: ["title"], value: "Gamma" },
+    ]);
+    const before = activity.position();
+    await search("Alpha");
+
+    expect(activity.count("search:index-module", { since: before })).toBe(2);
+    expect(
+      activity.count("search:index-module", {
+        since: before,
+        subject: "/b.val.ts",
+      }),
+    ).toBe(0);
+    dispose();
+  });
+
+  /**
+   * Staleness is a set, so 40 keystrokes in one module owe ONE index pass. If
+   * this counted edits instead, indexing would be back on the keystroke path by
+   * a slower route.
+   */
+  it("indexes once however many times a module changed", async () => {
+    const { sourceStore, patchStore, search, activity, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive(three());
+    await search("Hello");
+
+    for (let index = 0; index < 5; index++) {
+      await patchStore.createPatch("/b.val.ts", [
+        { op: "replace", path: ["title"], value: `Edit ${index}` },
+      ]);
+    }
+    const before = activity.position();
+    await search("Edit");
+
+    expect(activity.count("search:index-module", { since: before })).toBe(1);
+    dispose();
+  });
+
+  it("indexes a module that arrived after the index was built", async () => {
+    const { sourceStore, search, activity, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([plainModule("/a.val.ts")]);
+    await search("Hello");
+
+    await sourceStore.testReceive([plainModule("/late.val.ts")]);
+    const before = activity.position();
+    const found = await search("Hello");
+
+    // The new module is walked; the one already indexed is not walked again.
+    expect(
+      activity.count("search:index-module", {
+        since: before,
+        subject: "/late.val.ts",
+      }),
+    ).toBe(1);
+    expect(
+      activity.count("search:index-module", {
+        since: before,
+        subject: "/a.val.ts",
+      }),
+    ).toBe(0);
+    if (found.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(found.results.map((hit) => hit.path).sort()).toEqual([
+      '/a.val.ts?p="title"',
+      '/late.val.ts?p="title"',
+    ]);
+    dispose();
+  });
+
+  /**
+   * A module that has gone away, as distinct from one that changed. Leaving its
+   * documents in place keeps them searchable, and a hit on one navigates to a
+   * path that no longer exists — which is worse than a missing result, because it
+   * looks like a broken link rather than an empty search.
+   */
+  it("drops a forgotten module's documents and leaves the rest searchable", async () => {
+    const { sourceStore, searchStore, search, dispose } = initTestSystem();
+
+    await sourceStore.testReceive(three());
+    const before = await search("Hello");
+    if (before.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(before.results).toHaveLength(3);
+
+    searchStore.forget(mfp("/b.val.ts"));
+
+    const after = await search("Hello");
+    if (after.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(after.results.map((hit) => hit.path).sort()).toEqual([
       '/a.val.ts?p="title"',
       '/c.val.ts?p="title"',
     ]);
