@@ -8,6 +8,7 @@ export default modules(config, [
   { def: () => import("./app/generic/[[...path]]/page.val") },
   { def: () => import("./content/media.val") },
   { def: () => import("./content/icons.val") },
+  { def: () => import("./content/theme.val") },
   { def: () => import("./app/page.val") },
   { def: () => import("./app/external.val") },
   // Fixtures for the .jsonValues() walkthrough (docs/plans/jsonValues-walkthrough.md)

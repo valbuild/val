@@ -5,6 +5,7 @@ import { RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
+import { ColorSchema } from "./color";
 import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
@@ -260,6 +261,15 @@ function deserializeSchemaImpl(
       );
     case "dateTime":
       return new DateTimeSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    case "color":
+      return new ColorSchema(
         serialized.options,
         serialized.opt,
         [],

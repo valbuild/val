@@ -2,6 +2,7 @@ import { Schema, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { array } from "./array";
 import { boolean } from "./boolean";
+import { color } from "./color";
 import { date } from "./date";
 import { svg } from "./svg";
 import { deserializeSchema } from "./deserialize";
@@ -47,6 +48,14 @@ describe("Schema.describe()", () => {
     expect(schema["executeSerialize"]()).toMatchObject({
       type: "svg",
       description: "Brand icon",
+    });
+  });
+
+  test("color: describe is serialized", () => {
+    const schema = color().describe("Brand color");
+    expect(schema["executeSerialize"]()).toMatchObject({
+      type: "color",
+      description: "Brand color",
     });
   });
 
@@ -290,6 +299,16 @@ describe("Schema.describe() survives serialize → deserialize round-trip", () =
       type: "svg",
       description: "Brand icon",
       options: { variables: { brand: "#0055ff" } },
+    });
+  });
+
+  test("color", () => {
+    expect(
+      roundTrip(color({ format: "hex" }).describe("Brand color")),
+    ).toMatchObject({
+      type: "color",
+      options: { format: "hex" },
+      description: "Brand color",
     });
   });
 

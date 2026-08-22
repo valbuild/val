@@ -37,6 +37,7 @@ export function findRequiredRemoteFiles(schema: SerializedSchema) {
     schema.type === "string" ||
     schema.type === "date" ||
     schema.type === "dateTime" ||
+    schema.type === "color" ||
     schema.type === "keyOf" ||
     schema.type === "route" ||
     schema.type === "svg" ||

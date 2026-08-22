@@ -14,6 +14,7 @@ import { SerializedRichTextSchema } from "./richtext";
 import { SerializedSvgSchema } from "./svg";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
@@ -45,6 +46,7 @@ export type SerializedSchema =
   | SerializedFileSchema
   | SerializedDateSchema
   | SerializedDateTimeSchema
+  | SerializedColorSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 
