@@ -92,6 +92,14 @@ export class Service {
     const moduleError = this.extracted.moduleErrors.find(
       (e) => e.path === moduleFilePath,
     );
+    // A module whose `def()` threw is recorded WITHOUT a path: the import never
+    // got far enough to reveal one, so it cannot be matched above. Those errors
+    // are precisely why a module can be missing here, so report them too -
+    // "was not found in val.modules" alone sends the reader hunting for a
+    // registration that is already there.
+    const unattributedModuleErrors = this.extracted.moduleErrors.filter(
+      (e) => e.path === undefined,
+    );
 
     if (
       source === undefined ||
@@ -102,13 +110,16 @@ export class Service {
         path: moduleFilePath as string as SourcePath,
         errors: {
           invalidModulePath: moduleFilePath,
-          fatal: [
-            {
-              message:
-                moduleError?.message ??
-                `Module '${moduleFilePath}' was not found in val.modules`,
-            },
-          ],
+          fatal: moduleError
+            ? [{ message: moduleError.message }]
+            : [
+                {
+                  message: `Module '${moduleFilePath}' was not found in val.modules`,
+                },
+                ...unattributedModuleErrors.map((e) => ({
+                  message: e.message,
+                })),
+              ],
         },
       };
     }
