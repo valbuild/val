@@ -247,8 +247,13 @@ function getTextContent(content: AIMessageContent): string {
 // HTML-esque tag set that the rich chat editor produces (see
 // chatDocumentToHtmlText). Restored sessions arrive as strings containing
 // these tags, so we re-render them as formatted React instead of literal text.
+//
+// Must stay in sync with the cases renderHtmlNode handles - including the
+// b/i/s aliases it accepts for strong/em/del. A tag the renderer supports but
+// this gate omits makes the whole message fall through and render its markup
+// as literal text.
 const USER_HTML_TAG_RE =
-  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|em|del|code|br|img|field)\b/i;
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
 
 function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
   return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
@@ -347,7 +352,9 @@ function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
       );
     }
     default:
-      return <>{children}</>;
+      // Rendered from renderHtmlChildren's map, so this needs a key like every
+      // other branch - a shorthand fragment cannot carry one.
+      return <React.Fragment key={key}>{children}</React.Fragment>;
   }
 }
 

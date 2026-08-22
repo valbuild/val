@@ -55,10 +55,7 @@ function serializeListItems(node: PMNode): ChatListItemNode[] {
         const block = serializeBlockNode(liChild);
         if (block) children.push(block);
       });
-      items.push({
-        tag: "li",
-        children: children as ChatListItemNode["children"],
-      });
+      items.push({ tag: "li", children });
     }
   });
   return items;

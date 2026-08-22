@@ -59,10 +59,14 @@ export function createChatImageNodeView() {
       ignoreMutation() {
         return true;
       },
-      // Note: we intentionally do NOT revoke the blob URL on destroy. Once the
-      // user sends the message, the URL is "transferred" to the user bubble in
-      // AIChat — clearing the editor must not invalidate it. Blob URLs are
-      // released when the page is reloaded.
+      // Note: we intentionally do NOT revoke the blob URL, on destroy or on
+      // remove. On destroy, the URL has been "transferred" to the user bubble
+      // in AIChat once the message is sent, so clearing the editor must not
+      // invalidate it. On remove, the deletion is undoable and we do not keep
+      // the File around, so a revoked URL would come back as a broken preview.
+      // The leak is bounded by the images inserted in one session and is
+      // released on reload; a broken image would be worse. (Upload FAILURES do
+      // revoke - see insertImageWithUpload, where the delete is not undoable.)
     };
   };
 }
@@ -133,11 +137,19 @@ export function insertImageWithUpload(
       console.error("AI chat image upload failed", err);
       view.state.doc.descendants((n, pos) => {
         if (n.type === imageType && n.attrs.key === pendingKey) {
-          view.dispatch(view.state.tr.delete(pos, pos + n.nodeSize));
+          // Not undoable: the upload failed, so the image can never be sent -
+          // restoring the node would only put back a preview with no key.
+          // That also makes revoking the blob URL below safe.
+          view.dispatch(
+            view.state.tr
+              .delete(pos, pos + n.nodeSize)
+              .setMeta("addToHistory", false),
+          );
           return false;
         }
         return true;
       });
+      URL.revokeObjectURL(previewUrl);
     });
 
   return true;
