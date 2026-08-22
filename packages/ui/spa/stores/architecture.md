@@ -225,6 +225,50 @@ Patch sets follow the same rule for a different reason: they are built from the
 chain when the review UI asks, not accumulated per patch. The store always said
 so; the wiring used not to.
 
+## `.jsonValues()` should load through source, on the host — hypothesis
+
+Not implemented, and recorded here because the prototype currently ignores
+`.jsonValues()` entirely, which will not survive contact with a real project.
+
+The shape the rest of this design implies:
+
+A `.jsonValues()` record's on-disk source holds opaque `{_type:"json"}` MARKERS,
+and each entry's content is fetched separately (`GET /json`). Today the engine
+keeps that content in a field beside source (`jsonEntryContents`) and
+`getPatchedSource` substitutes it in on read. That substitution is the right
+idea and it belongs in the **source store**, for the same reason patched source
+does: it is what every reader reads, and the host realm is where readers are.
+
+What makes it fit rather than being extra machinery is that the demand signal is
+already there. A read is `get(path, head)`, so a read at a path INSIDE an
+unloaded entry is exactly the moment the content is wanted — the same rule as a
+render being computed when a listener appears. So:
+
+- a read inside an unloaded entry answers `module-loading` and starts the fetch;
+- it must NOT answer `absent`, which is the trap the `absent` /
+  `module-loading` split (invariant 3) exists to avoid: a path inside a marker is
+  unknown, not missing, and collapsing the two makes a loaded-but-empty field
+  indistinguishable from a field whose content has not arrived;
+- the entry KEY SET is loaded even when no content is, so a read of the keys is
+  `resolved-head` while a read inside an entry is `module-loading`. Two different
+  answers about the same record, which is why the load state cannot be per
+  module.
+
+The consequence to carry into every walker: a walk over source is **partial**
+while entries are markers. Search already treats a partial index as normal and
+reports `staleModules`. Reference resolution and the delete/rename guards cannot
+— `useJsonValuesLoad.ts` already establishes that contract, and it is worth
+restating: "no references found" means nothing while entries are unloaded, so a
+destructive action must gate on a status, never on an empty result. Custom
+validation has the same problem and `collectCustomValidateTargets` already
+returns `needsJsonKeys` for it.
+
+Open: whether loading an entry bumps the head. It changes what a read returns
+without being a patch, so either the head stops being the only staleness signal
+for reads, or entry loads get their own revision. Probably the latter — a
+content load is not an edit, and making it move the patch head would invalidate
+every reader in the project for something no one edited.
+
 ## The invariants
 
 ### 1. If an event went out, the source behind it is already applied
@@ -339,10 +383,14 @@ finished work.
   Nothing has been wired to `postMessage`.
 - **No per-module patch-set reset.** `PatchSets` has no per-module removal, so
   `PatchSetStore.reset(modules)` throws rather than quietly resetting everything.
-- **Search rebuilds whole.** Incremental update needs a per-module document-id
-  list this prototype does not keep. It is at least lazy now: a QUERY builds the
-  index, so a caller can no longer get an empty result set because it forgot to
-  prime the store.
+- ~~**Search rebuilds whole.**~~ **Done.** Indexing is per module. The stated
+  blocker — "incremental update needs a per-module document-id list" — turned out
+  to be half wrong: the document ids ARE the source paths (`index.add(path, …)`),
+  so nothing opaque was ever involved, and `SearchIndex` now keeps
+  `docsByModule` only so removal costs O(that module) instead of O(the project).
+  A query indexes what it owes and nothing else, and the gather is scoped to the
+  same set — so one edit then one query no longer copies and re-walks every
+  module.
 - **`stat` has no real input.** No polling, no websocket, and it ignores
   `baseSha`/`schemaSha`/`sourcesSha`. Those are inputs to `schemaStore.receive`,
   not new events.

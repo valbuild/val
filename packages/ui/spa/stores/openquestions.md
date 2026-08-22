@@ -222,6 +222,11 @@ was **deleted** rather than committed, per instruction.
 
 ## 10. Smaller correctness questions 🟢
 
+- [ ] **`.jsonValues()` is not handled at all** (see the hypothesis in
+      `architecture.md`). The prototype has no marker substitution, so a project
+      using `.jsonValues()` would read paths inside unloaded entries as `absent`
+      — the precise confusion invariant 3 exists to prevent. Decide whether an
+      entry load bumps the head or carries its own revision.
 - [ ] **Global head wastes reads.** A patch in module A makes a reader in module B
       stale, so it re-asks and gets its unchanged value back. Correct, never
       wrong — but the volume is unmeasured. If it is high, a per-module revision

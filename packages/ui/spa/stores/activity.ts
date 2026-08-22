@@ -83,6 +83,8 @@ export type WorkKind =
   | "patch-set:serialize"
   /** Gathering the whole-project snapshot to hand across the worker seam. */
   | "search:gather-snapshot"
+  /** One module was walked and its documents replaced. */
+  | "search:index-module"
   | "search:build-index"
   | "search:query";
 

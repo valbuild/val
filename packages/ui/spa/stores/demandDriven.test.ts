@@ -254,7 +254,9 @@ describe("search is driven by demand, not by change", () => {
     const result = await search("Hello");
 
     expect(result.status).toBe("results");
-    expect(activity.count("search:build-index")).toBe(1);
+    // Counted per module, because indexing IS per module now — there is no
+    // whole-project build on the query path to count.
+    expect(activity.count("search:index-module")).toBe(1);
     dispose();
   });
 
@@ -276,7 +278,8 @@ describe("search is driven by demand, not by change", () => {
     const second = await search("Hello");
 
     expect(second.status).toBe("results");
-    expect(activity.count("search:build-index", { since: before })).toBe(0);
+    expect(activity.count("search:index-module", { since: before })).toBe(0);
+    expect(activity.count("search:gather-snapshot", { since: before })).toBe(0);
     dispose();
   });
 
@@ -300,7 +303,7 @@ describe("search is driven by demand, not by change", () => {
 
     const found = await search("Goodbye");
 
-    expect(activity.count("search:build-index", { since: before })).toBe(1);
+    expect(activity.count("search:index-module", { since: before })).toBe(1);
     if (found.status !== "results") {
       throw new Error("expected results");
     }
@@ -325,6 +328,90 @@ describe("search is driven by demand, not by change", () => {
 
     expect(activity.count("search:gather-snapshot")).toBe(0);
     expect(activity.count("search:build-index")).toBe(0);
+    dispose();
+  });
+});
+
+describe("search reindexes per module", () => {
+  const three = () => [
+    plainModule("/a.val.ts"),
+    plainModule("/b.val.ts"),
+    plainModule("/c.val.ts"),
+  ];
+
+  it("indexes every module on the first query", async () => {
+    const { sourceStore, search, activity, dispose } = initTestSystem();
+
+    await sourceStore.testReceive(three());
+    await search("Hello");
+
+    expect(activity.count("search:index-module")).toBe(3);
+    dispose();
+  });
+
+  /**
+   * The point of the whole thing: editing one field of one module must not
+   * re-walk every leaf of every other module. Indexing is the most expensive
+   * walk in the system, so paying for it in full to serve a one-character
+   * change is the shape of problem this design exists to remove.
+   */
+  it("reindexes only the edited module on the next query", async () => {
+    const { sourceStore, patchStore, search, activity, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive(three());
+    await search("Hello");
+
+    await patchStore.createPatch("/b.val.ts", [
+      { op: "replace", path: ["title"], value: "Goodbye" },
+    ]);
+    const before = activity.position();
+    const found = await search("Goodbye");
+
+    expect(activity.count("search:index-module", { since: before })).toBe(1);
+    expect(
+      activity.count("search:index-module", {
+        since: before,
+        subject: "/b.val.ts",
+      }),
+    ).toBe(1);
+    // And the gather — the one whole-project copy — is scoped to it too.
+    expect(activity.count("search:gather-snapshot", { since: before })).toBe(1);
+    if (found.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(found.results.length).toBeGreaterThan(0);
+    dispose();
+  });
+
+  /** The edit has to actually be findable, or "reindexed one module" is a lie. */
+  it("makes the edited value findable and drops the old one", async () => {
+    const { sourceStore, patchStore, search, dispose } = initTestSystem();
+
+    await sourceStore.testReceive(three());
+    await search("Hello");
+
+    await patchStore.createPatch("/b.val.ts", [
+      { op: "replace", path: ["title"], value: "Zebra" },
+    ]);
+
+    const zebra = await search("Zebra");
+    if (zebra.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(zebra.results.map((hit) => hit.path)).toEqual([
+      '/b.val.ts?p="title"',
+    ]);
+
+    // The other two still hold "Hello"; the edited one must no longer.
+    const hello = await search("Hello");
+    if (hello.status !== "results") {
+      throw new Error("expected results");
+    }
+    expect(hello.results.map((hit) => hit.path).sort()).toEqual([
+      '/a.val.ts?p="title"',
+      '/c.val.ts?p="title"',
+    ]);
     dispose();
   });
 });

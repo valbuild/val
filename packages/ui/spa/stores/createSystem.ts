@@ -189,6 +189,29 @@ export function createSystem(options: SystemOptions): System {
     }),
   ];
 
+  /**
+   * Copy source + schema for the named modules, to hand across the worker seam.
+   *
+   * The one place the system copies module source, so it is counted with the
+   * number of modules it touched: "how much of the project got gathered, and how
+   * often" is the question this instrumentation exists to answer.
+   */
+  function gatherSnapshot(modules: ModuleFilePath[]): SourceSnapshot {
+    const schemas = schemaStore.all();
+    const snapshot: SourceSnapshot = {};
+    activity.work("search:gather-snapshot", undefined, modules.length);
+    for (const moduleFilePath of modules) {
+      const schema = schemas[moduleFilePath];
+      const source = sourceStore.moduleSource(moduleFilePath);
+      // A module without a schema cannot be walked — the walk is schema-driven.
+      // Skipping keeps it out of `all`, so it reads as not-indexed rather than
+      // as indexed-and-empty.
+      if (schema === undefined || source === undefined) continue;
+      snapshot[moduleFilePath] = { source, schema };
+    }
+    return snapshot;
+  }
+
   return {
     host,
     stat,
@@ -207,32 +230,24 @@ export function createSystem(options: SystemOptions): System {
       );
     },
     async search(query, limit, offset) {
+      // Gather ONLY what the index owes a pass for. On a first query that is
+      // every loaded module; after an edit it is the one module that changed.
+      // The gather is the whole-project copy, so scoping it here is the point:
+      // one edit then one query used to clone and re-walk the entire project.
       if (searchStore.needsIndex()) {
-        await this.buildSearchIndex();
+        const stale = searchStore.staleModules();
+        const target =
+          searchStore.indexedModules().length === 0
+            ? sourceStore.loadedModules()
+            : stale;
+        await searchStore.reindex(gatherSnapshot(target));
       }
       return searchStore.search(query, limit, offset);
     },
     async buildSearchIndex() {
-      const schemas = schemaStore.all();
-      const snapshot: SourceSnapshot = {};
-      // Counted separately from the index build: this is the one operation in
-      // the system that touches every module, so "how often does the whole
-      // project get gathered" has to be answerable on its own.
-      activity.work(
-        "search:gather-snapshot",
-        undefined,
-        sourceStore.loadedModules().length,
+      return searchStore.buildIndex(
+        gatherSnapshot(sourceStore.loadedModules()),
       );
-      for (const moduleFilePath of sourceStore.loadedModules()) {
-        const schema = schemas[moduleFilePath];
-        const source = sourceStore.moduleSource(moduleFilePath);
-        // A module without a schema cannot be walked — the walk is
-        // schema-driven. Skipping keeps it out of `all`, so it reads as
-        // not-indexed rather than as indexed-and-empty.
-        if (schema === undefined || source === undefined) continue;
-        snapshot[moduleFilePath] = { source, schema };
-      }
-      return searchStore.buildIndex(snapshot);
     },
     dispose() {
       for (const off of unsubscribe) off();

@@ -5,8 +5,10 @@ import type {
   SourcePath,
 } from "@valbuild/core";
 import {
-  buildSearchIndex,
+  createSearchIndex,
+  indexModule,
   performSearch,
+  removeModule,
   type SearchIndex,
 } from "../search/searchIndex";
 import { StoreBus } from "./StoreBus";
@@ -97,13 +99,75 @@ export class SearchStore {
     return this.index === null || this.stale.size > 0;
   }
 
+  /** Which modules the next query owes an index pass for. */
+  staleModules(): ModuleFilePath[] {
+    return [...this.stale];
+  }
+
+  /** Everything currently in the index. */
+  indexedModules(): ModuleFilePath[] {
+    return [...this.indexed];
+  }
+
   /**
-   * Build (or rebuild) the index from the given snapshot.
+   * Index the modules in `snapshot`, leaving every other module's documents
+   * alone.
    *
-   * A full rebuild, not an incremental update: FlexSearch can remove and re-add
-   * documents by id, but `buildSearchIndex` derives ids inside its own walk, so
-   * incremental update needs a per-module document-id list this prototype does
-   * not keep.
+   * Incremental per module, which is possible because the document ids ARE the
+   * source paths: `SearchIndex` keeps which ids came from which module, so one
+   * module's documents can be dropped and re-added without walking any other.
+   * Editing one field of one module used to mean re-walking every leaf of every
+   * module in the project — the most expensive walk in the system, paid in full
+   * for a change to one string.
+   *
+   * `snapshot` must carry the modules to index and nothing else; the caller
+   * decides which those are (`staleModules()`), because only the host side can
+   * gather source.
+   */
+  async reindex(snapshot: SourceSnapshot): Promise<{
+    new: ModuleFilePath[];
+    all: ModuleFilePath[];
+  }> {
+    const target = Object.keys(snapshot) as ModuleFilePath[];
+    if (this.index === null) {
+      this.index = createSearchIndex();
+    }
+    const added: ModuleFilePath[] = [];
+    for (const moduleFilePath of target) {
+      this.activity.work("search:index-module", moduleFilePath);
+      const entry = snapshot[moduleFilePath];
+      indexModule(this.index, moduleFilePath, entry.source, entry.schema);
+      if (!this.indexed.has(moduleFilePath)) {
+        added.push(moduleFilePath);
+      }
+      this.indexed.add(moduleFilePath);
+      this.stale.delete(moduleFilePath);
+    }
+    const result = { new: added, all: [...this.indexed] };
+    this.events.emit({ type: "search:build-index", ...result });
+    return result;
+  }
+
+  /**
+   * Drop a module from the index entirely.
+   *
+   * For a module that has gone away, as opposed to one that changed: leaving its
+   * documents in place makes them searchable, and a hit on one navigates to a
+   * path that no longer exists.
+   */
+  forget(moduleFilePath: ModuleFilePath): void {
+    if (this.index !== null) {
+      removeModule(this.index, moduleFilePath);
+    }
+    this.indexed.delete(moduleFilePath);
+    this.stale.delete(moduleFilePath);
+  }
+
+  /**
+   * Index everything in `snapshot` from scratch, discarding what was there.
+   *
+   * Kept for the case where the whole index is suspect — a schema-wide change,
+   * or a first build. Routine change is served by {@link reindex}.
    */
   async buildIndex(snapshot: SourceSnapshot): Promise<{
     new: ModuleFilePath[];
@@ -114,16 +178,10 @@ export class SearchStore {
       undefined,
       Object.keys(snapshot).length,
     );
-    this.index = buildSearchIndex(snapshot);
-    const all = Object.keys(snapshot) as ModuleFilePath[];
-    const added = all.filter(
-      (moduleFilePath) => !this.indexed.has(moduleFilePath),
-    );
-    this.indexed = new Set(all);
+    this.index = createSearchIndex();
+    this.indexed = new Set();
     this.stale.clear();
-    const result = { new: added, all };
-    this.events.emit({ type: "search:build-index", ...result });
-    return result;
+    return this.reindex(snapshot);
   }
 
   async search(
