@@ -20,14 +20,31 @@ export function totalSitemapErrorCount(item: SitemapItem): number {
 /**
  * Recursively sum the validation errors under an explorer item.
  *
- * Directories don't contribute their own errors. Falls back to the legacy
- * boolean `hasError` for callers that haven't moved to the new `errors`
- * shape (mockData primarily).
+ * Directories contribute nothing of their own. That is not a stylistic choice:
+ * `NavMenuWrapper` sets the legacy `hasError` on a directory whenever ANY
+ * descendant has errors, so counting it as one would add +1 for every folder on
+ * the path to each error - a file three folders deep reported as four errors.
+ * The fallback is therefore for leaf nodes only.
  */
 export function totalExplorerErrorCount(item: ExplorerItem): number {
-  let count = item.errors?.ownCount ?? (item.hasError ? 1 : 0);
+  let count = ownExplorerErrorCount(item);
   for (const child of item.children) {
     count += totalExplorerErrorCount(child);
   }
   return count;
+}
+
+/**
+ * The errors that resolve to this explorer node itself - zero for a directory,
+ * whose `hasError` only ever means "something below me". Shared with the row so
+ * the badge and the name tint agree.
+ */
+export function ownExplorerErrorCount(item: ExplorerItem): number {
+  if (item.errors) {
+    return item.errors.ownCount;
+  }
+  if (item.isDirectory) {
+    return 0;
+  }
+  return item.hasError ? 1 : 0;
 }

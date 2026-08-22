@@ -1,26 +1,33 @@
 import { useMemo } from "react";
-import { ModuleFilePath, SerializedSchema, SourcePath } from "@valbuild/core";
-import { ValidationError } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 import { useTrees } from "../useTrees";
 import {
   useShallowModulesAtPaths,
   useNextAppRouterSrcFolder,
 } from "../ValProvider";
 import { useSchemas } from "../ValFieldProvider";
-import { Internal } from "@valbuild/core";
 import {
   getNextAppRouterSitemapTree,
   SitemapNode,
   PageNode,
   parseRoutePattern,
 } from "@valbuild/shared/internal";
-import { NavMenuData, SitemapItem, ExplorerItem, NavItemErrors } from "./types";
+import { NavMenuData, SitemapItem, ExplorerItem } from "./types";
 import { collectMediaModules } from "./media";
+import {
+  NavErrorsIndex,
+  errorsForModuleFilePath,
+  errorsForSitemapEntry,
+  indexNavErrors,
+} from "./navErrors";
 import { PathNode } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
 import { useAllValidationErrors } from "../ValErrorProvider";
-
-type ErrorsMap = Record<SourcePath, ValidationError[] | undefined>;
 
 /**
  * Transforms a SitemapNode (from shared/internal) to our SitemapItem type.
@@ -31,7 +38,7 @@ type ErrorsMap = Record<SourcePath, ValidationError[] | undefined>;
  */
 function transformSitemapNode(
   node: SitemapNode | PageNode,
-  errorsMap: ErrorsMap,
+  navErrors: NavErrorsIndex,
   schemas?: Record<ModuleFilePath, SerializedSchema>,
 ): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
@@ -45,7 +52,7 @@ function transformSitemapNode(
 
   const sourcePath = node.sourcePath as SourcePath | undefined;
   const errors = sourcePath
-    ? collectErrorsForSitemapEntry(errorsMap, sourcePath)
+    ? errorsForSitemapEntry(navErrors, sourcePath)
     : undefined;
   const moduleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
   const routerSchema =
@@ -64,7 +71,7 @@ function transformSitemapNode(
     keyDescription,
     errors,
     children: node.children.map((child) =>
-      transformSitemapNode(child, errorsMap, schemas),
+      transformSitemapNode(child, navErrors, schemas),
     ),
   };
 }
@@ -78,13 +85,13 @@ function transformSitemapNode(
  */
 function transformPathNode(
   node: PathNode,
-  errorsMap: ErrorsMap,
+  navErrors: NavErrorsIndex,
   excludedPaths: ReadonlySet<string>,
 ): ExplorerItem {
   const isDirectory = !!node.isDirectory;
   const errors =
     !isDirectory && node.fullPath
-      ? collectErrorsForModuleFilePath(errorsMap, node.fullPath)
+      ? errorsForModuleFilePath(navErrors, node.fullPath)
       : undefined;
   return {
     name: node.name,
@@ -93,7 +100,7 @@ function transformPathNode(
     errors,
     children: node.children
       .filter((child) => !excludedPaths.has(child.fullPath))
-      .map((child) => transformPathNode(child, errorsMap, excludedPaths)),
+      .map((child) => transformPathNode(child, navErrors, excludedPaths)),
   };
 }
 
@@ -118,7 +125,9 @@ export function useNavMenuData(): Remote<NavMenuData> {
       return trees;
     }
 
-    const errorsMap: ErrorsMap = validationErrors ?? {};
+    // Indexed ONCE per render: the trees used to scan the whole error map for
+    // every row, which is O(rows x errors) on every validation update.
+    const navErrors = indexNavErrors(validationErrors ?? {});
     const data: NavMenuData = {};
 
     // Transform sitemap if available
@@ -145,7 +154,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
         const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
         data.sitemap = transformSitemapNode(
           sitemapTree,
-          errorsMap,
+          navErrors,
           schemas.status === "success" ? schemas.data : undefined,
         );
       } else if (
@@ -159,7 +168,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
     const media =
       schemas.status === "success"
         ? collectMediaModules(schemas.data, (moduleFilePath) =>
-            collectErrorsForModuleFilePath(errorsMap, moduleFilePath),
+            errorsForModuleFilePath(navErrors, moduleFilePath),
           )
         : [];
     if (media.length > 0) {
@@ -173,7 +182,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
     if (trees.data.root && trees.data.root.children.length > 0) {
       const explorer = transformPathNode(
         trees.data.root,
-        errorsMap,
+        navErrors,
         mediaPaths,
       );
       // A tree that held nothing but galleries is now empty, so drop the
@@ -203,64 +212,4 @@ export function useNavMenuData(): Remote<NavMenuData> {
     validationErrors,
     schemas,
   ]);
-}
-
-/**
- * Collect the errors that resolve to a single sitemap entry.
- *
- * A sitemap entry has a sourcePath like
- *   `/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1"`
- * The errors map is keyed by the *path within the module*, e.g.
- *   `/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1"."title"`
- *
- * An error belongs to a row if its key is the row's source path, or extends
- * into it via a `.` (sub-property of the record entry). This deliberately
- * avoids matching sibling record entries that share a prefix.
- */
-function collectErrorsForSitemapEntry(
-  errorsMap: ErrorsMap,
-  sourcePath: SourcePath,
-): NavItemErrors | undefined {
-  let ownCount = 0;
-  let firstMessage: string | undefined;
-  const exactPrefix = `${sourcePath}.`;
-  for (const keyString in errorsMap) {
-    const key = keyString as SourcePath;
-    if (key !== sourcePath && !keyString.startsWith(exactPrefix)) continue;
-    const list = errorsMap[key];
-    if (!list || list.length === 0) continue;
-    ownCount += list.length;
-    if (!firstMessage) firstMessage = list[0]?.message;
-  }
-  return ownCount > 0 ? { ownCount, firstMessage } : undefined;
-}
-
-/**
- * Collect the errors attributable to a single explorer file.
- *
- * Files have a fullPath like `/content/authors.val.ts`. Errors are keyed by
- * SourcePath which begins with the module file path, followed by `?p="..."`
- * or `?` at the boundary. A startsWith check on `fullPath` is safe because
- * sibling files have distinct names.
- */
-function collectErrorsForModuleFilePath(
-  errorsMap: ErrorsMap,
-  fullPath: string,
-): NavItemErrors | undefined {
-  let ownCount = 0;
-  let firstMessage: string | undefined;
-  for (const keyString in errorsMap) {
-    if (!keyString.startsWith(fullPath)) continue;
-    const next = keyString.charAt(fullPath.length);
-    // Only treat as belonging to this file if the source path either ends
-    // exactly at this file or continues with `?` (module path query
-    // separator). Bare prefixes like `/content/authors.val.ts` matching a
-    // hypothetical sibling `/content/authors.val.ts.backup` are excluded.
-    if (next !== "" && next !== "?") continue;
-    const list = errorsMap[keyString as SourcePath];
-    if (!list || list.length === 0) continue;
-    ownCount += list.length;
-    if (!firstMessage) firstMessage = list[0]?.message;
-  }
-  return ownCount > 0 ? { ownCount, firstMessage } : undefined;
 }

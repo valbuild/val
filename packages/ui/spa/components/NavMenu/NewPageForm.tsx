@@ -77,7 +77,13 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
     if (!selectedRoute) return false;
     return selectedRoute.routePattern.every((part) => {
       if (part.type === "string-param" || part.type === "array-param") {
-        return !!params[part.paramName] && !errors[part.paramName];
+        // An OPTIONAL segment (`[[category]]`, `[[...query]]`) may be left
+        // blank - that is the base route, which Next.js serves. Requiring a
+        // value made the base route impossible to create from here.
+        if (!params[part.paramName]) {
+          return part.optional;
+        }
+        return !errors[part.paramName];
       }
       return true;
     });
@@ -181,21 +187,31 @@ function routeKey(route: AvailableRoute | undefined): string {
  * Build the full URL path from a route pattern and the user-filled params.
  * Mirrors the behavior of the old AddRouteForm.
  */
-function buildFullPath(
+export function buildFullPath(
   pattern: RoutePattern[],
   params: Record<string, string>,
 ): string {
-  return (
-    "/" +
-    pattern
-      .map((part) => {
-        if (part.type === "string-param" || part.type === "array-param") {
-          return params[part.paramName] || "";
+  const segments: string[] = [];
+  for (const part of pattern) {
+    if (part.type === "string-param" || part.type === "array-param") {
+      const value = params[part.paramName];
+      if (!value) {
+        // An empty OPTIONAL segment is omitted, not emitted as "": joining ""
+        // produced a trailing slash (`/categories/`) rather than the base route
+        // (`/categories`), and those are different keys.
+        if (part.optional) {
+          continue;
         }
-        return part.name;
-      })
-      .join("/")
-  );
+        segments.push("");
+        continue;
+      }
+      segments.push(value);
+      continue;
+    }
+    segments.push(part.name);
+  }
+  // A pattern that is nothing but omitted optional segments is the root.
+  return segments.length === 0 ? "/" : "/" + segments.join("/");
 }
 
 /**

@@ -91,7 +91,9 @@ export function SitemapSection({
           </div>
         </AccordionTrigger>
 
-        {routes.length > 0 && (
+        {/* Gated on `onAddPage` as well as on there being a route to add to:
+            without the callback the form submits into nothing. */}
+        {onAddPage && routes.length > 0 && (
           <div className="absolute right-10 top-1/2 -translate-y-1/2">
             <Popover open={newPageOpen} onOpenChange={setNewPageOpen}>
               <PopoverTrigger asChild>

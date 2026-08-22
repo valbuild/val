@@ -4,7 +4,10 @@ import { cn } from "../designSystem/cn";
 import { AnimateHeight } from "../AnimateHeight";
 import { ExplorerItem as ExplorerItemType } from "./types";
 import { ErrorBadge } from "./ErrorBadge";
-import { totalExplorerErrorCount } from "./errorAggregation";
+import {
+  ownExplorerErrorCount,
+  totalExplorerErrorCount,
+} from "./errorAggregation";
 
 export type ExplorerItemProps = {
   item: ExplorerItemType;
@@ -30,9 +33,10 @@ export function ExplorerItemNode({
     currentPath.startsWith(item.fullPath) && item.isDirectory;
   const isExactActive = currentPath === item.fullPath;
 
-  // Errors that resolve directly to this file (zero for directories), plus
-  // the recursive total used by the count badge.
-  const ownErrorCount = item.errors?.ownCount ?? (item.hasError ? 1 : 0);
+  // Errors that resolve directly to this file - zero for directories, whose
+  // legacy `hasError` only ever means "something below me". Counting it here
+  // tinted every ancestor folder red as if the error were its own.
+  const ownErrorCount = ownExplorerErrorCount(item);
   const totalErrorCount = useMemo(() => totalExplorerErrorCount(item), [item]);
   const hasOwnError = ownErrorCount > 0;
 

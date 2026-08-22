@@ -27,7 +27,6 @@ export type SitemapItemProps = {
   /** Nesting depth, used to indent the row */
   depth?: number;
   /** Accumulated URL path from ancestors (e.g. "/blogs"). */
-  parentPath?: string;
   /** Container for portal (for popover) */
   portalContainer?: HTMLElement | null;
 };
@@ -39,7 +38,6 @@ export function SitemapItemNode({
   onAddPage,
   existingUrls,
   depth = 0,
-  parentPath = "",
   portalContainer,
 }: SitemapItemProps) {
   const [isOpen, setIsOpen] = useState(true);
@@ -52,20 +50,27 @@ export function SitemapItemNode({
   const isActive = item.sourcePath && currentPath.startsWith(item.sourcePath);
   const isExactActive = item.sourcePath === currentPath;
 
-  // The URL we render in this row. The root entry is just "/"; everything else
-  // is the parent path joined with this item's segment.
+  // `item.urlPath` is the resolved URL the data layer computed from the route
+  // pattern, and is what navigation and key creation use. Rebuilding it here as
+  // `parentPath + "/" + item.name` duplicated that computation and drifts the
+  // moment the upstream one normalizes or encodes a segment - the row would then
+  // display a path that is not the one being created under.
   const displayUrl = useMemo(() => {
     if (item.name === "/" || item.name === "") return "/";
-    return `${parentPath}/${item.name}`;
-  }, [item.name, parentPath]);
+    return item.urlPath;
+  }, [item.name, item.urlPath]);
 
-  // The URL prefix from the parent — rendered in muted text so the segment for
-  // this row stands out. For root and top-level items there's no prefix.
+  // The prefix rendered in muted text so this row's own segment stands out.
+  // Trimmed off the END of urlPath rather than re-joined from the parent, so a
+  // catch-all key ("guides/intro") stays one emphasised segment instead of
+  // being split at its internal slash.
   const prefix = useMemo(() => {
-    if (displayUrl === "/") return "";
-    if (parentPath === "") return "/";
-    return `${parentPath}/`;
-  }, [displayUrl, parentPath]);
+    if (displayUrl === "/" || !item.name) return "";
+    if (displayUrl.endsWith(item.name)) {
+      return displayUrl.slice(0, displayUrl.length - item.name.length);
+    }
+    return "";
+  }, [displayUrl, item.name]);
 
   const ownSegment = useMemo(() => {
     if (displayUrl === "/") return "/";
@@ -217,7 +222,9 @@ export function SitemapItemNode({
           />
         )}
 
-        {rowRoute && (showActions || addPopoverOpen) && (
+        {/* `onAddPage` is what actually creates the page, so without it the
+            form would submit into nothing and leave the popover open. */}
+        {onAddPage && rowRoute && (showActions || addPopoverOpen) && (
           <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
             <PopoverTrigger asChild>
               <button
@@ -260,7 +267,6 @@ export function SitemapItemNode({
                 onAddPage={onAddPage}
                 existingUrls={existingUrls}
                 depth={depth + 1}
-                parentPath={displayUrl === "/" ? "" : displayUrl}
                 portalContainer={portalContainer}
               />
             ))}
@@ -310,8 +316,15 @@ export function routePatternToString(pattern: RoutePattern[]): string {
     pattern
       .map((part) => {
         if (part.type === "literal") return part.name;
-        if (part.type === "string-param") return `[${part.paramName}]`;
-        return `[...${part.paramName}]`;
+        // The OPTIONAL marker is part of the pattern's identity, not decoration:
+        // `[category]` and `[[category]]` are different routes, and dropping the
+        // brackets made them stringify identically - so two routers collided on
+        // one key in `collectSitemapRoutes` and only one was offered.
+        const inner =
+          part.type === "string-param"
+            ? part.paramName
+            : `...${part.paramName}`;
+        return part.optional ? `[[${inner}]]` : `[${inner}]`;
       })
       .join("/")
   );
