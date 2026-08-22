@@ -4,6 +4,7 @@ import {
   Type,
   Calendar,
   Clock,
+  Palette,
   Code,
   FileIcon,
   FileText,
@@ -58,6 +59,8 @@ export function NodeIcon({
       return <Calendar size={size} className={className} />;
     case "dateTime":
       return <Clock size={size} className={className} />;
+    case "color":
+      return <Palette size={size} className={className} />;
     case "image":
       return <ImageIcon size={size} className={className} />;
     default:

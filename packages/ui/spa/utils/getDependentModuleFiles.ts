@@ -47,6 +47,7 @@ export function getDependentModuleFiles(
       schemaNode.type === "literal" ||
       schemaNode.type === "date" ||
       schemaNode.type === "dateTime" ||
+      schemaNode.type === "color" ||
       schemaNode.type === "file" ||
       schemaNode.type === "image" ||
       schemaNode.type === "number" ||

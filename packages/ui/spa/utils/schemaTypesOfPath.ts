@@ -54,6 +54,7 @@ export function schemaTypesOfPath(
       current.type === "string" ||
       current.type === "date" ||
       current.type === "dateTime" ||
+      current.type === "color" ||
       current.type === "file" ||
       current.type === "image" ||
       current.type === "keyOf" ||

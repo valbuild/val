@@ -5075,6 +5075,7 @@ const nonInterDependentTypes = [
   "number",
   "date",
   "dateTime",
+  "color",
   "richtext",
   "file",
   "image",

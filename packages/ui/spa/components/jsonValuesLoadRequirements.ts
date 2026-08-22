@@ -142,6 +142,7 @@ function containsReferrer(
     case "literal":
     case "date":
     case "dateTime":
+    case "color":
     case "richtext":
       return false;
     default: {
