@@ -11,10 +11,13 @@
  * picked.
  */
 
-// A bare day, or a full ISO datetime whose date part we take. Anchored at both
-// ends so that trailing junk is rejected rather than silently reinterpreted:
-// with a bare prefix match, "2026-08-20foo" parsed as the 20th, which is the
-// opposite of the "not a date -> null" contract below.
+// A bare day, or a full ISO datetime whose date part we take.
+//
+// `DAY_ONLY` is anchored at BOTH ends, so trailing junk is rejected rather than
+// silently reinterpreted: with a bare prefix match, "2026-08-20foo" parsed as
+// the 20th, the opposite of the "not a date -> null" contract below.
+// `ISO_DATETIME` is anchored only at the start - the `T` is what makes the
+// trailing content a time rather than junk, and the time itself is discarded.
 const DAY_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T/;
 

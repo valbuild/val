@@ -4,8 +4,9 @@ import { formatLocalDay, parseLocalDay } from "./localDay";
  * `parseLocalDay` that narrows away the `null` at RUNTIME.
  *
  * `expect(x).not.toBeNull()` does not narrow the type, so the call sites used to
- * reach for `as Date` - which CLAUDE.md rules out, and which would hide exactly
- * the null this helper reports.
+ * reach for `as Date`. An assertion there is worse than noise: it silences the
+ * very null this helper exists to report, turning a parse regression into a
+ * confusing "cannot read properties of null" deep inside `formatLocalDay`.
  */
 function parseDayOrThrow(value: string): Date {
   const parsed = parseLocalDay(value);
