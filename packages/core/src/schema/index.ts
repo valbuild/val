@@ -14,6 +14,7 @@ import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
+import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
 import {
   ValidationError,
@@ -40,6 +41,7 @@ export type SerializedSchema =
   | SerializedKeyOfSchema
   | SerializedFileSchema
   | SerializedDateSchema
+  | SerializedDateTimeSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 
@@ -127,6 +129,20 @@ export abstract class Schema<Src extends SelectorSource> {
     src: unknown,
   ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
+  /**
+   * Mark this field as read-only in the Val editor.
+   *
+   * This is a UI-only flag: the field is rendered disabled in the editor, but
+   * the value is not otherwise validated or enforced differently.
+   */
+  abstract readonly(): Schema<Src>;
+  /**
+   * Hide this field from the Val editor.
+   *
+   * This is a UI-only flag: the field is not rendered in the editor, but the
+   * value is still stored, validated and serialized as normal.
+   */
+  abstract hidden(): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
   protected abstract executeRender(
     sourcePath: SourcePath | ModuleFilePath,
@@ -159,6 +175,35 @@ export abstract class Schema<Src extends SelectorSource> {
         [path]: [{ message, value, schemaError }],
       } as ValidationErrors;
     }
+  }
+
+  /**
+   * Merges two sets of validation errors path-wise: errors on the same path are
+   * concatenated, not overwritten. Object spread cannot be used for this, since
+   * it replaces the array of the colliding path. A record, for example, validates
+   * the key and the item on the same path, so both sets must survive.
+   *
+   * MUTATES! since internal and perf sensitive
+   */
+  protected mergeValidationErrors(
+    current: ValidationErrors,
+    incoming: ValidationErrors,
+  ): ValidationErrors {
+    if (!incoming) {
+      return current;
+    }
+    if (!current) {
+      return incoming;
+    }
+    for (const pathS in incoming) {
+      const path = pathS as SourcePath;
+      if (current[path]) {
+        current[path] = current[path].concat(incoming[path]);
+      } else {
+        current[path] = incoming[path];
+      }
+    }
+    return current;
   }
 }
 

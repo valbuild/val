@@ -1,4 +1,4 @@
-// NOTE: the exports of this file needs to be kept in sync with ValQuickJSRuntime
+// NOTE: the exports of this file needs to be kept in sync with the stubs in loadValModules
 export { autoTagJSX } from "./autoTagJSX";
 export {
   stegaEncode,

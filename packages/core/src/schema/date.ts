@@ -7,7 +7,10 @@ import {
 import { ReifiedRender } from "../render";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 type DateOptions = {
   /**
@@ -31,6 +34,8 @@ export type SerializedDateSchema = {
   options?: DateOptions;
   opt: boolean;
   customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -39,6 +44,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     private readonly options?: DateOptions,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -49,6 +56,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -58,73 +67,59 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.options,
       this.opt,
       [...this.customValidateFunctions, validationFunction],
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const errors: ValidationError[] = this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return errors.length > 0 ? { [path]: errors } : false;
     }
     if (typeof src !== "string") {
-      return {
-        [path]: [
-          { message: `Expected 'string', got '${typeof src}'`, value: src },
-        ],
-      } as ValidationErrors;
+      errors.push({
+        message: `Expected 'string', got '${typeof src}'`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
     }
     if (this.options?.from && this.options?.to) {
       if (this.options.from > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `From date ${this.options.from} is after to date ${this.options.to}`,
-              value: src,
-              typeError: true,
-            },
-          ],
-        } as ValidationErrors;
-      }
-      if (src < this.options.from || src > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `Date is not between ${this.options.from} and ${this.options.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `From date ${this.options.from} is after to date ${this.options.to}`,
+          value: src,
+          typeError: true,
+        });
+      } else if (src < this.options.from || src > this.options.to) {
+        errors.push({
+          message: `Date is not between ${this.options.from} and ${this.options.to}`,
+          value: src,
+        });
       }
     } else if (this.options?.from) {
       if (src < this.options.from) {
-        return {
-          [path]: [
-            {
-              message: `Date is before the minimum date ${this.options.from}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Date is before the minimum date ${this.options.from}`,
+          value: src,
+        });
       }
     } else if (this.options?.to) {
       if (src > this.options.to) {
-        return {
-          [path]: [
-            {
-              message: `Date is after the maximum date ${this.options.to}`,
-              value: src,
-            },
-          ],
-        } as ValidationErrors;
+        errors.push({
+          message: `Date is after the maximum date ${this.options.to}`,
+          value: src,
+        });
       }
     }
-    // const errors = [];
-
-    // if (errors.length > 0) {
-    //   return {
-    //     [path]: errors,
-    //   } as ValidationErrors;
-    // }
+    if (errors.length > 0) {
+      return { [path]: errors } as ValidationErrors;
+    }
     return false;
   }
 
@@ -176,6 +171,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, from },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -185,12 +182,43 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       { ...this.options, to },
       this.opt,
       this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
 
   nullable(): DateSchema<Src | null> {
-    return new DateSchema<Src | null>(this.options, true, [], this.description);
+    return new DateSchema<Src | null>(
+      this.options,
+      true,
+      [],
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  readonly(): DateSchema<Src> {
+    return new DateSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): DateSchema<Src> {
+    return new DateSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -201,6 +229,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
   }

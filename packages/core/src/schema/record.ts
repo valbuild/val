@@ -44,6 +44,8 @@ export type SerializedRecordSchema = {
   directory?: string;
   remote?: boolean;
   alt?: SerializedSchema;
+  readonly?: boolean;
+  hidden?: boolean;
   description?: string;
 };
 
@@ -59,6 +61,8 @@ export class RecordSchema<
     private readonly currentRouter: ValRouter | null = null,
     private readonly keySchema: Schema<string> | null = null,
     private readonly mediaOptions?: MediaOptions,
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
     private readonly description?: string,
   ) {
     super();
@@ -72,6 +76,8 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
       description ?? undefined,
     );
   }
@@ -86,6 +92,8 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -126,9 +134,7 @@ export class RecordSchema<
       } as ValidationErrors;
     }
     const routerValidations = this.getRouterValidations(path, src);
-    if (routerValidations) {
-      return routerValidations;
-    }
+    error = this.mergeValidationErrors(error, routerValidations);
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -194,15 +200,7 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-          if (error) {
-            if (error[keyPath]) {
-              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
-            } else {
-              error[keyPath] = keyError[keyPath];
-            }
-          } else {
-            error = keyError;
-          }
+          error = this.mergeValidationErrors(error, keyError);
         }
       }
 
@@ -217,28 +215,25 @@ export class RecordSchema<
           src,
         );
       } else if (this.mediaOptions) {
-        // Media collection: validate key (path/URL) and entry (metadata)
+        // Media collection: validate key (path/URL) and entry (metadata).
+        // Gallery entries are keyed by their file path and the metadata is
+        // derived, so surface entry errors on the key rather than the value.
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
-          error = error ? { ...error, ...keyErr } : keyErr;
+          this.markKeyErrorsAtPath(keyErr, subPath);
         }
+        error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
-          error = error ? { ...error, ...entryErr } : entryErr;
+          this.markKeyErrorsAtPath(entryErr, subPath);
         }
+        error = this.mergeValidationErrors(error, entryErr);
       } else {
         const subError = this.item["executeValidate"](
           subPath,
           elem as SelectorSource,
         );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     });
     return error;
@@ -246,6 +241,13 @@ export class RecordSchema<
 
   private isRemoteUrl(url: string): boolean {
     return url.startsWith("https://") || url.startsWith("http://");
+  }
+
+  /** Marks the validation errors reported at `path` as key errors (in place). */
+  private markKeyErrorsAtPath(errors: ValidationErrors, path: SourcePath) {
+    if (errors && errors[path]) {
+      errors[path] = errors[path].map((err) => ({ ...err, keyError: true }));
+    }
   }
 
   private validateMediaKey(path: SourcePath, key: string): ValidationErrors {
@@ -510,8 +512,38 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     ) as RecordSchema<T, K, Src | null>;
+  }
+
+  readonly(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      true,
+      this.isHidden,
+      this.description,
+    );
+  }
+
+  hidden(): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      true,
+      this.description,
+    );
   }
 
   router(router: ValRouter): RecordSchema<T, K, Src> {
@@ -522,6 +554,8 @@ export class RecordSchema<
       router,
       this.keySchema,
       this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -534,6 +568,8 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions ? { ...this.mediaOptions, remote: true } : undefined,
+      this.isReadonly,
+      this.isHidden,
       this.description,
     );
   }
@@ -610,6 +646,8 @@ export class RecordSchema<
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
       description: this.description,
     };
     if (this.mediaOptions) {

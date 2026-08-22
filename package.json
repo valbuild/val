@@ -15,7 +15,8 @@
     "test": "jest",
     "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
     "release": "pnpm run build && changeset publish",
-    "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\""
+    "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
+    "debug:replay": "tsx scripts/debugReplay.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",
@@ -38,7 +39,8 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^17.0.0",
     "jest": "30.2",
-    "prettier": "^3.8.0"
+    "prettier": "^3.8.0",
+    "tsx": "^4.21.0"
   },
   "preconstruct": {
     "packages": [
