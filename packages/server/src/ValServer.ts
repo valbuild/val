@@ -14,6 +14,7 @@ import {
   Schema,
   SelectorSource,
 } from "@valbuild/core";
+import { ReifiedRender } from "@valbuild/core";
 import {
   Api,
   ParentRef,
@@ -33,8 +34,8 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  formatPatchSourceError,
   OrderedPatches,
-  PatchSourceError,
   SchemaSha,
   SourcesSha,
 } from "./ValOps";
@@ -48,7 +49,6 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedRender } from "@valbuild/core";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
@@ -125,7 +125,7 @@ export const ValServer = (
       options.project,
       options.commit,
       options.branch,
-      options.apiKey,
+      { apiKey: options.apiKey },
       valModules,
       {
         formatter: options.formatter,
@@ -904,6 +904,8 @@ export const ValServer = (
           schemaSha: SchemaSha;
           patches: PatchId[];
           profileId?: AuthorId;
+          // FS mode only; http never sends or returns it.
+          jsonEntriesSha?: string;
         } | null);
         if (currentStat.type === "error" && currentStat.networkError) {
           return {
@@ -1361,6 +1363,92 @@ export const ValServer = (
       },
     },
 
+    // #region json
+    // Loads the content of a single `.jsonValues()` entry by key, so the Studio
+    // can lazily load just the entry being opened, and the runtime can read draft
+    // edits. With apply_patches (default true) pending patches for the entry are
+    // replayed server-side; the Studio passes false and overlays its own.
+    "/json": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const { key, keys, offset, limit } = req.query;
+        // Defaults to true, mirroring /sources/~. The Studio opts out.
+        const applyPatches = req.query.apply_patches !== false;
+        const isWindow = offset !== undefined || limit !== undefined;
+        const shapes = [key !== undefined, keys !== undefined, isWindow].filter(
+          Boolean,
+        ).length;
+        if (shapes !== 1) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Exactly one of 'key', 'keys' or 'offset'+'limit' must be given",
+            },
+          };
+        }
+        if (isWindow && (offset === undefined || limit === undefined)) {
+          return {
+            status: 400,
+            json: { message: "'offset' and 'limit' must be given together" },
+          };
+        }
+        if (key !== undefined) {
+          const res = await serverOps.getJsonEntry(moduleFilePath, key, {
+            applyPatches,
+          });
+          if (res.status === "unauthorized") {
+            return { status: 401, json: { message: res.message } };
+          }
+          if (res.status === "not-found") {
+            return { status: 404, json: { message: res.message } };
+          }
+          if (res.status === "error") {
+            return { status: 500, json: { message: res.message } };
+          }
+          return {
+            status: 200,
+            json: { path: moduleFilePath, key, content: res.content },
+          };
+        }
+        const res = await serverOps.getJsonEntries(
+          moduleFilePath,
+          keys !== undefined
+            ? { keys }
+            : { offset: offset as number, limit: limit as number },
+          { applyPatches },
+        );
+        if (res.status === "unauthorized") {
+          return { status: 401, json: { message: res.message } };
+        }
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            entries: res.entries,
+            missing: res.missing,
+            errors: res.errors,
+            ...(res.offset !== undefined ? { offset: res.offset } : {}),
+            ...(res.limit !== undefined ? { limit: res.limit } : {}),
+            total: res.total,
+          },
+        };
+      },
+    },
+
     // #region sources
     "/sources/~": {
       PUT: async (req) => {
@@ -1419,23 +1507,38 @@ export const ValServer = (
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
         const unpatchedSources = sourcesRes.sources;
-        const onlyPatchedTreeModules = await serverOps.getSources({
-          ...patchAnalysis,
-          ...patchOps,
-        });
-        sourcesRes = {
-          sources: {
+        // Default to true to keep the legacy contract for older clients.
+        // The studio client always passes false: it owns patch application
+        // and validation, and treats /sources/~ as a pure un-patched read.
+        const applyPatches = query.apply_patches !== false;
+        // NOTE: renders are computed here even when the client applies patches
+        // itself: the render select functions live on the Schema instances and
+        // are not part of the serialized schema, so the client cannot derive
+        // them. They are computed on the patched sources, so that previews
+        // (list titles / subtitles / images) reflect the patches that apply.
+        let patchedSources = sourcesRes.sources;
+        if ((patchOps.patches?.length ?? 0) > 0) {
+          const onlyPatchedTreeModules = await serverOps.getSources({
+            ...patchAnalysis,
+            ...patchOps,
+          });
+          patchedSources = {
             ...sourcesRes.sources,
             ...(onlyPatchedTreeModules.sources || {}),
-          },
-          errors: {
-            ...sourcesRes.errors,
-            ...(onlyPatchedTreeModules.errors || {}),
-          },
-        };
+          };
+          if (applyPatches) {
+            sourcesRes = {
+              sources: patchedSources,
+              errors: {
+                ...sourcesRes.errors,
+                ...(onlyPatchedTreeModules.errors || {}),
+              },
+            };
+          }
+        }
         const renderRes = await serverOps.getRenders(
           schemasRes,
-          sourcesRes.sources,
+          patchedSources,
         );
 
         let sourcesValidation: {
@@ -1520,9 +1623,12 @@ export const ValServer = (
               (patchAnalysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
             modules[moduleFilePath] = {
               source: module,
-              baseSource: hasPatches
-                ? unpatchedSources[moduleFilePath]
-                : undefined,
+              // baseSource is only meaningful when the server applied patches:
+              // with apply_patches=false, `source` is already un-patched.
+              baseSource:
+                applyPatches && hasPatches
+                  ? unpatchedSources[moduleFilePath]
+                  : undefined,
               render: renderRes.renders[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
@@ -2632,17 +2738,6 @@ export const ValServer = (
     },
   };
 };
-
-function formatPatchSourceError(error: PatchSourceError): string {
-  if ("message" in error) {
-    return error.message;
-  } else if (Array.isArray(error)) {
-    return error.map(formatPatchSourceError).join("\n");
-  } else {
-    const _exhaustiveCheck: never = error;
-    return "Unknown patch source error: " + JSON.stringify(_exhaustiveCheck);
-  }
-}
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;

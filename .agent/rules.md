@@ -7,6 +7,30 @@ Instructions for AI assistants working with the Val content management system co
 1. Never add @ts-expect-error unless explicitly being allowed to do so
 2. Never use as any unless explicitly being allowed to do so
 3. Ask if you need to use type assertions (`as Something`) - we try to avoid those
+4. Prefer annotating the expected return type over `as const`. Widening a
+   returned literal with `as const` leaves the contract implicit and re-derived
+   at every `return`, so nothing checks that the returns agree or that they
+   cover the union the caller narrows on. Annotate the function - or the
+   `useMemo<T>` / `useCallback<T>` / variable - with the type it is supposed to
+   produce, and drop the `as const`:
+
+   ```typescript
+   // ❌ WRONG - the union is whatever the returns happen to add up to
+   const res = useMemo(() => {
+     if (!data) return { status: "loading" as const };
+     return { status: "success" as const, data };
+   }, [data]);
+
+   // ✅ CORRECT - the union is declared, and every return is checked against it
+   type Result = { status: "loading" } | { status: "success"; data: Data };
+   const res = useMemo<Result>(() => {
+     if (!data) return { status: "loading" };
+     return { status: "success", data };
+   }, [data]);
+   ```
+
+   An `as const` on a return inside a function that already has a return type
+   annotation is pure noise - remove it.
 
 ## Type System Architecture
 
@@ -209,8 +233,43 @@ cd examples/next && pnpm run build     # next build for the example app
 Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
-- `examples/next` build is its own CI job and must be run separately.
+- `examples/next` build is its own CI job and must be run separately. It is also the only job that type-checks with `next-env.d.ts` present, so a green `pnpm run -r typecheck` does not imply a green example build — see "'X' cannot be used as a JSX component" under Common Fixes.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
+
+### Don't run `pnpm run build` during development
+
+Prefer `pnpm run -r typecheck` (or `pnpm --filter <pkg> run typecheck` for a single package) to validate cross-package changes. `pnpm run build` invokes `preconstruct build`, which replaces each workspace package's `main`/`module` entries with the built `dist/` artifacts. After that, downstream packages and the running dev server resolve imports against the built output, so further source edits in upstream packages are invisible until you rebuild.
+
+If you do run `pnpm run build` (e.g., as a final CI check), you MUST run `pnpm preconstruct dev` afterward to restore the source-mapped entries so dev mode picks up live edits again.
+
+## Running the val CLI
+
+While developing the CLI itself, run it from `packages/cli` against the example app with `--root`:
+
+```bash
+cd packages/cli
+pnpm exec tsx src/cli.ts validate --root ../../examples/next   # --fix to auto-fix, --watch to re-run on change
+pnpm exec tsx src/cli.ts list-unused-files --root ../../examples/next
+pnpm exec tsx src/cli.ts versions
+```
+
+This runs `src/` directly, so edits apply with no rebuild. `--root` is resolved with `path.resolve()` against cwd, so a relative path works.
+
+**Do not use `pnpm start`.** The script is `tsx src/cli.ts --`, so pnpm produces `tsx src/cli.ts -- validate --root ...`; that trailing `--` makes meow treat the flags as positional input and the command dispatch rejects it with `Unknown command "validate --root ../../examples/next"`.
+
+To exercise the packaged entry (`bin.js` → `require("./cli")` → preconstruct entrypoint) instead of `src/`, use either:
+
+```bash
+cd packages/cli && node bin.js validate --root ../../examples/next
+cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked here only, not in root node_modules/.bin
+```
+
+**Run `validate` whenever you touch `packages/cli` or `packages/server`.** It is not optional coverage:
+
+- `validate` and `list-unused-files` are the only callers of `createService` → `loadValModules`, which evaluates the project's `val.modules.ts` and every `*.val.ts` in a `node:vm` sandbox. Nothing in the Next.js runtime exercises that path — the Next server gets its `ValModules` from the app's own `import valModules from "../val.modules"`.
+- `pnpm test` only reaches `createService` directly from jest, so it misses breakage in the CLI's own entry and argument handling. Before shipping a CLI change, also do one run via `bin.js` / the `val` bin so the packaged entrypoint is covered.
+
+The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
 
 ## Working with Images
 
@@ -448,3 +507,31 @@ The `/api/val/files` endpoint (`ValServer.ts`) serves draft files by loading the
 ### "Property 'X' does not exist on type 'never'"
 
 → Check if all variants are handled in conditional types (especially in `ImageNode`, `RichTextSource`)
+
+### "'X' cannot be used as a JSX component" / "Type 'Element' is not assignable to type 'ReactNode'"
+
+Symptom: `cd examples/next && pnpm run build` fails while `pnpm run -r typecheck` stays green.
+
+```
+Type error: 'ValApp' cannot be used as a JSX component.
+  Its type '(...) => JSX.Element' is not a valid JSX element type.
+    Type 'Element' is not assignable to type 'ReactNode'.
+```
+
+→ Two different `@types/react` versions ended up in the same TypeScript program. `ReactElement.key` is `Key | null` (`string | number | null`) in older type packages but `string | null` from `@types/react` 18.2.38 onwards, so a `JSX.Element` built from one copy is not assignable to the other copy's `ReactNode`. `skipLibCheck: true` hides the duplicate global `JSX` declarations, so this confusing JSX error is the only symptom.
+
+Only `examples/next`'s build catches it: `next-env.d.ts` is gitignored, so a bare `tsc --noEmit` never pulls in `next`'s global type tree. `next build` generates that file first, which drags in `next`'s own React type references — and `next` has no `@types/react` of its own, so it resolves whichever copy pnpm hoisted into `node_modules/.pnpm/node_modules/@types/react`. Which copy that is varies by pnpm version and platform, so this can be green locally and red in CI.
+
+Diagnose:
+
+```bash
+ls node_modules/.pnpm | grep '^@types+react@'          # more than one version => this bug
+ls -l node_modules/.pnpm/node_modules/@types/react     # which copy got hoisted
+cd examples/next && pnpm run build                     # generates next-env.d.ts, needed for the repro
+./node_modules/.bin/tsc --noEmit --incremental false --listFiles \
+  | grep -o '@types+react@[0-9.]*' | sort | uniq -c
+```
+
+Fix: make every workspace package declare the same `@types/react` and `@types/react-dom` version, then `pnpm install --no-frozen-lockfile` and commit `pnpm-lock.yaml`. This includes the private fixtures under `packages/server/test/example-projects/*` — they are listed in `pnpm-workspace.yaml`, so they are real workspace packages and their pins contribute to the hoisted layout.
+
+This is not triggered by React itself changing — it is the _type_ packages drifting apart. Expect it whenever `@types/react` is bumped in some packages but not all, when a package or fixture is added with a different pin, or during a future React 18 → 19 types migration, which has to be done across every package at once (`examples/next` and the fixtures included).

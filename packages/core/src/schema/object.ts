@@ -140,14 +140,7 @@ export class ObjectSchema<
         );
       } else {
         const subError = schema["executeValidate"](subPath, src[key]);
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     }
 
@@ -259,6 +252,17 @@ export class ObjectSchema<
       this.isReadonly,
       true,
       this.description,
+    );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
     );
   }
 

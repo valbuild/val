@@ -1,4 +1,12 @@
-import { PatchId, ModuleFilePath, ValModules, Internal } from "@valbuild/core";
+import {
+  PatchId,
+  ModuleFilePath,
+  ValModules,
+  Internal,
+  Schema,
+  SelectorSource,
+  SerializedSchema,
+} from "@valbuild/core";
 import {
   AuthorId,
   BaseSha,
@@ -28,6 +36,7 @@ import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
 import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
+import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
@@ -35,6 +44,17 @@ import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
 import { uploadRemoteFile } from "./uploadRemoteFile";
 import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
+
+/** Serializes a schema, or gives up quietly — serialization errors are reported elsewhere. */
+function serializeSchemaSafely(
+  schema: Schema<SelectorSource> | undefined,
+): SerializedSchema | undefined {
+  try {
+    return schema?.["executeSerialize"]();
+  } catch {
+    return undefined;
+  }
+}
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -47,7 +67,14 @@ export class ValOpsFS extends ValOps {
   ) {
     super(valModules, options);
     this.host = new FSOpsHost();
+    this.jsonEntryFilesFingerprint = new JsonEntryFilesFingerprint(rootDir);
   }
+
+  /**
+   * Change detection for `.jsonValues()` entry files, which no sha can see (their
+   * content lives behind a thunk that `JSON.stringify` drops).
+   */
+  private readonly jsonEntryFilesFingerprint: JsonEntryFilesFingerprint;
 
   override async onInit(): Promise<void> {
     // do nothing
@@ -164,6 +191,7 @@ export class ValOpsFS extends ValOps {
       sourcesSha: SourcesSha;
       patches: PatchId[];
       profileId?: AuthorId;
+      jsonEntriesSha?: string;
     } | null,
   ): Promise<
     | {
@@ -172,6 +200,7 @@ export class ValOpsFS extends ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        jsonEntriesSha?: string;
       }
     | {
         type: "use-websocket";
@@ -197,7 +226,18 @@ export class ValOpsFS extends ValOps {
       const currentBaseSha = await this.getBaseSha();
       const currentSchemaSha = await this.getSchemaSha();
       const currentSourcesSha = await this.getSourcesSha();
-      const moduleFilePaths = Object.keys(await this.getSchemas());
+      const schemas = await this.getSchemas();
+      const moduleFilePaths = Object.keys(schemas);
+      const serializedSchemas = Object.fromEntries(
+        Object.entries(schemas).map(([path, schema]) => [
+          path,
+          serializeSchemaSafely(schema),
+        ]),
+      );
+      const currentJsonEntriesSha =
+        this.jsonEntryFilesFingerprint.compute(serializedSchemas);
+      const jsonEntryFilePaths =
+        this.jsonEntryFilesFingerprint.entryFilePaths(serializedSchemas);
 
       const patchData = await this.readPatches();
       const patches: PatchId[] = [];
@@ -212,6 +252,10 @@ export class ValOpsFS extends ValOps {
       // something changed: return immediately
       const didChange =
         !params ||
+        // An entry file changed on disk: nothing else here can see that, since a
+        // jsonValues module's source is markers.
+        (params.jsonEntriesSha !== undefined &&
+          currentJsonEntriesSha !== params.jsonEntriesSha) ||
         currentBaseSha !== params.baseSha ||
         // base sha covers both sources sha and schema sha, so we could remove checks for schema sha and sources sha
         currentSourcesSha !== params.sourcesSha ||
@@ -225,6 +269,7 @@ export class ValOpsFS extends ValOps {
           schemaSha: currentSchemaSha,
           sourcesSha: currentSourcesSha,
           patches,
+          jsonEntriesSha: currentJsonEntriesSha,
         };
       }
       let fsWatcher: fs.FSWatcher | null = null;
@@ -339,6 +384,13 @@ export class ValOpsFS extends ValOps {
                 nodePath.join(this.rootDir, "val.config.js"),
                 nodePath.join(this.rootDir, "val.modules.js"),
                 ...moduleFilePaths.map((p) => nodePath.join(this.rootDir, p)),
+                // The `.jsonValues()` entry files too: their content is invisible
+                // to every sha, and this polling fallback exists for the systems
+                // where the `fs.watch` below does not fire (notably WSL) — without
+                // them a hand-edited entry waits out the whole long-poll interval.
+                ...jsonEntryFilePaths.map((p) =>
+                  nodePath.join(this.rootDir, p),
+                ),
               ],
               statFilePollingInterval,
               (handle) => {
@@ -361,6 +413,10 @@ export class ValOpsFS extends ValOps {
                 ) ||
                 filename.endsWith(".val.ts") ||
                 filename.endsWith(".val.js") ||
+                // A `.jsonValues()` entry file. Its content is invisible to every
+                // sha (see JsonEntryFilesFingerprint), so without this a
+                // hand-edited entry never reaches an open Studio.
+                filename.endsWith(".val.json") ||
                 filename.endsWith("val.config.ts") ||
                 filename.endsWith("val.config.js") ||
                 filename.endsWith("val.modules.ts") ||
@@ -392,6 +448,7 @@ export class ValOpsFS extends ValOps {
         schemaSha: currentSchemaSha,
         sourcesSha: currentSourcesSha,
         patches,
+        jsonEntriesSha: currentJsonEntriesSha,
       };
     } catch (err) {
       if (err instanceof Error) {
@@ -725,7 +782,7 @@ export class ValOpsFS extends ValOps {
   }
 
   protected override async getSourceFile(
-    path: ModuleFilePath,
+    path: string,
   ): Promise<WithGenericError<{ data: string }>> {
     const filePath = fsPath.join(this.rootDir, path);
     if (!this.host.fileExists(filePath)) {

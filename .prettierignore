@@ -17,3 +17,6 @@ out
 examples/next*/.val/*
 
 pnpm-lock.yaml
+
+# Unzipped `val debug` snapshots: customer source, not ours to format.
+debug/*/

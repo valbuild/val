@@ -16,11 +16,17 @@ export type ErrorBadgeProps = {
   firstMessage?: string;
   /** Force the badge to render with smaller height (used in nested rows). */
   size?: "sm" | "md";
-  /** Optional element wrapping the badge inside the tooltip trigger, for
-   * cases where the badge sits inside a button row. */
-  asChild?: boolean;
   /** Optional override className for the badge element. */
   className?: string;
+  /**
+   * Where the aggregated errors are, relative to this badge. Only used when
+   * every error belongs to a descendant rather than to the badge's own row.
+   *
+   * A row badge sits above the rows that carry the errors, so "below" is right
+   * there. A SECTION header badge sits above a whole collapsed section, and its
+   * errors are inside it, not below it - `"in this section"` says that.
+   */
+  aggregateLocation?: string;
 };
 
 /**
@@ -36,10 +42,16 @@ export function ErrorBadge({
   firstMessage,
   size = "sm",
   className,
+  aggregateLocation = "below",
 }: ErrorBadgeProps) {
   if (count <= 0) return null;
   const label = formatCount(count);
-  const tip = buildTooltip({ count, ownCount, firstMessage });
+  const tip = buildTooltip({
+    count,
+    ownCount,
+    firstMessage,
+    aggregateLocation,
+  });
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -69,6 +81,23 @@ export function ErrorBadge({
   );
 }
 
+/**
+ * Wording for the aggregate-only tooltip - every error belongs to something
+ * other than this badge's own row.
+ *
+ * Exported because it is the part worth testing: `packages/ui` has no
+ * `jest-environment-jsdom`, so the badge itself cannot be rendered in this
+ * suite, and the wording is what the review was about.
+ */
+export function aggregateTooltipText(
+  count: number,
+  aggregateLocation: string,
+): string {
+  return count === 1
+    ? `1 error ${aggregateLocation}`
+    : `${count} errors ${aggregateLocation}`;
+}
+
 function formatCount(count: number): ReactNode {
   if (count > 99) return "99+";
   return count;
@@ -78,10 +107,12 @@ function buildTooltip({
   count,
   ownCount,
   firstMessage,
+  aggregateLocation,
 }: {
   count: number;
   ownCount: number;
   firstMessage?: string;
+  aggregateLocation: string;
 }): ReactNode {
   if (ownCount > 0 && firstMessage) {
     if (ownCount === 1 && count === 1) {
@@ -101,5 +132,5 @@ function buildTooltip({
     );
   }
   // Aggregate-only: descendants carry the errors.
-  return <span>{count === 1 ? "1 error below" : `${count} errors below`}</span>;
+  return <span>{aggregateTooltipText(count, aggregateLocation)}</span>;
 }

@@ -94,11 +94,33 @@ export const HEAD = valNextAppRouter;
 
 export const VAL_APP_PAGE = (
   configImportPath: string,
+  valModulesClientImportPath: string,
 ) => `import { ValApp } from "@valbuild/next";
 import { config } from "${configImportPath}";
+import { ValModulesClient } from "${valModulesClientImportPath}";
 
 export default function Val() {
-  return <ValApp config={config} />;
+  return (
+    <ValApp config={config}>
+      <ValModulesClient />
+    </ValApp>
+  );
+}
+`;
+
+// Client Component that pulls `val.modules` into the client bundle and registers
+// it so the Val editor (the /val app and the on-page overlay) can read your
+// schemas and sources. `val.modules` must be imported from a Client Component:
+// its module definitions are functions, which cannot cross the Server → Client
+// Component boundary as props.
+export const VAL_MODULES_CLIENT = (
+  valModulesImportPath: string,
+) => `"use client";
+import { ValModulesClient as Base } from "@valbuild/next";
+import valModules from "${valModulesImportPath}";
+
+export function ValModulesClient() {
+  return <Base modules={valModules} />;
 }
 `;
 

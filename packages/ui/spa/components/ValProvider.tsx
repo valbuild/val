@@ -21,6 +21,7 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
+  ValModules,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import {
@@ -33,6 +34,7 @@ import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
+import { createValidationWorker } from "../validation/createValidationWorker";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
 import {
@@ -40,6 +42,8 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
+import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
+import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas, useSyncEngine } from "./ValFieldProvider";
 export { useSyncEngine } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
@@ -47,6 +51,7 @@ import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import { AIChatActionsProvider } from "./AIChatActionsContext";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -185,6 +190,7 @@ export function ValProvider({
   children,
   client,
   config: _config,
+  valModules,
   dispatchValEvents,
   theme,
   setTheme,
@@ -192,6 +198,7 @@ export function ValProvider({
   children: React.ReactNode;
   client: ValClient;
   config: SharedValConfig | null;
+  valModules?: ValModules | null;
   dispatchValEvents: boolean;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
@@ -309,14 +316,25 @@ export function ValProvider({
 
   const syncEngine = useMemo(
     () =>
-      new ValSyncEngine(client, (moduleFilePath, newSource) => {
-        if (dispatchValEvents) {
-          defaultOverlayEmitter(moduleFilePath, newSource);
-        }
-      }),
+      new ValSyncEngine(
+        client,
+        (moduleFilePath, newSource) => {
+          if (dispatchValEvents) {
+            defaultOverlayEmitter(moduleFilePath, newSource);
+          }
+        },
+        createValidationWorker,
+      ),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
+
+  // Push client-side valModules into the engine. Re-runs on HMR-driven
+  // reference changes, which causes the engine to re-extract schemas/sources
+  // and re-invalidate subscribers without a server round-trip.
+  useEffect(() => {
+    syncEngine.setValModules(valModules ?? null);
+  }, [valModules, syncEngine]);
   const runtimeConfig =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
 
@@ -534,6 +552,7 @@ export function ValProvider({
         stat.data.profileId,
         stat.data.commitSha ?? null,
         Date.now(),
+        stat.data.jsonEntriesSha,
       );
     }
   }, [stat, syncEngine, initializedAt]);
@@ -661,32 +680,54 @@ export function ValProvider({
       }}
     >
       <TooltipProvider>
-        {theme !== undefined && setTheme ? (
-          <ValThemeProvider
-            theme={theme}
-            setTheme={setTheme}
-            config={runtimeConfig}
-          >
-            <ValErrorProvider syncEngine={syncEngine}>
-              <ValPortalProvider>
-                <ValRemoteProvider remoteFiles={remoteFiles}>
-                  <ValFieldProvider
-                    syncEngine={syncEngine}
-                    getDirectFileUploadSettings={getDirectFileUploadSettings}
-                    config={runtimeConfig}
-                  >
-                    {children}
-                  </ValFieldProvider>
-                </ValRemoteProvider>
-              </ValPortalProvider>
-            </ValErrorProvider>
-          </ValThemeProvider>
-        ) : (
-          children
-        )}
+        <AIChatActionsProvider isAIChatEnabled={wsEnabled}>
+          {theme !== undefined && setTheme ? (
+            <ValThemeProvider
+              theme={theme}
+              setTheme={setTheme}
+              config={runtimeConfig}
+            >
+              <ValErrorProvider syncEngine={syncEngine}>
+                <ValPortalProvider>
+                  <ValRemoteProvider remoteFiles={remoteFiles}>
+                    <ValFieldProvider
+                      syncEngine={syncEngine}
+                      getDirectFileUploadSettings={getDirectFileUploadSettings}
+                      config={runtimeConfig}
+                    >
+                      <LocalModulesErrorBanner syncEngine={syncEngine} />
+                      {children}
+                      <SchemaOutOfDateGate syncEngine={syncEngine} />
+                    </ValFieldProvider>
+                  </ValRemoteProvider>
+                </ValPortalProvider>
+              </ValErrorProvider>
+            </ValThemeProvider>
+          ) : (
+            children
+          )}
+        </AIChatActionsProvider>
       </TooltipProvider>
     </ValContext.Provider>
   );
+}
+
+function SchemaOutOfDateGate({ syncEngine }: { syncEngine: ValSyncEngine }) {
+  const subscribe = useMemo(
+    () => syncEngine.subscribe("schema-out-of-date"),
+    [syncEngine],
+  );
+  const getSnapshot = useCallback(
+    () => syncEngine.getSchemaOutOfDateSnapshot(),
+    [syncEngine],
+  );
+  const schemaOutOfDate = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+  if (!schemaOutOfDate) return null;
+  return <SchemaOutOfDateDialog />;
 }
 
 function useProfilesData(
@@ -886,7 +927,36 @@ export function usePatchSets():
     () => syncEngine.getSerializedPatchSetsSnapshot(),
     () => syncEngine.getSerializedPatchSetsSnapshot(),
   );
+  // NOT initializedAt: setValModules sets that as soon as local modules are
+  // adopted, so content can render before /stat arrives. With local modules
+  // present it is therefore non-null while the patch sets are still empty
+  // because nothing has been read yet - not because there is nothing to show -
+  // and callers would render their empty state ("No pending changes") first.
+  // hasCompletedInitialPatchSync is only true once syncPatches has run with
+  // every patch's data present; it invalidates patch-sets when it flips, which
+  // is the store this hook already subscribes to.
+  if (!syncEngine.hasCompletedInitialPatchSync()) {
+    return { status: "not-asked" };
+  }
   return { status: "success", data: serializedPatchSets };
+}
+
+/**
+ * Increments on every successful publish.
+ *
+ * Views that render state derived from the pending patches - the compare view
+ * above all - are stale the moment a publish goes through: the patches they
+ * were showing are committed and the base they were diffed against has moved.
+ * Use this as a reload key so they rebuild from scratch instead of leaving the
+ * pre-publish result on screen.
+ */
+export function usePublishCount(): number {
+  const { syncEngine } = useContext(ValContext);
+  return useSyncExternalStore(
+    syncEngine.subscribe("published"),
+    () => syncEngine.getPublishCountSnapshot(),
+    () => syncEngine.getPublishCountSnapshot(),
+  );
 }
 
 export function useCommittedPatches() {

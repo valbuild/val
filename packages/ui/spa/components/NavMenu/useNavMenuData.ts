@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValidationError } from "@valbuild/core";
 import { useTrees } from "../useTrees";
 import {
   useShallowModulesAtPaths,
   useNextAppRouterSrcFolder,
 } from "../ValProvider";
+import { useSchemas } from "../ValFieldProvider";
 import { Internal } from "@valbuild/core";
 import {
   getNextAppRouterSitemapTree,
@@ -30,6 +31,7 @@ type ErrorsMap = Record<SourcePath, ValidationError[] | undefined>;
 function transformSitemapNode(
   node: SitemapNode | PageNode,
   errorsMap: ErrorsMap,
+  schemas?: Record<ModuleFilePath, SerializedSchema>,
 ): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
   const routePattern =
@@ -44,18 +46,24 @@ function transformSitemapNode(
   const errors = sourcePath
     ? collectErrorsForSitemapEntry(errorsMap, sourcePath)
     : undefined;
+  const moduleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
+  const routerSchema =
+    canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
+  const keyDescription =
+    routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
 
   return {
     name: node.name,
     urlPath: node.pattern || "/",
     sourcePath,
-    moduleFilePath: node.moduleFilePath as ModuleFilePath | undefined,
+    moduleFilePath,
     canAddChild,
     routePattern,
     existingKeys,
+    keyDescription,
     errors,
     children: node.children.map((child) =>
-      transformSitemapNode(child, errorsMap),
+      transformSitemapNode(child, errorsMap, schemas),
     ),
   };
 }
@@ -96,6 +104,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
   const shallowModules = useShallowModulesAtPaths(sitemapPaths, "record");
   const srcFolder = useNextAppRouterSrcFolder();
   const validationErrors = useAllValidationErrors();
+  const schemas = useSchemas();
 
   return useMemo((): Remote<NavMenuData> => {
     if (trees.status !== "success") {
@@ -127,7 +136,11 @@ export function useNavMenuData(): Remote<NavMenuData> {
           }
         }
         const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
-        data.sitemap = transformSitemapNode(sitemapTree, errorsMap);
+        data.sitemap = transformSitemapNode(
+          sitemapTree,
+          errorsMap,
+          schemas.status === "success" ? schemas.data : undefined,
+        );
       } else if (
         srcFolder.status === "loading" ||
         shallowModules.status === "loading"
@@ -153,7 +166,14 @@ export function useNavMenuData(): Remote<NavMenuData> {
       status: "success",
       data,
     };
-  }, [trees, sitemapPaths, srcFolder, shallowModules, validationErrors]);
+  }, [
+    trees,
+    sitemapPaths,
+    srcFolder,
+    shallowModules,
+    validationErrors,
+    schemas,
+  ]);
 }
 
 /**

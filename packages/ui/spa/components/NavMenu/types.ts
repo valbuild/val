@@ -36,6 +36,8 @@ export type SitemapItem = {
   existingKeys?: string[];
   /** Validation errors attributable to this row (not descendants). */
   errors?: NavItemErrors;
+  /** Description of the router key schema (shown in the add page form) */
+  keyDescription?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */

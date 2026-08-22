@@ -41,6 +41,7 @@ export {
 export { ValProvider } from "./ValProvider";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValApp } from "./ValApp";
+export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
 
 import { Internal as InternalCore } from "@valbuild/core";
 // Auto-tag JSX with Val paths:

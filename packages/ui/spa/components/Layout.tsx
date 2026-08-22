@@ -12,6 +12,8 @@ import {
   Sidebar,
 } from "./designSystem/sidebar";
 import { useIsMobile } from "./hooks/use-mobile";
+import { Toaster } from "./designSystem/sonner";
+import { TransientErrorToasts } from "./TransientErrorToasts";
 
 export function Layout() {
   const isMobile = useIsMobile();
@@ -31,22 +33,28 @@ export function Layout() {
     }
   }, [didInitialize, navigationReady, currentSourcePath]);
   const authenticationState = useAuthenticationState();
-  const setNavMenuOpen = useCallback(() => {
-    setIsNavMenuOpenState((prev) => {
-      if (isMobile) {
+  // Both take the state to move to, rather than toggling: callers that need a
+  // menu closed (a mobile sheet getting out of the way of the view it just
+  // navigated to) have no way to express that with a toggle.
+  const setNavMenuOpen = useCallback(
+    (open: boolean) => {
+      setIsNavMenuOpenState(open);
+      if (open && isMobile) {
+        // Only one sheet fits on a mobile screen
         setIsToolsMenuOpenState(false);
       }
-      return !prev;
-    });
-  }, [isMobile, isToolsMenuOpen]);
-  const setToolsMenuOpen = useCallback(() => {
-    setIsToolsMenuOpenState((prev) => {
-      if (isMobile) {
+    },
+    [isMobile],
+  );
+  const setToolsMenuOpen = useCallback(
+    (open: boolean) => {
+      setIsToolsMenuOpenState(open);
+      if (open && isMobile) {
         setIsNavMenuOpenState(false);
       }
-      return !prev;
-    });
-  }, [isMobile, isNavMenuOpen]);
+    },
+    [isMobile],
+  );
   useEffect(() => {
     if (isMobile && isNavMenuOpen && isToolsMenuOpen) {
       setIsNavMenuOpenState(false);
@@ -101,6 +109,8 @@ export function Layout() {
           </Sidebar>
         </SidebarProvider>
       </main>
+      <Toaster />
+      <TransientErrorToasts />
     </LayoutContext.Provider>
   );
 }

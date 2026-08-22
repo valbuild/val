@@ -47,7 +47,12 @@ export function ExplorerSection({
           <PanelsTopLeft size={16} />
           <span>Explorer</span>
           {sectionErrorCount > 0 && (
-            <ErrorBadge count={sectionErrorCount} ownCount={0} size="sm" />
+            <ErrorBadge
+              count={sectionErrorCount}
+              ownCount={0}
+              size="sm"
+              aggregateLocation="in this section"
+            />
           )}
         </div>
       </AccordionTrigger>

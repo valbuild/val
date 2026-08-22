@@ -14,6 +14,14 @@ export type AvailableRoute = {
   patternString: string;
   /** Existing URL paths that would collide if reused. */
   existingKeys: string[];
+  /**
+   * Description of the router's key schema, if it has one.
+   *
+   * This is the schema author's own explanation of what a key should look like
+   * ("URL slug, lowercase, no spaces"), so it belongs next to the inputs the
+   * editor is filling in - not in a tooltip they have to go looking for.
+   */
+  keyDescription?: string;
 };
 
 export type NewPageFormProps = {
@@ -115,6 +123,12 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
         <div className="space-y-1">
           <span className="text-xs text-fg-secondary">Route</span>
           <RoutePatternDisplay pattern={selectedRoute.routePattern} />
+        </div>
+      )}
+
+      {selectedRoute.keyDescription && (
+        <div className="max-w-[240px] text-pretty text-xs text-fg-tertiary">
+          {selectedRoute.keyDescription}
         </div>
       )}
 

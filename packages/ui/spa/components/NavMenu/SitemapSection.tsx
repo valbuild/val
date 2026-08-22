@@ -81,7 +81,12 @@ export function SitemapSection({
             <Globe size={16} />
             <span>Pages</span>
             {sectionErrorCount > 0 && (
-              <ErrorBadge count={sectionErrorCount} ownCount={0} size="sm" />
+              <ErrorBadge
+                count={sectionErrorCount}
+                ownCount={0}
+                size="sm"
+                aggregateLocation="in this section"
+              />
             )}
           </div>
         </AccordionTrigger>
@@ -168,18 +173,19 @@ export function SitemapSection({
  * the flat list of every URL currently in the tree (used for duplicate
  * validation in the top-level "New page" form).
  */
-function collectSitemapRoutes(sitemap: SitemapItem): {
+export function collectSitemapRoutes(sitemap: SitemapItem): {
   routes: AvailableRoute[];
   existingUrls: string[];
 } {
   const routes = new Map<string, AvailableRoute>();
   const urls: string[] = [];
 
-  function walk(item: SitemapItem, parentPath: string) {
-    const displayUrl =
-      item.name === "/" || item.name === ""
-        ? "/"
-        : `${parentPath}/${item.name}`;
+  function walk(item: SitemapItem) {
+    // `urlPath` is the single source of truth, set by transformSitemapNode from
+    // the route pattern. Rebuilding it from `parentPath + "/" + item.name`
+    // duplicated that computation and would drift from it the first time the
+    // upstream one changes (encoding, normalization, a trailing slash rule).
+    const displayUrl = item.urlPath;
 
     if (item.sourcePath || item.children.length === 0) {
       urls.push(displayUrl);
@@ -194,16 +200,17 @@ function collectSitemapRoutes(sitemap: SitemapItem): {
           routePattern: item.routePattern,
           patternString,
           existingKeys: [],
+          keyDescription: item.keyDescription,
         });
       }
     }
 
     for (const child of item.children) {
-      walk(child, displayUrl === "/" ? "" : displayUrl);
+      walk(child);
     }
   }
 
-  walk(sitemap, "");
+  walk(sitemap);
 
   return { routes: Array.from(routes.values()), existingUrls: urls };
 }

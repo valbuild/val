@@ -15,6 +15,7 @@ import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
 import { ImageSource } from "../source/image";
 import { RemoteSource } from "../source/remote";
+import { JsonSource } from "../source/json";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -22,21 +23,23 @@ export type Selector<T extends Source> = Source extends T
     ? ImageSelector
     : T extends FileSource<infer M>
       ? FileSelector<M>
-      : T extends RichTextSource<infer O>
-        ? RichTextSelector<O>
-        : T extends SourceObject
-          ? ObjectSelector<T>
-          : T extends SourceArray
-            ? ArraySelector<T>
-            : T extends string
-              ? StringSelector<T>
-              : T extends number
-                ? NumberSelector<T>
-                : T extends boolean
-                  ? BooleanSelector<T>
-                  : T extends null
-                    ? PrimitiveSelector<null>
-                    : never;
+      : T extends JsonSource
+        ? GenericSelector<JsonSource>
+        : T extends RichTextSource<infer O>
+          ? RichTextSelector<O>
+          : T extends SourceObject
+            ? ObjectSelector<T>
+            : T extends SourceArray
+              ? ArraySelector<T>
+              : T extends string
+                ? StringSelector<T>
+                : T extends number
+                  ? NumberSelector<T>
+                  : T extends boolean
+                    ? BooleanSelector<T>
+                    : T extends null
+                      ? PrimitiveSelector<null>
+                      : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -48,26 +51,33 @@ export type SelectorSource =
   | ImageSource
   | FileSource
   | RemoteSource
+  | JsonSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 
+// Identity symbols are registered in the global Symbol registry so that
+// multiple bundled copies of @valbuild/core (e.g. the editor SPA bundle vs.
+// the host Next.js bundle) resolve to the same Symbol instance. Without
+// this, a value produced by one copy reads as `undefined` when accessed
+// via these keys from the other copy — extractValModules running in the
+// SPA against `.val.ts` modules loaded from the host bundle was hitting
+// this exact failure mode.
 /**
  * @internal
  */
-export const GetSchema = Symbol("GetSchema");
-/**
-/**
- * @internal
- */
-export const Path = Symbol("Path");
+export const GetSchema = Symbol.for("@valbuild/core/GetSchema");
 /**
  * @internal
  */
-export const GetSource = Symbol("GetSource");
+export const Path = Symbol.for("@valbuild/core/Path");
 /**
  * @internal
  */
-export const ValError = Symbol("ValError");
+export const GetSource = Symbol.for("@valbuild/core/GetSource");
+/**
+ * @internal
+ */
+export const ValError = Symbol.for("@valbuild/core/ValError");
 export abstract class GenericSelector<
   out T extends Source,
   Error extends string | undefined = undefined,

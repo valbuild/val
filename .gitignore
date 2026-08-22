@@ -5,3 +5,6 @@ tsconfig.tsbuildinfo
 .envrc
 .tmp
 .DS_Store
+# Customer debug snapshots (see debug/README.md). Contains customer content.
+/debug/*
+!/debug/README.md

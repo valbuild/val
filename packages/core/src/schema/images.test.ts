@@ -6,12 +6,15 @@ import { string } from "./string";
 function filterCheckErrors(
   result:
     | false
-    | Record<string, { message: string; fixes?: string[] }[]>
+    | Record<string, { message: string; fixes?: string[]; value?: unknown }[]>
     | undefined,
 ) {
   if (!result) return result;
   const checkFixes = ["images:check-unique-folder", "images:check-all-files"];
-  const filtered: Record<string, { message: string; fixes?: string[] }[]> = {};
+  const filtered: Record<
+    string,
+    { message: string; fixes?: string[]; value?: unknown }[]
+  > = {};
   for (const [key, errors] of Object.entries(result)) {
     const nonCheck = errors.filter(
       (e) => !e.fixes?.some((f) => checkFixes.includes(f)),
@@ -334,7 +337,7 @@ describe("ImagesSchema", () => {
       expect(filterCheckErrors(result)).toBeFalsy();
     });
 
-    test("should accept local paths when remote is enabled", () => {
+    test("should flag local paths as upload-remote when remote is enabled", () => {
       const schema = images({
         accept: "image/webp",
         directory: "/public/val/images",
@@ -348,19 +351,18 @@ describe("ImagesSchema", () => {
         },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      // Should not have path errors
+      // A local path in a remote gallery is a fixable error (upload to remote).
       const filteredResult2 = filterCheckErrors(result);
-      if (filteredResult2) {
-        const errors = Object.values(filteredResult2 as object).flat();
-        const hasPathError = errors.some(
-          (e: { message: string }) =>
-            e.message.includes("directory") || e.message.includes("Remote"),
-        );
-        expect(hasPathError).toBe(false);
-      }
+      expect(filteredResult2).toBeTruthy();
+      const errors = Object.values(filteredResult2 as object).flat();
+      const uploadError = errors.find((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadError).toBeTruthy();
+      expect(uploadError?.value).toBe("/public/val/images/local.webp");
     });
 
-    test("should accept mixed remote and local when remote is enabled", () => {
+    test("should flag only local paths when mixing remote and local", () => {
       const schema = images({
         accept: "image/webp",
         directory: "/public/val/images",
@@ -381,7 +383,15 @@ describe("ImagesSchema", () => {
           },
       };
       const result = schema["executeValidate"]("path" as SourcePath, src);
-      expect(filterCheckErrors(result)).toBeFalsy();
+      const filtered = filterCheckErrors(result);
+      expect(filtered).toBeTruthy();
+      const errors = Object.values(filtered as object).flat();
+      // Exactly the local entry is flagged for upload; the remote URL is valid.
+      const uploadErrors = errors.filter((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadErrors).toHaveLength(1);
+      expect(uploadErrors[0]?.value).toBe("/public/val/images/local.webp");
     });
 
     test("should reject invalid remote URLs", () => {
@@ -532,6 +542,35 @@ describe("ImagesSchema", () => {
       }
     });
 
+    test("should report both the key error and the entry error for the same entry", () => {
+      // Key errors (wrong directory) and entry errors (bad metadata) are both
+      // reported at the entry's path, so merging must concatenate them rather
+      // than let one overwrite the other.
+      const schema = images({
+        accept: "image/webp",
+        directory: "/public/val/images",
+      });
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/wrong/path/image.webp": {
+          width: 0,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong path and bad width",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.some((m) => m.includes("must be within the"))).toBe(true);
+      expect(
+        messages.some((m) =>
+          m.includes("Expected 'width' to be a positive number"),
+        ),
+      ).toBe(true);
+    });
+
     test("should accept paths in subdirectories", () => {
       const schema = images({
         accept: "image/webp",
@@ -555,6 +594,113 @@ describe("ImagesSchema", () => {
         );
         expect(hasDirError).toBe(false);
       }
+    });
+  });
+
+  describe("defaults", () => {
+    test("should default accept to image/* when options are omitted", () => {
+      const schema = images();
+      const serialized = schema["executeSerialize"]();
+      expect((serialized as SerializedImagesSchema).mediaType).toBe("images");
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/val");
+      expect(serialized.remote).toBe(false);
+      expect(serialized.opt).toBe(false);
+    });
+
+    test("should default accept to image/* when options are empty", () => {
+      const serialized = images({})["executeSerialize"]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/val");
+    });
+
+    test("should default accept to image/* when only directory is given", () => {
+      const serialized = images({ directory: "/public/images" })[
+        "executeSerialize"
+      ]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.directory).toBe("/public/images");
+    });
+
+    test("should default alt to a nullable string when options are omitted", () => {
+      const serialized = images()["executeSerialize"]();
+      expect(serialized.alt).toMatchObject({ type: "string", opt: true });
+    });
+
+    test("should accept any image mime type when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/public/val/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      expect(
+        filterCheckErrors(schema["executeValidate"]("path" as SourcePath, src)),
+      ).toBeFalsy();
+    });
+
+    test("should reject non-image mime types when options are omitted", () => {
+      const schema = images();
+      const src = {
+        "/public/val/test.pdf": {
+          width: 800,
+          height: 600,
+          mimeType: "application/pdf",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"](
+        "path" as SourcePath,
+        src as unknown as Record<string, ImagesEntryMetadata>,
+      );
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasMimeError = errors.some((e: { message: string }) =>
+        e.message.includes("Mime type mismatch"),
+      );
+      expect(hasMimeError).toBe(true);
+    });
+
+    test("should use the default /public/val directory when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "/public/other/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasDirError = errors.some((e: { message: string }) =>
+        e.message.includes("must be within the /public/val/ directory"),
+      );
+      expect(hasDirError).toBe(true);
+    });
+
+    test("should not allow remote refs when options are omitted", () => {
+      const schema = images();
+      const src: Record<string, ImagesEntryMetadata> = {
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: null,
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasRemoteError = errors.some((e: { message: string }) =>
+        e.message.includes("Remote URLs are not allowed"),
+      );
+      expect(hasRemoteError).toBe(true);
     });
   });
 

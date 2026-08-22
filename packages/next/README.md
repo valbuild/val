@@ -55,6 +55,8 @@
   - [Image](#image)
   - [keyOf](#keyof)
   - [Route](#route)
+  - [Date](#date)
+  - [DateTime](#datetime)
 
 ## Installation
 
@@ -885,6 +887,135 @@ export default c.define("/components/link.val.ts", linkSchema, {
   href: "/", // This must exist in a router module
 });
 ```
+
+## Date
+
+The `date` schema represents a calendar day, with no time and no timezone. It is stored as a `YYYY-MM-DD` string.
+
+### Date Schema
+
+```ts
+s.date(); // <- Schema<string>
+```
+
+### Date bounds
+
+Use `.from()` and `.to()` to constrain which days are valid. Both bounds are inclusive.
+
+```ts
+s.date().from("1900-01-01"); // this day or later
+s.date().to("2024-01-01"); // this day or earlier
+s.date().from("1900-01-01").to("2024-01-01"); // within the range
+```
+
+These are methods, not options - `s.date({ from: "1900-01-01" })` does not type check.
+
+Bounds are compared as strings, which is exactly right for `YYYY-MM-DD` (it sorts chronologically) and wrong for anything else, so write bounds in that format.
+
+**NOTE**: the schema checks the bounds, but not the shape of the string: a value like `"the 3rd of May"` is stored and validated without complaint. The editor always writes `YYYY-MM-DD`, so this only bites hand-written content. Use `.validate()` if you want it enforced:
+
+```ts
+s.date().validate((day) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day) ? false : "Must be a YYYY-MM-DD date",
+);
+```
+
+### Editing dates
+
+Editors get a calendar. `from` and `to` limit which days can be picked, and a value already outside the bounds is shown clamped to the nearest one.
+
+### Initializing date content
+
+```ts
+import { s, c } from "../val.config";
+
+export const schema = s.object({
+  birthdate: s
+    .date()
+    .from("1900-01-01")
+    .to("2024-01-01")
+    .nullable()
+    .describe("Author's birthdate"),
+});
+
+export default c.define("/content/author.val.ts", schema, {
+  birthdate: "1981-12-30",
+});
+```
+
+### Using dates
+
+The value is a plain string, so it can be compared and sorted as one:
+
+```tsx
+const authors = [...allAuthors].sort((a, b) =>
+  (a.birthdate ?? "").localeCompare(b.birthdate ?? ""),
+);
+```
+
+To format it, hand it to `Date` or a date library. Note that `new Date("2024-05-03")` parses as UTC midnight, so formatting it in a local timezone west of UTC shows the previous day - format from the parts, or use a library that treats the value as a plain day:
+
+```tsx
+const [year, month, day] = author.birthdate.split("-").map(Number);
+const label = new Date(year, month - 1, day).toLocaleDateString();
+```
+
+## DateTime
+
+The `dateTime` schema represents an instant in time. It is stored as an ISO 8601 string in UTC, for example `2023-04-12T09:30:00.000Z`.
+
+### DateTime Schema
+
+```ts
+s.datetime(); // <- Schema<string>
+```
+
+The factory is spelled `datetime`, all lowercase. The schema type it serializes to is `dateTime` - that name shows up in validation output and in the editor, but you never write it yourself.
+
+### DateTime bounds
+
+As with `date`, use the inclusive `.from()` and `.to()` methods. They accept any ISO 8601 datetime that `Date.parse` understands, and are compared as instants rather than as strings, so bounds and values may be written in different notations:
+
+```ts
+s.datetime().from("2020-01-01T00:00:00Z");
+s.datetime().from("2020-01-01T00:00:00Z").to("2030-12-31T23:59:59Z");
+```
+
+Unlike `date`, the value itself is checked: a string that `Date.parse` cannot read is a validation error.
+
+> Value 'yesterday' is not a valid ISO 8601 datetime
+
+### Editing datetimes
+
+The editor shows a calendar, a time input (down to seconds) and a timezone picker. The picker starts on the browser's timezone and remembers the last choice, so an editor in one place can enter a time as it will be experienced somewhere else. Whichever zone is chosen, the value is converted and stored as UTC - the timezone is a property of the editor, never of the content.
+
+### Initializing datetime content
+
+```ts
+import { s, c } from "../val.config";
+
+export const schema = s.object({
+  joinedAt: s.datetime().nullable().describe("When the author joined"),
+});
+
+export default c.define("/content/author.val.ts", schema, {
+  joinedAt: "2023-04-12T09:30:00.000Z",
+});
+```
+
+### Using datetimes
+
+Since the value is an ISO 8601 UTC string, `Date` parses it directly:
+
+```tsx
+<time dateTime={author.joinedAt}>
+  {new Date(author.joinedAt).toLocaleString()}
+</time>
+```
+
+Rendering a UTC instant in the visitor's local timezone means server and client can format it differently. In Next.js that shows up as a hydration mismatch, so format inside a client component (or pass a fixed `timeZone` to `toLocaleString`) when the exact time matters.
+
+**NOTE**: neither `date` nor `dateTime` values are steganographically tagged, so they do not participate in click-then-edit visual editing - edit them from the studio instead. Both support `.nullable()`, `.describe()`, `.validate()`, `.readonly()` and `.hidden()` like any other schema.
 
 # Custom validation
 

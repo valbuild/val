@@ -2,7 +2,7 @@ import { Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
 import { fromCamelToTitleCase } from "../utils/prettifyText";
 import classNames from "classnames";
-import { ChevronDown, ChevronsDown } from "lucide-react";
+import { ChevronDown, ChevronsDown, Plus, Sparkles } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
@@ -15,10 +15,10 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
-import { ShallowSource, useAllSources, useSchemas } from "./ValFieldProvider";
+import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
+import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
 import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
-import { getNavPathFromAll } from "./getNavPath";
 
 export function Field({
   label,
@@ -75,11 +75,11 @@ export function Field({
   } = useFieldState(path, type, overrides, initialExpanded);
   const effectiveReadonly = readonly || hasOverrides;
   const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
+  const getNavPath = useGetNavPath();
+  const { isAIChatEnabled } = useAIChatActions();
+  const insertFieldRef = useInsertFieldRef();
   const handleLabelNavigate = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
-    const navPath = getNavPathFromAll(path, allSources, schemasData);
+    const navPath = getNavPath(path);
     const target = navPath ?? path;
     navigate(target, {
       scrollToPath: target !== path ? path : undefined,
@@ -193,6 +193,25 @@ export function Field({
         >
           {!hasOverrides && !compact && (
             <FieldPatchAuthorsSection path={path} />
+          )}
+          {!hasOverrides && isAIChatEnabled && (
+            <button
+              type="button"
+              onClick={() => insertFieldRef(path)}
+              title="Mention this field in AI chat"
+              aria-label="Mention this field in AI chat"
+              className={classNames(
+                "flex items-center justify-center rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary",
+                {
+                  "size-6": !compact,
+                  "size-5": compact,
+                  invisible: effectiveReadonly,
+                },
+              )}
+            >
+              <Sparkles size={compact ? 9 : 10} />
+              <Plus size={compact ? 7 : 8} className="-ml-0.5" />
+            </button>
           )}
           {!hasOverrides && source !== null && (
             <div className={classNames({ invisible: effectiveReadonly })}>

@@ -138,12 +138,14 @@ export function SitemapItemNode({
       routePattern: item.routePattern,
       patternString: routePatternToString(item.routePattern),
       existingKeys: existingUrls ?? item.existingKeys ?? [],
+      keyDescription: item.keyDescription,
     };
   }, [
     item.canAddChild,
     item.moduleFilePath,
     item.routePattern,
     item.existingKeys,
+    item.keyDescription,
     existingUrls,
   ]);
 

@@ -152,8 +152,6 @@ export function RichTextField({
     config,
   ]);
 
-  const imageDirectory = imageModuleDirectory ?? config?.files?.directory;
-
   const onImageUpload = useMemo(() => {
     if (!hasImageEnabled) return undefined;
 
@@ -189,7 +187,7 @@ export function RichTextField({
           metadata,
           "image",
           imageRemoteData,
-          imageDirectory,
+          imageModuleDirectory,
           !!imageReferencedModule,
         );
 
@@ -300,7 +298,7 @@ export function RichTextField({
     hasImageEnabled,
     patchPath,
     imageRemoteData,
-    imageDirectory,
+    imageModuleDirectory,
     imageReferencedModule,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,

@@ -14,12 +14,18 @@ import {
   Internal,
   ValModule,
   SourceObject,
+  JsonSource,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
-import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
+import {
+  getJsonEntryStegaRoot,
+  getValRouteUrlFromVal,
+  initValRouteFromVal,
+  isJsonValuesRecordSchema,
+} from "../routeFromVal";
 
 SET_RSC(true);
 const initFetchValStega =
@@ -90,6 +96,8 @@ const initFetchValStega =
               validate_sources: true,
               validate_binary_files: false,
               exclude_patches: false,
+              // RSC pre-render uses the legacy "server applies patches" path.
+              apply_patches: undefined,
             },
             cookies: {
               [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
@@ -171,7 +179,10 @@ type FetchValRouteReturnType<
 > =
   T extends ValModule<infer S>
     ? S extends SourceObject
-      ? StegaOfSource<NonNullable<S>[string]> | null
+      ? // `.jsonValues()` router: the matched entry resolves to its json content.
+        NonNullable<S>[string] extends JsonSource<infer C>
+        ? C | null
+        : StegaOfSource<NonNullable<S>[string]> | null
       : never
     : never;
 
@@ -195,6 +206,51 @@ const initFetchValRouteStega =
       | Record<string, string | string[]>
       | unknown,
   ): Promise<FetchValRouteReturnType<T>> => {
+    const resolvedParams = await Promise.resolve(params);
+    const path = selector && Internal.getValPath(selector);
+    const schema = selector && Internal.getSchema(selector);
+    // `.jsonValues()` router: map params → the entry key and load ONLY that
+    // entry's backing `*.val.json`, instead of eagerly resolving the whole
+    // record via `fetchVal`.
+    if (isJsonValuesRecordSchema(schema)) {
+      const source = selector && Internal.getSource(selector);
+      const url = getValRouteUrlFromVal(
+        resolvedParams,
+        "fetchValRoute",
+        path,
+        schema,
+        source,
+      );
+      if (!url) {
+        return null as FetchValRouteReturnType<T>;
+      }
+      let enabled = false;
+      try {
+        enabled = await isEnabled();
+      } catch {
+        // not in a server context where draftMode is readable — treat as disabled
+      }
+      let draft: DraftJsonEntry = { status: "unavailable" };
+      if (enabled && path) {
+        SET_AUTO_TAG_JSX_ENABLED(true);
+        draft = await loadDraftJsonEntry(
+          valServerPromise,
+          getCookies,
+          path as unknown as ModuleFilePath,
+          url,
+        );
+      }
+      const content = await resolveDraftOrCommittedEntry(draft, () =>
+        loadJsonEntryContent(source, url),
+      );
+      if (content === undefined) {
+        return null as FetchValRouteReturnType<T>;
+      }
+      return stegaEncode(content, {
+        disabled: !enabled,
+        root: getJsonEntryStegaRoot(selector, url),
+      });
+    }
     const fetchVal = initFetchValStega(
       config,
       valApiEndpoints,
@@ -203,9 +259,6 @@ const initFetchValRouteStega =
       getHeaders,
       getCookies,
     );
-    const resolvedParams = await Promise.resolve(params);
-    const path = selector && Internal.getValPath(selector);
-    const schema = selector && Internal.getSchema(selector);
     const val = selector && (await fetchVal(selector));
     const route = initValRouteFromVal(
       resolvedParams,
@@ -215,6 +268,194 @@ const initFetchValRouteStega =
       val,
     );
     return route;
+  };
+
+/**
+ * Resolves a single `.jsonValues()` entry's content by key from a module's local
+ * source markers (one dynamic import). Returns `undefined` when the key is
+ * missing or its marker has no runtime thunk (transport marker / draft entry).
+ */
+async function loadJsonEntryContent(
+  source: unknown,
+  key: string,
+): Promise<unknown | undefined> {
+  if (!source || typeof source !== "object") {
+    return undefined;
+  }
+  const marker = (source as Record<string, unknown>)[key];
+  if (!Internal.isJson(marker)) {
+    return undefined;
+  }
+  const thunk = Internal.getJsonImport(marker);
+  if (!thunk) {
+    return undefined;
+  }
+  return (await thunk()).default;
+}
+
+/**
+ * Loads a single `.jsonValues()` entry's DRAFT content via the in-process
+ * `/json` endpoint (which replays pending patches). Returns `undefined` when the
+ * entry has no draft content to serve — the caller then falls back to the
+ * locally-bundled committed content.
+ */
+/**
+ * What the draft state says about an entry.
+ *
+ * The three cases have to stay distinct: `absent` is an ANSWER — the entry is not
+ * there in the draft state, e.g. a pending patch removed it — while `unavailable`
+ * means we could not ask. Collapsing them into `undefined` is what made a
+ * draft-deleted entry keep rendering its committed content: the caller could not
+ * tell "it is gone" from "ask the committed source instead".
+ */
+/**
+ * The slice of `ValServer` the single-entry readers actually use. Narrower than
+ * `ValServer` on purpose: it says what the dependency IS, and it lets a test
+ * drive these readers with a one-route fake instead of casting a partial object
+ * to the whole server type.
+ */
+export type JsonEntryValServer = Pick<ValServer, "/json">;
+
+export type DraftJsonEntry =
+  | { status: "content"; content: unknown }
+  | { status: "absent" }
+  | { status: "unavailable" };
+
+/**
+ * Picks the content a draft-aware single-entry read should render.
+ *
+ * The rule the two callers share: the draft state WINS when it has an answer —
+ * including the answer "this entry is gone" — and the committed content is used
+ * only when there is no draft answer to be had (Val disabled, or we could not
+ * ask). Returning `undefined` means "render nothing"; both callers turn that into
+ * a null/undefined result.
+ */
+export async function resolveDraftOrCommittedEntry(
+  draft: DraftJsonEntry,
+  loadCommitted: () => Promise<unknown | undefined>,
+): Promise<unknown | undefined> {
+  if (draft.status === "content") {
+    return draft.content;
+  }
+  if (draft.status === "absent") {
+    // Falling back here would render an entry the editor has just deleted.
+    return undefined;
+  }
+  return loadCommitted();
+}
+
+async function loadDraftJsonEntry(
+  valServerPromise: Promise<JsonEntryValServer>,
+  getCookies: () => Promise<{
+    get(name: string): { name: string; value: string } | undefined;
+  }>,
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): Promise<DraftJsonEntry> {
+  let cookies;
+  try {
+    cookies = await getCookies();
+  } catch {
+    // not in a server context where cookies are readable
+    return { status: "unavailable" };
+  }
+  const valServer = await valServerPromise;
+  const res = await valServer["/json"]["GET"]({
+    query: {
+      path: moduleFilePath,
+      key,
+      keys: undefined, // single-entry shape
+      offset: undefined,
+      limit: undefined,
+      apply_patches: true,
+    },
+    cookies: {
+      [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
+    },
+  });
+  if (res.status === 200 && "content" in res.json) {
+    return { status: "content", content: res.json.content };
+  }
+  if (res.status === 401) {
+    console.warn("Val: authentication error: ", res.json.message);
+    return { status: "unavailable" };
+  }
+  if (res.status === 404) {
+    // Authoritative: the draft state has no such entry (removed by a pending
+    // patch, or never existed). Not a reason to fall back to committed content.
+    return { status: "absent" };
+  }
+  console.error(
+    "Val: could not load draft JSON entry: ",
+    "message" in res.json ? res.json.message : `status ${res.status}`,
+  );
+  return { status: "unavailable" };
+}
+
+// The (loosened) content type a single `.jsonValues()` entry resolves to.
+type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
+  T extends ValModule<infer S>
+    ? S extends Record<string, infer V>
+      ? V extends JsonSource<infer C>
+        ? C
+        : never
+      : never
+    : never;
+
+/**
+ * Resolves ONE `.jsonValues()` entry by key, loading only that entry instead of
+ * the whole record — the runtime-scaling counterpart to the eager `fetchVal`.
+ *
+ * Production (Val disabled): resolves the entry's lazy import thunk from the
+ * locally-bundled module. One dynamic import, no server round-trip.
+ *
+ * Enabled (draft mode): reads the entry through `/json`, which replays pending
+ * patches, so uncommitted Studio edits show up. Falls back to the local thunk if
+ * the draft read yields nothing.
+ */
+export const initFetchValKeyStega =
+  (
+    valServerPromise: Promise<JsonEntryValServer>,
+    isEnabled: () => Promise<boolean>,
+    getCookies: () => Promise<{
+      get(name: string): { name: string; value: string } | undefined;
+    }>,
+  ) =>
+  async <T extends ValModule<GenericSelector<SourceObject>>>(
+    selector: T,
+    key: string,
+  ): Promise<JsonEntryContentOf<T> | undefined> => {
+    let enabled = false;
+    try {
+      enabled = await isEnabled();
+    } catch {
+      // not in a server context where draftMode is readable — treat as disabled
+    }
+    const source = selector && Internal.getSource(selector);
+    const moduleFilePath =
+      selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+    let draft: DraftJsonEntry = { status: "unavailable" };
+    if (enabled && moduleFilePath) {
+      SET_AUTO_TAG_JSX_ENABLED(true);
+      draft = await loadDraftJsonEntry(
+        valServerPromise,
+        getCookies,
+        moduleFilePath,
+        key,
+      );
+    }
+    const content = await resolveDraftOrCommittedEntry(draft, () =>
+      loadJsonEntryContent(source, key),
+    );
+    if (content === undefined) {
+      // deleted in the draft state, a missing key, or a transport marker with no
+      // runtime thunk
+      return undefined;
+    }
+    return stegaEncode(content, {
+      disabled: !enabled,
+      root: getJsonEntryStegaRoot(selector, key),
+    });
   };
 
 const initFetchValRouteUrl =
@@ -274,6 +515,7 @@ export function initValRsc(
   rscNextConfig: ValNextRscConfig,
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
+  fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
 } {
@@ -319,6 +561,15 @@ export function initValRsc(
       },
       async () => {
         return await rscNextConfig.headers();
+      },
+      async () => {
+        return await rscNextConfig.cookies();
+      },
+    ),
+    fetchValKeyStega: initFetchValKeyStega(
+      valServerPromise,
+      async () => {
+        return (await rscNextConfig.draftMode()).isEnabled;
       },
       async () => {
         return await rscNextConfig.cookies();
