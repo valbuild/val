@@ -1,0 +1,53 @@
+{
+  "name": "@valbuild/language-server",
+  "private": false,
+  "description": "Val - editor language server (LSP)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valbuild/val.git"
+  },
+  "keywords": [
+    "CMS",
+    "lsp",
+    "language-server"
+  ],
+  "version": "0.99.0",
+  "bin": {
+    "val-language-server": "./bin.js"
+  },
+  "main": "dist/valbuild-language-server.cjs.js",
+  "module": "dist/valbuild-language-server.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-language-server.esm.js",
+      "default": "./dist/valbuild-language-server.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "dist/valbuild-language-server.cjs.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "bench": "node scripts/evalLatency.bench.js"
+  },
+  "dependencies": {
+    "@valbuild/core": "workspace:*",
+    "@valbuild/server": "workspace:*",
+    "@valbuild/shared": "workspace:*",
+    "typescript": "^5.9.3",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "vscode-jsonrpc": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "files": [
+    "dist",
+    "bin.js"
+  ]
+}

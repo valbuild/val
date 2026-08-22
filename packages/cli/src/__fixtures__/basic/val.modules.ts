@@ -13,6 +13,8 @@ export default modules(config, [
   { def: () => import("./content/basic-gallery-fail-on-non-unique-dir.val") },
   { def: () => import("./content/basic-gallery-missing-tracked.val") },
   { def: () => import("./content/basic-gallery-wrong-metadata.val") },
+  { def: () => import("./content/basic-gallery-remote.val") },
+  { def: () => import("./content/basic-gallery-remote-existing.val") },
   { def: () => import("./content/basic-json-values.val") },
   { def: () => import("./content/basic-nested-json-values.val") },
 ]);

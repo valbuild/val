@@ -202,6 +202,35 @@ export abstract class Schema<Src extends SelectorSource> {
       } as ValidationErrors;
     }
   }
+
+  /**
+   * Merges two sets of validation errors path-wise: errors on the same path are
+   * concatenated, not overwritten. Object spread cannot be used for this, since
+   * it replaces the array of the colliding path. A record, for example, validates
+   * the key and the item on the same path, so both sets must survive.
+   *
+   * MUTATES! since internal and perf sensitive
+   */
+  protected mergeValidationErrors(
+    current: ValidationErrors,
+    incoming: ValidationErrors,
+  ): ValidationErrors {
+    if (!incoming) {
+      return current;
+    }
+    if (!current) {
+      return incoming;
+    }
+    for (const pathS in incoming) {
+      const path = pathS as SourcePath;
+      if (current[path]) {
+        current[path] = current[path].concat(incoming[path]);
+      } else {
+        current[path] = incoming[path];
+      }
+    }
+    return current;
+  }
 }
 
 export type SelectorOfSchema<T extends Schema<SelectorSource>> =

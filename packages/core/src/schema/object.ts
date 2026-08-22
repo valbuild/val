@@ -140,14 +140,7 @@ export class ObjectSchema<
         );
       } else {
         const subError = schema["executeValidate"](subPath, src[key]);
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     }
 
