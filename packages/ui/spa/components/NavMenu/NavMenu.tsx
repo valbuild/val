@@ -18,6 +18,7 @@ import { NavMenuData } from "./types";
 import { SitemapSection } from "./SitemapSection";
 import { ExplorerSection } from "./ExplorerSection";
 import { ExternalButton } from "./ExternalButton";
+import { MediaSection } from "./MediaSection";
 import { Accordion } from "../designSystem/accordion";
 import { MOBILE_BREAKPOINT } from "../hooks/use-mobile";
 
@@ -63,25 +64,38 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
     return data.sitemap && checkSitemapActive(data.sitemap, currentSourcePath);
   }, [data.sitemap, currentSourcePath]);
 
+  const isMediaSection = useMemo(() => {
+    return data.media?.some((entry) =>
+      currentSourcePath.startsWith(entry.moduleFilePath),
+    );
+  }, [data.media, currentSourcePath]);
+
   // Calculate which section should be active based on current path
   const activeSection = useMemo(() => {
     if (isExternalPath) {
       return "external";
     } else if (isSitemapSection) {
       return "sitemap";
+    } else if (isMediaSection) {
+      // Before explorer: a gallery module matches by its own path, which is
+      // exact, while the explorer check is a substring match on a folder name.
+      return "media";
     } else if (isExplorerSection) {
       return "explorer";
     }
     // Default to first available section
     if (data.sitemap) return "sitemap";
     if (data.explorer) return "explorer";
+    if (data.media && data.media.length > 0) return "media";
     return "";
   }, [
     isExternalPath,
     isSitemapSection,
+    isMediaSection,
     isExplorerSection,
     data.sitemap,
     data.explorer,
+    data.media,
   ]);
 
   // Track accordion open state (controlled) - use activeSection as the value
@@ -197,6 +211,16 @@ export function NavMenu({ data, isLoading = false, onAddPage }: NavMenuProps) {
                 isActive={isExternalSelected || isExternalPath}
                 onClick={handleExternalClick}
                 showButtonBorder={!!data.explorer}
+              />
+            )}
+
+            {/* Media Section - the s.images() / s.files() galleries */}
+            {data.media && data.media.length > 0 && (
+              <MediaSection
+                media={data.media}
+                currentPath={currentSourcePath}
+                onNavigate={handleNavigate}
+                maxHeight={contentMaxHeight}
               />
             )}
 
