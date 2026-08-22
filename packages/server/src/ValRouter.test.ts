@@ -1,4 +1,8 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { initVal, modules } from "@valbuild/core";
+import type { SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 
@@ -22,8 +26,7 @@ describe("ValRouter", () => {
     isabjo: { name: "Isak Bjørnstad", birthdate: "1970-01-01" },
     kimmid: { name: "Kim Midtlid", birthdate: "1970-01-01" },
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createOnRoute = (valModule: any) =>
+  const createOnRoute = (valModule: ValModule<SelectorSource>) =>
     createValApiRouter(
       route,
       createValServer(
@@ -102,6 +105,34 @@ describe("ValRouter", () => {
   ])(
     "/sources/~ returns renders (query: $query)",
     async ({ query, expectedSource, expectedBaseSource }) => {
+      // This case creates a real pending patch, and an fs-mode server stores
+      // patches under `${process.cwd()}/.val`. Rooted at the repo that writes
+      // .val/patches/head/patch.json into the checkout - which every fs-mode
+      // server then loads as the current pending head, so local Studio and
+      // other server tests would start with a synthetic edit to
+      // /content/authors.val.ts. cwd() is not overridable through
+      // ValApiOptions, so point it at a scratch directory for the duration.
+      const valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-router-"));
+      const cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
+      try {
+        await runRenderCase({ query, expectedSource, expectedBaseSource });
+      } finally {
+        cwdSpy.mockRestore();
+        fs.rmSync(valRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  async function runRenderCase({
+    query,
+    expectedSource,
+    expectedBaseSource,
+  }: {
+    query: string | undefined;
+    expectedSource: typeof authorsSource;
+    expectedBaseSource: typeof authorsSource | undefined;
+  }) {
+    {
       const onRouteWithRender = createOnRoute(
         c.define(
           "/content/authors.val.ts",
@@ -216,8 +247,8 @@ describe("ValRouter", () => {
           },
         },
       });
-    },
-  );
+    }
+  }
 
   test("smoke test valid route: /schema", async () => {
     const serverRes = await onRoute(
