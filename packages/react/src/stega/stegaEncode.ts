@@ -352,6 +352,19 @@ export function stegaEncode(
   opts: {
     getModule?: (modulePath: string) => any;
     disabled?: boolean;
+    /**
+     * Seeds the recursion for a RAW source value that is not a selector, so its
+     * strings still get edit tags.
+     *
+     * Needed for a `.jsonValues()` entry loaded by key: its content is plain
+     * JSON with no `Path`/`GetSchema` symbols, so the selector branch below
+     * cannot fire and — without this — every string hits the `!recOpts` bail in
+     * the encoder and the whole call is an identity transform.
+     *
+     * `path` is the entry's path (`Internal.createValPathOfItem(modulePath, key)`)
+     * and `schema` is the SERIALIZED item schema.
+     */
+    root?: { path: any; schema: any };
   },
 ): any {
   function rec(
@@ -532,7 +545,7 @@ export function stegaEncode(
     );
     return sourceOrSelector;
   }
-  return rec(input);
+  return rec(input, opts.disabled ? undefined : opts.root);
 }
 
 function isRecordSchema(

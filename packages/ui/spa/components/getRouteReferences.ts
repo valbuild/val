@@ -1,4 +1,5 @@
 import {
+  Internal,
   ModuleFilePath,
   ModuleFilePathSep,
   Source,
@@ -25,6 +26,10 @@ export function getRouteReferences(
     source: Source | undefined,
   ) => {
     if (schema === undefined) {
+      return;
+    }
+    if (Internal.isJson(source)) {
+      // Un-loaded `.jsonValues()` entry marker — opaque until loaded.
       return;
     }
     if (schema.type === "route") {

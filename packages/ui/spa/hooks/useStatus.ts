@@ -89,6 +89,12 @@ const StatData = z.object({
       .optional(),
   }),
   commitSha: z.string().optional(), // Only use-websocket has this (refactor this zod schema?)
+  /**
+   * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
+   * other sha here can see an entry edit, because a jsonValues module's source is
+   * markers and the content sits behind a thunk.
+   */
+  jsonEntriesSha: z.string().optional(),
   sourcesSha: z.string(),
   schemaSha: z.string(),
   baseSha: z.string(),
@@ -262,6 +268,9 @@ async function execStat(
       sourcesSha: stat.data.sourcesSha,
       baseSha: stat.data.baseSha,
       patches: stat.data.patches,
+      // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
+      // no other sha here can see that (a jsonValues module's source is markers).
+      jsonEntriesSha: stat.data.jsonEntriesSha,
     };
   }
 

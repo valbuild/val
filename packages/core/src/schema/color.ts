@@ -98,6 +98,17 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const errors: ValidationError[] = this.executeCustomValidateFunctions(
       src,

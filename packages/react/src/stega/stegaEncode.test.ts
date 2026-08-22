@@ -382,5 +382,48 @@ describe("stega transform", () => {
   });
 });
 
+describe("stegaEncode root seed (jsonValues entries)", () => {
+  // A `.jsonValues()` entry's content is plain JSON — it carries no selector
+  // path/schema — so without a `root` seed stegaEncode cannot tag anything.
+  const itemSchema = s.object({ title: s.string(), body: s.string() });
+  const entryPath = '/app/support/[slug]/page.val.ts?p="/support/faq"';
+  const content = { title: "FAQ", body: "Body" };
+
+  test("without a root seed it is an identity transform (the bug)", () => {
+    const res = stegaEncode(content, {});
+    expect(res).toEqual(content);
+    expect(vercelStegaDecode(res.title)).toBeUndefined();
+  });
+
+  test("with a root seed each string is tagged at the entry sub-path", () => {
+    const res = stegaEncode(content, {
+      root: {
+        path: entryPath,
+        schema: itemSchema["executeSerialize"](),
+      },
+    });
+    expect(vercelStegaSplit(res.title).cleaned).toBe("FAQ");
+    expect(vercelStegaDecode(res.title)).toEqual({
+      origin: "val.build",
+      data: { valPath: `${entryPath}."title"` },
+    });
+    expect(vercelStegaDecode(res.body)).toEqual({
+      origin: "val.build",
+      data: { valPath: `${entryPath}."body"` },
+    });
+  });
+
+  test("disabled wins over the root seed", () => {
+    const res = stegaEncode(content, {
+      disabled: true,
+      root: {
+        path: entryPath,
+        schema: itemSchema["executeSerialize"](),
+      },
+    });
+    expect(res).toEqual(content);
+  });
+});
+
 type SchemaOf<T extends Schema<SelectorSource>> =
   T extends Schema<infer S> ? S : never;
