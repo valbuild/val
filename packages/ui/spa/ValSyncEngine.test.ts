@@ -127,6 +127,85 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("FooBar");
   });
 
+  test("publishCount increments on a successful publish and notifies", async () => {
+    // The compare view uses this as its reload key: if it does not move on a
+    // publish, the view keeps showing the pre-publish diff; if it moves without
+    // notifying, it moves too late to matter.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    let notifications = 0;
+    const unsubscribe = syncEngine.subscribe("published")(() => {
+      notifications++;
+    });
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+    expect(
+      await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+    ).toMatchObject({ status: "done" });
+
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+    expect(notifications).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
+  test("publishCount does not move when there is nothing to publish", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+    await syncEngine.publish([], undefined, tester.getNextNow());
+    // No patches, so no publish happened and the compare view must not reload.
+    expect(syncEngine.getPublishCountSnapshot()).toBe(0);
+  });
+
+  test("publishCount survives reset so a reload key is never reused", async () => {
+    // reset() clears derived state, but a reload key that repeats a value it
+    // has already had reads as "no reload needed" - the compare view would keep
+    // its stale trees. So this counter is deliberately NOT reset.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string().minLength(2), "Foo")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+
+    syncEngine.addPatch(
+      toSourcePath("/test.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "FooBar" }],
+      tester.getNextNow(),
+    );
+    await syncEngine.publish(
+      syncEngine.getPendingClientSidePatchIdsSnapshot(),
+      undefined,
+      tester.getNextNow(),
+    );
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+
+    syncEngine.reset();
+    expect(syncEngine.getPublishCountSnapshot()).toBe(1);
+  });
+
   test("fs publish clears the server-side patch-id snapshot (no Save button re-enable)", async () => {
     // Regression test for the Save button flicker: after publish() empties
     // globalServerSidePatchIds in fs mode, its snapshot must be invalidated too.

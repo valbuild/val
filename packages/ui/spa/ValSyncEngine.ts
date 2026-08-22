@@ -64,6 +64,15 @@ import { partitionValidationErrors } from "./validation/partitionValidationError
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
+  /**
+   * When the first syncPatches run finished with every patch's data present.
+   *
+   * Distinct from `initializedAt`, which `setValModules` sets as soon as local
+   * modules are adopted so content can render before /stat arrives - i.e. it can
+   * be non-null while the patch sets are still empty because nothing has been
+   * read yet, not because there is nothing pending.
+   */
+  private initialPatchSyncCompletedAt: number | null;
   private autoPublish: boolean = false;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
@@ -99,6 +108,16 @@ export class ValSyncEngine {
   private patchIdsByModuleFilePath: Map<ModuleFilePath, Set<PatchId>>;
   private publishDisabled: boolean;
   private isPublishing: boolean;
+  /**
+   * Number of successful publishes in this session.
+   *
+   * A publish invalidates everything a view derived from the patch sets: the
+   * patches it was showing are committed and the base they were diffed
+   * against has moved. Views that show that derived state (the compare view)
+   * subscribe to this so they can rebuild from scratch instead of keeping the
+   * pre-publish result around.
+   */
+  private publishCount: number;
   private patchDataByPatchId: Record<
     PatchId,
     | {
@@ -249,6 +268,7 @@ export class ValSyncEngine {
       | undefined = undefined,
   ) {
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
@@ -281,6 +301,7 @@ export class ValSyncEngine {
     this.authorId = null;
     this.publishDisabled = true;
     this.isPublishing = false;
+    this.publishCount = 0;
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
@@ -379,6 +400,7 @@ export class ValSyncEngine {
   reset() {
     console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
+    this.initialPatchSyncCompletedAt = null;
     this.forceSyncAllModules = true;
     this.errors = {};
     // NOTE: this.listeners is deliberately NOT cleared. `subscribe` closes over
@@ -500,6 +522,7 @@ export class ValSyncEngine {
     type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
+  subscribe(type: "published"): (listener: () => void) => () => void;
   subscribe(type: "schema-out-of-date"): (listener: () => void) => () => void;
   subscribe(type: "local-modules-status"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
@@ -666,6 +689,10 @@ export class ValSyncEngine {
   private invalidatePatchSets() {
     this.cachedSerializedPatchSetsSnapshot = null;
     this.emit(this.listeners["patch-sets"]?.[globalNamespace]);
+  }
+  private invalidatePublishCount() {
+    // publishCount is a plain number, so there is no cached snapshot to clear
+    this.emit(this.listeners["published"]?.[globalNamespace]);
   }
   private invalidatePendingOps() {
     this.cachedPendingOpsCountSnapshot = null;
@@ -1195,6 +1222,13 @@ export class ValSyncEngine {
       this.cachedSerializedPatchSetsSnapshot = this.patchSets.serialize();
     }
     return this.cachedSerializedPatchSetsSnapshot;
+  }
+
+  /**
+   * Increments on every successful publish. See {@link publishCount}.
+   */
+  getPublishCountSnapshot() {
+    return this.publishCount;
   }
 
   private cachedInitializedAtSnapshot: { data: number | null } | null;
@@ -2703,9 +2737,24 @@ export class ValSyncEngine {
       };
     }
 
+    if (this.initialPatchSyncCompletedAt === null) {
+      this.initialPatchSyncCompletedAt = Date.now();
+      // Emit even when didUpdatePatchSet is false: a project with no pending
+      // patches still has to move usePatchSets off "not-asked", and the
+      // patch-sets listener is the one it subscribes to.
+      this.invalidatePatchSets();
+    }
     return {
       status: "done",
     };
+  }
+
+  /**
+   * Whether the first patch sync has completed, i.e. the patch sets can be
+   * trusted to be empty-because-empty rather than empty-because-unread.
+   */
+  hasCompletedInitialPatchSync(): boolean {
+    return this.initialPatchSyncCompletedAt !== null;
   }
 
   /**
@@ -3289,6 +3338,10 @@ export class ValSyncEngine {
         for (const moduleFilePath of affectedModules) {
           this.invalidateSource(moduleFilePath);
         }
+        // Last, so that everything a publish-aware view re-reads when it
+        // rebuilds (patch sets, patches, sources) is already up to date.
+        this.publishCount++;
+        this.invalidatePublishCount();
         return {
           status: "done",
         } as const;
@@ -3511,6 +3564,7 @@ type SyncEngineListenerType =
   | "synced-server-side-patch-ids"
   | "saved-server-side-patch-ids"
   | "publish-disabled"
+  | "published"
   | "schema-out-of-date"
   | "local-modules-status"
   | "pending-ops-count"
