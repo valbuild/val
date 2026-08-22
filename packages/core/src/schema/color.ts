@@ -124,8 +124,16 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     } else {
       const actualFormat = detectColorFormat(src);
       if (actualFormat !== expectedFormat) {
+        // Drop alpha from the SUGGESTION when alpha is not enabled, the same way
+        // the field's commit does. Keeping it would suggest a value that fails
+        // the alpha check immediately below, so following the advice would not
+        // clear the error.
+        const suggestion = formatColor(
+          this.options?.alpha ? parsed : { ...parsed, a: 1 },
+          expectedFormat,
+        );
         errors.push({
-          message: `Expected a color in the '${expectedFormat}' format (e.g. '${FORMAT_EXAMPLES[expectedFormat]}'), got '${src}'. Did you mean '${formatColor(parsed, expectedFormat)}'?`,
+          message: `Expected a color in the '${expectedFormat}' format (e.g. '${FORMAT_EXAMPLES[expectedFormat]}'), got '${src}'. Did you mean '${suggestion}'?`,
           value: src,
         });
       }

@@ -5,7 +5,7 @@ import {
   ParsedColor,
   SourcePath,
 } from "@valbuild/core";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useRef, useState } from "react";
 import { Input } from "../designSystem/input";
 import { cn } from "../designSystem/cn";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -66,9 +66,24 @@ export function ColorFieldPure({
 }: ColorFieldPureProps) {
   const targetFormat = format ?? DEFAULT_COLOR_FORMAT;
   const [text, setText] = useState(value ?? "");
-  useEffect(() => {
-    setText(value ?? "");
-  }, [value]);
+  // Adopt `value` only when it changes for a reason OTHER than our own commit.
+  //
+  // This field commits on every parseable keystroke, so `value` comes straight
+  // back reformatted into the target format. Syncing `text` from it
+  // unconditionally rewrote the input mid-word - typing `#fff` into an `hsl`
+  // field became `hsl(0 0% 100%)` after the third character, moving the caret
+  // and making the rest of the value impossible to type. `onBlur` already snaps
+  // the text to the canonical form once the user is done, so nothing is lost by
+  // leaving it alone while they type.
+  // The last value committed BY TYPING, so its echo can be recognised.
+  const lastCommitted = useRef<string | null>(value);
+  const [adoptedValue, setAdoptedValue] = useState(value);
+  if (value !== adoptedValue) {
+    setAdoptedValue(value);
+    if (value !== lastCommitted.current) {
+      setText(value ?? "");
+    }
+  }
 
   // What is in the text input wins over the stored value, so that the swatch
   // follows along while typing.
@@ -77,13 +92,21 @@ export function ColorFieldPure({
   const current = parsedText ?? parsedValue;
   const isInvalid = text.trim() !== "" && parsedText === null;
 
-  const commit = (color: ParsedColor) => {
-    onChange(
-      Internal.color.formatColor(
-        alpha ? color : { ...color, a: 1 },
-        targetFormat,
-      ),
+  /**
+   * `keepText` is for commits made WHILE TYPING: the value echoes straight back
+   * reformatted, and adopting it would rewrite the input under the caret. Every
+   * other source (the OS picker, the alpha slider) should refresh the text,
+   * since the user is not editing it.
+   */
+  const commit = (color: ParsedColor, keepText?: boolean) => {
+    const next = Internal.color.formatColor(
+      alpha ? color : { ...color, a: 1 },
+      targetFormat,
     );
+    if (keepText) {
+      lastCommitted.current = next;
+    }
+    onChange(next);
   };
 
   const swatchColor = current ?? { r: 255, g: 255, b: 255, a: 1 };
@@ -140,7 +163,7 @@ export function ColorFieldPure({
               setText(ev.target.value);
               const parsed = Internal.color.parseColor(ev.target.value);
               if (parsed !== null) {
-                commit(parsed);
+                commit(parsed, true);
               }
             }}
             onBlur={() => {

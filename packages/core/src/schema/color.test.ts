@@ -158,6 +158,32 @@ describe("ColorSchema", () => {
     });
   });
 
+  test("validate: the format suggestion is one that would actually validate", () => {
+    // A transparent color pasted into a schema that disallows alpha reports two
+    // errors: the wrong format, and the alpha. The format error's suggestion
+    // used to carry the alpha through, so following it landed you straight back
+    // on the alpha error - advice that cannot clear the thing it is advising on.
+    const schema = color({ format: "rgb" });
+    const res = schema["executeValidate"](
+      "path" as SourcePath,
+      raw("hsl(0 100% 50% / 0.5)"),
+    );
+    expect(res).not.toBe(false);
+    if (res === false) return;
+    const suggestion = res["path" as SourcePath]
+      .map((e) => e.message)
+      .join("\n")
+      .match(/Did you mean '([^']+)'\?/)?.[1];
+    expect(suggestion).toBeDefined();
+    if (suggestion === undefined) return;
+    // The suggestion is opaque...
+    expect(suggestion).not.toContain("/");
+    // ...so feeding it back validates clean.
+    expect(
+      schema["executeValidate"]("path" as SourcePath, raw(suggestion)),
+    ).toBe(false);
+  });
+
   test("validate: alpha is accepted when it is enabled", () => {
     const schema = color({ alpha: true });
     expect(
