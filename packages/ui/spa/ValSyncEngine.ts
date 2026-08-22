@@ -956,9 +956,10 @@ export class ValSyncEngine {
       next[patchIdS as PatchId] = entry;
     }
     const hasErrors = Object.keys(next).length > 0;
-    const changed =
-      JSON.stringify(previous ?? null) !==
-      JSON.stringify(hasErrors ? next : null);
+    // Structural, not `JSON.stringify`: key order in these records follows
+    // insertion order, so a chain recompute that produces the SAME errors in a
+    // different order compared as changed and invalidated for nothing.
+    const changed = !deepEqual(previous ?? null, hasErrors ? next : null);
     if (!changed) {
       return;
     }
@@ -3145,9 +3146,9 @@ export class ValSyncEngine {
                   ...(this.errors.patchErrors[moduleFilePath] ?? {}),
                   ...Object.fromEntries(
                     Object.entries(valModule.patches.errors).map(
-                      ([patchId, error]) => [
+                      ([patchId, error]): [string, PatchErrorEntry] => [
                         patchId,
-                        { message: error.message, source: "server" as const },
+                        { message: error.message, source: "server" },
                       ],
                     ),
                   ),
@@ -3558,7 +3559,13 @@ export const defaultOverlayEmitter = (
  */
 export type PatchErrorEntry = {
   message: string;
-  source?: "client" | "server";
+  /**
+   * Required, not optional: `recordClientPatchErrors` drops every entry that is
+   * not `"server"` on a full-chain recompute, so an entry without a source would
+   * be silently discarded. Every construction site sets it, and these entries
+   * only ever live in memory - there is no stored data to be missing it.
+   */
+  source: "client" | "server";
 };
 
 type RetryReason =
