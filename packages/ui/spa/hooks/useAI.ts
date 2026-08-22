@@ -500,10 +500,10 @@ const EMPTY_AT_PATH_TOOL: AITool = {
 const COUNT_ENTRIES_TOOL: AITool = {
   name: "count_entries",
   description:
-    "Count the entries of the value at 'path' in a Val module — record keys, object keys, array indices, or richtext block-children. " +
+    "Count the entries of the value at 'path' in a Val module — record or gallery keys, object keys, array indices, or richtext top-level blocks. " +
     "Use this before paging through a large record/array or to answer 'how many X are there?' without pulling the entire module. " +
-    "Returns { kind: 'array' | 'record' | 'object', count: number }. " +
-    "Fails for primitive (string/number/boolean/null) values.",
+    "Returns { kind: 'array' | 'record' | 'object' | 'gallery' | 'richtext', count: number }. " +
+    "Fails for anything that is not a container - primitives, and image/file/union values (which are objects at runtime but hold no entries).",
   parameters: {
     type: "object",
     properties: {
@@ -529,7 +529,7 @@ const GET_RECORD_KEYS_TOOL: AITool = {
     "List the keys of the record (or object) at 'path' in a Val module, with pagination. " +
     "Use this to enumerate entries without pulling their contents — e.g. to find which slug to operate on next. " +
     "Returns { kind: 'record' | 'object', keys: string[], total: number }. " +
-    "Fails on arrays, primitives, richtext, or galleries.",
+    "Fails on arrays, primitives, richtext and galleries - use count_entries for array/richtext sizes and get_source to read a gallery.",
   parameters: {
     type: "object",
     properties: {
@@ -1816,14 +1816,25 @@ export function useAI(
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
             return;
           }
-          if (described.container === "array") {
+          // Records and objects only, as the tool description promises. A
+          // gallery's keys are file paths whose files live on disk, and richtext
+          // blocks are positional - neither is a key set to hand back.
+          if (
+            described.container !== "record" &&
+            described.container !== "object"
+          ) {
+            const advice =
+              described.container === "array"
+                ? "use count_entries to get the array length"
+                : described.container === "richtext"
+                  ? "use count_entries to get the number of blocks"
+                  : "use get_source to read the gallery's entries";
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
               result: {
                 success: false,
-                error:
-                  "Path points to an array. get_record_keys only works on records and objects — use count_entries to get the array length.",
+                error: `Path points to a ${described.container}. get_record_keys only works on records and objects — ${advice}.`,
               },
               isError: true,
             });
