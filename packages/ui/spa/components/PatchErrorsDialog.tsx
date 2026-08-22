@@ -200,10 +200,16 @@ function sourcePathOf(change: ConflictingChange): SourcePath {
  * metadata the studio already has, so a change can be named by field and author
  * rather than by uuid.
  */
+/**
+ * Typed FROM the hook rather than restating its shape: a hand-written
+ * `{ message: string }` view still compiles (extra properties are allowed
+ * structurally) but silently drifts from what the engine actually surfaces -
+ * `source` was added to these entries without this signature noticing.
+ */
+type AllPatchErrors = ReturnType<typeof useAllPatchErrors>["patchErrors"];
+
 function collectConflictingChanges(
-  patchErrors:
-    | Record<ModuleFilePath, Record<PatchId, { message: string }> | null>
-    | undefined,
+  patchErrors: AllPatchErrors,
   patchSets:
     | {
         moduleFilePath: ModuleFilePath;
