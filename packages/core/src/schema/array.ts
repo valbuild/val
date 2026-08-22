@@ -24,6 +24,15 @@ export type SerializedArraySchema = {
   description?: string;
 };
 
+type ArrayRenderInput<T extends Schema<SelectorSource>> = {
+  as: "list";
+  select: (input: { val: RenderSelector<T> }) => {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | null;
+  };
+};
+
 export class ArraySchema<
   T extends Schema<SelectorSource>,
   Src extends SelectorOfSchema<T>[] | null,
@@ -37,6 +46,7 @@ export class ArraySchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: ArrayRenderInput<T> | null = null,
   ) {
     super();
   }
@@ -49,6 +59,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -62,6 +73,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -73,21 +85,12 @@ export class ArraySchema<
     if (assertRes.data === null) {
       return false;
     }
-    let error: Record<SourcePath, ValidationError[]> = {};
+    let error: ValidationErrors = false;
     for (const [idx, i] of Object.entries(assertRes.data)) {
       const subPath = unsafeCreateSourcePath(path, Number(idx));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const subError = this.item["executeValidate"](subPath, i as any);
-      if (subError) {
-        error = {
-          ...subError,
-          ...error,
-        };
-      }
-    }
-
-    if (Object.keys(error).length === 0) {
-      return false;
+      error = this.mergeValidationErrors(error, subError);
     }
     return error;
   }
@@ -148,6 +151,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -159,6 +163,7 @@ export class ArraySchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -170,6 +175,18 @@ export class ArraySchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+    );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
     );
   }
 
@@ -186,15 +203,6 @@ export class ArraySchema<
       description: this.description,
     };
   }
-
-  private renderInput: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  } | null = null;
 
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
@@ -248,16 +256,16 @@ export class ArraySchema<
     return res;
   }
 
-  render(input: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  }) {
-    this.renderInput = input;
-    return this;
+  render(input: ArrayRenderInput<T>): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+    );
   }
 }
 

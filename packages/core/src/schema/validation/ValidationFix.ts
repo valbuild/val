@@ -5,18 +5,21 @@ export const ValidationFix = [
   "image:download-remote",
   "image:check-remote",
   "images:check-remote",
+  "images:upload-remote",
   "file:add-metadata",
   "file:check-metadata",
   "file:upload-remote",
   "file:download-remote",
   "file:check-remote",
   "files:check-remote",
+  "files:upload-remote",
   "keyof:check-keys",
   "router:check-route",
   "images:check-unique-folder",
   "files:check-unique-folder",
   "images:check-all-files",
   "files:check-all-files",
+  "jsonValues:extract-entry",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

@@ -9,10 +9,12 @@ import {
   useGlobalError,
   usePatchSets,
   useProfilesByAuthorId,
+  usePublishCount,
   useValMode,
 } from "./ValProvider";
 import {
   ComparePatchSets,
+  CompareLoading,
   CompareSummaryStrip,
   flattenChanges,
 } from "./ComparePatchSets";
@@ -246,9 +248,11 @@ function CompareSummaryInHeader() {
   const mode = useValMode();
   const portalContainer = useValPortal();
 
+  const publishCount = usePublishCount();
+
   const patchSets =
     patchSetsResult.status === "success" ? patchSetsResult.data : [];
-  const { trees } = usePatchSetsWorker(patchSets);
+  const { trees, hasComputed } = usePatchSetsWorker(patchSets, publishCount);
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
 
@@ -280,7 +284,9 @@ function CompareSummaryInHeader() {
     return ids;
   }, [flatRows]);
 
-  if (patchSetsResult.status !== "success") {
+  // Nothing to summarise until the changes have actually been counted:
+  // rendering early would show "0 changes to review" before the real count.
+  if (patchSetsResult.status !== "success" || !hasComputed) {
     return null;
   }
 
@@ -322,12 +328,12 @@ function CompareView() {
   const patchSetsResult = usePatchSets();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const mode = useValMode();
+  // A publish commits the patches this view is diffing and moves the base they
+  // are diffed against, so the rendered comparison is stale as soon as one goes
+  // through: rebuild it instead of leaving the pre-publish diff on screen.
+  const publishCount = usePublishCount();
   if (patchSetsResult.status === "not-asked") {
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
-        Loading changes&hellip;
-      </div>
-    );
+    return <CompareLoading />;
   }
   if (patchSetsResult.status === "error") {
     return (
@@ -342,6 +348,7 @@ function CompareView() {
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
       readonly={false}
+      reloadKey={publishCount}
     />
   );
 }

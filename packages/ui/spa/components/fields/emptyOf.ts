@@ -1,4 +1,9 @@
-import { SerializedSchema, Json } from "@valbuild/core";
+import {
+  SerializedSchema,
+  Json,
+  Internal,
+  DEFAULT_COLOR_FORMAT,
+} from "@valbuild/core";
 import { format } from "date-fns";
 
 function clampDateString(
@@ -71,6 +76,12 @@ export function emptyOf(schema: SerializedSchema): Json {
     return clampDateString(format(new Date(), "yyyy-MM-dd"), schema.options);
   } else if (schema.type === "dateTime") {
     return clampDateTimeString(new Date().toISOString(), schema.options);
+  } else if (schema.type === "color") {
+    // Mid grey: visible against both a light and a dark canvas
+    return Internal.color.formatColor(
+      { r: 128, g: 128, b: 128, a: 1 },
+      schema.options?.format ?? DEFAULT_COLOR_FORMAT,
+    );
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));

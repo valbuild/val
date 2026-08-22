@@ -45,6 +45,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
+import { Skeleton } from "./designSystem/skeleton";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
@@ -75,24 +76,34 @@ export function ComparePatchSets({
   profilesByAuthorIds,
   mode = "unknown",
   readonly = true,
+  reloadKey,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
   mode?: "fs" | "http" | "unknown";
   readonly?: boolean;
+  /**
+   * Change to rebuild the view from scratch instead of leaving the previous
+   * result on screen while the new one is computed. See `usePatchSetsWorker`.
+   */
+  reloadKey?: unknown;
 }) {
   const portalContainer = useValPortal();
   const schemas = useSchemas();
-  const { trees, isComputing } = usePatchSetsWorker(patchSets);
+  const { trees, isComputing, hasComputed } = usePatchSetsWorker(
+    patchSets,
+    reloadKey,
+  );
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
 
-  if (isComputing && trees.length === 0) {
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
-        Computing changes&hellip;
-      </div>
-    );
+  // Until the first result is in, an empty `trees` means "not computed yet",
+  // not "nothing changed": showing the empty state here would flash "No
+  // pending changes" at every reader before the real changes appear. Once
+  // there is a result, keep it on screen while a recomputation runs - the
+  // changes are still the ones the reader is looking at.
+  if (!hasComputed || (isComputing && trees.length === 0)) {
+    return <CompareLoading />;
   }
 
   if (flatRows.length === 0) {
@@ -117,6 +128,48 @@ export function ComparePatchSets({
           schemas={schemasData}
           readonly={readonly}
         />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Loading placeholder for the compare view.
+ *
+ * Exported so that every stage before the changes can be rendered - waiting
+ * for the sync engine, waiting for the patch sets to be turned into change
+ * trees - shows the same thing. Swapping between differently shaped
+ * placeholders on the way to the content is the flicker this replaces.
+ */
+export function CompareLoading() {
+  return (
+    <div
+      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-[380px]"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label="Loading changes"
+    >
+      {[0, 1].map((i) => (
+        <section
+          key={i}
+          className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
+        >
+          <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="ml-auto h-6 w-6 rounded-full" />
+          </header>
+          <div className="divide-y divide-border-primary">
+            {[0, 1].map((j) => (
+              <div key={j} className="px-5 py-4 flex flex-col gap-3">
+                <Skeleton className="h-3 w-32" />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );

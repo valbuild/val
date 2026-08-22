@@ -13,6 +13,7 @@ import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
@@ -42,6 +43,7 @@ export type SerializedSchema =
   | SerializedFileSchema
   | SerializedDateSchema
   | SerializedDateTimeSchema
+  | SerializedColorSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 
@@ -87,6 +89,32 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: Src,
   ): ValidationErrors;
+  /**
+   * Runs the custom validate functions declared on THIS node (not its children)
+   * against `src`.
+   *
+   * Abstract because every schema class holds its validators in its own
+   * `private readonly customValidateFunctions`, which no base implementation can
+   * reach — and a base implementation returning `[]` would let a class that
+   * forgot to implement this silently skip its user's validators. A compile error
+   * is the better failure.
+   *
+   * `src` stays a PARAMETER (as in {@link executeValidate}) rather than the
+   * functions being returned: `CustomValidateFunction<Src>` puts `Src` in a
+   * parameter position, so returning them would make `Schema<Src>` invariant and
+   * break every `Schema<Source>` → `Schema<SelectorSource>` assignment in the
+   * codebase.
+   *
+   * Deliberately independent of `executeValidate`: the Studio gets its structural
+   * errors from a worker, which holds a DESERIALIZED schema where user functions
+   * cannot survive, and then executes the custom validators on the main thread
+   * against the real instance. Structural errors publish first; these merge in.
+   */
+  protected abstract executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[];
+
   protected executeCustomValidateFunctions(
     src: Src,
     customValidateFunctions: CustomValidateFunction<Src>[],
@@ -175,6 +203,35 @@ export abstract class Schema<Src extends SelectorSource> {
         [path]: [{ message, value, schemaError }],
       } as ValidationErrors;
     }
+  }
+
+  /**
+   * Merges two sets of validation errors path-wise: errors on the same path are
+   * concatenated, not overwritten. Object spread cannot be used for this, since
+   * it replaces the array of the colliding path. A record, for example, validates
+   * the key and the item on the same path, so both sets must survive.
+   *
+   * MUTATES! since internal and perf sensitive
+   */
+  protected mergeValidationErrors(
+    current: ValidationErrors,
+    incoming: ValidationErrors,
+  ): ValidationErrors {
+    if (!incoming) {
+      return current;
+    }
+    if (!current) {
+      return incoming;
+    }
+    for (const pathS in incoming) {
+      const path = pathS as SourcePath;
+      if (current[path]) {
+        current[path] = current[path].concat(incoming[path]);
+      } else {
+        current[path] = incoming[path];
+      }
+    }
+    return current;
   }
 }
 

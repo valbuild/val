@@ -326,6 +326,17 @@ export class KeyOfSchema<
     );
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     const path = this.sourcePath;
     if (!path) {

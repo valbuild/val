@@ -7,7 +7,10 @@ import {
 } from ".";
 import { ReifiedRender } from "../render";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedBooleanSchema = {
   type: "boolean";
@@ -134,6 +137,17 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+    );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
     );
   }
 

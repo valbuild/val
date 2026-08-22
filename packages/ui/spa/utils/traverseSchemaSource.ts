@@ -1,5 +1,6 @@
 import {
   FILE_REF_PROP,
+  Internal,
   ModuleFilePathSep,
   Source,
   SerializedObjectSchema,
@@ -31,6 +32,18 @@ export function traverseSchemaSource(
   }
 
   if (source === null) {
+    return;
+  }
+
+  // An un-loaded `.jsonValues()` entry is an opaque `{_type:"json"}` marker, not
+  // the value its schema describes. Skip it — its content is traversed once
+  // loaded, since the sync engine substitutes it in place of the marker.
+  //
+  // Without this the marker falls through to whichever branch its ITEM schema
+  // selects: an object/record item walks the marker's OWN keys, so an entry
+  // schema with a field named `_type` or `patch_id` would index the marker's
+  // internals as if they were content.
+  if (Internal.isJson(source)) {
     return;
   }
 
@@ -85,6 +98,14 @@ export function traverseSchemaSource(
 
   // Handle dateTime
   if (schema.type === "dateTime") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle color
+  if (schema.type === "color") {
     if (typeof source === "string") {
       callback({ source, schema, path });
     }

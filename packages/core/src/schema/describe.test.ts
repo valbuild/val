@@ -2,6 +2,7 @@ import { Schema, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { array } from "./array";
 import { boolean } from "./boolean";
+import { color } from "./color";
 import { date } from "./date";
 import { deserializeSchema } from "./deserialize";
 import { image } from "./image";
@@ -36,6 +37,14 @@ describe("Schema.describe()", () => {
     expect(schema["executeSerialize"]()).toMatchObject({
       type: "boolean",
       description: "Is published",
+    });
+  });
+
+  test("color: describe is serialized", () => {
+    const schema = color().describe("Brand color");
+    expect(schema["executeSerialize"]()).toMatchObject({
+      type: "color",
+      description: "Brand color",
     });
   });
 
@@ -267,6 +276,16 @@ describe("Schema.describe() survives serialize → deserialize round-trip", () =
     expect(roundTrip(date().describe("Birthday"))).toMatchObject({
       type: "date",
       description: "Birthday",
+    });
+  });
+
+  test("color", () => {
+    expect(
+      roundTrip(color({ format: "hex" }).describe("Brand color")),
+    ).toMatchObject({
+      type: "color",
+      options: { format: "hex" },
+      description: "Brand color",
     });
   });
 

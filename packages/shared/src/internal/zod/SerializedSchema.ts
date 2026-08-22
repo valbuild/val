@@ -16,6 +16,7 @@ import {
   type SerializedFileSchema as SerializedFileSchemaT,
   type SerializedDateSchema as SerializedDateSchemaT,
   type SerializedDateTimeSchema as SerializedDateTimeSchemaT,
+  type SerializedColorSchema as SerializedColorSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
@@ -261,6 +262,22 @@ export const SerializedDateTimeSchema: z.ZodType<SerializedDateTimeSchemaT> =
     description: z.string().optional(),
   });
 
+export const ColorOptions = z.object({
+  format: z.enum(["hex", "rgb", "hsl", "oklch"]).optional(),
+  alpha: z.boolean().optional(),
+});
+
+export const SerializedColorSchema: z.ZodType<SerializedColorSchemaT> =
+  z.object({
+    type: z.literal("color"),
+    options: ColorOptions.optional(),
+    opt: z.boolean(),
+    customValidate: z.boolean().optional(),
+    readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    description: z.string().optional(),
+  });
+
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
     type: z.literal("route"),
@@ -302,5 +319,6 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedFileSchema,
   SerializedDateSchema,
   SerializedDateTimeSchema,
+  SerializedColorSchema,
   SerializedImageSchema,
 ]);

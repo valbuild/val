@@ -30,6 +30,7 @@ import {
 } from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
+import { formatLocalDay } from "../../utils/localDay";
 
 const TZ_STORAGE_KEY = "val:datetime:tz";
 
@@ -299,11 +300,8 @@ export function DateTimeFieldPure({
             selected={clampedValue || undefined}
             onSelect={(date) => {
               if (date) {
-                const isoDay = `${date.getFullYear()}-${String(
-                  date.getMonth() + 1,
-                ).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
                 const t = wall.time || "12:00:00";
-                commit(isoDay, t, timezone);
+                commit(formatLocalDay(date), t, timezone);
               }
             }}
           />
@@ -312,19 +310,13 @@ export function DateTimeFieldPure({
               type="time"
               step={1}
               disabled={readonly}
+              // The clock icon of a native time input is painted by the
+              // browser and follows `color-scheme`, not `color`: without this
+              // it stays dark and disappears against the dark theme surface.
+              className="[color-scheme:light] dark:[color-scheme:dark]"
               value={wall.time || "12:00:00"}
               onChange={(e) => {
-                const day =
-                  wall.date ||
-                  (() => {
-                    const now = new Date();
-                    return `${now.getFullYear()}-${String(
-                      now.getMonth() + 1,
-                    ).padStart(2, "0")}-${String(now.getDate()).padStart(
-                      2,
-                      "0",
-                    )}`;
-                  })();
+                const day = wall.date || formatLocalDay(new Date());
                 commit(day, e.target.value, timezone);
               }}
             />
