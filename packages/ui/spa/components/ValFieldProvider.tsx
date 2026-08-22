@@ -21,9 +21,10 @@ import {
   SourcePath,
   ValConfig,
 } from "@valbuild/core";
-import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
+import { Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { splitPatchFileOps } from "../hooks/splitPatchFileOps";
 import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
 import { getNavPathFromAll } from "./getNavPath";
 import { z } from "zod";
@@ -377,22 +378,10 @@ export function useAddPatch(
         return;
       }
       const { baseUrl, nonce } = directFileUploadSettings.data;
-      const fileOps: FileOperation[] = [];
-      const patchOps: Operation[] = [];
-      for (const op of patch) {
-        if (op.op === "file") {
-          fileOps.push(op);
-          patchOps.push({
-            ...op,
-            value:
-              typeof op.value === "string"
-                ? Internal.getSHA256Hash(textEncoder.encode(op.value))
-                : op.value,
-          });
-        } else {
-          patchOps.push(op);
-        }
-      }
+      // Extracted so the rule it enforces — a patch never carries binary data —
+      // is testable without a DOM. See `splitPatchFileOps.ts` for why the server
+      // silently produces no file if it is broken.
+      const { patchOps, fileOps } = splitPatchFileOps(patch);
       const patchId = syncEngine.createPatchId();
       let currentFile = 0;
       for (const fileOp of fileOps) {

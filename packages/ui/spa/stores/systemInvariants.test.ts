@@ -382,3 +382,99 @@ describe("source store: path matching at the edges", () => {
     dispose();
   });
 });
+
+describe("source store: patches that carry files", () => {
+  const { c, s } = initVal();
+  const imageModule = () =>
+    c.define("/img.val.ts", s.object({ hero: s.image() }), {
+      hero: c.image("/public/val/initial.png", {
+        width: 1,
+        height: 1,
+        mimeType: "image/png",
+      }),
+    });
+
+  /**
+   * A `file` op is not a document mutation — the JSON patch ops cannot express
+   * one and `applyPatch` rejects it outright — so the store applies the `replace`
+   * that points source at the new file and ignores the `file` op beside it. The
+   * bytes travel out of band: uploaded directly from the client before the patch
+   * is sent, which is why the op's value is a hash and not data.
+   */
+  it("applies the json half of an image edit and wakes the field", async () => {
+    const { sourceStore, patchStore, stat, listeners, ledger, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([imageModule()]);
+    const hero = listeners.set('/img.val.ts?p="hero"');
+    const quiet = await hero.noMessages();
+
+    stat.simulateExternal([
+      externalPatch("img-1", "/img.val.ts", [
+        {
+          op: "replace",
+          path: ["hero"],
+          value: {
+            _ref: "/public/val/uploaded.png",
+            _type: "file",
+            metadata: { width: 8, height: 1, mimeType: "image/png" },
+          },
+        },
+        {
+          op: "file",
+          path: ["hero"],
+          filePath: "/public/val/uploaded.png",
+          // A HASH, never the bytes. See `splitPatchFileOps.ts`.
+          value: "0a1b2c3d",
+          remote: false,
+        },
+      ]),
+    ]);
+    await ledger.has({ type: "source:patch-apply", success: ["img-1"] });
+
+    await hero.didReceive({ type: "external-patch" }, { since: quiet });
+    const read = await sourceStore.get(
+      '/img.val.ts?p="hero"',
+      await patchStore.getHead(),
+    );
+    expect(read).toMatchObject({
+      status: "resolved-head",
+      data: { _ref: "/public/val/uploaded.png" },
+    });
+    dispose();
+  });
+
+  /**
+   * A file-only patch — a delete, or a re-upload of the same path — is reported
+   * as applied although the store did nothing and knows nothing about whether the
+   * upload happened.
+   *
+   * Pinned as the current behaviour rather than asserted as correct. It is
+   * defensible: binaries are not the source store's business. But it is the same
+   * silent shape as base64-in-a-file-op — the patch reports success and the file
+   * may not exist — and this prototype has no upload path at all, so nothing in
+   * it can currently tell the difference. See `openquestions.md`.
+   */
+  it("reports a file-only patch as applied, knowing nothing about the upload", async () => {
+    const { sourceStore, patchStore, stat, ledger, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([imageModule()]);
+    stat.simulateExternal([
+      externalPatch("img-2", "/img.val.ts", [
+        {
+          op: "file",
+          path: ["hero"],
+          filePath: "/public/val/uploaded.png",
+          value: null,
+          remote: false,
+        },
+      ]),
+    ]);
+
+    await ledger.has({ type: "source:patch-apply", success: ["img-2"] });
+    expect(await patchStore.getHead()).toMatchObject({
+      type: "external-complete",
+    });
+    dispose();
+  });
+});

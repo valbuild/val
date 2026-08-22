@@ -222,6 +222,21 @@ was **deleted** rather than committed, per instruction.
 
 ## 10. Smaller correctness questions 🟢
 
+- [ ] **Nothing enforces "no binary data in a patch".** Files are uploaded
+      directly from the client and the `file` op left in the patch carries only a
+      SHA-256 — but the enforcement is one call to `splitPatchFileOps` on the
+      client, and the server accepts base64 in a `file` op without complaint.
+      `ValOps` only ever null-checks that value; the binary is read back from the
+      uploaded file, so bytes left in a patch are dead weight that produce NO
+      file, silently. `packages/server/src/patchFileUpload.test.ts` pins that.
+      Decide whether the server should reject a `file` op whose value looks like
+      a data URL — it is a two-line check and it converts a silent
+      no-file into a loud 400.
+- [ ] **This prototype has no upload path.** `SourceStore` filters `file` ops out
+      of the JSON apply, which is right, but then reports a file-only patch as
+      applied while knowing nothing about whether the upload happened. Fine while
+      nothing writes back to the server (item 6); it needs an answer at the same
+      time as `PUT /patches`.
 - [ ] **`.jsonValues()` is not handled at all** (see the hypothesis in
       `architecture.md`). The prototype has no marker substitution, so a project
       using `.jsonValues()` would read paths inside unloaded entries as `absent`
