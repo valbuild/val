@@ -38,10 +38,17 @@ import { Button } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { Link, Check, ChevronsUpDown } from "lucide-react";
+import { Link, Check, ChevronsUpDown, Earth, Plus } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
+import {
+  CreatableRouter,
+  useCreatableRouters,
+  useCreateRouteEntry,
+} from "../useCreateRouteEntry";
+import { NewPageForm, AvailableRoute } from "../NavMenu/NewPageForm";
+import { CommandSeparator } from "../designSystem/command";
 
 export interface RouteSelectorRoute {
   route: string;
@@ -65,6 +72,11 @@ export interface RouteSelectorProps {
   isLoading?: boolean;
   zIndex?: number;
   readonly?: boolean;
+  /**
+   * Let the editor create a page - or an external link - from inside the
+   * dropdown, instead of leaving to create it and coming back to link it.
+   */
+  allowCreate?: boolean;
 }
 
 export function RouteSelector({
@@ -79,8 +91,24 @@ export function RouteSelector({
   isLoading = false,
   zIndex,
   readonly,
+  allowCreate = false,
 }: RouteSelectorProps) {
   const [open, setOpen] = React.useState(false);
+  const [creating, setCreating] = React.useState<null | "page" | "external">(
+    null,
+  );
+  const { pageRouters, externalRouter } = useCreatableRouters();
+  const createRouteEntry = useCreateRouteEntry();
+
+  // Closing the popover discards a half-filled form: reopening into someone
+  // else's abandoned input is worse than starting clean.
+  const closeAndReset = () => {
+    setOpen(false);
+    setCreating(null);
+  };
+
+  const canCreatePage = allowCreate && !readonly && pageRouters.length > 0;
+  const canCreateExternal = allowCreate && !readonly && externalRouter !== null;
 
   // Filter routes based on include/exclude patterns
   const filteredRoutes = routes.filter((routeInfo) => {
@@ -132,57 +160,198 @@ export function RouteSelector({
         }}
         container={portalContainer}
       >
-        <Command>
-          <CommandInput placeholder={placeholder} />
-          <CommandList>
-            {isLoading ? (
-              <div className="py-6 text-center text-sm">Loading...</div>
-            ) : filteredRoutes.length === 0 ? (
-              <CommandEmpty>No routes found.</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {filteredRoutes.map((routeInfo) => {
-                  const preview = routeInfo.preview;
-                  const filterValue = preview
-                    ? `${routeInfo.route} ${preview.title}`
-                    : routeInfo.route;
-                  return (
-                    <CommandItem
-                      key={routeInfo.route}
-                      value={filterValue}
-                      onSelect={() => {
-                        onChange(routeInfo.route);
-                        setOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Check
-                        className={cn(
-                          "h-4 w-4 shrink-0",
-                          value === routeInfo.route
-                            ? "opacity-100"
-                            : "opacity-0",
-                        )}
-                      />
-                      {preview ? (
-                        <DropdownPreviewRow
-                          title={preview.title}
-                          subtitle={preview.subtitle ?? null}
-                          image={preview.image ?? null}
+        {creating === "page" && (
+          <NewPageForm
+            routes={pageRouters.map(toAvailableRoute)}
+            onSubmit={(moduleFilePath, urlPath) => {
+              const router = pageRouters.find(
+                (candidate) => candidate.moduleFilePath === moduleFilePath,
+              );
+              if (!router) {
+                return;
+              }
+              // Select it immediately rather than waiting for the new entry to
+              // come back through the routes list: linking is what the editor
+              // opened this dropdown to do.
+              if (createRouteEntry(router, urlPath) !== null) {
+                onChange(urlPath);
+              }
+              closeAndReset();
+            }}
+            onCancel={() => setCreating(null)}
+          />
+        )}
+        {creating === "external" && externalRouter && (
+          <NewExternalPageForm
+            existingKeys={externalRouter.existingKeys}
+            onSubmit={(url) => {
+              if (createRouteEntry(externalRouter, url) !== null) {
+                onChange(url);
+              }
+              closeAndReset();
+            }}
+            onCancel={() => setCreating(null)}
+          />
+        )}
+        {creating === null && (
+          <Command>
+            <CommandInput placeholder={placeholder} />
+            <CommandList>
+              {isLoading ? (
+                <div className="py-6 text-center text-sm">Loading...</div>
+              ) : filteredRoutes.length === 0 ? (
+                <CommandEmpty>No routes found.</CommandEmpty>
+              ) : (
+                <CommandGroup>
+                  {filteredRoutes.map((routeInfo) => {
+                    const preview = routeInfo.preview;
+                    const filterValue = preview
+                      ? `${routeInfo.route} ${preview.title}`
+                      : routeInfo.route;
+                    return (
+                      <CommandItem
+                        key={routeInfo.route}
+                        value={filterValue}
+                        onSelect={() => {
+                          onChange(routeInfo.route);
+                          setOpen(false);
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <Check
+                          className={cn(
+                            "h-4 w-4 shrink-0",
+                            value === routeInfo.route
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
                         />
-                      ) : (
-                        <span className="truncate">{routeInfo.route}</span>
-                      )}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+                        {preview ? (
+                          <DropdownPreviewRow
+                            title={preview.title}
+                            subtitle={preview.subtitle ?? null}
+                            image={preview.image ?? null}
+                          />
+                        ) : (
+                          <span className="truncate">{routeInfo.route}</span>
+                        )}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+              {(canCreatePage || canCreateExternal) && (
+                <>
+                  <CommandSeparator />
+                  <CommandGroup>
+                    {canCreatePage && (
+                      <CommandItem
+                        value="__val_new_page__"
+                        onSelect={() => setCreating("page")}
+                        className="flex items-center gap-2"
+                      >
+                        <Plus className="h-4 w-4 shrink-0" />
+                        <span>New page</span>
+                      </CommandItem>
+                    )}
+                    {canCreateExternal && (
+                      <CommandItem
+                        value="__val_new_external_page__"
+                        onSelect={() => setCreating("external")}
+                        className="flex items-center gap-2"
+                      >
+                        <Earth className="h-4 w-4 shrink-0" />
+                        <span>New external page</span>
+                      </CommandItem>
+                    )}
+                  </CommandGroup>
+                </>
+              )}
+            </CommandList>
+          </Command>
+        )}
       </PopoverContent>
     </Popover>
   );
+}
+
+/**
+ * Creating an entry in the external page router.
+ *
+ * Its keys are absolute URLs rather than route patterns, so it gets a plain
+ * input rather than the per-segment inputs `NewPageForm` builds. The rule is
+ * the one `externalPageRouter.validate` enforces server-side - checked here so
+ * the editor sees it while typing rather than as a validation error afterwards.
+ */
+function NewExternalPageForm({
+  existingKeys,
+  onSubmit,
+  onCancel,
+}: {
+  existingKeys: string[];
+  onSubmit: (url: string) => void;
+  onCancel: () => void;
+}) {
+  const [url, setUrl] = React.useState("");
+  const trimmed = url.trim();
+  const alreadyExists = existingKeys.includes(trimmed);
+  const hasScheme =
+    trimmed.startsWith("https://") || trimmed.startsWith("http://");
+  const error = !trimmed
+    ? null
+    : !hasScheme
+      ? "Must start with https:// or http://"
+      : alreadyExists
+        ? "This external page already exists"
+        : null;
+  const disabled = !trimmed || error !== null;
+
+  return (
+    <form
+      className="p-3 space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (disabled) return;
+        onSubmit(trimmed);
+      }}
+    >
+      <div className="text-sm font-medium text-fg-primary">
+        New external page
+      </div>
+      <div className="space-y-1">
+        <input
+          autoFocus
+          className={cn(
+            "w-full p-1 bg-bg-secondary border border-border-primary rounded text-fg-primary",
+            "focus:outline-none focus:ring-1 focus:ring-border-focus",
+            { "border-fg-error": error !== null },
+          )}
+          placeholder="https://example.com"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        {error && <p className="text-xs text-fg-error">{error}</p>}
+      </div>
+      <div className="flex gap-2 justify-end pt-1">
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" type="submit" disabled={disabled}>
+          Create
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function toAvailableRoute(router: CreatableRouter): AvailableRoute {
+  return {
+    moduleFilePath: router.moduleFilePath,
+    routePattern: router.routePattern,
+    patternString: router.patternString,
+    existingKeys: router.existingKeys,
+    keyDescription: router.keyDescription,
+  };
 }
 
 function useRouteSelectorRoutes(
@@ -327,6 +496,7 @@ export function RouteField({
           portalContainer={portalContainer}
           isLoading={isLoading}
           readonly={readonly}
+          allowCreate
         />
         {source && selectedRouteInfo && (
           <button
