@@ -4,6 +4,11 @@ import type {
   AskUserQuestionAnswer,
   ChatMessageAttachment,
 } from "../components/AIChat";
+import type { ChatDocument } from "../components/AIChatEditor";
+import {
+  chatDocumentToHtmlText,
+  collectImageNodesFromDoc,
+} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
@@ -1470,7 +1475,10 @@ export function useAI(
   );
 
   const sendMessage = useCallback(
-    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+    (
+      content: string | ChatDocument,
+      attachments?: ChatMessageAttachment[],
+    ): boolean => {
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
@@ -1480,13 +1488,37 @@ export function useAI(
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
-      let augmentedText = text;
-      if (attachments && attachments.length > 0) {
-        const lines = attachments.map(
+      const baseText =
+        typeof content === "string" ? content : chatDocumentToHtmlText(content);
+      // Pull inline image nodes out of the rich document so their keys are
+      // registered as `image_key` content blocks (the protocol the server
+      // expects), not buried in the HTML text. Drop any still-pending keys —
+      // the editor should already block Send while uploads are in flight, but
+      // this is a defence-in-depth check.
+      const inlineImages =
+        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
+      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
+        .filter((n) => n.key && !n.key.startsWith("pending:"))
+        .map((n) => ({
+          key: n.key,
+          name: n.alt || "inline image",
+          mimeType: n.mimeType,
+          previewUrl: n.previewUrl,
+        }));
+      const mergedAttachments: ChatMessageAttachment[] = [];
+      const seenKeys = new Set<string>();
+      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
+        if (seenKeys.has(a.key)) continue;
+        seenKeys.add(a.key);
+        mergedAttachments.push(a);
+      }
+      let augmentedText = baseText;
+      if (mergedAttachments.length > 0) {
+        const lines = mergedAttachments.map(
           (a) => `- ${a.name}: image_key="${a.key}"`,
         );
         augmentedText =
-          text +
+          baseText +
           "\n\n[Attached images — when calling convert_session_image_to_patch, " +
           "use the exact image_key string from this list (NOT any vision-system file id):\n" +
           lines.join("\n") +
@@ -1494,10 +1526,10 @@ export function useAI(
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
-        ...(attachments?.map((attachment) => ({
+        ...mergedAttachments.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,
-        })) ?? []),
+        })),
       ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
@@ -1512,6 +1544,16 @@ export function useAI(
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+
+## User message format (HTML-esque rich text)
+The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
+- Block tags: <p>, <h1>, <h2>, <h3>, <blockquote>, <ul>, <ol>, <li>.
+- Inline marks: <strong>, <em>, <del>, <code>.
+- Line break: <br/>.
+- Non-standard self-closing tags:
+  - <field path="..."/>: the user explicitly pointed at this Val source path. Treat it as if they typed and named that path; when relevant, call get_source on the corresponding module to read the current value and reference the field by its friendly name in your reply.
+  - <img key="..."/>: an inline image attached by the user. The key is the same as an image_key content block — use it with convert_session_image_to_patch / add_session_image_to_gallery as you would any other session image. Do not try to fetch the URL of an inline image.
+Plain user messages without tags should be treated as plain text.
 
 ## Understanding where user is
 If the get_current_context pathname starts with /val, the user is in the Val Studio. 
