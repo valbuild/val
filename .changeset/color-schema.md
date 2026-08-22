@@ -1,9 +1,9 @@
 ---
-"@valbuild/core": patch
-"@valbuild/shared": patch
-"@valbuild/server": patch
-"@valbuild/react": patch
-"@valbuild/ui": patch
+"@valbuild/core": minor
+"@valbuild/shared": minor
+"@valbuild/server": minor
+"@valbuild/react": minor
+"@valbuild/ui": minor
 ---
 
 Add `s.color()` for picking colors. Colors are stored as CSS color strings so they can be used directly in a `style` attribute or set as a CSS custom property.
