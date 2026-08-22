@@ -22,10 +22,11 @@ export type ExtractedValModules = {
   moduleErrors: ExtractedModuleError[];
 };
 
-// Lazily constructed: this module is also evaluated inside the QuickJS
-// sandbox (when user val modules import @valbuild/core), and that sandbox
-// has no `TextEncoder` global. `hash()` is never called from inside the
-// sandbox, so deferring construction avoids a ReferenceError at import time.
+// Lazily constructed: this module is also evaluated inside the `vm` sandbox
+// used by loadValModules (when user val modules import @valbuild/core), and
+// that sandbox has no `TextEncoder` global. `hash()` is never called from
+// inside the sandbox, so deferring construction avoids a ReferenceError at
+// import time.
 let textEncoder: TextEncoder | undefined;
 function getTextEncoder(): TextEncoder {
   if (!textEncoder) {
