@@ -63,6 +63,15 @@ export type JsonValuesRecordSrc<
   K extends Schema<string>,
 > = Record<SelectorOfSchema<K>, JsonSource<JsonOf<SelectorOfSchema<T>>>>;
 
+type RecordRenderInput<T extends Schema<SelectorSource>> = {
+  layout: "list";
+  select: (input: { key: string; val: RenderSelector<T> }) => {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | RemoteSource<ImageMetadata> | null;
+  };
+};
+
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
@@ -83,6 +92,7 @@ export class RecordSchema<
     private readonly description?: string,
     /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
     private readonly isJsonValues: boolean = false,
+    private readonly renderInput: RecordRenderInput<T> | null = null,
   ) {
     super();
   }
@@ -99,6 +109,7 @@ export class RecordSchema<
       this.isHidden,
       description ?? undefined,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -116,6 +127,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -561,6 +573,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -576,6 +589,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -591,6 +605,7 @@ export class RecordSchema<
       true,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -606,6 +621,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -621,6 +637,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
+      this.renderInput,
     );
   }
 
@@ -665,6 +682,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       true,
+      this.renderInput,
     ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
   }
 
@@ -768,15 +786,6 @@ export class RecordSchema<
     return result;
   }
 
-  private renderInput: {
-    layout: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
-    };
-  } | null = null;
-
   /**
    * Validate the loaded content of a single `.jsonValues()` entry against the
    * item schema. The server calls this once it has loaded the backing
@@ -865,12 +874,23 @@ export class RecordSchema<
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
-  }) {
-    this.renderInput = {
-      layout: input.as,
-      select: input.select,
-    };
-    return this;
+  }): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      {
+        layout: input.as,
+        select: input.select,
+      },
+    );
   }
 }
 
