@@ -424,9 +424,92 @@ describe("ValSyncEngine", () => {
     }
   });
 
-  test("patch errors are cleared once the server stops reporting them", async () => {
-    // The server omits `patches.errors` for a module that has none, so an
-    // absent field means "no errors" and has to clear what we held before.
+  test("the snapshot answers every path-set, and never sorts the caller's array", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/b.val.ts", s.string(), "b"),
+        c.define("/a.val.ts", s.string(), "a"),
+      ],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const a = toModuleFilePath("/a.val.ts");
+    const b = toModuleFilePath("/b.val.ts");
+
+    tester.setFakeResponse("/sources/~", "PUT", {
+      status: 200,
+      json: {
+        modules: {
+          [a]: {
+            source: "a",
+            patches: {
+              applied: [],
+              errors: { ["patch-a" as PatchId]: { message: "a failed" } },
+            },
+          },
+          [b]: {
+            source: "b",
+            patches: {
+              applied: [],
+              errors: { ["patch-b" as PatchId]: { message: "b failed" } },
+            },
+          },
+        },
+        sourcesSha: tester.getSourcesSha(),
+        schemaSha: tester.getSchemasSha(),
+      },
+    });
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "changed" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    // The computation used to be keyed on "the whole cache is null", so only the
+    // FIRST path-set after an invalidation ever computed. A second, distinct set
+    // read a missing key and got undefined - reported as "no patch errors".
+    expect(syncEngine.getPatchErrorsSnapshot([a])).toStrictEqual({
+      [a]: {
+        ["patch-a" as PatchId]: { message: "a failed", source: "server" },
+      },
+    });
+    expect(syncEngine.getPatchErrorsSnapshot([b])).toStrictEqual({
+      [b]: {
+        ["patch-b" as PatchId]: { message: "b failed", source: "server" },
+      },
+    });
+
+    // Same set, same object: useSyncExternalStore bails out on identity, so a
+    // fresh object per render would re-render every subscriber forever.
+    expect(syncEngine.getPatchErrorsSnapshot([a])).toBe(
+      syncEngine.getPatchErrorsSnapshot([a]),
+    );
+
+    // A set with no errors is cached too, and stays stable.
+    const noErrors = toModuleFilePath("/nope.val.ts");
+    expect(syncEngine.getPatchErrorsSnapshot([noErrors])).toBeUndefined();
+
+    // The caller's array is React state in ValProvider, and is also the key
+    // subscribe("patch-errors", paths) is memoised on - so sorting it in place
+    // would mutate state React owns and move a live subscription key.
+    const paths = [b, a];
+    syncEngine.getPatchErrorsSnapshot(paths);
+    expect(paths).toStrictEqual([b, a]);
+  });
+
+  test("a server-reported patch error survives a response that omits it", async () => {
+    // DELIBERATE INVERSION of the earlier "cleared once the server stops
+    // reporting them" behaviour.
+    //
+    // That rule read an absent `patches.errors` as "no errors". It only holds
+    // for `apply_patches=true`: on the studio's path the field is ALWAYS absent,
+    // because the server derives it from `sourcesRes.errors`, which is only
+    // populated inside `if (applyPatches)`. So clearing on absence wiped every
+    // client- and /save-recorded failure on each stat tick.
+    //
+    // An error does not linger forever, though: `recordClientPatchErrors` drops
+    // any entry whose patch has left the chain, so it lives exactly as long as
+    // the patch does. "removing the change clears its error" covers that.
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
       "fs",
@@ -469,20 +552,32 @@ describe("ValSyncEngine", () => {
 
     expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toStrictEqual({
       [moduleFilePath]: {
-        ["some-patch-id" as PatchId]: { message: "Could not apply" },
+        ["some-patch-id" as PatchId]: {
+          message: "Could not apply",
+          source: "server",
+        },
       },
     });
     expect(patchErrorsListenerCalls).toBeGreaterThan(0);
 
-    // The patch is fixed/removed server side, so `errors` is now omitted.
+    // A later response omits `errors` - which is what every studio response
+    // looks like. The recorded failure has to survive it.
     patchErrorsListenerCalls = 0;
     tester.removeFakeResponse("/sources/~", "PUT");
     tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "again" };
     tester.simulatePassingOfSeconds(5);
     await tester.simulateStatCallback(syncEngine);
 
-    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toBeUndefined();
-    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toStrictEqual({
+      [moduleFilePath]: {
+        ["some-patch-id" as PatchId]: {
+          message: "Could not apply",
+          source: "server",
+        },
+      },
+    });
+    // Nothing moved, so nothing should have been emitted either.
+    expect(patchErrorsListenerCalls).toBe(0);
 
     unsubscribe();
   });
@@ -1793,6 +1888,139 @@ describe("ValSyncEngine", () => {
     );
   });
 
+  /**
+   * A patch that cannot be applied used to be skipped with only a console.debug,
+   * so the studio looked healthy while /save refused the whole commit. These
+   * cover the two ways such a patch is now surfaced.
+   */
+  describe("unappliable patches are surfaced", () => {
+    const arrayModulePath = "/list.val.ts";
+    const createTester = () => {
+      const { s, c, config } = initVal();
+      return new SyncEngineTester(
+        "fs",
+        [c.define(arrayModulePath, s.array(s.string()), ["a", "b", "c"])],
+        config,
+      );
+    };
+    const patchErrorsFor = (syncEngine: ValSyncEngine) =>
+      syncEngine.getPatchErrorsSnapshot([toModuleFilePath(arrayModulePath)]);
+
+    /**
+     * Two editors, which is the only way a patch goes stale: a client refuses to
+     * create a patch that does not apply to what it currently sees, so the
+     * conflict has to arrive from someone else. Editor 2 shortens the array,
+     * editor 1's in-flight edit to the removed index can then never be applied.
+     */
+    const setupConflictingEditors = async () => {
+      const tester = createTester();
+      const editor1 = await tester.createInitializedSyncEngine();
+      const editor2 = await tester.createInitializedSyncEngine();
+
+      editor2.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "remove", path: ["2"] }],
+        tester.getNextNow(),
+      );
+      editor1.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "replace", path: ["2"], value: "c!" }],
+        tester.getNextNow(),
+      );
+      const staleEdit = editor1.getPendingClientSidePatchIdsSnapshot()[0];
+
+      // Editor 2's shortening lands first, so editor 1 ends up with it ahead of
+      // its own edit in the chain.
+      tester.simulatePassingOfSeconds(5);
+      await editor2.sync(tester.getNextNow());
+      tester.simulatePassingOfSeconds(5);
+      await tester.simulateStatCallback(editor1);
+      tester.simulatePassingOfSeconds(5);
+      await editor1.sync(tester.getNextNow());
+      tester.simulatePassingOfSeconds(5);
+      await tester.simulateStatCallback(editor1);
+
+      // Reading the source is what re-applies the chain and finds the failure.
+      // This used to pass a bogus creatorId to force a cache miss; the snapshot
+      // is cached per module now (#476), and the stat callback above already
+      // invalidated this one, so a plain read recomputes.
+      editor1.getSourceSnapshot(toModuleFilePath(arrayModulePath));
+      await Promise.resolve();
+      return { tester, editor1, staleEdit };
+    };
+
+    test("a client-side skip is recorded against its patch id", async () => {
+      const { editor1, staleEdit } = await setupConflictingEditors();
+
+      const errors = patchErrorsFor(editor1);
+
+      expect(errors?.[toModuleFilePath(arrayModulePath)]).toMatchObject({
+        [staleEdit]: { source: "client" },
+      });
+    });
+
+    test("removing the change clears its error", async () => {
+      const { tester, editor1, staleEdit } = await setupConflictingEditors();
+      expect(
+        patchErrorsFor(editor1)?.[toModuleFilePath(arrayModulePath)],
+      ).toBeTruthy();
+
+      editor1.deletePatches([staleEdit], tester.getNextNow());
+
+      expect(
+        patchErrorsFor(editor1)?.[toModuleFilePath(arrayModulePath)],
+      ).toBeFalsy();
+    });
+
+    test("/save reports failures the client cannot see", async () => {
+      // The client applies patches to the evaluated json, /save applies them to
+      // the source-file AST - so some failures only exist server-side. Without
+      // reading the 400's details they never reach the editor at all.
+      const tester = createTester();
+      const syncEngine = await tester.createInitializedSyncEngine();
+      syncEngine.addPatch(
+        toSourcePath(arrayModulePath),
+        "array",
+        [{ op: "replace", path: ["0"], value: "a!" }],
+        tester.getNextNow(),
+      );
+      const patchIds = syncEngine.getPendingClientSidePatchIdsSnapshot();
+      expect(patchIds).toHaveLength(1);
+
+      tester.setFakeResponse("/save", "POST", {
+        status: 400,
+        json: {
+          message: "Failed to create commit",
+          details: {
+            sourceFilePatchErrors: {},
+            binaryFilePatchErrors: {},
+            unappliablePatches: {
+              [patchIds[0]]: {
+                moduleFilePath: arrayModulePath,
+                message: "Cannot replace object element which does not exist",
+              },
+            },
+          },
+        },
+      });
+
+      expect(
+        await syncEngine.publish(patchIds, undefined, tester.getNextNow()),
+      ).toMatchObject({ status: "retry" });
+
+      expect(patchErrorsFor(syncEngine)?.[toModuleFilePath(arrayModulePath)]);
+      expect(
+        patchErrorsFor(syncEngine)?.[toModuleFilePath(arrayModulePath)]?.[
+          patchIds[0]
+        ],
+      ).toEqual({
+        message: "Cannot replace object element which does not exist",
+        source: "server",
+      });
+    });
+  });
   describe("jsonValues", () => {
     const PAGES = "/pages.val.ts" as const;
 

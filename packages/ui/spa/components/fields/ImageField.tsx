@@ -267,18 +267,15 @@ export function ImageField({
               disabled={disabled}
               onChange={(ev) => {
                 const alt = ev.target.value;
-                if (source.metadata && "alt" in source.metadata) {
-                  addPatch(
-                    [
-                      {
-                        op: "replace",
-                        value: alt,
-                        path: patchPath.concat(["metadata", "alt"]),
-                      },
-                    ],
-                    "string",
-                  );
-                } else if (source.metadata && !("alt" in source.metadata)) {
+                if (source.metadata) {
+                  // Always "add", never "replace", even when alt is already
+                  // there: "add" on an object key is create-or-set in both
+                  // JSONOps and the source-file ops, so it means the same thing
+                  // but survives the key having gone away. Choosing between the
+                  // two from `source` decides against the *client's optimistic*
+                  // view, which a concurrent image upload can invalidate before
+                  // the patch is applied - a "replace" then fails at publish
+                  // with "Cannot replace object element which does not exist".
                   addPatch(
                     [
                       {
@@ -427,18 +424,10 @@ export function ImageField({
               onCheckedChange={(checked) => {
                 if (checked) {
                   const defaultHotspot = { x: 0.5, y: 0.5 };
-                  if (source.metadata && "hotspot" in source.metadata) {
-                    addPatch(
-                      [
-                        {
-                          op: "replace",
-                          path: patchPath.concat(["metadata", "hotspot"]),
-                          value: defaultHotspot,
-                        },
-                      ],
-                      "object",
-                    );
-                  } else if (source.metadata) {
+                  if (source.metadata) {
+                    // "add" regardless of whether hotspot is already set: see
+                    // the alt field above for why choosing "replace" from the
+                    // optimistic source is a publish failure waiting to happen.
                     addPatch(
                       [
                         {

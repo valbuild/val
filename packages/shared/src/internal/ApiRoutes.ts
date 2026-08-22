@@ -994,6 +994,23 @@ export const Api = {
                       z.array(GenericError),
                     ),
                     binaryFilePatchErrors: z.record(z.string(), GenericError),
+                    /**
+                     * The patches that could not be applied, keyed by patch id.
+                     *
+                     * Same failures as sourceFilePatchErrors, but attributed to
+                     * the patch that caused them, which is what the studio needs
+                     * in order to name the change and offer to remove it.
+                     * Optional so older servers still parse.
+                     */
+                    unappliablePatches: z
+                      .record(
+                        PatchId,
+                        z.object({
+                          moduleFilePath: ModuleFilePath,
+                          message: z.string(),
+                        }),
+                      )
+                      .optional(),
                   }),
                   z.array(GenericError),
                 ])

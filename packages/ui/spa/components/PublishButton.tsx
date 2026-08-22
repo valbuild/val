@@ -1,6 +1,7 @@
 import { Loader2, Save, Upload, X } from "lucide-react";
 import { Button } from "./designSystem/button";
 import {
+  useAllPatchErrors,
   useAutoPublish,
   usePendingClientSidePatchIds,
   usePendingServerSidePatchIds,
@@ -56,6 +57,11 @@ export function PublishButton({
   const hasValidationErrors =
     allValidationErrors !== undefined &&
     Object.keys(allValidationErrors).length > 0;
+  const { patchErrors } = useAllPatchErrors();
+  const conflictingChangeCount = Object.values(patchErrors || {}).reduce(
+    (count, errors) => count + Object.keys(errors || {}).length,
+    0,
+  );
   const pendingServerSidePatchIds = usePendingServerSidePatchIds();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const mode = useValMode();
@@ -65,7 +71,7 @@ export function PublishButton({
     ? compactButtonClassName
     : "flex gap-2 items-center";
 
-  if (hasValidationErrors) {
+  if (hasValidationErrors || conflictingChangeCount > 0) {
     // when compact the button is icon-only, so its name has to say what it
     // does; otherwise it has to match the label the button actually shows
     const label = compact
@@ -75,10 +81,27 @@ export function PublishButton({
       : mode === "fs"
         ? "Save"
         : "Ready";
+    // Both reasons can hold at once and each is separately actionable, so the
+    // tooltip names every one that applies rather than only the first.
+    const reasons: string[] = [];
+    if (hasValidationErrors) {
+      reasons.push("Fix validation errors to continue.");
+    }
+    if (conflictingChangeCount > 0) {
+      // Without this the button stayed enabled and the publish failed
+      // server-side with nothing actionable to show for it.
+      reasons.push(
+        `${conflictingChangeCount} change${
+          conflictingChangeCount === 1 ? "" : "s"
+        } cannot be applied. Remove ${
+          conflictingChangeCount === 1 ? "it" : "them"
+        } to continue.`,
+      );
+    }
     return (
       <PublishTooltip
         label={label}
-        description="Fix validation errors to continue"
+        description={reasons.join(" ")}
         disabled={true}
         container={portalContainer}
       >

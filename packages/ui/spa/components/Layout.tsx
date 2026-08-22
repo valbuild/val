@@ -14,6 +14,7 @@ import {
 import { useIsMobile } from "./hooks/use-mobile";
 import { Toaster } from "./designSystem/sonner";
 import { TransientErrorToasts } from "./TransientErrorToasts";
+import { PatchErrorsDialog } from "./PatchErrorsDialog";
 
 export function Layout() {
   const isMobile = useIsMobile();
@@ -111,6 +112,7 @@ export function Layout() {
       </main>
       <Toaster />
       <TransientErrorToasts />
+      <PatchErrorsDialog />
     </LayoutContext.Provider>
   );
 }
