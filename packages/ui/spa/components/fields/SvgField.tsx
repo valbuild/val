@@ -205,7 +205,18 @@ export function SvgColorMapper({
           <div key={key} className="flex items-center gap-2">
             <span
               className="w-6 h-6 rounded border border-border-primary shrink-0"
-              style={{ background: color.raw }}
+              // `color.raw` is arbitrary text out of imported markup, and
+              // `background` is a shorthand that also takes `url(...)` and
+              // gradients - so a hostile (or merely odd) fill would render as an
+              // external request from inside the editor. Paint `backgroundColor`
+              // instead, and only from `normalized`, which is always a plain
+              // `#rrggbb[aa]` produced by our own parser. An unparseable color
+              // gets an empty swatch; its text is right beside it.
+              style={
+                color.normalized
+                  ? { backgroundColor: color.normalized }
+                  : undefined
+              }
               title={color.raw}
             />
             <code className="text-xs w-24 shrink-0">{color.raw}</code>
@@ -240,8 +251,12 @@ export function SvgColorMapper({
                     <span className="inline-flex items-center gap-2">
                       <span
                         className="w-3 h-3 rounded-sm border border-border-primary"
+                        // `backgroundColor`, not the `background` shorthand, for
+                        // the same reason as the swatch above - though this value
+                        // comes from the schema author's own `variables`, not
+                        // from imported markup.
                         style={{
-                          background: svgVariableValue(variables[name]),
+                          backgroundColor: svgVariableValue(variables[name]),
                         }}
                       />
                       {name}
