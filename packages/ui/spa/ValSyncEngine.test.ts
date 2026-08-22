@@ -424,6 +424,79 @@ describe("ValSyncEngine", () => {
     }
   });
 
+  test("the snapshot answers every path-set, and never sorts the caller's array", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/b.val.ts", s.string(), "b"),
+        c.define("/a.val.ts", s.string(), "a"),
+      ],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const a = toModuleFilePath("/a.val.ts");
+    const b = toModuleFilePath("/b.val.ts");
+
+    tester.setFakeResponse("/sources/~", "PUT", {
+      status: 200,
+      json: {
+        modules: {
+          [a]: {
+            source: "a",
+            patches: {
+              applied: [],
+              errors: { ["patch-a" as PatchId]: { message: "a failed" } },
+            },
+          },
+          [b]: {
+            source: "b",
+            patches: {
+              applied: [],
+              errors: { ["patch-b" as PatchId]: { message: "b failed" } },
+            },
+          },
+        },
+        sourcesSha: tester.getSourcesSha(),
+        schemaSha: tester.getSchemasSha(),
+      },
+    });
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "changed" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    // The computation used to be keyed on "the whole cache is null", so only the
+    // FIRST path-set after an invalidation ever computed. A second, distinct set
+    // read a missing key and got undefined - reported as "no patch errors".
+    expect(syncEngine.getPatchErrorsSnapshot([a])).toStrictEqual({
+      [a]: {
+        ["patch-a" as PatchId]: { message: "a failed", source: "server" },
+      },
+    });
+    expect(syncEngine.getPatchErrorsSnapshot([b])).toStrictEqual({
+      [b]: {
+        ["patch-b" as PatchId]: { message: "b failed", source: "server" },
+      },
+    });
+
+    // Same set, same object: useSyncExternalStore bails out on identity, so a
+    // fresh object per render would re-render every subscriber forever.
+    expect(syncEngine.getPatchErrorsSnapshot([a])).toBe(
+      syncEngine.getPatchErrorsSnapshot([a]),
+    );
+
+    // A set with no errors is cached too, and stays stable.
+    const noErrors = toModuleFilePath("/nope.val.ts");
+    expect(syncEngine.getPatchErrorsSnapshot([noErrors])).toBeUndefined();
+
+    // The caller's array is React state in ValProvider, and is also the key
+    // subscribe("patch-errors", paths) is memoised on - so sorting it in place
+    // would mutate state React owns and move a live subscription key.
+    const paths = [b, a];
+    syncEngine.getPatchErrorsSnapshot(paths);
+    expect(paths).toStrictEqual([b, a]);
+  });
+
   test("a server-reported patch error survives a response that omits it", async () => {
     // DELIBERATE INVERSION of the earlier "cleared once the server stops
     // reporting them" behaviour.

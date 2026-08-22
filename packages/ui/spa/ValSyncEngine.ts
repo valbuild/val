@@ -2509,36 +2509,48 @@ export class ValSyncEngine {
     return this.cachedInitializedAtSnapshot;
   }
 
+  /**
+   * Per path-set. The value is `undefined` for a set with no errors - stored
+   * rather than absent, so that answer is cached too and keeps a stable identity
+   * across renders.
+   */
   private cachedPatchErrorsSnapshot: Record<
     string,
-    Record<ModuleFilePath, Record<PatchId, PatchErrorEntry> | null>
+    Record<ModuleFilePath, Record<PatchId, PatchErrorEntry> | null> | undefined
   > | null;
   getPatchErrorsSnapshot(
     moduleFilePaths: ModuleFilePath[],
   ):
     | Record<ModuleFilePath, Record<PatchId, PatchErrorEntry> | null>
     | undefined {
-    const pathsKey = moduleFilePaths.sort().join("|");
-    // TODO: not quite sure this works well, however it is only used in one place and seems to work there - something to revise!
+    // Copy before sorting: the caller's array is React state in ValProvider,
+    // and it is ALSO the key `subscribe("patch-errors", paths)` is memoised on -
+    // reordering it from inside a snapshot getter mutates state React owns and
+    // changes a subscription key out from under useSyncExternalStore.
+    const pathsKey = [...moduleFilePaths].sort().join("|");
     if (this.cachedPatchErrorsSnapshot === null) {
       this.cachedPatchErrorsSnapshot = {};
+    }
+    // Per path-set, not once for the whole cache. Keying the computation on
+    // "the cache object is null" meant only the FIRST path-set ever computed:
+    // any second, distinct set read a missing key and got `undefined` - i.e.
+    // "no patch errors" - until something invalidated.
+    if (!(pathsKey in this.cachedPatchErrorsSnapshot)) {
       const result: Record<
         ModuleFilePath,
         Record<PatchId, PatchErrorEntry> | null
       > = {};
       let hasErrors = false;
       for (const moduleFilePath of moduleFilePaths) {
-        if (this.errors.patchErrors?.[moduleFilePath]) {
-          result[moduleFilePath] = {
-            ...(result[moduleFilePath] || {}),
-            ...deepClone(this.errors.patchErrors[moduleFilePath]!),
-          };
+        const patchErrors = this.errors.patchErrors?.[moduleFilePath];
+        if (patchErrors) {
+          result[moduleFilePath] = deepClone(patchErrors);
           hasErrors = true;
         }
       }
-      if (hasErrors) {
-        this.cachedPatchErrorsSnapshot[pathsKey] = result;
-      }
+      // `undefined` is stored, not skipped, so a set with no errors is answered
+      // from the cache with a stable identity rather than recomputed per render.
+      this.cachedPatchErrorsSnapshot[pathsKey] = hasErrors ? result : undefined;
     }
     return this.cachedPatchErrorsSnapshot[pathsKey];
   }
