@@ -9,10 +9,7 @@ import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
-import {
-  ValidationError,
-  ValidationErrors,
-} from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
@@ -73,21 +70,12 @@ export class ArraySchema<
     if (assertRes.data === null) {
       return false;
     }
-    let error: Record<SourcePath, ValidationError[]> = {};
+    let error: ValidationErrors = false;
     for (const [idx, i] of Object.entries(assertRes.data)) {
       const subPath = unsafeCreateSourcePath(path, Number(idx));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const subError = this.item["executeValidate"](subPath, i as any);
-      if (subError) {
-        error = {
-          ...subError,
-          ...error,
-        };
-      }
-    }
-
-    if (Object.keys(error).length === 0) {
-      return false;
+      error = this.mergeValidationErrors(error, subError);
     }
     return error;
   }

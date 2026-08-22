@@ -1,7 +1,11 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import { useAddPatch, useShallowSourceAtPath } from "./ValFieldProvider";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+} from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -64,6 +68,14 @@ export function ChangeRecordPopover({
 
   // Get actual record keys from parent source for duplicate validation
   const parentSource = useShallowSourceAtPath(parentPath, "record");
+  const parentSchema = useSchemaAtPath(parentPath);
+  // Callers may pass the description explicitly, but fall back to the key schema
+  // so that call sites which only know the path show it too
+  const description =
+    keyDescription ??
+    ("data" in parentSchema && parentSchema.data.type === "record"
+      ? parentSchema.data.key?.description
+      : undefined);
   const recordKeys = useMemo(() => {
     if ("data" in parentSource && parentSource.data) {
       return Object.keys(parentSource.data);
@@ -134,13 +146,15 @@ export function ChangeRecordPopover({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          {keyDescription ? `Rename ${keyDescription}` : "Rename record"}
+          <p>{routePattern ? "Change URL of this page" : "Rename record"}</p>
+          {description && (
+            <p className="max-w-[240px] text-pretty text-fg-tertiary">
+              {description}
+            </p>
+          )}
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
-        {keyDescription && (
-          <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
-        )}
         {routePattern ? (
           <RouteForm
             routePattern={routePattern}
@@ -154,20 +168,26 @@ export function ChangeRecordPopover({
               setOpen(false);
             }}
             submitText="Update"
+            keyDescription={description}
           ></RouteForm>
         ) : (
-          <RenameRecordKeyForm
-            parentPath={parentPath}
-            defaultValue={defaultValue}
-            existingKeys={recordKeys}
-            onSubmit={(key) => {
-              onSubmit(key);
-              setOpen(false);
-            }}
-            onCancel={() => {
-              setOpen(false);
-            }}
-          />
+          <>
+            {description && (
+              <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
+            )}
+            <RenameRecordKeyForm
+              parentPath={parentPath}
+              defaultValue={defaultValue}
+              existingKeys={recordKeys}
+              onSubmit={(key) => {
+                onSubmit(key);
+                setOpen(false);
+              }}
+              onCancel={() => {
+                setOpen(false);
+              }}
+            />
+          </>
         )}
       </PopoverContent>
     </Popover>

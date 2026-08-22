@@ -20,6 +20,8 @@ export type SitemapItem = {
   routePattern?: RoutePattern[];
   /** Existing children keys (for validation in add form) */
   existingKeys?: string[];
+  /** Description of the router key schema (shown in the add page form) */
+  keyDescription?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */

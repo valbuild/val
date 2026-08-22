@@ -249,6 +249,166 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual({ [ref]: metadata });
   });
 
+  test("editing one field does not invalidate every module", async () => {
+    // Regression test for the typing-is-slow issue: every keystroke that
+    // started a new patch changed the server-side patch id list, which used to
+    // set forceSyncAllModules and therefore re-fetched + invalidated every
+    // module in the project on the next stat callback.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [
+        c.define("/edited.val.ts", s.string(), "edited"),
+        c.define("/other1.val.ts", s.string(), "other1"),
+        c.define("/other2.val.ts", s.string(), "other2"),
+      ],
+      config,
+    );
+    const requests: { route: string; path: string | undefined }[] = [];
+    const mockClient = tester.createMockClient();
+    const spyingClient: any = (route: string, method: any, req: any) => {
+      requests.push({ route, path: req?.path });
+      return mockClient(route, method, req);
+    };
+    const syncEngine = new ValSyncEngine(spyingClient, undefined);
+    await syncEngine.init(
+      tester.getMode(),
+      tester.getBaseSha(),
+      tester.getSchemasSha(),
+      tester.getSourcesSha(),
+      tester.fakePatches.map((p) => p.patchId),
+      null,
+      tester.getCommitSha(),
+      tester.getNextNow(),
+    );
+
+    const invalidatedModules: ModuleFilePath[] = [];
+    const unsubscribes = (
+      ["/edited.val.ts", "/other1.val.ts", "/other2.val.ts"] as const
+    ).map((moduleFilePathS) => {
+      const moduleFilePath = toModuleFilePath(moduleFilePathS);
+      return syncEngine.subscribe(
+        "source",
+        moduleFilePath,
+      )(() => {
+        invalidatedModules.push(moduleFilePath);
+      });
+    });
+
+    // Type into a single field, then let the sync + stat cycle run.
+    syncEngine.addPatch(
+      toSourcePath("/edited.val.ts"),
+      "string",
+      [{ op: "replace", path: [], value: "edited!" }],
+      tester.getNextNow(),
+    );
+    tester.simulatePassingOfSeconds(5);
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+
+    // Only the edited module may be re-fetched...
+    const sourceRequests = requests.filter((r) => r.route === "/sources/~");
+    for (const sourceRequest of sourceRequests) {
+      expect(sourceRequest.path).toBe("/edited.val.ts");
+    }
+    // ... and only the edited module may be invalidated.
+    expect(new Set(invalidatedModules)).toStrictEqual(
+      new Set([toModuleFilePath("/edited.val.ts")]),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/edited.val.ts")).data,
+    ).toStrictEqual("edited!");
+
+    // The stat callback that reports the now-synced patch id must not drag
+    // the untouched modules along either.
+    requests.length = 0;
+    invalidatedModules.length = 0;
+    tester.simulatePassingOfSeconds(5);
+    expect(await tester.simulateStatCallback(syncEngine)).toMatchObject({
+      status: "done",
+    });
+    expect(requests.filter((r) => r.route === "/sources/~")).toStrictEqual([]);
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other1.val.ts"),
+    );
+    expect(invalidatedModules).not.toContain(
+      toModuleFilePath("/other2.val.ts"),
+    );
+    expect(
+      syncEngine.getSourceSnapshot(toModuleFilePath("/other1.val.ts")).data,
+    ).toStrictEqual("other1");
+
+    for (const unsubscribe of unsubscribes) {
+      unsubscribe();
+    }
+  });
+
+  test("patch errors are cleared once the server stops reporting them", async () => {
+    // The server omits `patches.errors` for a module that has none, so an
+    // absent field means "no errors" and has to clear what we held before.
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      "fs",
+      [c.define("/test.val.ts", s.string(), "test")],
+      config,
+    );
+    const syncEngine = await tester.createInitializedSyncEngine();
+    const moduleFilePath = toModuleFilePath("/test.val.ts");
+
+    let patchErrorsListenerCalls = 0;
+    const unsubscribe = syncEngine.subscribe("patch-errors", [moduleFilePath])(
+      () => {
+        patchErrorsListenerCalls++;
+      },
+    );
+
+    const sourcesResponseWithPatchErrors = {
+      status: 200,
+      json: {
+        modules: {
+          [moduleFilePath]: {
+            source: "test",
+            patches: {
+              applied: [],
+              errors: {
+                ["some-patch-id" as PatchId]: { message: "Could not apply" },
+              },
+            },
+          },
+        },
+        sourcesSha: tester.getSourcesSha(),
+        schemaSha: tester.getSchemasSha(),
+      },
+    };
+    tester.setFakeResponse("/sources/~", "PUT", sourcesResponseWithPatchErrors);
+    // Force a sync that reads sources: a source file changed on disk.
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "changed" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toStrictEqual({
+      [moduleFilePath]: {
+        ["some-patch-id" as PatchId]: { message: "Could not apply" },
+      },
+    });
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    // The patch is fixed/removed server side, so `errors` is now omitted.
+    patchErrorsListenerCalls = 0;
+    tester.removeFakeResponse("/sources/~", "PUT");
+    tester.fakeSources = { ...tester.fakeSources, "/other.val.ts": "again" };
+    tester.simulatePassingOfSeconds(5);
+    await tester.simulateStatCallback(syncEngine);
+
+    expect(syncEngine.getPatchErrorsSnapshot([moduleFilePath])).toBeUndefined();
+    expect(patchErrorsListenerCalls).toBeGreaterThan(0);
+
+    unsubscribe();
+  });
+
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
