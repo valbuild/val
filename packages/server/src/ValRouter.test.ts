@@ -128,6 +128,20 @@ describe("ValRouter", () => {
       if (patchesRes.status !== 200 || !("json" in patchesRes)) {
         throw new Error("Expected a 200 response with a json body");
       }
+      // Narrow the Json body down to the one field this test needs, rather
+      // than asserting: `json` is `Json | null`, so indexing it is not valid
+      // until it is known to carry a string baseSha. `in` rather than
+      // Array.isArray, because JsonArray is a *readonly* array and
+      // Array.isArray does not narrow those away.
+      const patchesBody = patchesRes.json;
+      if (
+        patchesBody === null ||
+        typeof patchesBody !== "object" ||
+        !("baseSha" in patchesBody) ||
+        typeof patchesBody.baseSha !== "string"
+      ) {
+        throw new Error("Expected the patches response to carry a baseSha");
+      }
       const createPatchRes = await onRouteWithRender(
         fakeRequest({
           method: "PUT",
@@ -148,7 +162,7 @@ describe("ValRouter", () => {
             ],
             parentRef: {
               type: "head",
-              headBaseSha: patchesRes.json.baseSha,
+              headBaseSha: patchesBody.baseSha,
             },
           },
           headers: new Headers({
