@@ -11,7 +11,12 @@
  * picked.
  */
 
-const DAY_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/;
+// A bare day, or a full ISO datetime whose date part we take. Anchored at both
+// ends so that trailing junk is rejected rather than silently reinterpreted:
+// with a bare prefix match, "2026-08-20foo" parsed as the 20th, which is the
+// opposite of the "not a date -> null" contract below.
+const DAY_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T/;
 
 /**
  * The local calendar fields of a `Date`.
@@ -37,16 +42,16 @@ export function formatLocalDay(date: LocalCalendarFields): string {
 /**
  * Parse a stored date value into a `Date` at local midnight of that day.
  *
- * The day is read from the leading `YYYY-MM-DD` of the value, so a full ISO
- * datetime is accepted too and contributes only its date part - the day as
- * written, never shifted into another timezone.
+ * Accepts a bare `YYYY-MM-DD`, or a full ISO datetime (`YYYY-MM-DDT...`) whose
+ * date part is taken - the day as written, never shifted into another timezone.
+ * Anything else, including a day with trailing characters, is not a date.
  *
  * Returns `null` for a value that is not a date. `s.date()` validates the
  * bounds of its value but not the shape, so content can legitimately hold a
  * string that is not a day at all, and the field has to render anyway.
  */
 export function parseLocalDay(value: string): Date | null {
-  const match = DAY_PREFIX.exec(value);
+  const match = DAY_ONLY.exec(value) ?? ISO_DATETIME.exec(value);
   if (!match) {
     return null;
   }

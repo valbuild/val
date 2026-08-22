@@ -1,5 +1,20 @@
 import { formatLocalDay, parseLocalDay } from "./localDay";
 
+/**
+ * `parseLocalDay` that narrows away the `null` at RUNTIME.
+ *
+ * `expect(x).not.toBeNull()` does not narrow the type, so the call sites used to
+ * reach for `as Date` - which CLAUDE.md rules out, and which would hide exactly
+ * the null this helper reports.
+ */
+function parseDayOrThrow(value: string): Date {
+  const parsed = parseLocalDay(value);
+  if (parsed === null) {
+    throw new Error(`Expected ${JSON.stringify(value)} to parse as a day`);
+  }
+  return parsed;
+}
+
 describe("formatLocalDay", () => {
   test("reads the local calendar fields, never the UTC ones", () => {
     // This is the regression. East of UTC, local midnight on the 20th is still
@@ -71,9 +86,7 @@ describe("parseLocalDay", () => {
       "1900-01-01",
       "2100-12-31",
     ]) {
-      const parsed = parseLocalDay(day);
-      expect(parsed).not.toBeNull();
-      expect(formatLocalDay(parsed as Date)).toStrictEqual(day);
+      expect(formatLocalDay(parseDayOrThrow(day))).toStrictEqual(day);
     }
   });
 
@@ -82,10 +95,10 @@ describe("parseLocalDay", () => {
     // datetime. The day is taken as written rather than shifted into the
     // browser's timezone.
     expect(
-      formatLocalDay(parseLocalDay("2026-08-20T23:30:00Z") as Date),
+      formatLocalDay(parseDayOrThrow("2026-08-20T23:30:00Z")),
     ).toStrictEqual("2026-08-20");
     expect(
-      formatLocalDay(parseLocalDay("2026-08-20T00:30:00Z") as Date),
+      formatLocalDay(parseDayOrThrow("2026-08-20T00:30:00Z")),
     ).toStrictEqual("2026-08-20");
   });
 
@@ -98,6 +111,13 @@ describe("parseLocalDay", () => {
       "26-08-20",
       "August 20, 2026",
       "not-a-date",
+      // A day with anything after it. The prefix match used to accept these and
+      // silently reinterpret the value as the 20th.
+      "2026-08-20foo",
+      "2026-08-20 ",
+      "2026-08-2",
+      "2026-08-201",
+      "2026-08-20-01",
     ]) {
       expect(parseLocalDay(value)).toBeNull();
     }
