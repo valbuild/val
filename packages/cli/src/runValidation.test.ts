@@ -608,6 +608,35 @@ describe("runValidation", () => {
       expect(afterFix.at(-1)).toEqual({ type: "summary-success" });
     });
 
+    test("keeps the item-schema error alongside the inline-entry error", async () => {
+      // Both validations report at the SAME source path: the record-level one
+      // checks the inline value against the item schema, and the jsonValues one
+      // reports the inlining. Merging them with a spread drops one of the two,
+      // so the author fixes the inlining and only then learns the value was
+      // never valid.
+      const events = await runOn([
+        "content/basic-inline-json-values-invalid.val.ts",
+      ]);
+
+      const sourcePath =
+        '/content/basic-inline-json-values-invalid.val.ts?p="/inline"';
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath,
+            message: expect.stringContaining("written inline"),
+          }),
+          expect.objectContaining({
+            type: "validation-error",
+            sourcePath,
+            message: expect.stringContaining("at least 5"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
+    });
+
     test("rejects a nested .jsonValues() instead of reporting it valid", async () => {
       // Root-only is a hard contract: a nested one would silently get NO content
       // validation. The Studio refuses to load such a project, so the CLI saying
