@@ -2,6 +2,7 @@ import path from "path";
 import {
   createFixPatch,
   createService,
+  extractJsonValuesEntry,
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
   Service,
@@ -93,6 +94,12 @@ export type FixHandlerResult = {
   success: boolean;
   errorMessage?: string;
   shouldApplyPatch?: boolean;
+  // The handler repaired the source itself (it could not be expressed as a
+  // patch, so `shouldApplyPatch` does not apply): count it as fixed.
+  appliedFix?: boolean;
+  // The handler did nothing because `--fix` was off, but the error IS fixable:
+  // report it as such instead of as a plain validation error.
+  fixableErrorMessage?: string;
   // Updated shared state
   publicProjectId?: string;
   remoteFileBuckets?: string[];
@@ -670,6 +677,59 @@ export async function handleCheckAllFiles(
   return { success: true, shouldApplyPatch: true };
 }
 
+export async function handleJsonValuesExtractEntry(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const parts = Internal.splitModulePath(modulePath);
+  // Root-only by contract (see findNestedJsonValuesRecords): the entry is a
+  // direct child of the module's root record/router, so the path is one segment.
+  if (parts.length !== 1) {
+    return {
+      success: false,
+      errorMessage: `Cannot extract .jsonValues() entry at ${ctx.sourcePath}: expected a root record entry`,
+    };
+  }
+  const entryKey = parts[0];
+  const source = ctx.valModule.source;
+  if (source === null || typeof source !== "object" || Array.isArray(source)) {
+    return {
+      success: false,
+      errorMessage: `Could not get source for ${ctx.moduleFilePath}`,
+    };
+  }
+  const content = (source as Record<string, Json>)[entryKey];
+  if (content === undefined) {
+    return {
+      success: false,
+      errorMessage: `Could not find .jsonValues() entry '${entryKey}' in ${ctx.moduleFilePath}`,
+    };
+  }
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage: ctx.validationError.message,
+    };
+  }
+  try {
+    extractJsonValuesEntry(
+      ctx.moduleFilePath,
+      ctx.projectRoot,
+      entryKey,
+      content,
+      ctx.service.sourceFileHandler,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { success: true, appliedFix: true };
+}
+
 // Fix handler registry. `keyof:check-keys` and `router:check-route` are
 // resolved upfront by the shared resolveSchemaSourceFixes — they never reach
 // this registry, so they're excluded from the key set.
@@ -695,6 +755,7 @@ export const currentFixHandlers: Record<
   "files:check-unique-folder": handleUniqueFolderCheck,
   "images:check-all-files": handleCheckAllFiles,
   "files:check-all-files": handleCheckAllFiles,
+  "jsonValues:extract-entry": handleJsonValuesExtractEntry,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,
@@ -879,6 +940,22 @@ export async function* runValidation({
                 };
                 fileErrors += 1;
                 continue;
+              }
+
+              if (result.appliedFix) {
+                fixedErrors += 1;
+                yield { type: "fix-applied", file, sourcePath };
+              }
+
+              if (result.fixableErrorMessage !== undefined) {
+                fileErrors += 1;
+                yield {
+                  type: "validation-fixable-error",
+                  sourcePath,
+                  message: result.fixableErrorMessage,
+                  fixable: true,
+                  ...(v.keyError ? { keyError: true } : {}),
+                };
               }
 
               // Apply patch if needed

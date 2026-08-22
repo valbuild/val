@@ -72,7 +72,15 @@ function findValModulesPath(
   return null;
 }
 
-const RESOLVE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"];
+const RESOLVE_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".cjs",
+  ".mjs",
+  ".json",
+];
 
 // Specifiers that user val files must not actually use. We stub them so that
 // importing is fine, but using a value throws a clear error. Real @valbuild
@@ -126,6 +134,25 @@ function loadModule(
   const cached = cache[absPath];
   if (cached) {
     return cached;
+  }
+  // JSON modules (e.g. the `*.val.json` files backing `.jsonValues()` entries)
+  // are loaded by parsing, mirroring Node's `require("./x.json")` which returns
+  // the parsed object as `module.exports`. The importing `.val.ts` wraps this
+  // with `__importStar` so `import("./x.val.json")` yields `{ default, ... }`.
+  // These are only loaded when an entry thunk is invoked, never during
+  // `extractValModules`, so this stays lazy.
+  //
+  // Read through `host` like every other project file: an editor integration
+  // passes a host that overlays unsaved buffers, and an entry the user is
+  // editing has to resolve to what they are looking at.
+  if (absPath.endsWith(".json")) {
+    const json = host.readFile(absPath);
+    if (json === undefined) {
+      throw Error(`Could not read Val module file: '${absPath}'`);
+    }
+    const jsonModule = { exports: JSON.parse(json) as Record<string, unknown> };
+    cache[absPath] = jsonModule;
+    return jsonModule;
   }
   const code = host.readFile(absPath);
   if (code === undefined) {

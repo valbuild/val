@@ -16,9 +16,12 @@ import {
   SerializedSchema,
   Source,
   extractValModules,
+  ValidationError,
 } from "@valbuild/core";
 import path from "path";
 import { loadValModules } from "./loadValModules";
+import { findNestedJsonValuesRecords } from "./patch/jsonValuesPatch";
+import { validateJsonValuesEntries } from "./validateJsonValues";
 
 export async function createService(
   projectRoot: string,
@@ -124,19 +127,65 @@ export class Service {
       };
     }
 
-    const validation = opts.validate
+    let validation = opts.validate
       ? schema["executeValidate"](
           moduleFilePath as string as SourcePath,
           source as SelectorSource,
         )
       : false;
 
+    // `.jsonValues()` needs two checks that `executeValidate` structurally
+    // cannot do, and this is the ONLY place the Service-based callers (the CLI's
+    // `val validate`, chiefly) can get them. `ValOps` — the Studio's path — has
+    // its own copies; without these, `val validate` reports a module with broken
+    // entry content, or an unsupported nested `.jsonValues()`, as VALID, and CI
+    // gates on that.
+    let jsonValuesModuleError: string | undefined;
+    if (opts.validate) {
+      const nested = findNestedJsonValuesRecords(serializedSchema);
+      if (nested.length > 0) {
+        // Root-only is a hard contract (see findNestedJsonValuesRecords): a
+        // nested one would silently get NO content validation, which is exactly
+        // the failure this check exists to prevent.
+        jsonValuesModuleError = `Nested .jsonValues() records are not supported: ${nested
+          .map((nestedPath) => `'${nestedPath.join(".")}'`)
+          .join(
+            ", ",
+          )} in ${moduleFilePath}. Use .jsonValues() only on a module's root record/router.`;
+      } else {
+        // Loads every entry's backing `*.val.json` through its thunk. That is the
+        // accepted cost of having no revalidation token (locked decision #3):
+        // validation is allowed to be slower at scale, but it is not allowed to
+        // silently skip content.
+        const entryErrors = await validateJsonValuesEntries(
+          schema,
+          source,
+          moduleFilePath,
+        );
+        if (Object.keys(entryErrors).length > 0) {
+          // Concatenate per path, never overwrite: an entry written inline is
+          // reported BOTH by the record-level validation (which checks the
+          // inline value against the item schema) and here (which reports the
+          // inlining itself). A spread would drop whichever came first, hiding
+          // a real content error behind the inlining error or vice versa.
+          const merged: Record<SourcePath, ValidationError[]> = {
+            ...(validation || {}),
+          };
+          for (const [entryPathS, errs] of Object.entries(entryErrors)) {
+            const entryPath = entryPathS as SourcePath;
+            merged[entryPath] = (merged[entryPath] || []).concat(errs);
+          }
+          validation = merged;
+        }
+      }
+    }
+
     const resolved = Internal.resolvePath(modulePath, source, serializedSchema);
     const sourcePath = (
       resolved.path ? [moduleFilePath, resolved.path].join(".") : moduleFilePath
     ) as SourcePath;
 
-    if (!validation && !moduleError) {
+    if (!validation && !moduleError && !jsonValuesModuleError) {
       return {
         path: sourcePath,
         source: resolved.source,
@@ -144,13 +193,20 @@ export class Service {
         errors: false,
       };
     }
+    const fatal: { message: string }[] = [];
+    if (moduleError) {
+      fatal.push({ message: moduleError.message });
+    }
+    if (jsonValuesModuleError) {
+      fatal.push({ message: jsonValuesModuleError });
+    }
     return {
       path: sourcePath,
       source: resolved.source,
       schema: resolved.schema,
       errors: {
         validation: validation || undefined,
-        fatal: moduleError ? [{ message: moduleError.message }] : undefined,
+        fatal: fatal.length > 0 ? fatal : undefined,
       },
     };
   }

@@ -484,4 +484,176 @@ describe("runValidation", () => {
     expect(events.at(-1)).toEqual({ type: "summary-success" });
     expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
   });
+
+  describe("jsonValues", () => {
+    const runOn = async (valFiles: string[]) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles,
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("validates entry CONTENT, which lives outside the .val.ts", async () => {
+      // Regression: `val validate` reported a jsonValues module as valid no matter
+      // what its entries contained. The record-level schema only asserts the
+      // marker shape — deep validation is deferred to whoever loads the entry, and
+      // the CLI never did. Any project gating CI on `val validate` was blind to it.
+      //
+      // The violation here is a VALUE one (minLength), like the other fixtures in
+      // this directory: with `resolveJsonModule` on, tsc catches type-level
+      // mistakes in a hand-authored entry by itself — constraints are what only
+      // validation can see.
+      const events = await runOn(["content/basic-json-values.val.ts"]);
+      const errors = events.filter((e) => e.type === "validation-error");
+
+      // The path names the ENTRY, not just the module: for a record with
+      // hundreds of entries, "something in here is wrong" is not a report.
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sourcePath: '/content/basic-json-values.val.ts?p="/broken"."title"',
+            message: expect.stringContaining("2 characters"),
+          }),
+        ]),
+      );
+      // ...and the entry that IS valid produces nothing.
+      expect(
+        errors.filter(
+          (e) => "sourcePath" in e && e.sourcePath.includes('"/ok"'),
+        ),
+      ).toHaveLength(0);
+    });
+
+    test("reports an inlined entry as a fixable error", async () => {
+      // The types accept an inline entry (see JsonValuesRecordSrc), so validation
+      // is the thing that has to catch it — otherwise a hand-authored entry
+      // quietly stays in the `.val.ts`, where the Studio cannot edit it and the
+      // lazy-loading the record opted into does not apply.
+      const events = await runOn(["content/basic-inline-json-values.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath: '/content/basic-inline-json-values.val.ts?p="/inline"',
+            fixable: true,
+            message: expect.stringContaining("written inline"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("--fix moves an inlined entry into its own *.val.json", async () => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["content/basic-inline-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fix-applied",
+            sourcePath: '/content/basic-inline-json-values.val.ts?p="/inline"',
+          }),
+        ]),
+      );
+
+      // The content moved to the conventional path for the key...
+      const jsonPath = path.join(
+        tmpDir,
+        "content/basic-inline-json-values/inline.val.json",
+      );
+      expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+        title: "Written inline",
+        order: 3,
+      });
+      // ...and the module now references it lazily, like every other entry.
+      const valTs = fs.readFileSync(
+        path.join(tmpDir, "content/basic-inline-json-values.val.ts"),
+        "utf8",
+      );
+      expect(valTs).toContain(
+        'c.json(() => import("./basic-inline-json-values/inline.val.json"))',
+      );
+      expect(valTs).not.toContain("Written inline");
+
+      // Re-validating the fixed project is clean: the fix is not just silencing
+      // the error, it produces a module that loads and validates.
+      const afterFix: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles: ["content/basic-inline-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        afterFix.push(event);
+      }
+      expect(afterFix.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("keeps the item-schema error alongside the inline-entry error", async () => {
+      // Both validations report at the SAME source path: the record-level one
+      // checks the inline value against the item schema, and the jsonValues one
+      // reports the inlining. Merging them with a spread drops one of the two,
+      // so the author fixes the inlining and only then learns the value was
+      // never valid.
+      const events = await runOn([
+        "content/basic-inline-json-values-invalid.val.ts",
+      ]);
+
+      const sourcePath =
+        '/content/basic-inline-json-values-invalid.val.ts?p="/inline"';
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath,
+            message: expect.stringContaining("written inline"),
+          }),
+          expect.objectContaining({
+            type: "validation-error",
+            sourcePath,
+            message: expect.stringContaining("at least 5"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
+    });
+
+    test("rejects a nested .jsonValues() instead of reporting it valid", async () => {
+      // Root-only is a hard contract: a nested one would silently get NO content
+      // validation. The Studio refuses to load such a project, so the CLI saying
+      // "valid" was the two entry points disagreeing.
+      const events = await runOn(["content/basic-nested-json-values.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            message: expect.stringContaining(
+              "Nested .jsonValues() records are not supported",
+            ),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).not.toEqual({ type: "summary-success" });
+    });
+  });
 });

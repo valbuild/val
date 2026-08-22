@@ -21,7 +21,6 @@ export {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 export { uploadRemoteFile } from "./uploadRemoteFile";
-
 // Building blocks for editor tooling (see @valbuild/language-server). These are
 // the pieces needed to reproduce a `val validate --fix` decision inside an
 // editor, so that quick fixes take the same code path as the CLI and the Val UI
@@ -55,7 +54,13 @@ export type {
   ValLoginResult,
   ValLoginSession,
 } from "./login";
-export { createModulePathMap, getModulePathRange } from "./modulePathMap";
+export {
+  createModulePathMap,
+  createJsonEntryPathMap,
+  getModulePathRange,
+} from "./modulePathMap";
+export { findJsonEntryFilePath } from "./jsonEntryLocation";
+export { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which
 // need to drive the same ops the app's api routes drive.

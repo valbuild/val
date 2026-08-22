@@ -83,6 +83,73 @@ describe("RecordSchema", () => {
     });
   });
 
+  test("render: a partially loaded .jsonValues() record renders its loaded keys", () => {
+    // Un-loaded entries are opaque `{_type:"json"}` markers. They must be skipped
+    // rather than fed to the user's `select` — and the result must still cover the
+    // keys that ARE loaded, which is what makes a windowed list work: the caller
+    // renders a placeholder for the keys missing from `items`.
+    const schema = record(object({ title: string() }))
+      .jsonValues()
+      .render({
+        as: "list",
+        select: ({ val }) => ({ title: val.title }),
+      });
+    const res = schema["executeRender"](
+      "/test.val.ts" as SourcePath,
+      {
+        loaded: { title: "Loaded" },
+        unloaded: { _type: "json" },
+      } as never,
+    );
+
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        layout: "list",
+        parent: "record",
+        items: [
+          [
+            "loaded",
+            { title: "Loaded", subtitle: undefined, image: undefined },
+          ],
+        ],
+      },
+    });
+  });
+
+  test("render: one key whose select throws is one error, not a dead render", () => {
+    const schema = record(object({ title: string() })).render({
+      as: "list",
+      select: ({ val }) => {
+        if (val.title === "boom") {
+          throw new Error("user select blew up");
+        }
+        return { title: val.title };
+      },
+    });
+    const res = schema["executeRender"]("/test.val.ts" as SourcePath, {
+      ok: { title: "fine" },
+      bad: { title: "boom" },
+    });
+
+    // The record still renders, with the surviving key...
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        layout: "list",
+        parent: "record",
+        items: [
+          ["ok", { title: "fine", subtitle: undefined, image: undefined }],
+        ],
+      },
+    });
+    // ...and the failure is reported at the key that caused it.
+    expect(res['/test.val.ts?p="bad"' as SourcePath]).toStrictEqual({
+      status: "error",
+      message: "user select blew up",
+    });
+  });
+
   test("record: router", () => {
     const schema = record(object({ title: string() })).router(nextAppRouter);
     expect(

@@ -6,6 +6,7 @@ import { cookies, draftMode, headers } from "next/headers";
 
 const {
   fetchValStega: fetchVal,
+  fetchValKeyStega: fetchValKey,
   fetchValRouteStega: fetchValRoute,
   fetchValRouteUrl,
 } = initValRsc(config, valModules, {
@@ -14,4 +15,4 @@ const {
   cookies,
 });
 
-export { fetchVal, fetchValRoute, fetchValRouteUrl };
+export { fetchVal, fetchValKey, fetchValRoute, fetchValRouteUrl };
