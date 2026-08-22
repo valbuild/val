@@ -34,6 +34,8 @@ import { useAIChatActions } from "./AIChatActionsContext";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation, useSessionParam, VAL_ERRORS_ROUTE } from "./ValRouter";
+import { useLayout } from "./Layout";
+import { useIsMobile } from "./hooks/use-mobile";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
 import {
@@ -350,13 +352,22 @@ function CompareButton({
   isLoading: boolean;
 }) {
   const { navigate } = useNavigation();
+  const { toolsMenu } = useLayout();
+  const isMobile = useIsMobile();
   return (
     <Button
       variant="secondary"
       size="sm"
       className="relative flex shrink-0 items-center gap-2"
       disabled={pendingChanges <= 0 && !isLoading}
-      onClick={() => navigate("/val/compare")}
+      onClick={() => {
+        navigate("/val/compare");
+        if (isMobile) {
+          // This menu is a sheet on mobile: leaving it open would cover the
+          // compare view the click just navigated to.
+          toolsMenu.setOpen(false);
+        }
+      }}
     >
       <GitCompareArrows size={14} />
       <span>Compare</span>
