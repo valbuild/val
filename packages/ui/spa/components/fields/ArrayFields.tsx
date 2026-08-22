@@ -42,7 +42,7 @@ export function ArrayFields({
   const schemaAtPath = useSchemaAtPath(path);
   const renderAtPath = useRenderOverrideAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
-  const sourceAtPath = useSourceAtPath(path, creatorId);
+  const sourceAtPath = useSourceAtPath(path);
 
   const { addPatch, patchPath } = useAddPatch(path, creatorId);
 

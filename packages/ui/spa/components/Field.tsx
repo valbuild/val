@@ -15,11 +15,10 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
-import { ShallowSource, useAllSources, useSchemas } from "./ValFieldProvider";
+import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
 import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
-import { getNavPathFromAll } from "./getNavPath";
 
 export function Field({
   label,
@@ -76,13 +75,11 @@ export function Field({
   } = useFieldState(path, type, overrides, initialExpanded);
   const effectiveReadonly = readonly || hasOverrides;
   const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
+  const getNavPath = useGetNavPath();
   const { isAIChatEnabled } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
   const handleLabelNavigate = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
-    const navPath = getNavPathFromAll(path, allSources, schemasData);
+    const navPath = getNavPath(path);
     const target = navPath ?? path;
     navigate(target, {
       scrollToPath: target !== path ? path : undefined,

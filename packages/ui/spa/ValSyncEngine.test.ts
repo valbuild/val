@@ -107,15 +107,13 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
 
-    // A field re-rendering after publish (fresh creatorId → fresh getPatchedSource
-    // recompute, i.e. what HMR / the next sync's source invalidation triggers)
-    // must NOT see the pre-patch value flicker through. This is the assertion
-    // that fails without the fix (it would recompute base "Foo" + no patches).
+    // A field re-rendering after publish must NOT see the pre-patch value flicker
+    // through. `publish` ends in `invalidateSource`, so this read genuinely
+    // recomputes `getPatchedSource` - the same recompute HMR and the next sync's
+    // source invalidation trigger. Without the fix it would recompute base "Foo"
+    // plus no patches.
     expect(
-      syncEngine.getSourceSnapshot(
-        toModuleFilePath("/test.val.ts"),
-        "field-rerender-after-publish",
-      ).data,
+      syncEngine.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("FooBar");
 
     // And it stays "FooBar" after the follow-up stat-triggered sync.
@@ -726,6 +724,275 @@ describe("ValSyncEngine", () => {
 
     unsubscribeSource();
     unsubscribeAllSources();
+  });
+
+  describe("source snapshot caching", () => {
+    async function engineWithOneModule() {
+      const { s, c, config } = initVal();
+      const tester = new SyncEngineTester(
+        "fs",
+        [c.define("/a.val.ts", s.string().minLength(2), "a")],
+        config,
+      );
+      return tester.createInitializedSyncEngine();
+    }
+
+    // The snapshot deep-clones the whole module. The cache key used to include
+    // the calling component's creatorId, so N mounted fields meant N full clones
+    // of the module on every keystroke. Reads must now share one clone.
+    test("repeated reads share one snapshot until the module is invalidated", async () => {
+      const syncEngine = await engineWithOneModule();
+      const moduleFilePath = toModuleFilePath("/a.val.ts");
+
+      const first = syncEngine.getSourceSnapshot(moduleFilePath);
+      const second = syncEngine.getSourceSnapshot(moduleFilePath);
+      expect(second).toBe(first);
+
+      syncEngine.setSources({
+        [moduleFilePath]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      const third = syncEngine.getSourceSnapshot(moduleFilePath);
+      expect(third).not.toBe(first);
+      expect(third.data).toStrictEqual("next");
+    });
+
+    // `optimistic` used to be baked into the cached snapshot, which is what forced
+    // the per-creatorId key. It is a cheap array-tail comparison, so it is now
+    // asked separately - and must still distinguish the editing component.
+    test("isOptimisticFor distinguishes the component that made the last patch", async () => {
+      const syncEngine = await engineWithOneModule();
+      const moduleFilePath = toModuleFilePath("/a.val.ts");
+
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "mine")).toBe(false);
+
+      syncEngine.addPatch(
+        moduleFilePath,
+        "string",
+        [{ op: "replace", path: [], value: "edited" }],
+        Date.now(),
+        "mine",
+      );
+
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "mine")).toBe(true);
+      expect(syncEngine.isOptimisticFor(moduleFilePath, "theirs")).toBe(false);
+      expect(syncEngine.isOptimisticFor(moduleFilePath)).toBe(false);
+    });
+  });
+
+  describe("subscribe / unsubscribe", () => {
+    async function engineWithTwoModules() {
+      const { s, c, config } = initVal();
+      const tester = new SyncEngineTester(
+        "fs",
+        [
+          c.define("/a.val.ts", s.string().minLength(2), "a"),
+          c.define("/b.val.ts", s.string().minLength(2), "b"),
+        ],
+        config,
+      );
+      return tester.createInitializedSyncEngine();
+    }
+
+    // Unsubscribe used to splice by an index captured at subscribe time, so
+    // removing an EARLIER listener shifted every later index and detached the
+    // wrong callback - leaking dead listeners and silencing live ones. Every
+    // render re-subscribes (subscribe() returns a fresh closure), so this fired
+    // constantly.
+    // Removing the FIRST listener alone looked fine - the survivors were still
+    // in the array, just shifted. The damage showed up on the next unsubscribe,
+    // whose captured index now pointed at somebody else.
+    test("unsubscribing two listeners removes those two, not a bystander", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeFirst = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+      });
+      const unsubscribeSecond = syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("third");
+      });
+
+      unsubscribeFirst();
+      unsubscribeSecond();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["third"]);
+    });
+
+    test("unsubscribing twice does not detach a different listener", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeFirst = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+
+      unsubscribeFirst();
+      unsubscribeFirst();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["second"]);
+    });
+
+    // The multi-path branch indexed the PATH array with a LISTENER index
+    // (`listeners[type]?.[p[idx]]`), so it was only ever correct for a single
+    // path holding a single listener.
+    test("a multi-path subscription detaches from every path it registered on", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const paths = [
+        toModuleFilePath("/a.val.ts"),
+        toModuleFilePath("/b.val.ts"),
+      ];
+      let kept = 0;
+      let removed = 0;
+      syncEngine.subscribe(
+        "sources",
+        paths,
+      )(() => {
+        kept++;
+      });
+      const unsubscribe = syncEngine.subscribe(
+        "sources",
+        paths,
+      )(() => {
+        removed++;
+      });
+
+      unsubscribe();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next-a",
+        [toModuleFilePath("/b.val.ts")]: "next-b",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(removed).toBe(0);
+      expect(kept).toBeGreaterThan(0);
+    });
+
+    // Listeners live in a Set and are removed by identity, so the CALLER's
+    // identity cannot be what is registered: a Set collapses the same function
+    // to one entry, and then the first unsubscribe silences the other
+    // subscription too. Each call registers its own wrapper instead.
+    test("the same callback subscribed twice is two independent subscriptions", async () => {
+      const syncEngine = await engineWithTwoModules();
+      let calls = 0;
+      const listener = () => {
+        calls++;
+      };
+      syncEngine.subscribe("all-sources")(listener);
+      const unsubscribeSecond = syncEngine.subscribe("all-sources")(listener);
+
+      unsubscribeSecond();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      // The surviving subscription still fires. Collapsing the two would leave
+      // this at 0.
+      expect(calls).toBeGreaterThan(0);
+    });
+
+    test("overlapping multi-path subscriptions of one callback unsubscribe independently", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const a = toModuleFilePath("/a.val.ts");
+      const b = toModuleFilePath("/b.val.ts");
+      let calls = 0;
+      const listener = () => {
+        calls++;
+      };
+      // Same callback, overlapping paths: `a` is in both, so the `a` bucket
+      // holds two registrations of one function.
+      syncEngine.subscribe("sources", [a])(listener);
+      const unsubscribeBoth = syncEngine.subscribe("sources", [a, b])(listener);
+
+      unsubscribeBoth();
+      syncEngine.setSources({
+        [a]: "next-a",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toBeGreaterThan(0);
+    });
+
+    // useSyncExternalStore re-subscribes whenever the subscribe function's
+    // identity changes, and nearly every call site calls subscribe() inline in
+    // render - so a fresh closure per call meant every render tore down and
+    // re-added every subscription.
+    test("the same (type, path) returns the same subscribe function", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const a = toModuleFilePath("/a.val.ts");
+      const b = toModuleFilePath("/b.val.ts");
+
+      expect(syncEngine.subscribe("source", a)).toBe(
+        syncEngine.subscribe("source", a),
+      );
+      expect(syncEngine.subscribe("all-sources")).toBe(
+        syncEngine.subscribe("all-sources"),
+      );
+      expect(syncEngine.subscribe("sources", [a, b])).toBe(
+        syncEngine.subscribe("sources", [a, b]),
+      );
+
+      // Different targets must stay distinct.
+      expect(syncEngine.subscribe("source", a)).not.toBe(
+        syncEngine.subscribe("source", b),
+      );
+      expect(syncEngine.subscribe("source", a)).not.toBe(
+        syncEngine.subscribe("render", a),
+      );
+      expect(syncEngine.subscribe("sources", [a, b])).not.toBe(
+        syncEngine.subscribe("sources", [b, a]),
+      );
+    });
+
+    // A shared subscribe function must still hand every subscriber its own
+    // unsubscribe.
+    test("a memoised subscribe function still unsubscribes individually", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const subscribe = syncEngine.subscribe("all-sources");
+      const unsubscribeFirst = subscribe(() => {
+        calls.push("first");
+      });
+      subscribe(() => {
+        calls.push("second");
+      });
+
+      unsubscribeFirst();
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["second"]);
+    });
+
+    // React unmounts subscribers in response to a store change, so a listener
+    // unsubscribing mid-emit is normal. Mutating the collection while iterating
+    // it would skip whatever came after.
+    test("a listener that unsubscribes during an emit does not skip the next one", async () => {
+      const syncEngine = await engineWithTwoModules();
+      const calls: string[] = [];
+      const unsubscribeSelf = syncEngine.subscribe("all-sources")(() => {
+        calls.push("first");
+        unsubscribeSelf();
+      });
+      syncEngine.subscribe("all-sources")(() => {
+        calls.push("second");
+      });
+
+      syncEngine.setSources({
+        [toModuleFilePath("/a.val.ts")]: "next",
+      } as Record<ModuleFilePath, JSONValue | undefined>);
+
+      expect(calls).toEqual(["first", "second"]);
+    });
   });
 
   test("setRenders sets renders and invalidates caches", async () => {

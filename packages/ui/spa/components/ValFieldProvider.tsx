@@ -25,6 +25,7 @@ import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
+import { getNavPathFromAll } from "./getNavPath";
 import { z } from "zod";
 
 // --- Source override context ---
@@ -500,7 +501,8 @@ export function useRenderOverrideAtPath(
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   return useMemo<RenderOverrideAtPathResult>(() => {
     const isOptimistic =
-      sourcesRes.status === "success" && sourcesRes.optimistic;
+      sourcesRes.status === "success" &&
+      syncEngine.isOptimisticFor(moduleFilePath);
     const renderAtPath = renderRes?.[sourcePath];
     if (initializedAt === null || isOptimistic) {
       const renderData =
@@ -508,7 +510,14 @@ export function useRenderOverrideAtPath(
       return { status: "loading", data: renderData };
     }
     return renderAtPath;
-  }, [renderRes, initializedAt, sourcesRes, sourcePath]);
+  }, [
+    renderRes,
+    initializedAt,
+    sourcesRes,
+    sourcePath,
+    syncEngine,
+    moduleFilePath,
+  ]);
 }
 
 type SchemaAtPathResult =
@@ -780,6 +789,35 @@ export function useAllSources() {
     () => syncEngine.getAllSourcesSnapshot(),
   );
   return sources;
+}
+
+/**
+ * Resolves a navigation path, reading every module's source and schema ON DEMAND
+ * rather than subscribing to them.
+ *
+ * Use this - never `useAllSources()` + `useSchemas()` - whenever the data is only
+ * ever read inside an event handler.
+ *
+ * `getAllSourcesSnapshot()` walks every module and `deepClone`s each one, and
+ * `invalidateSource` drops its cache on every keystroke, so the snapshot is a new
+ * object every time. A component that subscribes to it therefore re-renders, and
+ * forces a fresh deep clone of the WHOLE project, on every keystroke anywhere in
+ * the Studio. `Field` wraps every leaf field, so subscribing there made a single
+ * keystroke O(project size) - for data that only a click handler ever looked at.
+ */
+export function useGetNavPath(): (
+  path: SourcePath | ModuleFilePath,
+) => SourcePath | ModuleFilePath | null {
+  const { syncEngine } = useValFieldContext();
+  return useCallback(
+    (path: SourcePath | ModuleFilePath) =>
+      getNavPathFromAll(
+        path,
+        syncEngine.getAllSourcesSnapshot(),
+        syncEngine.getAllSchemasSnapshot() ?? undefined,
+      ),
+    [syncEngine],
+  );
 }
 
 /**
@@ -1194,8 +1232,8 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
@@ -1224,7 +1262,7 @@ export function useShallowSourceAtPath<
           modulePath,
           type,
           moduleSources,
-          sourcesRes.optimistic,
+          syncEngine.isOptimisticFor(moduleFilePath, creatorId),
         );
         return sourceAtSourcePath;
       } else {
@@ -1242,6 +1280,8 @@ export function useShallowSourceAtPath<
     initializedAt,
     type,
     sourceOverride,
+    syncEngine,
+    creatorId,
   ]);
   return source;
 }
@@ -1251,10 +1291,7 @@ const getNull = () => null;
 const NOT_FOUND: { status: "not-found" } = { status: "not-found" };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
-export function useSourceAtPath(
-  sourcePath: SourcePath | ModuleFilePath,
-  creatorId?: string,
-):
+export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "success";
       data: Json;
@@ -1276,12 +1313,8 @@ export function useSourceAtPath(
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
+    syncEngine ? () => syncEngine.getSourceSnapshot(moduleFilePath) : getNull,
   );
   const initializedAt = useSyncExternalStore(
     syncEngine ? syncEngine.subscribe("initialized-at") : noopSubscribe,
