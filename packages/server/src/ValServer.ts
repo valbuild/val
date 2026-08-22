@@ -1421,27 +1421,37 @@ export const ValServer = (
         const unpatchedSources = sourcesRes.sources;
         // Default to true to keep the legacy contract for older clients.
         // The studio client always passes false: it owns patch application
-        // and rendering, and treats /sources/~ as a pure un-patched read.
+        // and validation, and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
-        if (applyPatches) {
+        // NOTE: renders are computed here even when the client applies patches
+        // itself: the render select functions live on the Schema instances and
+        // are not part of the serialized schema, so the client cannot derive
+        // them. They are computed on the patched sources, so that previews
+        // (list titles / subtitles / images) reflect the patches that apply.
+        let patchedSources = sourcesRes.sources;
+        if ((patchOps.patches?.length ?? 0) > 0) {
           const onlyPatchedTreeModules = await serverOps.getSources({
             ...patchAnalysis,
             ...patchOps,
           });
-          sourcesRes = {
-            sources: {
-              ...sourcesRes.sources,
-              ...(onlyPatchedTreeModules.sources || {}),
-            },
-            errors: {
-              ...sourcesRes.errors,
-              ...(onlyPatchedTreeModules.errors || {}),
-            },
+          patchedSources = {
+            ...sourcesRes.sources,
+            ...(onlyPatchedTreeModules.sources || {}),
           };
+          if (applyPatches) {
+            sourcesRes = {
+              sources: patchedSources,
+              errors: {
+                ...sourcesRes.errors,
+                ...(onlyPatchedTreeModules.errors || {}),
+              },
+            };
+          }
         }
-        const renderRes = applyPatches
-          ? await serverOps.getRenders(schemasRes, sourcesRes.sources)
-          : { renders: {} as Record<ModuleFilePath, ReifiedRender | null> };
+        const renderRes = await serverOps.getRenders(
+          schemasRes,
+          patchedSources,
+        );
 
         let sourcesValidation: {
           errors: Record<

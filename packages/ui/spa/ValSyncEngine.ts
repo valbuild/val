@@ -3025,8 +3025,9 @@ export class ValSyncEngine {
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
         // The studio client always treats /sources/~ as a pure un-patched
         // read: patch application and validation run on the client (via
-        // getPatchedSource and the validation worker). The server's
-        // apply_patches=false branch skips render generation too.
+        // getPatchedSource and the validation worker). Renders still come
+        // from the server (they are computed on the patched sources there),
+        // since the render select functions cannot be serialized.
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
           query: {
@@ -3090,8 +3091,8 @@ export class ValSyncEngine {
               // the un-patched source. The patched view is computed by
               // getPatchedSource folding the known patch chain on top.
               this.serverSources[moduleFilePath] = valModule.source;
-              // render is always null in the new mode; keep the renders map
-              // up-to-date for any downstream code that still subscribes.
+              // Renders are computed by the server (on patched sources) even
+              // though we apply patches ourselves - see above.
               if (this.renders === null) {
                 this.renders = {};
               }
