@@ -11,6 +11,7 @@ import {
 } from "../search/searchIndex";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /** What has to be cloned across the worker seam to index. */
 export type SourceSnapshot = Record<
@@ -63,6 +64,8 @@ export class SearchStore {
   private indexed = new Set<ModuleFilePath>();
   private stale = new Set<ModuleFilePath>();
 
+  constructor(private readonly activity: ActivitySink = noopActivity) {}
+
   /**
    * Pushed in from the host realm, because an event emitted there is not
    * observable here — `EventTarget` dispatch is per-realm.
@@ -93,6 +96,11 @@ export class SearchStore {
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
+    this.activity.work(
+      "search:build-index",
+      undefined,
+      Object.keys(snapshot).length,
+    );
     this.index = buildSearchIndex(snapshot);
     const all = Object.keys(snapshot) as ModuleFilePath[];
     const added = all.filter(
@@ -113,6 +121,7 @@ export class SearchStore {
     if (this.index === null) {
       return { status: "no-index" };
     }
+    this.activity.work("search:query", query);
     const { results, total } = performSearch(this.index, query, limit, offset);
     return {
       status: "results",

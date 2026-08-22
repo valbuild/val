@@ -18,6 +18,7 @@ import type {
 } from "./bridges";
 import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /**
  * REALM: host. Cannot ever move to a worker.
@@ -51,6 +52,7 @@ export class HostStore implements HostBridge {
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly sourceStore: SourceStore,
+    private readonly activity: ActivitySink = noopActivity,
   ) {}
 
   /**
@@ -78,6 +80,7 @@ export class HostStore implements HostBridge {
       // Bracket access, never `instanceof Schema`: this object came from the
       // HOST's copy of @valbuild/core, so the class identity differs from ours.
       // See the bundle-seam note in `bridges.ts`.
+      this.activity.work("host:serialize-schema", moduleFilePath);
       serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
       // JSON round-trip so what crosses is provably clone-safe — no instance
       // can leak downstream by being reachable from a source value.
@@ -108,6 +111,7 @@ export class HostStore implements HostBridge {
       return { status: "unknown-module" };
     }
     try {
+      this.activity.work("host:execute-render", moduleFilePath);
       return {
         status: "rendered",
         render: instance["executeRender"](
@@ -152,6 +156,7 @@ export class HostStore implements HostBridge {
       // `executeValidate` on the real instance runs both schema and custom
       // checks. The schema half is already known (the worker computed it), so
       // the caller merges and de-duplicates — see `ValidationStore`.
+      this.activity.work("host:execute-validate", moduleFilePath);
       const errors: ValidationErrors = instance["executeValidate"](
         moduleFilePath as string as SourcePath,
         source as SelectorSource,

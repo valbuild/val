@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import type { SchemaStore } from "./SchemaStore";
 import type { PatchStore } from "./PatchStore";
+import { noopActivity, type ActivitySink } from "./activity";
 
 const ops = new JSONOps();
 
@@ -75,6 +76,7 @@ export class SourceStore {
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly readHead: ReadHead,
+    private readonly activity: ActivitySink = noopActivity,
   ) {}
 
   /**
@@ -100,6 +102,7 @@ export class SourceStore {
     // Cloned so the caller cannot keep a handle on what the store now owns and
     // mutate it from outside.
     for (const [moduleFilePath, source] of Object.entries(sources)) {
+      this.activity.work("source:clone-module", moduleFilePath);
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(
         source as JSONValue,
       );
@@ -137,6 +140,7 @@ export class SourceStore {
     ) {
       return { status: "module-loading" };
     }
+    this.activity.work("source:read-path", path);
     const resolved = resolveAtModulePath(source, modulePath);
     if (resolved.status === "absent") {
       return { status: "absent" };
@@ -215,6 +219,7 @@ export class SourceStore {
         // The module is not loaded, so there is nothing to apply the patch to
         // yet. Not a failure: `receive()` rebuilds from base + chain, so this
         // patch lands as soon as the module arrives.
+        this.activity.work("source:skip-unloaded", record.moduleFilePath);
         continue;
       }
       // `file` ops carry binary data, not a document mutation — the JSON patch
@@ -225,6 +230,11 @@ export class SourceStore {
         this.appliedIds.push(record.patchId);
         continue;
       }
+      // Two units of work, counted separately on purpose: the clone is
+      // proportional to the MODULE and the apply is proportional to the PATCH,
+      // so a redundant clone and a redundant apply are different bugs.
+      this.activity.work("source:clone-module", record.moduleFilePath);
+      this.activity.work("source:apply-patch", record.patchId);
       const res = applyPatch(
         deepClone(current as JSONValue),
         ops,
@@ -254,8 +264,17 @@ export class SourceStore {
 
     if (touched.length === 0) return;
     const head = this.readHead();
+    // The scan is O(registered paths); the wakes are what the design promises
+    // is O(fields actually affected). Counting both is how a test tells the
+    // difference between "we looked at everything" and "we woke everything".
+    this.activity.work(
+      "source:scan-listeners",
+      undefined,
+      this.listenerTargets.size,
+    );
     for (const [path, entry] of this.listenerTargets) {
       if (!touchesPath(touched, path)) continue;
+      this.activity.work("source:wake-listener", path);
       const detail: FieldEvent = { type: `${origin}-patch`, path, head };
       entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
     }

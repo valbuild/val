@@ -10,6 +10,7 @@ import type { SystemEvent } from "./types";
 import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
 import type { HostBridge, SchemaValidationBridge } from "./bridges";
+import { noopActivity, type ActivitySink } from "./activity";
 
 export type CustomValidateStatus =
   | "ran"
@@ -75,6 +76,7 @@ export class ValidationStore {
     private readonly sourceStore: SourceStore,
     private readonly schemaValidation: SchemaValidationBridge,
     private readonly host: HostBridge,
+    private readonly activity: ActivitySink = noopActivity,
   ) {}
 
   /**
@@ -127,12 +129,15 @@ export class ValidationStore {
   async validate(moduleFilePath: ModuleFilePath): Promise<ValidationResult> {
     const cached = this.results.get(moduleFilePath);
     if (cached && !this.stale.has(moduleFilePath)) {
+      this.activity.work("validation:cache-hit", moduleFilePath);
       return { status: "validated", ...cached };
     }
     const existing = this.inFlight.get(moduleFilePath);
     if (existing) {
+      this.activity.work("validation:share-in-flight", moduleFilePath);
       return existing;
     }
+    this.activity.work("validation:cache-miss", moduleFilePath);
     const request = this.run(moduleFilePath).finally(() => {
       this.inFlight.delete(moduleFilePath);
     });
@@ -149,6 +154,7 @@ export class ValidationStore {
 
     // Across the worker seam: source and schema ARE the structured clone, which
     // is why they are arguments rather than something the far side reads.
+    this.activity.work("validation:schema-validate", moduleFilePath);
     const schemaErrors = await this.schemaValidation.validate(
       moduleFilePath,
       source as Source,
@@ -159,6 +165,7 @@ export class ValidationStore {
     // The walk runs here, on the serialized schema: it can see that a validator
     // was DECLARED even though it cannot call it. The host, holding a real
     // instance, could call one but could not tell us it had skipped any.
+    this.activity.work("validation:collect-custom-targets", moduleFilePath);
     const customValidatePaths = collectCustomValidateTargets(
       moduleFilePath,
       serializedSchema,
@@ -173,6 +180,7 @@ export class ValidationStore {
         customValidatePaths,
       );
       if (custom.status === "validated") {
+        this.activity.work("validation:merge", moduleFilePath);
         errors = mergeValidationErrors(schemaErrors, custom.errors);
         customValidateStatus = "ran";
       } else if (custom.status === "unknown-module") {

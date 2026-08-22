@@ -2,6 +2,7 @@ import type { ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import { PatchSets, type SerializedPatchSet } from "../utils/PatchSets";
 import { StoreBus } from "./StoreBus";
 import type { PatchRecord, SystemEvent } from "./types";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /**
  * REALM: worker.
@@ -34,6 +35,8 @@ export class PatchSetStore {
 
   private patchSets = new PatchSets();
 
+  constructor(private readonly activity: ActivitySink = noopActivity) {}
+
   /**
    * Pushed in from the host realm on `patch:receive` / `patch:create`.
    *
@@ -49,6 +52,14 @@ export class PatchSetStore {
     const touchedPatchSetPaths = new Set<string>();
     for (const record of records) {
       const schema = schemas[record.moduleFilePath];
+      // Per RECORD, with its op count: inserting one patch twice is the bug
+      // worth catching here, and a per-op count would hide it behind the
+      // op-count difference.
+      this.activity.work(
+        "patch-set:insert",
+        record.patchId,
+        record.patch.length,
+      );
       for (const op of record.patch) {
         this.patchSets.insert(
           record.moduleFilePath,
@@ -75,6 +86,7 @@ export class PatchSetStore {
 
   /** Async: this is a main-thread-facing read. */
   async getPatchSets(): Promise<SerializedPatchSet> {
+    this.activity.work("patch-set:serialize");
     return this.patchSets.serialize();
   }
 

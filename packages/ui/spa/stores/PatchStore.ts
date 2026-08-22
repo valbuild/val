@@ -5,6 +5,7 @@ import { StoreBus } from "./StoreBus";
 import type { Head, PatchOrigin, PatchRecord, SystemEvent } from "./types";
 import type { StatStore } from "./StatStore";
 import type { SourceStore } from "./SourceStore";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /**
  * Fetches the ops for patch ids the system knows about but has no data for.
@@ -46,6 +47,7 @@ export class PatchStore {
     private readonly fetchPatches: FetchPatches,
     private readonly newPatchId: CreatePatchId = () =>
       crypto.randomUUID() as PatchId,
+    private readonly activity: ActivitySink = noopActivity,
   ) {}
 
   /**
@@ -105,6 +107,10 @@ export class PatchStore {
     for (const patchId of missing) {
       this.fetching.add(patchId);
     }
+    // One record per ROUND TRIP, with the batch size, not one per id: the cost
+    // being watched here is the request, and a test asserting "one fetch, five
+    // ids" would be unable to tell that from five fetches otherwise.
+    this.activity.work("patch:fetch", undefined, missing.length);
     const res = await this.fetchPatches(missing);
     const received: PatchId[] = [];
     for (const record of res.patches) {
@@ -137,6 +143,7 @@ export class PatchStore {
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");
     this.ordered = [...this.ordered, patchId];
+    this.activity.work("patch:create", patchId);
     this.events.emit({ type: "patch:create", patches: [patchId] });
     return record;
   }

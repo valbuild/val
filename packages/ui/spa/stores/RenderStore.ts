@@ -5,6 +5,7 @@ import type { SystemEvent } from "./types";
 import type { HostBridge } from "./bridges";
 import type { SourceStore } from "./SourceStore";
 import type { SchemaStore } from "./SchemaStore";
+import { noopActivity, type ActivitySink } from "./activity";
 
 export type RenderRead =
   | { status: "rendered"; render: NonNullable<ReifiedRender[SourcePath]> }
@@ -58,6 +59,7 @@ export class RenderStore {
     private readonly host: HostBridge,
     private readonly sourceStore: SourceStore,
     private readonly schemaStore: SchemaStore,
+    private readonly activity: ActivitySink = noopActivity,
   ) {}
 
   /**
@@ -110,7 +112,10 @@ export class RenderStore {
   async get(path: SourcePath): Promise<RenderRead> {
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
     if (this.stale.has(moduleFilePath) || !this.renders.has(moduleFilePath)) {
+      this.activity.work("render:cache-miss", moduleFilePath);
       await this.refresh(moduleFilePath);
+    } else {
+      this.activity.work("render:cache-hit", moduleFilePath);
     }
     const render = this.renders.get(moduleFilePath);
     if (render === undefined) {
@@ -129,6 +134,9 @@ export class RenderStore {
   private async refresh(moduleFilePath: ModuleFilePath): Promise<void> {
     const existing = this.inFlight.get(moduleFilePath);
     if (existing) {
+      // Counted, because "N fields asking at once cost ONE host call" is a
+      // claim this store makes and a test should be able to hold it to it.
+      this.activity.work("render:share-in-flight", moduleFilePath);
       return existing;
     }
     const request = (async () => {

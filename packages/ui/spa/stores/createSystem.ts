@@ -21,6 +21,7 @@ import { PatchSetStore } from "./PatchSetStore";
 import { ValidationStore } from "./ValidationStore";
 import { SearchStore, type SourceSnapshot } from "./SearchStore";
 import type { SchemaValidationBridge } from "./bridges";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /**
  * Stores in the HOST realm: they either hold user closures, or need to read
@@ -70,6 +71,14 @@ export type SystemOptions = {
    * source and schema it needs are already arguments rather than reads.
    */
   schemaValidation?: SchemaValidationBridge;
+  /**
+   * Where stores report the work they do. Defaults to a sink that discards it,
+   * so an uninstrumented run pays one returning method call per unit of work.
+   *
+   * Separate from the event buses on purpose — see `activity.ts`: nothing in the
+   * system may react to a work record, and nothing does.
+   */
+  activity?: ActivitySink;
 };
 
 /**
@@ -110,27 +119,32 @@ class InProcessSchemaValidation implements SchemaValidationBridge {
  */
 export function createSystem(options: SystemOptions): System {
   // --- host realm -----------------------------------------------------------
-  const schemaStore = new SchemaStore();
+  const activity = options.activity ?? noopActivity;
+  const schemaStore = new SchemaStore(activity);
   const patchStore = new PatchStore(
     options.fetchPatches,
     options.createPatchId,
+    activity,
   );
-  const sourceStore = new SourceStore(schemaStore, () =>
-    patchStore.currentHead(),
+  const sourceStore = new SourceStore(
+    schemaStore,
+    () => patchStore.currentHead(),
+    activity,
   );
   const stat = new StatStore();
-  const host = new HostStore(schemaStore, sourceStore);
-  const renderStore = new RenderStore(host, sourceStore, schemaStore);
+  const host = new HostStore(schemaStore, sourceStore, activity);
+  const renderStore = new RenderStore(host, sourceStore, schemaStore, activity);
   const validationStore = new ValidationStore(
     schemaStore,
     sourceStore,
     options.schemaValidation ?? new InProcessSchemaValidation(),
     host,
+    activity,
   );
 
   // --- worker realm ---------------------------------------------------------
-  const searchStore = new SearchStore();
-  const patchSetStore = new PatchSetStore();
+  const searchStore = new SearchStore(activity);
+  const patchSetStore = new PatchSetStore(activity);
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -175,6 +189,14 @@ export function createSystem(options: SystemOptions): System {
     async buildSearchIndex() {
       const schemas = schemaStore.all();
       const snapshot: SourceSnapshot = {};
+      // Counted separately from the index build: this is the one operation in
+      // the system that touches every module, so "how often does the whole
+      // project get gathered" has to be answerable on its own.
+      activity.work(
+        "search:gather-snapshot",
+        undefined,
+        sourceStore.loadedModules().length,
+      );
       for (const moduleFilePath of sourceStore.loadedModules()) {
         const schema = schemas[moduleFilePath];
         const source = sourceStore.moduleSource(moduleFilePath);

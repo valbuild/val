@@ -1,6 +1,7 @@
 import type { ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
+import { noopActivity, type ActivitySink } from "./activity";
 
 /**
  * Owns the serialized schemas.
@@ -22,7 +23,14 @@ export class SchemaStore {
   private schemas: Record<ModuleFilePath, SerializedSchema> = {};
   private versions = new Map<ModuleFilePath, number>();
 
+  constructor(private readonly activity: ActivitySink = noopActivity) {}
+
   receive(schemas: Record<ModuleFilePath, SerializedSchema>): void {
+    this.activity.work(
+      "schema:receive",
+      undefined,
+      Object.keys(schemas).length,
+    );
     this.schemas = { ...this.schemas, ...schemas };
     for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
       this.versions.set(

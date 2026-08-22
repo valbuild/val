@@ -8,6 +8,7 @@ import type {
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { createSystem, type System } from "./createSystem";
+import { RecordingActivity } from "./activity";
 import type {
   FieldEvent,
   Head,
@@ -99,16 +100,31 @@ async function settle(): Promise<void> {
  * asks for it, by threading a cursor.
  */
 export class Ledger {
-  readonly entries: SystemEvent[] = [];
+  private log: { seq: number; event: SystemEvent }[] = [];
   private waiters: {
     expected: Loose<SystemEvent>;
     since: Cursor;
     resolve: (cursor: Cursor) => void;
   }[] = [];
 
+  /**
+   * `nextSeq` is shared with the activity log, so the two can be merged into one
+   * causally ordered view. `activity` is optional only so a Ledger can be
+   * constructed alone in a unit test.
+   */
+  constructor(
+    private readonly nextSeq: () => number = () => 0,
+    private readonly activity?: RecordingActivity,
+  ) {}
+
+  /** Events only, so cursors and matching keep their original meaning. */
+  get entries(): SystemEvent[] {
+    return this.log.map((entry) => entry.event);
+  }
+
   record(event: SystemEvent): void {
-    this.entries.push(event);
-    const cursor = this.entries.length;
+    this.log.push({ seq: this.nextSeq(), event });
+    const cursor = this.log.length;
     const remaining: typeof this.waiters = [];
     for (const waiter of this.waiters) {
       if (cursor - 1 >= waiter.since && matches(event, waiter.expected)) {
@@ -121,7 +137,31 @@ export class Ledger {
   }
 
   position(): Cursor {
-    return this.entries.length;
+    return this.log.length;
+  }
+
+  /**
+   * Events and work, merged on the shared clock.
+   *
+   * This is the view worth reading when an assertion fails, and the reason the
+   * two channels share a clock at all: a count that is one too high tells you
+   * the number is wrong, while `patch:create → source:clone-module ×2 →
+   * source:apply-patch → source:patch-apply` tells you which hop did it twice.
+   */
+  timeline(): string {
+    const merged: { seq: number; line: string }[] = [
+      ...this.log.map((entry) => ({
+        seq: entry.seq,
+        line: `EVENT ${describeValue(entry.event)}`,
+      })),
+      ...(this.activity?.records ?? []).map((record) => ({
+        seq: record.seq,
+        line: `  work ${record.kind}${
+          record.subject === undefined ? "" : ` ${record.subject}`
+        }${record.count === undefined ? "" : ` (count=${record.count})`}`,
+      })),
+    ].sort((a, b) => a.seq - b.seq);
+    return merged.map((entry) => `  ${entry.seq}: ${entry.line}`).join("\n");
   }
 
   /**
@@ -137,8 +177,8 @@ export class Ledger {
     options?: WaitOptions,
   ): Promise<Cursor> {
     const since = options?.since ?? 0;
-    for (let index = since; index < this.entries.length; index++) {
-      if (matches(this.entries[index], expected)) {
+    for (let index = since; index < this.log.length; index++) {
+      if (matches(this.log[index].event, expected)) {
         return index + 1;
       }
     }
@@ -147,9 +187,9 @@ export class Ledger {
         this.waiters = this.waiters.filter((w) => w !== waiter);
         reject(
           new Error(
-            `Ledger never recorded ${describeValue(expected)} at or after ${since}.\nLedger:\n${this.entries
-              .map((entry, index) => `  ${index}: ${describeValue(entry)}`)
-              .join("\n")}`,
+            `Ledger never recorded ${describeValue(
+              expected,
+            )} at or after ${since}.\nTimeline:\n${this.timeline()}`,
           ),
         );
       }, options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -254,12 +294,24 @@ export type TestSystem = {
    */
   buildSearchIndex: System["buildSearchIndex"];
   ledger: Ledger;
+  /**
+   * What each store DID, as opposed to what it announced.
+   *
+   * The channel exists to answer one question: was anything done more times than
+   * it had to be? So the assertion it is built for is a count over a window —
+   * `activity.count("host:execute-render", { since })`.
+   */
+  activity: RecordingActivity;
   listeners: Listeners;
   dispose(): void;
 };
 
 export function initTestSystem(): TestSystem {
-  const ledger = new Ledger();
+  // One clock for both channels, so the merged timeline is causally ordered.
+  let seq = 0;
+  const nextSeq = () => ++seq;
+  const activity = new RecordingActivity(nextSeq);
+  const ledger = new Ledger(nextSeq, activity);
   /** Stands in for the server's patch table. */
   const serverPatches = new Map<PatchId, PatchRecord>();
   const announced: PatchId[] = [];
@@ -284,6 +336,7 @@ export function initTestSystem(): TestSystem {
       return { patches, errors };
     },
     createPatchId: () => `local-${++nextPatchId}` as PatchId,
+    activity,
   });
 
   const offBuses = [
@@ -375,6 +428,7 @@ export function initTestSystem(): TestSystem {
 
   return {
     ledger,
+    activity,
     listeners,
     host: system.host,
     renderStore: system.renderStore,
@@ -450,4 +504,9 @@ export function patchIds(records: readonly PatchRecord[]): PatchId[] {
  */
 export function mfp(moduleFilePath: string): ModuleFilePath {
   return moduleFilePath as ModuleFilePath;
+}
+
+/** Brand a source path literal. Same reasoning as {@link mfp}. */
+export function sp(path: string): SourcePath {
+  return path as SourcePath;
 }
