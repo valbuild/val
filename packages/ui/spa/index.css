@@ -165,14 +165,6 @@
        background, so icons and inline error copy need their own value. */
     --fg-error-on-surface: var(--colors-error-red-500);
 
-    /* Brand subtle: a quiet brand tint for selected rows and active icons.
-       The brand-primary pair above is the solid one (buttons); this is the
-       same hue at a weight that can sit behind a list row without becoming
-       the loudest thing on screen. */
-    --bg-brand-subtle: var(--colors-brand-green-100);
-    --bg-brand-subtle-hover: var(--colors-brand-green-200);
-    --fg-brand-subtle: var(--colors-brand-green-900);
-
     /* Shell surfaces: the canvas the editor sits on, and the floating
        surfaces (rail, panels, bars) that hover above it. In light mode the
        canvas is tinted and floating surfaces are white; in dark mode the
@@ -257,11 +249,6 @@
     /* Error text on a normal surface: red-500 is too dim against the dark
        canvas, so this lightens rather than mirroring the light value. */
     --fg-error-on-surface: var(--colors-error-red-300);
-
-    /* Brand subtle */
-    --bg-brand-subtle: var(--colors-brand-green-900);
-    --bg-brand-subtle-hover: var(--colors-brand-green-800);
-    --fg-brand-subtle: var(--colors-brand-green-200);
 
     /* Shell surfaces. Four steps up from the canvas: the canvas is darkest,
        the editor's own field surfaces sit just above it, and the floating

@@ -116,7 +116,7 @@ export function AIChatPanel({
     >
       <div className="p-3 space-y-3">
         <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-bg-float-raised text-[0.6875rem] text-fg-secondary">
-          <Sparkles size={11} className="text-fg-brand-subtle" />
+          <Sparkles size={11} className="text-fg-secondary-alt" />
           Editing {context}
         </div>
         {messages.length === 0 && (
@@ -137,7 +137,7 @@ export function AIChatPanel({
               className={cn(
                 "max-w-[85%] space-y-2",
                 message.role === "user" &&
-                  "px-2.5 py-1.5 rounded-lg rounded-br-sm bg-bg-brand-primary text-fg-brand-primary",
+                  "px-2.5 py-1.5 rounded-lg rounded-br-sm bg-bg-float-raised text-fg-primary",
               )}
             >
               <p className="text-xs leading-relaxed">{message.text}</p>

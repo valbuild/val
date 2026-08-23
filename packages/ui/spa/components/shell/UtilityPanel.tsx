@@ -149,7 +149,7 @@ export function UtilityPanel({
           <button
             type="button"
             onClick={onOpenAI}
-            className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-brand-subtle bg-bg-brand-subtle hover:bg-bg-brand-subtle-hover"
+            className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
           >
             <Sparkles size={14} />
             Ask the assistant

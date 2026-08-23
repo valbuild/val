@@ -66,7 +66,7 @@ export function LeftRail({
               className={cn(
                 "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
                 openPanel === panel
-                  ? "bg-bg-brand-subtle text-fg-brand-subtle"
+                  ? "bg-bg-float-raised text-fg-primary"
                   : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
               )}
             >
@@ -87,7 +87,7 @@ export function LeftRail({
             >
               <Avatar initials={user.initials} size="sm" />
               {hasDraftChanges && (
-                <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-bg-brand-secondary ring-2 ring-bg-float" />
+                <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
               )}
             </button>
           </TooltipTrigger>

@@ -16,7 +16,7 @@ export function Avatar({
   return (
     <span
       className={cn(
-        "grid place-items-center rounded-full bg-bg-brand-secondary text-fg-brand-secondary font-medium select-none",
+        "grid place-items-center rounded-full bg-bg-float-raised text-fg-primary border border-border-float font-medium select-none",
         size === "sm" ? "w-7 h-7 text-[0.625rem]" : "w-8 h-8 text-[0.6875rem]",
         className,
       )}

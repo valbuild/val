@@ -85,7 +85,7 @@ export function PageEditor({
             {urlPath}
           </span>
           {hasDraft && (
-            <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-brand-subtle text-fg-brand-subtle text-[0.625rem] font-medium uppercase tracking-wide">
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-float-raised text-fg-primary text-[0.625rem] font-medium uppercase tracking-wide">
               Draft
             </span>
           )}

@@ -161,7 +161,7 @@ export function TopBar({
         >
           <Bell size={16} />
           {unreadNotifications > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-bg-brand-secondary text-fg-brand-secondary text-[0.625rem] font-semibold tabular-nums">
+            <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
               {unreadNotifications > 9 ? "9+" : unreadNotifications}
             </span>
           )}
@@ -205,7 +205,7 @@ function IconButton({
       className={cn(
         "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
         active
-          ? "bg-bg-brand-subtle text-fg-brand-subtle"
+          ? "bg-bg-float-raised text-fg-primary"
           : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
       )}
     >
@@ -324,10 +324,7 @@ function ProjectSwitcher({
           >
             <span className="truncate">{project}</span>
             {project === projectName && (
-              <Check
-                size={14}
-                className="ml-auto shrink-0 text-fg-brand-subtle"
-              />
+              <Check size={14} className="ml-auto shrink-0 text-fg-primary" />
             )}
           </button>
         ))}
