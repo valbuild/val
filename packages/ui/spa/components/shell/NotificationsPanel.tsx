@@ -90,7 +90,7 @@ export function NotificationsPanel({
                   {notification.unread && (
                     <span
                       aria-label="Unread"
-                      className="w-1.5 h-1.5 mt-1.5 shrink-0 rounded-full bg-bg-accent-primary"
+                      className="w-1.5 h-1.5 mt-1.5 shrink-0 rounded-full bg-bg-brand-secondary"
                     />
                   )}
                 </button>

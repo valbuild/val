@@ -84,18 +84,15 @@
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
 
-    --colors-accent-purple-25: #fcfaff;
-    --colors-accent-purple-50: #f9f5ff;
-    --colors-accent-purple-100: #f4ebff;
-    --colors-accent-purple-200: #e9d7fe;
-    --colors-accent-purple-300: #d6bbfb;
-    --colors-accent-purple-400: #b692f6;
-    --colors-accent-purple-500: #9e77ed;
-    --colors-accent-purple-600: #7f56d9;
-    --colors-accent-purple-700: #6941c6;
-    --colors-accent-purple-800: #53389e;
-    --colors-accent-purple-900: #42307d;
-    --colors-accent-purple-950: #2c1c5f;
+    /* Neutral dark surfaces for the shell. The gray-dark-mode scale above is
+       noticeably blue; against it the brand green reads as a second hue
+       competing with the first. These are near-neutral and darker, so the
+       canvas recedes and green is the only colour in the room. */
+    --colors-neutral-dark-1000: #08080a;
+    --colors-neutral-dark-950: #101013;
+    --colors-neutral-dark-900: #131316;
+    --colors-neutral-dark-800: #1e1e22;
+    --colors-neutral-dark-700: #2a2a2f;
 
     --radius: 0.5rem;
 
@@ -168,15 +165,13 @@
        background, so icons and inline error copy need their own value. */
     --fg-error-on-surface: var(--colors-error-red-500);
 
-    /* Accent colors (purple) - used sparingly for primary actions
-       and selection in the floating shell layout. */
-    --bg-accent-primary: var(--colors-accent-purple-600);
-    --bg-accent-primary-hover: var(--colors-accent-purple-700);
-    --bg-accent-subtle: var(--colors-accent-purple-50);
-    --bg-accent-subtle-hover: var(--colors-accent-purple-100);
-    --fg-accent-primary: var(--colors-accent-purple-700);
-    --fg-on-accent: var(--colors-base-white);
-    --border-accent-primary: var(--colors-accent-purple-200);
+    /* Brand subtle: a quiet brand tint for selected rows and active icons.
+       The brand-primary pair above is the solid one (buttons); this is the
+       same hue at a weight that can sit behind a list row without becoming
+       the loudest thing on screen. */
+    --bg-brand-subtle: var(--colors-brand-green-100);
+    --bg-brand-subtle-hover: var(--colors-brand-green-200);
+    --fg-brand-subtle: var(--colors-brand-green-900);
 
     /* Shell surfaces: the canvas the editor sits on, and the floating
        surfaces (rail, panels, bars) that hover above it. In light mode the
@@ -263,21 +258,20 @@
        canvas, so this lightens rather than mirroring the light value. */
     --fg-error-on-surface: var(--colors-error-red-300);
 
-    /* Accent colors (purple) */
-    --bg-accent-primary: var(--colors-accent-purple-600);
-    --bg-accent-primary-hover: var(--colors-accent-purple-500);
-    --bg-accent-subtle: var(--colors-accent-purple-950);
-    --bg-accent-subtle-hover: var(--colors-accent-purple-900);
-    --fg-accent-primary: var(--colors-accent-purple-300);
-    --fg-on-accent: var(--colors-base-white);
-    --border-accent-primary: var(--colors-accent-purple-800);
+    /* Brand subtle */
+    --bg-brand-subtle: var(--colors-brand-green-900);
+    --bg-brand-subtle-hover: var(--colors-brand-green-800);
+    --fg-brand-subtle: var(--colors-brand-green-200);
 
-    /* Shell surfaces */
-    --bg-canvas: var(--colors-gray-dark-mode-gray-950);
-    --bg-surface: var(--colors-gray-dark-mode-gray-900);
-    --bg-float: var(--colors-gray-dark-mode-gray-900);
-    --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
-    --border-float: var(--colors-gray-dark-mode-gray-700);
+    /* Shell surfaces. Four steps up from the canvas: the canvas is darkest,
+       the editor's own field surfaces sit just above it, and the floating
+       chrome is lifted one step further so a panel reads as hovering rather
+       than as part of the page. */
+    --bg-canvas: var(--colors-neutral-dark-1000);
+    --bg-surface: var(--colors-neutral-dark-950);
+    --bg-float: var(--colors-neutral-dark-900);
+    --bg-float-raised: var(--colors-neutral-dark-800);
+    --border-float: var(--colors-neutral-dark-700);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);

@@ -79,13 +79,13 @@ export function PageEditor({
 }: PageEditorProps) {
   return (
     <article>
-      <header className="pb-7 mb-8 border-b border-border-secondary">
+      <header className="pb-7 mb-8 border-b border-border-float">
         <div className="flex items-center gap-2 mb-2.5">
-          <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-tertiary font-mono text-[0.6875rem] text-fg-tertiary">
+          <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-float-raised font-mono text-[0.6875rem] text-fg-secondary-alt">
             {urlPath}
           </span>
           {hasDraft && (
-            <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-accent-subtle text-fg-accent-primary text-[0.625rem] font-medium uppercase tracking-wide">
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-brand-subtle text-fg-brand-subtle text-[0.625rem] font-medium uppercase tracking-wide">
               Draft
             </span>
           )}
@@ -111,7 +111,7 @@ export function PageEditor({
 
         <Field label="Hero image">
           <div className="flex gap-3">
-            <div className="grid place-items-center w-40 h-24 rounded-md bg-bg-tertiary border border-border-secondary text-fg-secondary-alt">
+            <div className="grid place-items-center w-40 h-24 rounded-md bg-bg-float-raised border border-border-float text-fg-secondary-alt">
               <ImageIcon size={18} strokeWidth={1.5} />
             </div>
             <div className="text-xs text-fg-secondary-alt space-y-1 pt-1">
@@ -122,8 +122,8 @@ export function PageEditor({
         </Field>
 
         <Field label="Body">
-          <div className="rounded-md border border-border-secondary bg-bg-surface">
-            <div className="flex items-center gap-1 px-2 h-8 border-b border-border-secondary">
+          <div className="rounded-md border border-border-float bg-bg-surface">
+            <div className="flex items-center gap-1 px-2 h-8 border-b border-border-float">
               {["B", "I", "H2", "H3"].map((label) => (
                 <span
                   key={label}
@@ -154,7 +154,7 @@ export function PageEditor({
             {["Hero", "Features", "Logos", "Call to action"].map((section) => (
               <li
                 key={section}
-                className="flex items-center gap-2 h-10 px-2.5 rounded-md border border-border-secondary bg-bg-surface"
+                className="flex items-center gap-2 h-10 px-2.5 rounded-md border border-border-float bg-bg-surface"
               >
                 <GripVertical
                   size={14}
@@ -210,7 +210,7 @@ function TextInputMock({
   return (
     <div
       className={cn(
-        "h-10 px-3 flex items-center rounded-md border border-border-secondary bg-bg-surface text-[0.9375rem]",
+        "h-10 px-3 flex items-center rounded-md border border-border-float bg-bg-surface text-[0.9375rem]",
         className,
       )}
     >
@@ -221,7 +221,7 @@ function TextInputMock({
 
 function TextAreaMock({ value }: { value: string }) {
   return (
-    <div className="px-3 py-2.5 rounded-md border border-border-secondary bg-bg-surface text-[0.9375rem] leading-relaxed text-fg-secondary">
+    <div className="px-3 py-2.5 rounded-md border border-border-float bg-bg-surface text-[0.9375rem] leading-relaxed text-fg-secondary">
       {value}
     </div>
   );

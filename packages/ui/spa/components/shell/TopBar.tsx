@@ -96,7 +96,7 @@ export function TopBar({
         </button>
       )}
       {!isDesktop && (
-        <div className="grid place-items-center w-7 h-7 rounded-md bg-bg-accent-primary text-fg-on-accent shrink-0">
+        <div className="grid place-items-center w-7 h-7 rounded-md bg-bg-brand-secondary text-fg-brand-secondary shrink-0">
           <ValLogo className="w-4 h-4" />
         </div>
       )}
@@ -161,7 +161,7 @@ export function TopBar({
         >
           <Bell size={16} />
           {unreadNotifications > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-bg-accent-primary text-fg-on-accent text-[0.625rem] font-semibold tabular-nums">
+            <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-bg-brand-secondary text-fg-brand-secondary text-[0.625rem] font-semibold tabular-nums">
               {unreadNotifications > 9 ? "9+" : unreadNotifications}
             </span>
           )}
@@ -205,7 +205,7 @@ function IconButton({
       className={cn(
         "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
         active
-          ? "bg-bg-accent-subtle text-fg-accent-primary"
+          ? "bg-bg-brand-subtle text-fg-brand-subtle"
           : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
       )}
     >
@@ -245,7 +245,7 @@ export function PublishButton({
         "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
         publishState === "error"
           ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
-          : "bg-bg-accent-primary text-fg-on-accent hover:bg-bg-accent-primary-hover",
+          : "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary hover:bg-bg-brand-primary-hover",
         "disabled:bg-bg-disabled disabled:text-fg-disabled",
         className,
       )}
@@ -326,7 +326,7 @@ function ProjectSwitcher({
             {project === projectName && (
               <Check
                 size={14}
-                className="ml-auto shrink-0 text-fg-accent-primary"
+                className="ml-auto shrink-0 text-fg-brand-subtle"
               />
             )}
           </button>

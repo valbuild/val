@@ -33,7 +33,7 @@ export function PanelFilterInput({
           "w-full h-8 pl-8 pr-2 rounded-md text-xs",
           "bg-bg-float-raised border border-transparent text-fg-primary",
           "placeholder:text-fg-secondary-alt",
-          "focus:outline-none focus:border-border-accent-primary",
+          "focus:outline-none focus:border-border-brand-primary",
         )}
       />
     </div>
@@ -85,7 +85,7 @@ export function PanelRow({
         className={cn(
           "group flex items-center gap-1.5 min-w-0 flex-1 h-7 px-1.5 rounded-md text-xs text-left",
           selected
-            ? "bg-bg-accent-subtle text-fg-accent-primary font-medium"
+            ? "bg-bg-brand-subtle text-fg-brand-subtle font-medium"
             : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         )}
       >
@@ -104,7 +104,7 @@ export function PanelRow({
           {hasDraft && (
             <span
               title="Unpublished changes"
-              className="w-1.5 h-1.5 rounded-full bg-bg-accent-primary"
+              className="w-1.5 h-1.5 rounded-full bg-bg-brand-secondary"
             />
           )}
           {errorCount !== undefined && errorCount > 0 && (

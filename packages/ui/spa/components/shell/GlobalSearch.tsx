@@ -209,7 +209,7 @@ export function GlobalSearch({
                       "flex items-center gap-2.5 w-full px-3 py-1.5 mx-1.5 rounded-md text-left",
                       "w-[calc(100%-0.75rem)]",
                       index === activeIndex
-                        ? "bg-bg-accent-subtle"
+                        ? "bg-bg-brand-subtle"
                         : "hover:bg-bg-float-raised",
                     )}
                   >
@@ -218,7 +218,7 @@ export function GlobalSearch({
                       className={cn(
                         "shrink-0",
                         index === activeIndex
-                          ? "text-fg-accent-primary"
+                          ? "text-fg-brand-subtle"
                           : "text-fg-secondary-alt",
                       )}
                     />

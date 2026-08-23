@@ -52,7 +52,7 @@ export function LeftRail({
       aria-label="Main"
       className="absolute left-3 top-3 bottom-3 z-full w-12 flex flex-col items-center py-2 gap-1 rounded-lg bg-bg-float border border-border-float shadow-sm"
     >
-      <div className="grid place-items-center w-8 h-8 mb-1 rounded-md bg-bg-accent-primary text-fg-on-accent shrink-0">
+      <div className="grid place-items-center w-8 h-8 mb-1 rounded-md bg-bg-brand-secondary text-fg-brand-secondary shrink-0">
         <ValLogo className="w-5 h-5" />
       </div>
       {RAIL_ITEMS.map(({ panel, label, icon: Icon }) => (
@@ -66,7 +66,7 @@ export function LeftRail({
               className={cn(
                 "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
                 openPanel === panel
-                  ? "bg-bg-accent-subtle text-fg-accent-primary"
+                  ? "bg-bg-brand-subtle text-fg-brand-subtle"
                   : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
               )}
             >
@@ -87,7 +87,7 @@ export function LeftRail({
             >
               <Avatar initials={user.initials} size="sm" />
               {hasDraftChanges && (
-                <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-bg-accent-primary ring-2 ring-bg-float" />
+                <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-bg-brand-secondary ring-2 ring-bg-float" />
               )}
             </button>
           </TooltipTrigger>

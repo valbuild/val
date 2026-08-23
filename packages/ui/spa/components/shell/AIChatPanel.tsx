@@ -103,7 +103,7 @@ export function AIChatPanel({
               onClick={submit}
               disabled={draft.trim() === ""}
               aria-label="Send"
-              className="grid place-items-center w-7 h-7 shrink-0 rounded-md bg-bg-accent-primary text-fg-on-accent hover:bg-bg-accent-primary-hover disabled:bg-bg-disabled disabled:text-fg-disabled"
+              className="grid place-items-center w-7 h-7 shrink-0 rounded-md bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary hover:bg-bg-brand-primary-hover disabled:bg-bg-disabled disabled:border-border-float disabled:text-fg-disabled"
             >
               <ArrowUp size={14} />
             </button>
@@ -116,7 +116,7 @@ export function AIChatPanel({
     >
       <div className="p-3 space-y-3">
         <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-bg-float-raised text-[0.6875rem] text-fg-secondary">
-          <Sparkles size={11} className="text-fg-accent-primary" />
+          <Sparkles size={11} className="text-fg-brand-subtle" />
           Editing {context}
         </div>
         {messages.length === 0 && (
@@ -137,7 +137,7 @@ export function AIChatPanel({
               className={cn(
                 "max-w-[85%] space-y-2",
                 message.role === "user" &&
-                  "px-2.5 py-1.5 rounded-lg rounded-br-sm bg-bg-accent-primary text-fg-on-accent",
+                  "px-2.5 py-1.5 rounded-lg rounded-br-sm bg-bg-brand-primary text-fg-brand-primary",
               )}
             >
               <p className="text-xs leading-relaxed">{message.text}</p>
@@ -158,7 +158,7 @@ export function AIChatPanel({
                         className={cn(
                           "h-6 px-2 rounded text-[0.6875rem] font-medium",
                           index === 0
-                            ? "bg-bg-accent-primary text-fg-on-accent hover:bg-bg-accent-primary-hover"
+                            ? "bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
                             : "text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary",
                         )}
                       >
