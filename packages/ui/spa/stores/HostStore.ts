@@ -1,5 +1,6 @@
 import {
   Internal,
+  renderScope,
   type Json,
   type ModuleFilePath,
   type Schema,
@@ -99,7 +100,10 @@ export class HostStore implements HostBridge {
     this.sourceStore.receive(sources);
   }
 
-  async render(moduleFilePath: ModuleFilePath): Promise<HostRenderResult> {
+  async render(
+    moduleFilePath: ModuleFilePath,
+    only?: readonly SourcePath[],
+  ): Promise<HostRenderResult> {
     const instance = this.instances[moduleFilePath];
     if (!instance) {
       return { status: "unknown-module" };
@@ -112,11 +116,19 @@ export class HostStore implements HostBridge {
     }
     try {
       this.activity.work("host:execute-render", moduleFilePath);
+      // An empty `only` is not "nothing": a caller with no paths to name wants
+      // the module, which is what every caller before scoping got. Only a
+      // non-empty list narrows anything.
+      const scope =
+        only !== undefined && only.length > 0
+          ? renderScope([...only])
+          : undefined;
       return {
         status: "rendered",
         render: instance["executeRender"](
           moduleFilePath,
           source as SelectorSource,
+          scope,
         ),
       };
     } catch (error) {

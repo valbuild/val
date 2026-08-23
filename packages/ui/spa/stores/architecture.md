@@ -221,6 +221,15 @@ Two moments, and the distinction between them is load-bearing:
 Demand leaving (`source:unlisten`) drops the module's cached render, so a module
 nobody is looking at cannot be re-rendered by a later change to it.
 
+And the render itself is now scoped to the demand, not just triggered by it.
+`RenderScope` (in `packages/core`) is passed to `executeRender`, so a listener on
+one row of a list costs one `select` call instead of one per row; a request for
+the CONTAINER still renders every row, because a list view needs all of them.
+The cache entry carries the scope it was computed at — a render scoped to one row
+answers for that row and nothing else, and serving it elsewhere would be wrong
+rather than merely slow. See `openquestions.md` item 3 for the full reasoning,
+including why `ListArrayRender.items` had to start carrying its indices.
+
 Patch sets follow the same rule for a different reason: they are built from the
 chain when the review UI asks, not accumulated per patch. The store always said
 so; the wiring used not to.

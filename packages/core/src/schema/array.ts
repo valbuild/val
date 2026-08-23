@@ -4,7 +4,12 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { RenderSelector, ReifiedRender } from "../render";
+import {
+  ListArrayRender,
+  RenderSelector,
+  ReifiedRender,
+  RenderScope,
+} from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
@@ -207,6 +212,7 @@ export class ArraySchema<
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    scope?: RenderScope,
   ): ReifiedRender {
     const res: ReifiedRender = {};
     if (src === null) {
@@ -219,7 +225,10 @@ export class ArraySchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executeRender"](subPath, itemSrc);
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
+      }
+      const itemResult = this.item["executeRender"](subPath, itemSrc, scope);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
@@ -233,25 +242,46 @@ export class ArraySchema<
           message: "Unknown layout type: " + layout,
         };
       }
-      try {
-        res[sourcePath] = {
-          status: "success",
-          data: {
-            layout: "list",
-            parent: "array",
-            items: src.map((val) => {
-              // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = select({ val });
-              return { title, subtitle, image };
-            }),
-          },
-        };
-      } catch (e) {
-        res[sourcePath] = {
-          status: "error",
-          message: e instanceof Error ? e.message : "Unknown error",
-        };
+      // The whole list when the LIST is what is being shown; only the wanted
+      // rows when it is not. `select` is the user's closure and the real expense
+      // — a list view asks for the container and gets every row, a single field
+      // asks for its own path and costs one call.
+      // Non-null once, as a value, rather than a boolean the compiler cannot
+      // tie back to `scope`: no scope and a scope that wants this exact path
+      // both mean the whole list, and anything else is a window.
+      const window =
+        scope !== undefined && !scope.wants(sourcePath) ? scope : null;
+      const items: ListArrayRender["items"] = [];
+      for (let index = 0; index < src.length; index++) {
+        if (
+          window !== null &&
+          !window.wantsUnder(unsafeCreateSourcePath(sourcePath, index))
+        ) {
+          continue;
+        }
+        // Per ITEM, not per list, matching what `record` already does: `select`
+        // is user code, and one row whose data trips it up must not take out the
+        // whole list. Before scoping, one throwing row produced an error at the
+        // container and no items at all.
+        try {
+          // NB NB: display is actually defined by the user
+          const { title, subtitle, image } = select({ val: src[index] });
+          items.push([index, { title, subtitle, image }]);
+        } catch (e) {
+          res[unsafeCreateSourcePath(sourcePath, index)] = {
+            status: "error",
+            message: e instanceof Error ? e.message : "Unknown error",
+          };
+        }
       }
+      res[sourcePath] = {
+        status: "success",
+        data: {
+          layout: "list",
+          parent: "array",
+          items,
+        },
+      };
     }
     return res;
   }

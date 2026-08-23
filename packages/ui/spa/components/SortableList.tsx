@@ -167,7 +167,10 @@ export function SortableList({
           renderLayout={render?.layout}
           render={
             /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            render?.items[id - 1]
+            /* Looked up by index rather than by position: a render computed for
+               a subset of paths carries only those items, so items[n] would be
+               a different row. See ListArrayRender. */
+            render?.items.find(([index]) => index === id - 1)?.[1]
           }
           path={path}
           onClick={onClick}
@@ -204,7 +207,7 @@ export function SortableItemRow({
   id: number;
   path: SourcePath;
   renderLayout?: "list";
-  render?: ListArrayRender["items"][number];
+  render?: ListArrayRender["items"][number][1];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;

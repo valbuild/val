@@ -220,73 +220,73 @@ much cheaper before hooks exist than after.
 
 ---
 
-## 3. Renders are not path-scoped, and fixing that means changing `packages/core`. 🔴 STILL OPEN — now with a number
+## 3. ~~Renders are not path-scoped~~ — FIXED, in `packages/core`
 
-**The question:** do we add a core entry point that renders ONE path, or accept
-whole-module renders?
+**Was:** `RenderStore.get(path)` is per-path, but `executeRender` took a whole
+module, so one request walked everything. For `handboka` — `select` at two nested
+array levels — that was every chapter and every section on any change to the
+module. Measured: one listener on one row of a three-row list cost **3** `select`
+invocations to serve **1**.
 
-`RenderStore.get(path)` is per-path, but `executeRender` takes a whole module, so
-one request still walks everything. For `handboka` — `select` at two nested array
-levels — that is every chapter and every section on any change to the module.
+**Done**, once changing `packages/core` was allowed (decided 2026-08-23: no
+external users, two internal ones).
 
-What the store bought: lazy instead of eager, cached, and de-duplicated across
-concurrent readers. So the cost moved from **per keystroke** to **per
-change-then-read**. Real, but it is not the fix.
+`RenderScope` in `packages/core/src/render.ts` is threaded as an optional third
+argument through every `executeRender`. It answers two questions, and the split
+is the whole design:
 
-What the fix needs: a way to evaluate `render` for a single `SourcePath` without
-walking siblings. That is a change to schema internals in `packages/core`, and it
-is the thing that would make renders affordable on the worst case.
+- `wants(path)` — is a render AT this exact path wanted? A container answers
+  `true` when the whole of it is being shown, and its list render is computed in
+  full. **A list VIEW asks for the container and needs every row**, so windowing
+  there would be a list with rows missing — a broken screen, not a saving.
+- `wantsUnder(path)` — could anything at or below this path be wanted? Recursion
+  is pruned where this is `false`, and a container whose own path is NOT wanted
+  but which has wanted descendants renders a **window**: only the items asked
+  for. That is what a single visible row is.
 
-Now measured rather than argued: one listener on one row of a three-row list
-costs **3** `select` invocations to serve **1**. The test is
-`demandDriven.test.ts` → "runs select only for the path being listened to",
-marked `it.failing`, so it will fail loudly the day this is fixed.
+It compares path SEGMENTS, not string prefixes. `"title"` is a string prefix of
+`"titles"` but not a path ancestor of it, and a key may contain a dot or a quote,
+so `startsWith` silently renders siblings. Pinned in `render.test.ts`.
 
-Note what the fix actually is, because it is more than a parameter:
-`ArraySchema`'s list render is `src.map(select)` — the payload IS the whole list
-— so scoping it means making a list render **windowed**, across the ~16 schema
-classes that implement `executeRender`.
+`ListArrayRender.items` became `[index, value][]` — the shape
+`ListRecordRender` already had. This is the load-bearing part: a windowed render
+is a SHORTER array, so a consumer reading `items[n]` positionally would get a
+different row. Carrying the index makes that unrepresentable, and the compiler
+pointed at both UI call sites (`SortableList.tsx`, `useRefPreview.ts`) rather
+than letting them read the wrong row at runtime.
 
-- [x] **Changing `packages/core` is allowed** (decided 2026-08-23: no external
-      users, two internal ones). So this is now a work item, not a question.
+A side effect worth naming: `array`'s `select` is now wrapped per ITEM rather
+than per list, matching what `record` already did. Before, one throwing row
+produced an error at the container and NO items at all — one bad row took out the
+whole list.
 
-**The surface is far smaller than first estimated.** 17 schema classes implement
-`executeRender`, but only 3 PRODUCE a render, and only **2 run a user closure**:
-`array.select` (per item) and `record.select` (per entry). `string`'s render is a
-static layout hint (`{as:"textarea"}` / `{as:"code",language}`) with no closure,
-so it costs nothing. The other 14 implementations are pure recursion. The whole
-expense lives in two `map`s.
+Above core, `RenderStore` had to learn two things:
 
-Four real callers: `ValOps.ts:595` (server, whole module), `ValSyncEngine.ts:1074`
-(current engine), `HostStore.ts:117` (this prototype), and
-`InlineField.stories.tsx:70`.
+- **The cache entry carries the scope it was computed at.** A render scoped to
+  one visible row says nothing about another row, and serving it there is worse
+  than a cache miss — a miss is slow, that is wrong. Coverage is asked per
+  CALLER, not "is every listened path covered": folding those together makes one
+  field's read pay for everyone else's, which is the fan-out being removed.
+- **Concurrent readers of different paths must still cost one render.** Sharing
+  an already-issued request cannot do it, because its scope was fixed when it was
+  issued. `refreshFor` collects the asked-for paths across the turn (one
+  microtask) and issues once. The in-flight map carries its scope too, so a
+  request that will not answer the caller's question is not mistaken for one that
+  will; that case retries exactly once and then issues unconditionally, because a
+  duplicate render costs time whereas a wrong `no-render-at-path` is a bug.
 
-**The one API decision left:** a list render's payload IS the aggregate
-(`{layout, parent, items: [...]}`), so evaluating a window makes `items` partial.
-Either the aggregate becomes sparse, or renders become per-item entries keyed by
-the ITEM's source path and the list UI assembles what it needs.
+The eager `source:listen` path deliberately does NOT wait a microtask: it is
+dispatched synchronously from `addListener`, and "the render is ready when the
+mounting field first looks" is the whole promise of computing on demand arriving.
+Only the FIRST listener in a module triggers it — twenty rows mounting would
+otherwise refresh twenty times at growing scope, strictly worse than the one
+whole-module render this replaces. The other nineteen are covered by their own
+reads, and the first of those renders at the scope of everything mounted by then:
+**twenty rows cost two renders, not twenty.**
 
-Proposed, because it is additive and breaks no existing caller:
-
-```ts
-executeRender(path, src, opts?: { only?: SourcePath[] })
-```
-
-- No `opts` — today's behaviour exactly, plus per-item entries alongside the
-  aggregate. Existing callers unaffected.
-- `only` — run `select` ONLY for items whose path is listed, emit per-item
-  entries for them, and omit the aggregate rather than shipping a partial one
-  under a name that implies completeness.
-
-That makes `RenderStore.get(path)` genuinely path-scoped: a field at one row asks
-for one row. And the same mechanism serves the virtualized list, which wants its
-visible window (~58 rows) rather than one row or all 5000 — a window is just a
-longer `only`.
-
-- [ ] If not: say so, and accept that the `handboka` render cost is unaddressed —
-      and re-examine whether item 1's numbers still justify the rewrite.
-
----
+Four callers of `executeRender` remain; only `HostStore` passes a scope.
+`ValOps.ts:595` (server) and `InlineField.stories.tsx:70` want whole modules and
+pass nothing, which is exactly the old behaviour.
 
 ## 4. `executeValidate` has no custom-only mode, so errors are merged by message. 🟡
 

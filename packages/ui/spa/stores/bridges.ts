@@ -69,7 +69,15 @@ export type HostCustomValidateResult =
  * there — a `source` argument here would be a 129 KB copy per render.
  */
 export interface HostBridge {
-  render(moduleFilePath: ModuleFilePath): Promise<HostRenderResult>;
+  /**
+   * @param only The paths a render is actually wanted for. Omitting it renders
+   * the whole module, which is what a whole-list view wants; passing the visible
+   * paths is what makes one row cost one `select` call. See `RenderScope`.
+   */
+  render(
+    moduleFilePath: ModuleFilePath,
+    only?: readonly SourcePath[],
+  ): Promise<HostRenderResult>;
   customValidate(
     moduleFilePath: ModuleFilePath,
     paths: SourcePath[],

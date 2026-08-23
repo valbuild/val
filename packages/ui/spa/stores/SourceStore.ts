@@ -528,6 +528,27 @@ export class SourceStore {
   }
 
   /**
+   * Every path currently registered in this module. THE demand signal, read
+   * rather than pushed.
+   *
+   * The render store needs it to scope a render to what is actually on screen,
+   * and reading it means the scope is DERIVED from live state rather than
+   * accumulated: it shrinks when a field unmounts, so a row scrolled past stops
+   * being paid for. An accumulated scope could only grow, which over a session
+   * converges back on rendering the whole module.
+   */
+  listenedPaths(moduleFilePath: ModuleFilePath): SourcePath[] {
+    const paths: SourcePath[] = [];
+    for (const path of this.listenerTargets.keys()) {
+      const [candidate] = Internal.splitModuleFilePathAndModulePath(path);
+      if (candidate === moduleFilePath) {
+        paths.push(path);
+      }
+    }
+    return paths;
+  }
+
+  /**
    * Register interest in one path. The returned function unregisters, and the
    * path's target is dropped once nobody is left on it — an unbounded registry
    * would make the intersection on every patch slower over a session.

@@ -7,7 +7,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ReifiedRender, RenderScope } from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -288,6 +288,7 @@ export class ObjectSchema<
   protected executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    scope?: RenderScope,
   ): ReifiedRender {
     const res: ReifiedRender = {};
     if (src === null) {
@@ -299,7 +300,17 @@ export class ObjectSchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.items[key]["executeRender"](subPath, itemSrc);
+      // An object produces no render of its own, so it is pure recursion — and
+      // pruning it is the whole contribution: a field deep in one branch stops
+      // paying for every sibling branch's renders.
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
+      }
+      const itemResult = this.items[key]["executeRender"](
+        subPath,
+        itemSrc,
+        scope,
+      );
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];

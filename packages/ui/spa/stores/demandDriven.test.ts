@@ -188,28 +188,17 @@ describe("render is driven by demand, not by change", () => {
   });
 
   /**
-   * SPEC, NOT YET IMPLEMENTED — and `it.failing` is deliberate.
-   *
    * One listener, on one row of a three-row list. `select` is the user's own
    * closure and the actual expense — `handboka` has it at two nested array
    * levels — so counting `select` invocations is the only honest measure of
-   * whether a render is path-scoped. It currently runs 3 times to serve 1
-   * listened row.
+   * whether a render is path-scoped.
    *
-   * Marked `failing` rather than deleted or loosened, because this is the one
-   * item here that cannot be fixed inside `packages/ui`. `ArraySchema`'s list
-   * render is `src.map(select)` — the payload IS the whole list — so scoping it
-   * means making a list render WINDOWED, which changes what a list render is,
-   * across the ~16 schema classes that implement `executeRender`. That is the
-   * decision `openquestions.md` item 3 reserves: "decide whether this experiment
-   * is allowed to change `packages/core`".
-   *
-   * `it.failing` is the right encoding for that state: the expectation stays
-   * written down and checked, and the day someone makes renders path-scoped this
-   * test FAILS — telling them to delete the marker — instead of silently
-   * continuing to pass.
+   * This was `it.failing` while renders were whole-module: it ran 3 times to
+   * serve 1 listened row. `RenderScope` is what closed it — `ArraySchema`'s list
+   * render is now WINDOWED, carrying only the rows that were asked for, which is
+   * why `ListArrayRender.items` pairs each item with its index.
    */
-  it.failing("runs select only for the path being listened to", async () => {
+  it("runs select only for the path being listened to", async () => {
     const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
     const { module, selectCalls } = listModule(3);
 
@@ -218,6 +207,104 @@ describe("render is driven by demand, not by change", () => {
     await renderStore.get(sp("/list.val.ts?p=1"));
 
     expect(selectCalls()).toBe(1);
+    dispose();
+  });
+
+  /**
+   * The complement, and the reason the scope has TWO questions rather than one.
+   *
+   * A list VIEW asks for the container, and it needs every row — a windowed
+   * answer there would be a list with rows missing. So `wants(containerPath)`
+   * means the whole list, and only a request for descendants alone windows it.
+   * Without this the fix for the test above would just be "render less", which
+   * breaks the screen that renders lists.
+   */
+  it("runs select for every row when the list itself is what is asked for", async () => {
+    const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
+    const { module, selectCalls } = listModule(3);
+
+    await sourceStore.testReceive([module]);
+    listeners.set("/list.val.ts");
+    const read = await renderStore.get(sp("/list.val.ts"));
+
+    expect(selectCalls()).toBe(3);
+    if (read.status !== "rendered" || read.render.status !== "success") {
+      throw new Error("expected the list to render");
+    }
+    const data = read.render.data;
+    if (data.layout !== "list" || data.parent !== "array") {
+      throw new Error("expected an array list render");
+    }
+    expect(data.items.map(([index]) => index)).toEqual([0, 1, 2]);
+    dispose();
+  });
+
+  /**
+   * And the windowed render says WHICH rows it carries.
+   *
+   * The reason `ListArrayRender.items` became `[index, value][]`: a windowed
+   * render is a shorter array, so a consumer reading `items[n]` positionally
+   * would silently get a different row. Carrying the index makes that
+   * unrepresentable — the two call sites in the UI became lookups, and the
+   * compiler pointed at both.
+   */
+  it("labels a windowed list render with the indices it covers", async () => {
+    const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
+    const { module } = listModule(3);
+
+    await sourceStore.testReceive([module]);
+    listeners.set("/list.val.ts?p=1");
+    const read = await renderStore.get(sp("/list.val.ts?p=1"));
+
+    if (read.status !== "rendered" || read.render.status !== "success") {
+      throw new Error("expected a render");
+    }
+    const data = read.render.data;
+    if (data.layout !== "list" || data.parent !== "array") {
+      throw new Error("expected an array list render");
+    }
+    expect(data.items).toEqual([[1, { title: "item 1" }]]);
+    dispose();
+  });
+
+  /**
+   * Two rows visible, read concurrently: ONE render, covering both.
+   *
+   * The case that makes scoping worth having rather than a way to render twice.
+   * A scoped render's coverage is fixed when it is issued, so a reader that
+   * arrives after that either gets an answer about someone else's path or needs
+   * its own render — which for a scrolling list would be one render per row.
+   * `refreshFor` collects the asked-for paths across the turn and issues once.
+   */
+  it("serves concurrent readers of different rows with one render", async () => {
+    const { sourceStore, renderStore, activity, listeners, dispose } =
+      initTestSystem();
+    const { module, selectCalls } = listModule(10);
+
+    await sourceStore.testReceive([module]);
+    listeners.set("/list.val.ts?p=3");
+    listeners.set("/list.val.ts?p=4");
+    const before = activity.position();
+
+    await Promise.all([
+      renderStore.get(sp("/list.val.ts?p=3")),
+      renderStore.get(sp("/list.val.ts?p=4")),
+    ]);
+
+    // The eager render on the first `listeners.set` saw only row 3, so the reads
+    // owe one more pass — but one, not one each, and it covers both rows.
+    expect(activity.count("host:execute-render", { since: before })).toBe(1);
+    // Two rows of ten. `select` ran for those two and no others.
+    expect(selectCalls()).toBeLessThanOrEqual(4);
+    const read = await renderStore.get(sp("/list.val.ts?p=4"));
+    if (read.status !== "rendered" || read.render.status !== "success") {
+      throw new Error("expected row 4 to be covered");
+    }
+    const data = read.render.data;
+    if (data.layout !== "list" || data.parent !== "array") {
+      throw new Error("expected an array list render");
+    }
+    expect(data.items.map(([index]) => index)).toEqual([3, 4]);
     dispose();
   });
 });

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { CodeLanguage, ReifiedRender } from "../render";
+import { CodeLanguage, ReifiedRender, RenderScope } from "../render";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -329,6 +329,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    // Accepted and unused: a string's render is a static layout hint
+    // (`{as:"textarea"}` / `{as:"code",language}`) with no closure behind it, so
+    // there is nothing a scope could prune. Declared so the signature is uniform
+    // across every schema rather than something a reader has to check.
+    _scope?: RenderScope,
   ): ReifiedRender {
     if (this.renderInput) {
       if (this.renderInput.as === "code") {
