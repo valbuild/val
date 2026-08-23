@@ -17,6 +17,7 @@ import {
   findValRemoteMetadataArg,
 } from "./syntax";
 import { analyzeValModule } from "./valModule";
+import { findJsonValuesEntryImportPathNode } from "./jsonValuesModule";
 import {
   deepEqual,
   isNotRoot,
@@ -259,6 +260,41 @@ export function removeValJsonEntry(
           },
         ),
       );
+    }),
+  );
+}
+
+/**
+ * Rewrites the `import("...")` specifier of an existing `.jsonValues()` entry in
+ * a `.val.ts` module, leaving the entry's key and its position in the record
+ * alone. `recordPath` is the path from the module source to the record (empty for
+ * a root record/router). Fails if the entry key is missing or is not a
+ * `c.json(() => import("..."))` thunk.
+ *
+ * Not expressible as remove + insert (what `extractJsonValuesEntry` does): that
+ * appends the entry at the end of the record, and this op exists to relocate an
+ * entry's FILE, which must not reshuffle a record of hundreds of entries.
+ */
+export function setValJsonEntryImportPath(
+  document: ts.SourceFile,
+  recordPath: string[],
+  key: string,
+  importPath: string,
+): TSOpsResult<ts.SourceFile> {
+  return pipe(
+    analyzeValModule(document),
+    result.flatMap(({ source }) => getAtPath(source, recordPath)),
+    result.flatMap((recordNode: ts.Expression): TSOpsResult<ts.SourceFile> => {
+      const importPathNode = findJsonValuesEntryImportPathNode(recordNode, key);
+      if (!importPathNode) {
+        return result.err(
+          new PatchError(
+            `Cannot rewrite the import path of jsonValues entry '${key}': it is not a c.json(() => import("...")) entry`,
+          ),
+        );
+      }
+      const [doc] = replaceNodeValue(document, importPathNode, importPath);
+      return result.ok(doc);
     }),
   );
 }

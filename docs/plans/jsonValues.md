@@ -285,9 +285,29 @@ entries; runtime/Studio/validation work one entry at a time; zero overhead when 
    nested entries would silently get NO content validation. `classifyJsonValuesOp` still reports
    `recordPath` truthfully so the door stays open.
 8. **A rename relocates the file (LOCKED 2026-07-27).** A `move` writes the destination via
-   `getNewJsonEntryPaths` — the generated convention path — and deletes the source file. So renaming
-   a hand-placed `content/faq.val.json` produces `page/support/faq2.val.json`. One invariant; the
-   accepted cost is that renaming empties a hand-authored directory.
+   `getNewJsonEntryPaths` — the derived path — and deletes the source file. So renaming an entry whose
+   file was parked elsewhere relocates it rather than editing it in place. One invariant; the accepted
+   cost is that renaming empties a hand-chosen directory.
+9. **The key↔file mapping is CANONICAL, and validated.** `getNewJsonEntryPaths` derives it — the file
+   is named after the entry key, under a folder named after the `.val.ts` — and every WRITE already
+   used it (the commit flow, the `jsonValues:extract-entry` fix). Nothing checked what was already in
+   the module, so an entry could point at any file in the project and validate: hybrid authoring
+   (decision #2) had quietly become "any path at all", the one place where "the key tells you the
+   file" stopped being true. `validateJsonValuesEntries` now reports a mismatch as
+   `jsonValues:rename-entry-file`, and `val validate --fix` moves the file and rewrites the specifier.
+   Hybrid authoring is unchanged where it earns its keep: the LOADER still honours whatever path a
+   thunk names (so a hand-placed file works, and the Studio edits it in place), and the check is only
+   about where the file is allowed to live.
+   - The specifier comes from the `.val.ts` AST (`analyzeJsonValuesEntries`), never from
+     `thunk.toString()`: a bundler rewrites it to a chunk id, so a runtime-derived check would pass
+     unbundled and silently stop working in production.
+   - CLI/CI only. `ValOps` (the Studio path) deliberately skips it: reaching the `.val.ts` there means
+     `getSourceFile`, an uncached HTTP roundtrip per module in hosted mode, the browser cannot apply
+     the fix (it moves a file AND rewrites the module), and the Studio can never produce a
+     non-canonical path in the first place. Only hand-authoring can, and hand-authoring is gated by
+     `val validate`.
+   - One consequence worth knowing: two modules can no longer SHARE one `*.val.json`, because the
+     derived path is per-module.
 
 ## Key runtime shapes
 
@@ -397,12 +417,12 @@ corrected here (2026-08-06) after re-verifying each against the code.
     legitimately requests the visible window. Verify V16 instead (bounded by visible + overscan, never
     by total key count). "Zero on open" only holds while the list renders no per-entry preview.
   - **V2** open an entry → exactly one `/json`; revisiting it → no new request.
-  - **V3** edit `title`, publish → only `content/faq.val.json` modified, `page.val.ts` untouched, and
+  - **V3** edit `title`, publish → only the entry's `*.val.json` modified, `page.val.ts` untouched, and
     the new title **survives the publish without a reload**.
   - **V4** add `/support/new-page` → new `page/support/new-page.val.json` = `{"title":"","body":"","order":0}`
     (from `emptyOf`) + a `c.json` thunk in `page.val.ts`.
-  - **V5** hand-authored `content/` and generated `page/support/` coexist; re-editing an existing
-    entry still writes its original path.
+  - **V5** a hand-placed entry file still LOADS and is still edited in place, but `val validate`
+    reports it (locked decision #9) and `--fix` moves it to the derived path.
   - **V6** rename → new file with the same content, old file deleted, thunk key + import path swapped.
   - **V7** delete → file deleted, thunk gone (empty dirs are left behind; `deleteFile` doesn't prune).
   - **V8** corrupt a `*.val.json` → `/json` 500s → ONE request, an error in the field, no refetch on
@@ -506,7 +526,7 @@ and it never knew about `.jsonValues()` — it goes through `createService` → 
       wrong". The resolver now follows the entry's `c.json(() => import(...))` thunk
       (`findJsonEntryFilePath`) and resolves the rest of the path against the JSON with
       `createJsonEntryPathMap` (`ts.parseJsonText` through the same traversal `createModulePathMap` uses),
-      so you get `content/kb/entry-005.val.json:5:13` plus a code frame.
+      so you get `content/kb/kb-005.val.json:5:13` plus a code frame.
       Verified on `examples/next`, and pinned by two CLI tests that fail without the `Service.get` change.
 - Note for fixture authors: with `resolveJsonModule` on, **tsc catches type-level mistakes in a
   hand-authored `*.val.json` by itself** — a deliberately broken fixture has to violate a CONSTRAINT

@@ -56,6 +56,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("images:check-all-files"),
   z.literal("files:check-all-files"),
   z.literal("jsonValues:extract-entry"),
+  z.literal("jsonValues:rename-entry-file"),
 ]);
 const ValidationError = z.object({
   message: z.string(),

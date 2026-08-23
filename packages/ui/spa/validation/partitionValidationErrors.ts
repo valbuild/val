@@ -79,10 +79,13 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "keyof:check-keys":
     case "router:check-route":
     case "jsonValues:extract-entry":
-      // `jsonValues:extract-entry` is an entry inlined in the `.val.ts`. The
-      // browser cannot fix it (that means writing a new `*.val.json` and
-      // rewriting the module) and saving does not repair it either, so surface
-      // it: the message names the command (`val validate --fix`) that does.
+    case "jsonValues:rename-entry-file":
+      // Both are `.val.ts`-authoring mistakes in a `.jsonValues()` record: an
+      // entry inlined in the module, and an entry whose `*.val.json` is not at
+      // the path its key derives. The browser cannot fix either (both mean
+      // writing/moving a `*.val.json` AND rewriting the module) and saving does
+      // not repair them either, so surface them: the message names the command
+      // (`val validate --fix`) that does.
       return false;
     default: {
       // Exhaustiveness check: a new ValidationFix code must add a case above.

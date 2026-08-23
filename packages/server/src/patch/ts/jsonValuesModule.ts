@@ -34,6 +34,45 @@ export function analyzeJsonValuesEntries(
   return entries;
 }
 
+/**
+ * The `import("...")` STRING-LITERAL NODE of one entry, rather than its text.
+ *
+ * `analyzeJsonValuesEntries` deliberately hands out plain strings — every reader
+ * of it only wants the path. Rewriting an entry's path needs the node itself, so
+ * the edit can replace the specifier IN PLACE: the alternative (remove + insert
+ * the whole property, as `extractJsonValuesEntry` does) moves the entry to the
+ * end of the record, which is harmless for one added entry but reorders a
+ * hand-maintained record of hundreds for no reason.
+ */
+export function findJsonValuesEntryImportPathNode(
+  source: ts.Expression,
+  entryKey: string,
+): ts.StringLiteralLike | undefined {
+  if (!ts.isObjectLiteralExpression(source)) {
+    return undefined;
+  }
+  for (const prop of source.properties) {
+    if (!ts.isPropertyAssignment(prop)) {
+      continue;
+    }
+    if (getPropertyKey(prop.name) !== entryKey) {
+      continue;
+    }
+    if (
+      !ts.isCallExpression(prop.initializer) ||
+      !isCJson(prop.initializer.expression)
+    ) {
+      return undefined;
+    }
+    const [thunk] = prop.initializer.arguments;
+    if (!thunk) {
+      return undefined;
+    }
+    return getImportPathNodeFromThunk(thunk) ?? undefined;
+  }
+  return undefined;
+}
+
 function getPropertyKey(name: ts.PropertyName): string | null {
   if (ts.isStringLiteralLike(name)) {
     return name.text;
@@ -53,11 +92,11 @@ function analyzeCJsonCall(node: ts.Expression): JsonValuesEntry | null {
   if (!thunk) {
     return null;
   }
-  const importPath = getImportPathFromThunk(thunk);
-  if (importPath === null) {
+  const importPathNode = getImportPathNodeFromThunk(thunk);
+  if (importPathNode === null) {
     return null;
   }
-  return { importPath };
+  return { importPath: importPathNode.text };
 }
 
 function isCJson(expr: ts.Expression): boolean {
@@ -71,7 +110,9 @@ function isCJson(expr: ts.Expression): boolean {
   );
 }
 
-function getImportPathFromThunk(thunk: ts.Expression): string | null {
+function getImportPathNodeFromThunk(
+  thunk: ts.Expression,
+): ts.StringLiteralLike | null {
   // () => import("path")   (concise body)   OR   () => { return import("path"); }
   if (!ts.isArrowFunction(thunk)) {
     return null;
@@ -103,7 +144,7 @@ function getImportPathFromThunk(thunk: ts.Expression): string | null {
   }
   const arg = importCall.arguments[0];
   if (arg && ts.isStringLiteralLike(arg)) {
-    return arg.text;
+    return arg;
   }
   return null;
 }

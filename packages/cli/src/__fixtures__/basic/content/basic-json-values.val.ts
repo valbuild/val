@@ -12,7 +12,7 @@ export default c.define(
     .record(s.object({ title: s.string().minLength(2), order: s.number() }))
     .jsonValues(),
   {
-    "/ok": c.json(() => import("./json-entries/ok.val.json")),
-    "/broken": c.json(() => import("./json-entries/broken.val.json")),
+    "/ok": c.json(() => import("./basic-json-values/ok.val.json")),
+    "/broken": c.json(() => import("./basic-json-values/broken.val.json")),
   },
 );

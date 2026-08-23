@@ -10,7 +10,7 @@ export default c.define(
   "/content/basic-inline-json-values.val.ts",
   s.record(s.object({ title: s.string(), order: s.number() })).jsonValues(),
   {
-    "/ok": c.json(() => import("./json-entries/ok.val.json")),
+    "/ok": c.json(() => import("./basic-inline-json-values/ok.val.json")),
     "/inline": { title: "Written inline", order: 3 },
   },
 );

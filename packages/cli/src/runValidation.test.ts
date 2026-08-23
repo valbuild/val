@@ -637,6 +637,167 @@ describe("runValidation", () => {
       expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
     });
 
+    test("reports an entry whose file is not at its key's path", async () => {
+      // The key IS the filename and the directory IS the module path minus
+      // `.val.ts` — `getNewJsonEntryPaths` derives it, and every WRITE uses it
+      // (the commit flow, `jsonValues:extract-entry`). Nothing checked what was
+      // already in the module, so an entry could point at any file in the project
+      // and validate: the one place where "the key tells you the file" silently
+      // stopped being true.
+      const events = await runOn([
+        "content/basic-noncanonical-json-values.val.ts",
+      ]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath:
+              '/content/basic-noncanonical-json-values.val.ts?p="/moved"',
+            fixable: true,
+            message: expect.stringContaining(
+              "./basic-noncanonical-json-values/moved.val.json",
+            ),
+          }),
+        ]),
+      );
+      // The entry that IS where its key says produces nothing...
+      expect(
+        events.filter(
+          (e) => "sourcePath" in e && e.sourcePath.includes('"/canonical"'),
+        ),
+      ).toHaveLength(0);
+      // ...so the misplaced file is the module's only error.
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("--fix moves the entry file to its key's path and repoints the import", async () => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["content/basic-noncanonical-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fix-applied",
+            sourcePath:
+              '/content/basic-noncanonical-json-values.val.ts?p="/moved"',
+          }),
+        ]),
+      );
+
+      // The content moved, unchanged, to the path the key derives...
+      const movedTo = path.join(
+        tmpDir,
+        "content/basic-noncanonical-json-values/moved.val.json",
+      );
+      expect(JSON.parse(fs.readFileSync(movedTo, "utf8"))).toEqual({
+        title: "Parked somewhere its key does not name",
+        order: 2,
+      });
+      // ...and nothing is left behind at the old path: an orphan there is exactly
+      // what a later key rename would strand.
+      expect(
+        fs.existsSync(
+          path.join(
+            tmpDir,
+            "content/basic-noncanonical-json-values-entries/hand-placed.val.json",
+          ),
+        ),
+      ).toBe(false);
+
+      const valTs = fs.readFileSync(
+        path.join(tmpDir, "content/basic-noncanonical-json-values.val.ts"),
+        "utf8",
+      );
+      expect(valTs).toContain(
+        '"./basic-noncanonical-json-values/moved.val.json"',
+      );
+      expect(valTs).not.toContain("basic-noncanonical-json-values-entries");
+      // The rewrite is in place: the entry keeps its position, so fixing one
+      // entry does not reshuffle a record of hundreds.
+      expect(valTs.indexOf('"/moved"')).toBeGreaterThan(
+        valTs.indexOf('"/canonical"'),
+      );
+
+      // Re-validating the fixed project is clean: the fix produces a module that
+      // loads and validates, it does not just silence the error.
+      const afterFix: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles: ["content/basic-noncanonical-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        afterFix.push(event);
+      }
+      expect(afterFix.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("--fix refuses to clobber a file already at the key's path", async () => {
+      // Whatever sits at the canonical path may be another entry's content, or a
+      // copy left by an interrupted earlier run. Overwriting it destroys content
+      // that no patch can bring back, so the fix fails loudly instead.
+      const occupied = path.join(
+        tmpDir,
+        "content/basic-noncanonical-json-values/moved.val.json",
+      );
+      fs.writeFileSync(
+        occupied,
+        JSON.stringify({ title: "Do not overwrite me", order: 9 }, null, 2),
+      );
+
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["content/basic-noncanonical-json-values.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-error",
+            message: expect.stringContaining("already exists"),
+          }),
+        ]),
+      );
+      expect(events.filter((e) => e.type === "fix-applied")).toHaveLength(0);
+      // Both files are exactly as they were.
+      expect(JSON.parse(fs.readFileSync(occupied, "utf8"))).toEqual({
+        title: "Do not overwrite me",
+        order: 9,
+      });
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(
+              tmpDir,
+              "content/basic-noncanonical-json-values-entries/hand-placed.val.json",
+            ),
+            "utf8",
+          ),
+        ),
+      ).toEqual({
+        title: "Parked somewhere its key does not name",
+        order: 2,
+      });
+    });
+
     test("rejects a nested .jsonValues() instead of reporting it valid", async () => {
       // Root-only is a hard contract: a nested one would silently get NO content
       // validation. The Studio refuses to load such a project, so the CLI saying

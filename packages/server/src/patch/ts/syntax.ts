@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { result, pipe } from "@valbuild/core/fp";
-import { JSONValue } from "@valbuild/core/patch";
+import { JSONValue, PatchError } from "@valbuild/core/patch";
 import {
   JsonPrimitive,
   FileSource,
@@ -63,6 +63,20 @@ export function formatSyntaxErrorTree(
   sourceFile: ts.SourceFile,
 ): string[] {
   return flatMapErrors(tree, (error) => formatSyntaxError(error, sourceFile));
+}
+
+/**
+ * Renders either half of the error union the `patch/ts/ops` functions return, for
+ * a caller that only wants a message to throw.
+ */
+export function formatTsOpsError(
+  error: PatchError | ValSyntaxErrorTree,
+  sourceFile: ts.SourceFile,
+): string {
+  if (error instanceof PatchError) {
+    return error.message;
+  }
+  return formatSyntaxErrorTree(error, sourceFile).join("\n");
 }
 
 type LiteralPropertyName = (

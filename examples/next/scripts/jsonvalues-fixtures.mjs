@@ -56,12 +56,18 @@ const FIXTURE_PATHS = [
   "val.modules.ts",
 ];
 
-function entryFileName(index) {
-  return `entry-${String(index).padStart(3, "0")}.val.json`;
-}
-
 function entryKey(index) {
   return `kb-${String(index).padStart(3, "0")}`;
+}
+
+/**
+ * The key IS the filename: a `.jsonValues()` entry's `*.val.json` lives at the
+ * path its key derives (`getNewJsonEntryPaths`), under a folder named after the
+ * `.val.ts`. Naming these files anything else — they used to be `entry-NNN` —
+ * makes every generated entry a `jsonValues:rename-entry-file` error.
+ */
+function entryFileName(index) {
+  return `${entryKey(index)}.val.json`;
 }
 
 function entryContent(index) {
@@ -247,7 +253,7 @@ function restore() {
   let restored = 0;
   for (const name of files) {
     const filePath = path.join(KB_ENTRIES_DIR, name);
-    const index = Number(name.slice("entry-".length, name.indexOf(".")));
+    const index = Number(name.slice("kb-".length, name.indexOf(".")));
     const canonical = JSON.stringify(entryContent(index), null, 2) + "\n";
     // Rewrites anything that differs from canonical, not just unparseable files:
     // an entry edited in the Studio (or hand-edited to break schema validation

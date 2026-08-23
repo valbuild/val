@@ -163,7 +163,7 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 ### V3 — edit and publish
 
 - [x] Change `title` on `/support/faq`, publish.
-- [ ] `git status examples/next` shows **only** `app/support/[slug]/content/faq.val.json` modified —
+- [ ] `git status examples/next` shows **only** `app/support/[slug]/page/support/faq.val.json` modified —
       `page.val.ts` is untouched.
 - [x] The new title is still there **without reloading the page** (this is what the post-publish entry
       refresh exists for).
@@ -177,20 +177,28 @@ Navigate to `/app/support/[slug]/page.val.ts`.
 - [x] `page.val.ts` gained a `c.json(() => import("./page/support/new-page.val.json"))` thunk.
 - [ ] Keep this entry for V5, then `pnpm fixtures reset`.
 
-### V5 — hand-authored and generated entries coexist
+### V5 — a hand-placed entry file is reported, not silently accepted
 
-- [x] With V4's entry still present: `content/` (hand-placed) and `page/support/` (generated) both exist
-      and both render.
-- [ ] Edit `/support/faq` again → the write still goes to its ORIGINAL path,
-      `content/faq.val.json` — not to the generated convention path.
+The LOADER honours whatever path an entry's thunk names, so a hand-placed file works at runtime and the
+Studio edits it in place. Validation is what refuses it: the key↔file mapping is derived
+(`getNewJsonEntryPaths`), every write uses it, so a file parked anywhere else is a
+`jsonValues:rename-entry-file` error rather than a second convention (locked decision #9).
+
+- [ ] Move `page/support/faq.val.json` to `content/faq.val.json` by hand and repoint its thunk. The Studio
+      still lists and renders `/support/faq` — nothing about loading changed.
+- [ ] `npx val validate` reports it, naming both the path the module gives and the path the key requires.
+- [ ] Edit `/support/faq` in the Studio and publish → the write still goes to its ORIGINAL path,
+      `content/faq.val.json`. The Studio follows the thunk; it does not relocate on edit.
+- [ ] `npx val validate --fix` moves the file back to `page/support/faq.val.json`, rewrites the thunk's
+      import IN PLACE (the entry keeps its position in the record), and re-validating is clean.
 - [ ] `pnpm fixtures reset` + restart.
 
 ### V6 — rename an entry
 
 - [ ] Rename `/support/faq` → `/support/faq2`.
-- [ ] `page/support/faq2.val.json` is created with the same content, `content/faq.val.json` is deleted, and
-      the thunk's key AND import path both changed. (A rename always relocates to the generated path —
-      locked decision #8 — so a hand-authored directory empties out. That is expected.)
+- [ ] `page/support/faq2.val.json` is created with the same content, `page/support/faq.val.json` is
+      deleted, and the thunk's key AND import path both changed. (A rename always writes the derived path —
+      locked decision #8 — so a file parked elsewhere is relocated, not edited in place.)
 - [ ] **The referrer was rewritten too:** `kb-113`'s `related` field now reads `/support/faq2`. (Its
       content had to be loaded for the guard to find it — see V11.)
 - [ ] `pnpm fixtures reset` + restart.
@@ -380,7 +388,7 @@ That cost is inherent, and it is why validators belong on the ITEM schema where 
       no error appears (2 entries is under the limit of 50).
 - [ ] Nothing loops: `jsonCount()` stops climbing once the entries are in. A repeated needs-keys round
       would show up as requests that never stop.
-- [ ] Break one support entry by hand (edit `app/support/[slug]/content/faq.val.json` to invalid JSON, then
+- [ ] Break one support entry by hand (edit `app/support/[slug]/page/support/faq.val.json` to invalid JSON, then
       reload) and edit the OTHER entry → the console logs _"skipping custom validation — could not load the
       json entries it needs"_ ONCE and does not spin. Restore the file afterwards.
 - [ ] `pnpm fixtures reset` + restart.
@@ -392,7 +400,7 @@ third entry point next to the Studio and the commit flow, and it has never known
 
 ```bash
 # make one entry schema-invalid while keeping it valid JSON
-node -e 'const f="content/kb/entry-005.val.json",j=require("./"+f);j.order="not a number";j.author="does-not-exist";require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")'
+node -e 'const f="content/kb/kb-005.val.json",j=require("./"+f);j.order="not a number";j.author="does-not-exist";require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")'
 npx val validate
 ```
 

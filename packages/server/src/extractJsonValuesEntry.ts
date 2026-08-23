@@ -1,18 +1,12 @@
 import path from "path";
 import type { Json, ModuleFilePath } from "@valbuild/core";
-import ts from "typescript";
 import { result } from "@valbuild/core/fp";
-import { PatchError } from "@valbuild/core/patch";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
-import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
+import { getValTsSourceFile } from "./valTsSourceFile";
 import { insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { getNewJsonEntryPaths } from "./patch/jsonValuesPatch";
 import { formatPatchSourceError } from "./ValOps";
-import {
-  flatMapErrors,
-  formatSyntaxError,
-  type ValSyntaxErrorTree,
-} from "./patch/ts/syntax";
+import { formatTsOpsError } from "./patch/ts/syntax";
 
 /**
  * Moves ONE `.jsonValues()` entry that was written inline in the `.val.ts` into
@@ -35,18 +29,11 @@ export function extractJsonValuesEntry(
   content: Json,
   sourceFileHandler: ValSourceFileHandler,
 ): void {
-  const valTsPath = sourceFileHandler.resolveSourceModulePath(
-    getSyntheticContainingPath(rootDir),
-    `.${moduleFilePath
-      .replace(".val.ts", ".val")
-      .replace(".val.js", ".val")
-      .replace(".val.jsx", ".val")
-      .replace(".val.tsx", ".val")}`,
+  const { valTsPath, sourceFile } = getValTsSourceFile(
+    moduleFilePath,
+    rootDir,
+    sourceFileHandler,
   );
-  const sourceFile = sourceFileHandler.getSourceFile(valTsPath);
-  if (!sourceFile) {
-    throw Error(`Source file ${valTsPath} not found`);
-  }
   const pathsRes = getNewJsonEntryPaths(moduleFilePath, entryKey);
   if (result.isErr(pathsRes)) {
     throw Error(formatPatchSourceError(pathsRes.error));
@@ -65,12 +52,12 @@ export function extractJsonValuesEntry(
   // insert-in-place would mean reimplementing insertValJsonEntry.
   const removed = removeValJsonEntry(sourceFile, [], entryKey);
   if (result.isErr(removed)) {
-    throw Error(`${valTsPath}\n${formatOpsError(removed.error, sourceFile)}`);
+    throw Error(`${valTsPath}\n${formatTsOpsError(removed.error, sourceFile)}`);
   }
   const inserted = insertValJsonEntry(removed.value, [], entryKey, importPath);
   if (result.isErr(inserted)) {
     throw Error(
-      `${valTsPath}\n${formatOpsError(inserted.error, removed.value)}`,
+      `${valTsPath}\n${formatTsOpsError(inserted.error, removed.value)}`,
     );
   }
 
@@ -80,16 +67,4 @@ export function extractJsonValuesEntry(
     "utf8",
   );
   sourceFileHandler.writeSourceFile(inserted.value);
-}
-
-function formatOpsError(
-  error: PatchError | ValSyntaxErrorTree,
-  sourceFile: ts.SourceFile,
-): string {
-  if (error instanceof PatchError) {
-    return error.message;
-  }
-  return flatMapErrors(error, (e) => formatSyntaxError(e, sourceFile)).join(
-    "\n",
-  );
 }

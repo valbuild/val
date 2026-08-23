@@ -22,6 +22,7 @@ import path from "path";
 import { loadValModules } from "./loadValModules";
 import { findNestedJsonValuesRecords } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
+import { readJsonValuesEntryImportPaths } from "./valTsSourceFile";
 
 export async function createService(
   projectRoot: string,
@@ -161,6 +162,17 @@ export class Service {
           schema,
           source,
           moduleFilePath,
+          // The canonical-path check needs the `.val.ts` AST — the runtime thunk
+          // cannot answer it (a bundler rewrites the specifier to a chunk id).
+          // Only parse the file for a module that can actually have jsonValues
+          // entries; every other module reaches this line too.
+          serializedSchema.type === "record" && serializedSchema.jsonValues
+            ? readJsonValuesEntryImportPaths(
+                moduleFilePath,
+                this.projectRoot,
+                this.sourceFileHandler,
+              )
+            : undefined,
         );
         if (Object.keys(entryErrors).length > 0) {
           // Concatenate per path, never overwrite: an entry written inline is

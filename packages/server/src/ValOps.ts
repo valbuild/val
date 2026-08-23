@@ -880,6 +880,19 @@ export abstract class ValOps {
       );
       // For `.jsonValues()` records, executeValidate only checks the entry
       // markers; load + validate each entry's backing `*.val.json` content here.
+      //
+      // The CANONICAL-PATH check is deliberately NOT run on this path (no
+      // `entryImportPaths` argument), and that is a real gap, not an oversight:
+      // - it needs the `.val.ts` AST, and the only route to it here is
+      //   `getSourceFile`, which in hosted mode is an uncached HTTP roundtrip per
+      //   module on every validate;
+      // - the Studio could not act on the error anyway: the fix moves a
+      //   `*.val.json` AND rewrites the module, which is `val validate --fix`
+      //   territory, not a patch;
+      // - and the Studio can never PRODUCE a non-canonical entry: every path it
+      //   writes comes from `getNewJsonEntryPaths`. Only hand-authoring can, and
+      //   hand-authoring is gated by the CLI / CI.
+      // So a non-canonical entry shows up in `val validate`, not in the Studio.
       const jsonValuesErrors = await validateJsonValuesEntries(
         schema,
         source,

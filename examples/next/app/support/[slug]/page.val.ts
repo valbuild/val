@@ -31,8 +31,8 @@ export default c.define(
     ),
   {
     "/support/getting-started": c.json(
-      () => import("./content/getting-started.val.json"),
+      () => import("./page/support/getting-started.val.json"),
     ),
-    "/support/faq": c.json(() => import("./content/faq.val.json")),
+    "/support/faq": c.json(() => import("./page/support/faq.val.json")),
   },
 );

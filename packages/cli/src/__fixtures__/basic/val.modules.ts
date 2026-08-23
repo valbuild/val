@@ -19,4 +19,5 @@ export default modules(config, [
   { def: () => import("./content/basic-nested-json-values.val") },
   { def: () => import("./content/basic-inline-json-values.val") },
   { def: () => import("./content/basic-inline-json-values-invalid.val") },
+  { def: () => import("./content/basic-noncanonical-json-values.val") },
 ]);

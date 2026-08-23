@@ -3,6 +3,7 @@ import {
   createFixPatch,
   createService,
   extractJsonValuesEntry,
+  renameJsonValuesEntryFile,
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
   Service,
@@ -680,19 +681,11 @@ export async function handleCheckAllFiles(
 export async function handleJsonValuesExtractEntry(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    ctx.sourcePath,
-  );
-  const parts = Internal.splitModulePath(modulePath);
-  // Root-only by contract (see findNestedJsonValuesRecords): the entry is a
-  // direct child of the module's root record/router, so the path is one segment.
-  if (parts.length !== 1) {
-    return {
-      success: false,
-      errorMessage: `Cannot extract .jsonValues() entry at ${ctx.sourcePath}: expected a root record entry`,
-    };
+  const entryKeyRes = rootJsonValuesEntryKey(ctx);
+  if (typeof entryKeyRes !== "string") {
+    return entryKeyRes;
   }
-  const entryKey = parts[0];
+  const entryKey = entryKeyRes;
   const source = ctx.valModule.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) {
     return {
@@ -730,6 +723,57 @@ export async function handleJsonValuesExtractEntry(
   return { success: true, appliedFix: true };
 }
 
+export async function handleJsonValuesRenameEntryFile(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const entryKeyRes = rootJsonValuesEntryKey(ctx);
+  if (typeof entryKeyRes !== "string") {
+    return entryKeyRes;
+  }
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage: ctx.validationError.message,
+    };
+  }
+  try {
+    renameJsonValuesEntryFile(
+      ctx.moduleFilePath,
+      ctx.projectRoot,
+      entryKeyRes,
+      ctx.service.sourceFileHandler,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { success: true, appliedFix: true };
+}
+
+/**
+ * The entry key a `.jsonValues()` fix is about, or the failure to report instead.
+ *
+ * Root-only by contract (see findNestedJsonValuesRecords): the entry is a direct
+ * child of the module's root record/router, so the module path is one segment.
+ */
+function rootJsonValuesEntryKey(
+  ctx: FixHandlerContext,
+): string | FixHandlerResult {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const parts = Internal.splitModulePath(modulePath);
+  if (parts.length !== 1) {
+    return {
+      success: false,
+      errorMessage: `Cannot fix .jsonValues() entry at ${ctx.sourcePath}: expected a root record entry`,
+    };
+  }
+  return parts[0];
+}
+
 // Fix handler registry. `keyof:check-keys` and `router:check-route` are
 // resolved upfront by the shared resolveSchemaSourceFixes — they never reach
 // this registry, so they're excluded from the key set.
@@ -756,6 +800,7 @@ export const currentFixHandlers: Record<
   "images:check-all-files": handleCheckAllFiles,
   "files:check-all-files": handleCheckAllFiles,
   "jsonValues:extract-entry": handleJsonValuesExtractEntry,
+  "jsonValues:rename-entry-file": handleJsonValuesRenameEntryFile,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,

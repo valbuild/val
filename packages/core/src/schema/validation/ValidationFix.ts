@@ -20,6 +20,7 @@ export const ValidationFix = [
   "images:check-all-files",
   "files:check-all-files",
   "jsonValues:extract-entry",
+  "jsonValues:rename-entry-file",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

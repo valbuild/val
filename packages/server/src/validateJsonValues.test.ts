@@ -55,6 +55,98 @@ describe("validateJsonValuesEntries", () => {
     expect(error.message).toContain("written inline");
   });
 
+  describe("canonical entry path", () => {
+    // The key↔file mapping of a jsonValues record is derived, not free: the file
+    // is named after the key, under a folder named after the `.val.ts`. Every
+    // WRITE already derives it with `getNewJsonEntryPaths`; these pin the read
+    // side, which used to accept any path at all.
+    const src = {
+      "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
+    };
+
+    test("accepts an entry whose file is at the path its key derives", async () => {
+      const errors = await validateJsonValuesEntries(
+        schema,
+        src,
+        modulePath,
+        new Map([["/a", "./blogs/a.val.json"]]),
+      );
+      expect(errors).toEqual({});
+    });
+
+    test("accepts a specifier that resolves to the derived path", async () => {
+      // The comparison is on the RESOLVED path, not the literal string: writing
+      // the same file a different way is not a mistake worth reporting.
+      const errors = await validateJsonValuesEntries(
+        schema,
+        src,
+        modulePath,
+        new Map([["/a", "blogs/./a.val.json"]]),
+      );
+      expect(errors).toEqual({});
+    });
+
+    test("reports an entry parked anywhere else, with the move fix", async () => {
+      const errors = await validateJsonValuesEntries(
+        schema,
+        src,
+        modulePath,
+        new Map([["/a", "./hand-placed/a.val.json"]]),
+      );
+      const keys = Object.keys(errors);
+      expect(keys).toHaveLength(1);
+      expect(keys[0]).toContain("/a");
+      const [error] = errors[keys[0] as keyof typeof errors];
+      expect(error.fixes).toEqual(["jsonValues:rename-entry-file"]);
+      // The message has to name BOTH paths: the author needs to see what the
+      // module says and what the key requires.
+      expect(error.message).toContain("./hand-placed/a.val.json");
+      expect(error.message).toContain("./blogs/a.val.json");
+    });
+
+    test("reports the misplaced file ALONGSIDE a content error", async () => {
+      // Two independent problems at the same source path. Assigning instead of
+      // appending drops one, so the author fixes the path and only then learns
+      // the content was never valid.
+      const errors = await validateJsonValuesEntries(
+        schema,
+        { "/a": c.json(() => Promise.resolve({ default: { title: 123 } })) },
+        modulePath,
+        new Map([["/a", "./hand-placed/a.val.json"]]),
+      );
+      const entryPath = Object.keys(errors).find((k) => k.endsWith('"/a"'));
+      expect(entryPath).toBeDefined();
+      const messages = errors[entryPath as keyof typeof errors].map(
+        (e) => e.message,
+      );
+      expect(messages.some((m) => m.includes("derived from its key"))).toBe(
+        true,
+      );
+      expect(Object.values(errors).flat().length).toBeGreaterThan(1);
+    });
+
+    test("skips the check for a key the .val.ts has no import for", async () => {
+      // A draft entry whose content lives in a patch has a thunk at runtime but
+      // no `c.json(() => import(...))` in the module on disk. There is nothing to
+      // compare against, and inventing a mismatch would fail every draft.
+      const errors = await validateJsonValuesEntries(
+        schema,
+        src,
+        modulePath,
+        new Map([["/somethingelse", "./blogs/somethingelse.val.json"]]),
+      );
+      expect(errors).toEqual({});
+    });
+
+    test("skips the check entirely when the caller has no source file", async () => {
+      // The ValOps/Studio path passes nothing: the specifier only exists in the
+      // `.val.ts` AST, and a runtime `thunk.toString()` would report whatever the
+      // bundler rewrote it to. Content validation still runs.
+      const errors = await validateJsonValuesEntries(schema, src, modulePath);
+      expect(errors).toEqual({});
+    });
+  });
+
   test("skips non-jsonValues records (no content loading)", async () => {
     const plainSchema = s.record(s.object({ title: s.string() }));
     let loaded = false;

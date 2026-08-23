@@ -332,7 +332,14 @@ export function applyJsonValuesEntryPatches(args: {
  * Resolves an EXISTING entry's `*.val.json` path (relative to rootDir) from the
  * `import(...)` path recorded in the `.val.ts` thunk (from
  * {@link analyzeJsonValuesEntries}). Existing files may have been hand-placed,
- * so the import path is authoritative (hybrid authoring).
+ * so for READING and EDITING the import path is authoritative (hybrid authoring):
+ * an entry is loaded and written where its thunk says, not where its key says.
+ *
+ * That is not a licence to park the file anywhere: `validateJsonValuesEntries`
+ * compares this against {@link getNewJsonEntryPaths} and reports a mismatch as
+ * `jsonValues:rename-entry-file`. The two coexist on purpose — a misplaced file
+ * still WORKS (so the author is told, not broken), it just does not pass
+ * validation.
  */
 export function resolveExistingJsonPath(
   moduleFilePath: string,
