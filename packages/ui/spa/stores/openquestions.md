@@ -423,7 +423,7 @@ schema walk per validation, so it is a perf answer as well as a correctness one.
 
 ---
 
-## 5. The worker seam — PROVEN CROSSABLE, not yet crossed. 🟡
+## 5. The worker seam — CROSSED, in a real thread. 🟢 Measurement pending
 
 **The question was:** three stores are declared worker-realm. Would they actually
 survive a thread boundary, or is "worker realm" a comment?
@@ -489,18 +489,61 @@ indexed rather than with what was asked for. `systemFlow.test.ts` was updated to
 assert the stronger guarantee this enables: after an edit the query returns the
 NEW value and the old one is gone, rather than reporting itself behind.
 
+### 3. The bridge exists, and the stores run in a REAL thread
+
+`workerBridge.ts` is the crossing: `SearchBridge`, `PatchSetBridge` and
+`ReferenceBridge` — which the three stores already satisfy **structurally**,
+because making the seam crossable meant making every method `async` and every
+input an argument. So the in-process default costs nothing and a real worker
+drops in through `SystemOptions.workerRealm` with no caller changing. Exactly the
+shape `SchemaValidationBridge` already had.
+
+`workerEntry.ts` is the realm split made executable — look at its imports: three
+stores, an activity sink, a transport. Nothing that could hold a closure.
+
+`workerBridge.test.ts` runs it in an actual `node:worker_threads` thread: an index
+built in the other thread answers a query from the host, references are scanned
+and `find`/`at` answered over the wire, patch sets are built there. Plus the
+failure modes, because a message-passing bridge fails silently by default: an
+unknown method REPLIES with an error rather than leaving the caller waiting, a
+non-cloneable payload rejects **at the call that sent it** (with a message naming
+the call rather than an unhandled rejection with no stack), and `dispose` rejects
+what is in flight — a promise that never settles is the one outcome a caller can
+neither render nor retry.
+
+Two things learned in the doing, both recorded in the test:
+
+- The worker must load via `tsx/cjs`, not `--import tsx`. The ESM loader does not
+  resolve extensionless relative specifiers, so `workerEntry`'s
+  `import { SearchStore } from "./SearchStore"` dies with ERR_MODULE_NOT_FOUND —
+  which reads as "the worker realm cannot load" when it is really "this loader
+  cannot resolve". A shipped browser worker loads the bundled entry and has no
+  such problem.
+- **Loading is not what enforces the split.** `HostStore` loads fine in a worker;
+  it imports only from core. The boundary is enforced by what a value can CARRY —
+  a `Schema` instance holds closures, and a closure cannot be cloned. Asserted
+  honestly, because "the worker entry imported fine" invites the wrong conclusion.
+
+`jest.config.js` also grew a `modulePathIgnorePatterns` for `.claude/worktrees/`:
+a git worktree inside the repo puts a second copy of every workspace package in
+jest's haste map, and EVERY suite then fails with "looked up in the Haste module
+map" — a failure with nothing to do with the code under test.
+
 ### Still to do
 
-- [ ] **Build the actual bridge.** A `WorkerBridge` in the shape of
-      `SchemaValidationBridge`, an entry module that hosts the three stores inside
-      a worker, and a test that runs a real `node:worker_threads` worker. The API
-      is now crossable, so this is plumbing rather than design — which is exactly
-      what the two items above were for.
-- [ ] Then measure it. A worker moves work off the main thread and adds a clone
+- [ ] **Measure it.** A worker moves work off the main thread and adds a clone
       per call; `bench/` is the place to find out whether that trade is worth
       taking, and for which store. The patch-set store is the likeliest win (a
-      whole-chain rebuild) and the reference store the likeliest loss (small
-      queries, frequent).
+      whole-chain rebuild) and the reference store the likeliest loss (small,
+      frequent queries). Nothing should move to a worker before that number
+      exists — the same discipline item 1 applied to the stores themselves.
+- [ ] **Decide about the two per-realm losses.** With a real worker, the worker
+      stores' events and activity records do not reach the host, so an
+      instrumented run has two ledgers and `activityCost.test.ts`-style
+      assertions about worker work would have to read the worker's. Forwarding
+      them is possible and deliberately not done: every event would become a
+      message, and the point of `noopActivity` is that an uninstrumented run pays
+      one returning call.
 
 ## 6. Nothing is written back to the server. 🟡
 

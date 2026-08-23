@@ -37,6 +37,11 @@ import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
 import { StaleModules } from "./StaleModules";
+import type {
+  PatchSetBridge,
+  ReferenceBridge,
+  SearchBridge,
+} from "./workerBridge";
 
 /**
  * Stores in the HOST realm: they either hold user closures, or need to read
@@ -53,13 +58,19 @@ export type HostRealm = {
 };
 
 /**
- * Stores in the WORKER realm: lazy, snapshot-shaped consumers holding no
- * reference to anything in the host realm.
+ * The WORKER realm: lazy, snapshot-shaped consumers holding no reference to
+ * anything in the host realm.
+ *
+ * Typed as BRIDGES rather than as the concrete stores, and that is the payoff of
+ * making the seam crossable: the in-process store satisfies the bridge
+ * structurally, so the default costs nothing, and a real worker (see
+ * `workerBridge.ts` / `workerEntry.ts`) drops in through `SystemOptions` without
+ * a single caller changing. The same shape `SchemaValidationBridge` already has.
  */
 export type WorkerRealm = {
-  searchStore: SearchStore;
-  patchSetStore: PatchSetStore;
-  referenceStore: ReferenceStore;
+  searchStore: SearchBridge;
+  patchSetStore: PatchSetBridge;
+  referenceStore: ReferenceBridge;
 };
 
 export type System = HostRealm &
@@ -140,6 +151,24 @@ export type SystemOptions = {
    * can fetch it" are different facts and only one of them is about the content.
    */
   fetchJsonEntry?: FetchJsonEntry;
+  /**
+   * The worker realm. Defaults to the in-process stores.
+   *
+   * Supply these to move search, patch sets and references onto a real thread:
+   * `createWorkerBridges(domEndpoint(new Worker(...)))` returns exactly this
+   * shape. Nothing else in the system changes, which is the claim
+   * `architecture.md` has been making about the realm split and
+   * `workerBridge.test.ts` is what checks it — in an actual second thread.
+   *
+   * Two things do NOT cross and are lost when you do this: the worker stores'
+   * events and their activity records, both of which are per-realm. See the
+   * header of `workerBridge.ts`.
+   */
+  workerRealm?: {
+    search: SearchBridge;
+    patchSets: PatchSetBridge;
+    references: ReferenceBridge;
+  };
 };
 
 /**
@@ -207,9 +236,12 @@ export function createSystem(options: SystemOptions): System {
   );
 
   // --- worker realm ---------------------------------------------------------
-  const searchStore = new SearchStore(activity);
-  const patchSetStore = new PatchSetStore(activity);
-  const referenceStore = new ReferenceStore(activity);
+  const searchStore: SearchBridge =
+    options.workerRealm?.search ?? new SearchStore(activity);
+  const patchSetStore: PatchSetBridge =
+    options.workerRealm?.patchSets ?? new PatchSetStore(activity);
+  const referenceStore: ReferenceBridge =
+    options.workerRealm?.references ?? new ReferenceStore(activity);
   // Staleness is tracked HERE, on the host, not inside the worker-realm stores.
   // The host is the side that sees the change; keeping the set in the worker
   // meant pushing it in and reading it back, which across a thread boundary is

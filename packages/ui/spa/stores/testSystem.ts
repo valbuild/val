@@ -9,6 +9,9 @@ import {
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { createSystem, type System } from "./createSystem";
+import { SearchStore } from "./SearchStore";
+import { PatchSetStore } from "./PatchSetStore";
+import { ReferenceStore } from "./ReferenceStore";
 import { RecordingActivity } from "./activity";
 import type { CreatePatchResult } from "./PatchStore";
 import type { SourcePeek } from "./SourceStore";
@@ -463,7 +466,21 @@ export function initTestSystem(): TestSystem {
   const entryKey = (moduleFilePath: string, key: string) =>
     `${moduleFilePath}\0${key}`;
 
+  // The worker-realm stores are constructed HERE and handed in through
+  // `workerRealm`, rather than left to `createSystem`'s default. Two reasons,
+  // both real: the rig needs concrete references to attach the ledger to their
+  // event buses (a bridge has no `events` — that is the per-realm loss the seam
+  // documents), and passing them exercises the option a real worker would use.
+  const workerSearch = new SearchStore(activity);
+  const workerPatchSets = new PatchSetStore(activity);
+  const workerReferences = new ReferenceStore(activity);
+
   const system = createSystem({
+    workerRealm: {
+      search: workerSearch,
+      patchSets: workerPatchSets,
+      references: workerReferences,
+    },
     uploadFile: async ({ patchId, filePath, data }) => {
       // Genuinely async, so no store can come to depend on an upload resolving
       // synchronously — against a real POST it never will.
@@ -548,10 +565,10 @@ export function initTestSystem(): TestSystem {
     system.schemaStore.events.onAny((event) => ledger.record(event)),
     system.patchStore.events.onAny((event) => ledger.record(event)),
     system.sourceStore.events.onAny((event) => ledger.record(event)),
-    system.patchSetStore.events.onAny((event) => ledger.record(event)),
+    workerPatchSets.events.onAny((event) => ledger.record(event)),
     system.validationStore.events.onAny((event) => ledger.record(event)),
-    system.searchStore.events.onAny((event) => ledger.record(event)),
-    system.referenceStore.events.onAny((event) => ledger.record(event)),
+    workerSearch.events.onAny((event) => ledger.record(event)),
+    workerReferences.events.onAny((event) => ledger.record(event)),
     system.host.events.onAny((event) => ledger.record(event)),
     system.renderStore.events.onAny((event) => ledger.record(event)),
   ];

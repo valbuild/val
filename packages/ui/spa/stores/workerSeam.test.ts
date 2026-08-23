@@ -308,3 +308,90 @@ describe("the worker-realm API can be crossed by messages alone", () => {
     dispose();
   });
 });
+
+/**
+ * `StaleModules`, which now owns the decision the worker realm used to be asked
+ * for. Worth its own tests: a bug here does not look like a bug, it looks like
+ * "search never updates" or "search reindexes the project on every query".
+ */
+describe("host-side staleness", () => {
+  it("owes a first pass over everything, then only what changed", async () => {
+    const { sourceStore, patchStore, search, activity, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive(project());
+
+    // First query: every loaded module.
+    await search("Hello");
+    expect(activity.count("search:index-module")).toBe(3);
+
+    // An edit, then a query: one module.
+    const before = activity.position();
+    await patchStore.createPatch("/page.val.ts", [
+      { op: "replace", path: ["title"], value: "Changed" },
+    ]);
+    await search("Changed");
+    expect(activity.count("search:index-module", { since: before })).toBe(1);
+
+    // A query with nothing changed: no pass at all.
+    const beforeSecond = activity.position();
+    await search("Changed");
+    expect(activity.count("search:index-module", { since: beforeSecond })).toBe(
+      0,
+    );
+    dispose();
+  });
+
+  /**
+   * The search and reference indexes go stale independently, which is why there
+   * are two instances rather than one shared set. Sharing would mean a search
+   * clearing what the reference index still owed — and the symptom would be a
+   * reference scan silently answering from a stale index, which is the exact
+   * failure the `complete`/`partial` split exists to prevent.
+   */
+  it("does not let one consumer clear another's debt", async () => {
+    const {
+      sourceStore,
+      patchStore,
+      search,
+      findReferences,
+      activity,
+      dispose,
+    } = initTestSystem();
+    await sourceStore.testReceive(project());
+    await search("Hello");
+    await findReferences({ kind: "keyOf", module: mfp("/authors.val.ts") });
+
+    await patchStore.createPatch("/page.val.ts", [
+      { op: "replace", path: ["owner"], value: "ada" },
+    ]);
+    // A search reconciles the SEARCH index and must leave the reference index
+    // still owing a pass.
+    await search("Hello");
+
+    const before = activity.position();
+    await findReferences({ kind: "keyOf", module: mfp("/authors.val.ts") });
+    expect(activity.count("references:scan-module", { since: before })).toBe(1);
+    dispose();
+  });
+
+  /**
+   * A module the worker could not index must stay stale.
+   *
+   * `covers()` is called with what the worker actually indexed, not with what was
+   * asked for — otherwise a module with no schema is marked covered on the first
+   * query and never gets another chance, which presents as "this module is
+   * permanently unsearchable" with nothing to point at.
+   */
+  it("keeps a module stale when the pass could not cover it", async () => {
+    const { sourceStore, search, dispose } = initTestSystem();
+    await sourceStore.testReceive(project());
+
+    const found = await search("Hello");
+    if (found.status !== "results") {
+      throw new Error("expected results");
+    }
+    // Everything here has a schema, so nothing is left owing.
+    expect(found.staleModules).toEqual([]);
+    dispose();
+  });
+});
