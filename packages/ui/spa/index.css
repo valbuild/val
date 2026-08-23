@@ -23,31 +23,31 @@
   *[data-mode="light"] {
     --colors-base-white: #ffffff;
 
-    --colors-gray-light-mode-gray-100: #f2f4f7;
-    --colors-gray-light-mode-gray-200: #e4e7ec;
-    --colors-gray-light-mode-gray-300: #d0d5dd;
-    --colors-gray-light-mode-gray-400: #98a2b3;
-    --colors-gray-light-mode-gray-500: #697586;
-    --colors-gray-light-mode-gray-600: #475467;
-    --colors-gray-light-mode-gray-700: #344054;
-    --colors-gray-light-mode-gray-800: #182230;
-    --colors-gray-light-mode-gray-900: #101828;
-    --colors-gray-light-mode-gray-950: #0c111d;
-    --colors-gray-light-mode-gray-50: #f9fafb;
-    --colors-gray-light-mode-gray-25: #fcfcfd;
+    --colors-gray-light-mode-gray-100: #f4f4f5;
+    --colors-gray-light-mode-gray-200: #e8e8ea;
+    --colors-gray-light-mode-gray-300: #ccccd2;
+    --colors-gray-light-mode-gray-400: #86868f;
+    --colors-gray-light-mode-gray-500: #6b6b74;
+    --colors-gray-light-mode-gray-600: #52525a;
+    --colors-gray-light-mode-gray-700: #3f3f46;
+    --colors-gray-light-mode-gray-800: #27272a;
+    --colors-gray-light-mode-gray-900: #18181b;
+    --colors-gray-light-mode-gray-950: #09090b;
+    --colors-gray-light-mode-gray-50: #fafafa;
+    --colors-gray-light-mode-gray-25: #fcfcfc;
 
     --colors-gray-dark-mode-gray-25: #fafafa;
-    --colors-gray-dark-mode-gray-50: #f5f5f6;
-    --colors-gray-dark-mode-gray-100: #f0f1f1;
-    --colors-gray-dark-mode-gray-200: #ececed;
-    --colors-gray-dark-mode-gray-300: #cecfd2;
-    --colors-gray-dark-mode-gray-400: #94969c;
-    --colors-gray-dark-mode-gray-500: #85888e;
-    --colors-gray-dark-mode-gray-600: #51525c;
-    --colors-gray-dark-mode-gray-700: #333741;
-    --colors-gray-dark-mode-gray-800: #25282f;
-    --colors-gray-dark-mode-gray-900: #161b26;
-    --colors-gray-dark-mode-gray-950: #0c111d;
+    --colors-gray-dark-mode-gray-50: #f5f5f5;
+    --colors-gray-dark-mode-gray-100: #f0f0f1;
+    --colors-gray-dark-mode-gray-200: #e4e4e7;
+    --colors-gray-dark-mode-gray-300: #d6d6da;
+    --colors-gray-dark-mode-gray-400: #a3a3ab;
+    --colors-gray-dark-mode-gray-500: #90909a;
+    --colors-gray-dark-mode-gray-600: #52525a;
+    --colors-gray-dark-mode-gray-700: #36363d;
+    --colors-gray-dark-mode-gray-800: #1e1e22;
+    --colors-gray-dark-mode-gray-900: #131316;
+    --colors-gray-dark-mode-gray-950: #08080a;
 
     --colors-warning-yellow-25: #fffcf5;
     --colors-warning-yellow-50: #fffaeb;
@@ -83,16 +83,6 @@
     --colors-error-red-800: #560009;
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
-
-    /* Neutral dark surfaces for the shell. The gray-dark-mode scale above is
-       noticeably blue; against it the brand green reads as a second hue
-       competing with the first. These are near-neutral and darker, so the
-       canvas recedes and green is the only colour in the room. */
-    --colors-neutral-dark-1000: #08080a;
-    --colors-neutral-dark-950: #101013;
-    --colors-neutral-dark-900: #131316;
-    --colors-neutral-dark-800: #1e1e22;
-    --colors-neutral-dark-700: #2a2a2f;
 
     --radius: 0.5rem;
 
@@ -142,8 +132,8 @@
     /* Warning secondary: filled accent (rail, icon, pill) */
     --bg-warning-secondary: var(--colors-warning-yellow-500);
     --bg-warning-secondary-hover: var(--colors-warning-yellow-600);
-    --fg-warning-secondary: var(--colors-warning-yellow-50);
-    --fg-warning-secondary-alt: var(--colors-warning-yellow-100);
+    --fg-warning-secondary: var(--colors-warning-yellow-950);
+    --fg-warning-secondary-alt: var(--colors-warning-yellow-900);
     --border-warning-secondary: var(--colors-warning-yellow-600);
 
     /* Error colors */
@@ -173,7 +163,7 @@
     --bg-surface: var(--colors-base-white);
     --bg-float: var(--colors-base-white);
     --bg-float-raised: var(--colors-gray-light-mode-gray-100);
-    --border-float: var(--colors-gray-light-mode-gray-200);
+    --border-float: var(--colors-gray-light-mode-gray-300);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
@@ -254,11 +244,11 @@
        the editor's own field surfaces sit just above it, and the floating
        chrome is lifted one step further so a panel reads as hovering rather
        than as part of the page. */
-    --bg-canvas: var(--colors-neutral-dark-1000);
-    --bg-surface: var(--colors-neutral-dark-950);
-    --bg-float: var(--colors-neutral-dark-900);
-    --bg-float-raised: var(--colors-neutral-dark-800);
-    --border-float: var(--colors-neutral-dark-700);
+    --bg-canvas: var(--colors-gray-dark-mode-gray-950);
+    --bg-surface: var(--colors-gray-dark-mode-gray-900);
+    --bg-float: var(--colors-gray-dark-mode-gray-900);
+    --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
+    --border-float: var(--colors-gray-dark-mode-gray-700);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);

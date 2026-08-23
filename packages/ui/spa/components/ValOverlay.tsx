@@ -68,6 +68,7 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import { OverlayMenuBar, OverlayMenuDivider } from "./shell/OverlayMenu";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
@@ -711,7 +712,7 @@ function Window({
       ></div>
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
+          "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
           "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
@@ -1029,7 +1030,7 @@ function ChatWindow({
     >
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
+          "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
           "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
           { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
         )}
@@ -1144,9 +1145,12 @@ function ChatWindow({
 // menu is exactly icon + padding + border tall: an inline icon sits on the text
 // baseline, which adds descender space that varies with the inherited
 // line-height and makes the buttons different heights
+// Kept in step with OverlayMenuButton: the overlay's own buttons and the ones
+// rendered inside its windows have to look like the same control.
 const buttonClassName =
-  "inline-flex items-center justify-center p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
-const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
+  "inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors disabled:text-fg-disabled disabled:pointer-events-none";
+const buttonInactiveClassName =
+  "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
 
 function WindowField({
   path: path,
@@ -1367,14 +1371,14 @@ function ValMenu({
       {/* See ValNextProvider: this same snippet is used there  */}
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <AnimatedClock size={16} />
           </div>
         </div>
       )}
       {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <a
               href={urlOf("/api/val/authorize", {
                 redirect_to: window.location.href,
@@ -1393,16 +1397,7 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2 items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
-        >
+        <OverlayMenuBar orientation={dir} ghost={ghost}>
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
               <MenuButton
@@ -1465,15 +1460,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <div
-            className={classNames("self-stretch border-border-primary", {
-              // a horizontal rule in the vertical menu, a vertical rule in the
-              // horizontal one - otherwise it is an invisible element that
-              // only eats gap
-              "border-t": dir === "vertical",
-              "border-l": dir === "horizontal",
-            })}
-          ></div>
+          <OverlayMenuDivider orientation={dir} />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton
@@ -1611,7 +1598,7 @@ function ValMenu({
               </div>
             </PopoverContent>
           </Popover>
-        </div>
+        </OverlayMenuBar>
       </AnimateHeight>
       <AnimateHeight
         isOpen={
@@ -1620,16 +1607,7 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary text-fg-primary gap-2 justify-center items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
-        >
+        <OverlayMenuBar orientation={dir} ghost={ghost}>
           <MenuButton
             label="Enable preview mode"
             disabled={draftModeLoading}
@@ -1663,7 +1641,7 @@ function ValMenu({
             icon={<X size={16} />}
             onClick={() => disableOverlay()}
           />
-        </div>
+        </OverlayMenuBar>
       </AnimateHeight>
     </div>
   );
@@ -1764,9 +1742,12 @@ function PendingChangesBadge({
         "absolute -top-2 -right-2 inline-flex justify-center items-center px-1 h-4 min-w-[1rem] text-[9px] font-medium leading-none rounded-full tabular-nums",
         // ring in the menu background color so the badge reads as a separate
         // dot on top of the button instead of blending into it
-        "ring-2 ring-bg-primary",
+        "ring-2 ring-bg-float",
         {
-          "bg-bg-brand-primary text-fg-brand-primary": !isError,
+          // A pending-change count is information, not a warning: it inverts to
+          // the foreground colour rather than spending the brand hue on it.
+          // Validation errors stay red, because they block publishing.
+          "bg-fg-primary text-bg-float": !isError,
           "bg-bg-error-primary text-fg-error-primary": isError,
         },
       )}
@@ -1804,8 +1785,7 @@ const MenuButton = React.forwardRef<
     ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
-      "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
-        active,
+      "bg-bg-float-raised text-fg-primary": active,
       [buttonInactiveClassName]: !active,
     });
 

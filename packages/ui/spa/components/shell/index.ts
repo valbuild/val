@@ -5,6 +5,15 @@ export { TopBar, PublishButton } from "./TopBar";
 export { StatusBar } from "./StatusBar";
 export { FloatingPanel } from "./FloatingPanel";
 export {
+  OverlayMenuBar,
+  OverlayMenuButton,
+  OverlayMenuDivider,
+  OverlayMenuBadge,
+  dockOrientation,
+  overlayDockClassName,
+} from "./OverlayMenu";
+export type { OverlayDock, OverlayMenuOrientation } from "./OverlayMenu";
+export {
   GlobalSearch,
   collectSearchResults,
   useGlobalSearchShortcut,
