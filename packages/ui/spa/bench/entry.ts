@@ -7,6 +7,11 @@ import {
 } from "./scenarios";
 import { generateProject, SIZES } from "./generateProject";
 import { runReactScenario, type ReactSample } from "./reactHarness";
+import {
+  measureProbeFloor,
+  runSeam,
+  type SeamResult,
+} from "./workerSeamScenarios";
 
 /**
  * The browser entry point.
@@ -37,12 +42,28 @@ declare global {
         repetitions?: number,
         sizes?: string[],
       ): Promise<{ driver: string; size: string; samples: ReactSample[] }[]>;
+      /**
+       * The worker realm in a REAL worker, against the same realm in-process.
+       * A different question from every other measurement here: not "which
+       * system", but "is this seam worth crossing".
+       */
+      runWorkerSeam(
+        repetitions?: number,
+        sizes?: string[],
+      ): Promise<{ probeFloorMs: number; results: SeamResult[] }>;
     };
   }
 }
 
 window.valBench = {
   buildForMemory,
+  async runWorkerSeam(repetitions = 5, sizes = Object.keys(SIZES)) {
+    // The floor first, on an idle page: a block reading at the probe's own
+    // resolution means "nothing longer than this happened", and a reader cannot
+    // tell that from the reading alone.
+    const probeFloorMs = await measureProbeFloor();
+    return { probeFloorMs, results: await runSeam(repetitions, sizes) };
+  },
   releaseMemoryHold,
   async runReact(repetitions = 5, sizes = Object.keys(SIZES)) {
     const rows: { driver: string; size: string; samples: ReactSample[] }[] = [];

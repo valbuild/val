@@ -503,6 +503,16 @@ _before its cause_, and a ledger reading `validation:invalidate` then
 | `search`     | worker | the full-text index                                 | The most expensive walk in the system, so it must never be a side effect of an edit.                                                                                                 |
 | `references` | worker | who points at what, per module                      | Answers _"is it safe to delete this?"_ — and only something that knows what is loaded can say whether the answer is exhaustive. Three separate whole-project walks in the app today. |
 
+"Worker realm" in this table means **may not hold a host reference and must be
+reachable through a cloneable, asynchronous API** — a constraint on the design,
+which is what makes the split checkable. It is not a plan to put all three in a
+worker. Measured (`bench/README.md`), only search is worth the crossing: patch
+sets and reference rescan hand over the whole project to do 0.1 ms and 2 ms of
+work, so a worker makes their main-thread blocking 76x and 4.3x **worse**. The
+constraint still earns its place for all three — it is what forced the
+synchronous reads out of `createSystem` — but the placement it permits is only
+taken where the number says so.
+
 ## Testing
 
 `testSystem.ts` provides `initTestSystem()`: the real graph across both realms,
@@ -672,19 +682,41 @@ finished work.
   also closed two defects that shared its cause: a patch announced before its
   module loaded was dropped for good (and left the head `partial` forever), and
   re-intake silently discarded pending local edits.
-- **No real worker.** Both realms run in one thread today, behind the seams that
-  would let them split (`SchemaValidationBridge`, and the snapshot arguments).
-  Nothing has been wired to `postMessage`.
+- ~~**No real worker.**~~ **Crossable, crossed and measured — and only one of
+  the three should go.** `workerBridge.ts` forwards each bridge over a
+  `MessageEndpoint`, `workerEntry.ts` hosts the realm, and `workerBridge.test.ts`
+  runs it in an actual `node:worker_threads` thread. Making it crossable required
+  a real fix, not a wiring exercise: `createSystem` read across the seam
+  SYNCHRONOUSLY in eight places, which across a thread boundary is impossible
+  rather than slow (see `openquestions.md` item 5).
+  Then it was measured, and the answer is per OPERATION, not per store: search
+  should move (112 ms and 43 ms of never-yielding main thread, cut to 9 ms and
+  0.2 ms), patch sets must not (its arguments are every schema in the project, so
+  a worker makes blocking 76x **worse**), references must not (the walk is 2 ms
+  and cloning the project to avoid it costs 9 ms). Nothing is wired to a real
+  `postMessage` in the shipped path yet, and after the measurement only search
+  should be.
 - **No per-module patch-set reset.** `PatchSets` has no per-module removal, so
   `PatchSetStore.reset(modules)` throws rather than quietly resetting everything.
 - ~~**Search rebuilds whole.**~~ **Done.** Indexing is per module. The stated
   blocker — "incremental update needs a per-module document-id list" — turned out
   to be half wrong: the document ids ARE the source paths (`index.add(path, …)`),
-  so nothing opaque was ever involved, and `SearchIndex` now keeps
-  `docsByModule` only so removal costs O(that module) instead of O(the project).
-  A query indexes what it owes and nothing else, and the gather is scoped to the
-  same set — so one edit then one query no longer copies and re-walks every
-  module.
+  so nothing opaque was ever involved, and `SearchIndex` keeps
+  `docsByModule` so that removal touches only that module's document ids. A query
+  indexes what it owes and nothing else, and the gather is scoped to the same set
+  — so one edit then one query no longer copies and re-walks every module.
+
+  **Corrected by measurement:** this bullet used to claim removal therefore
+  "costs O(that module) instead of O(the project)". That is wrong, and it is the
+  kind of claim only a duration could catch. `docsByModule` bounds how many ids
+  are removed; it does not bound the cost of removing one. FlexSearch's
+  `index.remove(id)` scans the whole index unless the index was built with
+  `fastupdate`, so removal is O(that module's docs × the project). Measured, an
+  incremental reindex of ONE module costs **43 ms** of main thread that never
+  yields — `bench/README.md`, "an adjacent finding". `fastupdate: true` cuts it to
+  1.70 ms and breaks search (`index.search` returns `undefined` after a removal,
+  caught by `systemFlow.test.ts`), so this is still open.
+
 - **`stat` has no real input.** No polling, no websocket, and it ignores
   `baseSha`/`schemaSha`/`sourcesSha`. Those are inputs to `schemaStore.receive`,
   not new events.

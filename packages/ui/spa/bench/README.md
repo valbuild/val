@@ -7,6 +7,9 @@ node packages/ui/spa/bench/run.mjs --size small,large,page # diagnostic sizes
 node packages/ui/spa/bench/run.mjs --json /tmp/bench.json  # keep the raw samples
 ```
 
+Every run includes the worker-seam table (see below), which needs a second bundle
+and a real `Worker` — both are set up by the runner, same as everything else.
+
 No setup: the runner bundles with the esbuild binary out of the pnpm store,
 launches the preinstalled Chromium, and drives it over CDP with node's built-in
 `fetch` and `WebSocket`. Playwright is not needed and not used.
@@ -100,6 +103,83 @@ the architecture notes. `examples/next` now carries the same shape for real —
 a 344 KB generated handbook (`cd examples/next && pnpm handbook generate`) with
 nested lists, richtext, images, routes and `keyOf` references, in a project that
 really builds and really validates.
+
+## The worker seam
+
+The other tables compare two systems. This one compares two **placements** of the
+same three stores: `SearchStore`, `PatchSetStore` and `ReferenceStore`, in-process
+against a real `Worker` (`workerRealmEntry.ts`, bundled separately and served at
+`/worker.js`, wired in through `SystemOptions.workerRealm`).
+
+A worker buys exactly one thing — the compute stops occupying the main thread —
+and pays for it with a structured clone of the arguments (**synchronously, on the
+main thread**, inside `postMessage`), a clone of the result, and a task hop each
+way. So two columns, and the decision is the pair:
+
+- **`total`** is wall clock. A worker should always LOSE it: same work, plus two
+  clones, plus scheduling.
+- **`delay`** is how long a macrotask queued behind the call had to wait before it
+  could run — the latency a keystroke arriving mid-operation would suffer. This is
+  the only thing a worker can improve, and it is what typing feel is made of.
+
+`!` means the main thread never yielded once during the region. Every in-process
+row is marked, which is a fact about the current design that no invocation count
+could have shown.
+
+Measured at `screen`, 15 reps:
+
+| op               | payload | in-proc delay | worker delay |  total | verdict                      |
+| ---------------- | ------- | ------------- | ------------ | -----: | ---------------------------- |
+| `search:index`   | 1407 KB | **112 ms** !  | 8.9 ms       |   1.3x | **move it**                  |
+| `search:reindex` | 11 KB   | **43 ms** !   | 0.2 ms       |  0.7x? | **move it**                  |
+| `search:query`   | 0 B     | 0.6 ms !      | 0.1 ms       |   5.2x | nothing to move              |
+| `patchSets`      | 1120 KB | 0.1 ms !      | **7.6 ms**   | 198.0x | **no — makes blocking 76x**  |
+| `refs:rescan`    | 1407 KB | 2.0 ms !      | **8.6 ms**   |  14.5x | **no — makes blocking 4.3x** |
+| `refs:find`      | 0 B     | 0.1 ms !      | 0.1 ms       |     -? | nothing to move              |
+| `refs:at`        | 0 B     | 0.1 ms !      | 0.1 ms       |     -? | nothing to move              |
+
+**Both halves of the standing hypothesis were wrong.** `openquestions.md` said
+the patch-set store was the likeliest win (a whole-chain rebuild) and the
+reference store the likeliest loss (small, frequent queries).
+
+Patch sets is the worst loss on the board, and not because the rebuild is big —
+it is 0.1 ms. It is because its ARGUMENTS are every serialized schema in the
+project, 1.1 MB, cloned on every single call. The clone is 76 times the work it
+was supposed to be moving. References does lose, but in `rescan` (the
+whole-project gather), not in the small frequent queries — those are 0.1 ms
+either way and there is nothing there to win or lose.
+
+The rule underneath: **a worker is paid by the size of the compute and charged by
+the size of the arguments.** Search wins because indexing 141 modules is
+genuinely expensive. Patch sets and reference rescan lose because they hand over
+the whole project to do a couple of milliseconds of work.
+
+That is a design consequence, not just a benchmark result. The reason those two
+pass the whole project is the fix that made the seam crossable at all: the stores
+were made pure, so they are handed a snapshot and a query and answer without
+interrogating anyone. In-process that is free, because passing a snapshot is
+passing a reference. Across a seam it is 1.1 MB. Moving either would need a
+STATEFUL seam — each module sent once, then deltas — which is a different API from
+the purity that fixed the synchronous-read problem. The tension is real and is
+recorded in `openquestions.md` item 5.
+
+### An adjacent finding: 43 ms to reindex one module
+
+`search:reindex` is one module edited, then one query — and it costs 43 ms of
+main thread that never yields. The query alone is 0.6 ms, so essentially all of it
+is reindexing a single module.
+
+The cause is `removeModule`: `indexModule` is remove-then-add, and FlexSearch's
+`index.remove(id)` scans the whole index per document when the index is built
+without `fastupdate`. Setting `fastupdate: true` was measured and cuts it
+**43.3 ms → 1.70 ms** (25x) — and is NOT a usable fix: `systemFlow.test.ts` fails
+with it, because with `fastupdate` FlexSearch's `index.search` returns `undefined`
+rather than `[]` once documents have been removed. So the magnitude and the cause
+are established, the obvious one-liner is ruled out with evidence, and the fix
+belongs to whoever picks up the search index.
+
+Note it also flips that row's verdict: at 1.7 ms there would be nothing left to
+move to a worker.
 
 ## What is deliberately not measured
 

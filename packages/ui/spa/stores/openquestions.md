@@ -423,7 +423,7 @@ schema walk per validation, so it is a perf answer as well as a correctness one.
 
 ---
 
-## 5. The worker seam — CROSSED, in a real thread. 🟢 Measurement pending
+## 5. The worker seam — CROSSED and MEASURED. 🟢
 
 **The question was:** three stores are declared worker-realm. Would they actually
 survive a thread boundary, or is "worker realm" a comment?
@@ -529,14 +529,64 @@ a git worktree inside the repo puts a second copy of every workspace package in
 jest's haste map, and EVERY suite then fails with "looked up in the Haste module
 map" — a failure with nothing to do with the code under test.
 
+### 4. Measured — and the hypothesis was wrong in both halves
+
+`bench/workerSeamScenarios.ts` runs the three stores in a real `Worker` against
+the same three in-process, per OPERATION rather than per store, because one store
+can hold both kinds of call. Two columns: wall-clock `total`, and `delay` — how
+long a macrotask queued behind the call waited before it could run, which is the
+latency a keystroke arriving mid-operation would suffer and the only thing a
+worker can improve.
+
+`screen`, 15 reps. Full table and method in `bench/README.md`:
+
+| op               | payload | in-proc delay | worker delay |  total | verdict     |
+| ---------------- | ------- | ------------- | ------------ | -----: | ----------- |
+| `search:index`   | 1407 KB | **112 ms**    | 8.9 ms       |   1.3x | **move it** |
+| `search:reindex` | 11 KB   | **43 ms**     | 0.2 ms       |  0.7x? | **move it** |
+| `search:query`   | 0 B     | 0.6 ms        | 0.1 ms       |   5.2x | no          |
+| `patchSets`      | 1120 KB | 0.1 ms        | **7.6 ms**   | 198.0x | **no**      |
+| `refs:rescan`    | 1407 KB | 2.0 ms        | **8.6 ms**   |  14.5x | **no**      |
+| `refs:find`      | 0 B     | 0.1 ms        | 0.1 ms       |     -? | no          |
+| `refs:at`        | 0 B     | 0.1 ms        | 0.1 ms       |     -? | no          |
+
+This section previously predicted the patch-set store as the likeliest win and
+the reference store as the likeliest loss. **Both were wrong.**
+
+Patch sets is the worst loss on the board — and not because the rebuild is big, it
+is 0.1 ms. It is because its ARGUMENTS are every serialized schema in the project,
+1.1 MB, cloned on every call. In a worker it makes main-thread blocking 76x
+**worse** than not having a worker. References does lose, but in `rescan`, not in
+the small frequent queries the prediction was about: `find` and `at` are 0.1 ms
+either way, so there is nothing there to win or lose.
+
+The rule underneath: **a worker is paid by the size of the compute and charged by
+the size of the arguments.** Search is the only one of the three where indexing is
+expensive enough relative to its payload to pay for the crossing — and there it
+pays a lot: 112 ms and 43 ms of main thread that, as the `!` markers in the bench
+output show, never yields once.
+
+**The tension this exposes.** The reason patch sets and reference rescan pass the
+whole project is section 2's fix: the stores were made pure, handed a snapshot and
+a query so they interrogate nobody. In-process that is free — passing a snapshot
+is passing a reference. Across a seam it is 1.1 MB. Moving either would require a
+STATEFUL seam (each module sent once, then deltas), which is a different API from
+the purity that made the seam crossable in the first place. So the two properties
+pull against each other, and the resolution is not "make everything stateful": it
+is that only search is worth moving, and search's payload is worth its compute.
+
+An adjacent finding the measurement produced, recorded because it is the largest
+main-thread block in the system after intake: **an incremental reindex of ONE
+module costs 43 ms.** The query is 0.6 ms of that. The cause is `indexModule`'s
+remove-then-add — FlexSearch's `index.remove(id)` scans the whole index per
+document when the index is built without `fastupdate`. `fastupdate: true` was
+measured and cuts it 43.3 ms → 1.70 ms, and is NOT usable: `systemFlow.test.ts`
+fails with it, because with `fastupdate` FlexSearch's `index.search` returns
+`undefined` instead of `[]` once documents have been removed. Cause and magnitude
+established, the one-liner ruled out with evidence, fix left to the search index.
+
 ### Still to do
 
-- [ ] **Measure it.** A worker moves work off the main thread and adds a clone
-      per call; `bench/` is the place to find out whether that trade is worth
-      taking, and for which store. The patch-set store is the likeliest win (a
-      whole-chain rebuild) and the reference store the likeliest loss (small,
-      frequent queries). Nothing should move to a worker before that number
-      exists — the same discipline item 1 applied to the stores themselves.
 - [ ] **Decide about the two per-realm losses.** With a real worker, the worker
       stores' events and activity records do not reach the host, so an
       instrumented run has two ledgers and `activityCost.test.ts`-style

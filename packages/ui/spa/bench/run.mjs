@@ -96,11 +96,46 @@ process.stderr.write(
   "bundle: " + (bundle.length / 1024).toFixed(0) + " KB minified\n",
 );
 
+/**
+ * The worker realm, bundled separately.
+ *
+ * It cannot share the page bundle: that one is an IIFE which assigns
+ * `window.valBench`, and a worker has no `window`. Two entry points is also the
+ * shape a shipped Studio would have, so this is not a benchmark-only compromise.
+ */
+const workerBundlePath = path.join(work, "worker.js");
+await sh(
+  ESBUILD,
+  [
+    path.join(HERE, "workerRealmEntry.ts"),
+    "--bundle",
+    "--format=iife",
+    "--platform=browser",
+    "--target=chrome120",
+    "--minify",
+    '--define:process.env.NODE_ENV="production"',
+    "--outfile=" + workerBundlePath,
+    "--log-level=error",
+  ],
+  { cwd: REPO },
+);
+const workerBundle = readFileSync(workerBundlePath, "utf8");
+process.stderr.write(
+  "worker bundle: " + (workerBundle.length / 1024).toFixed(0) + " KB\n",
+);
+
 // --- 2. serve --------------------------------------------------------------
 const server = createServer((req, res) => {
   if (req.url === "/bench.js") {
     res.writeHead(200, { "content-type": "text/javascript" });
     res.end(bundle);
+    return;
+  }
+  // Same origin, so a classic `new Worker("/worker.js")` is allowed. A blob URL
+  // would work too and would hide the fact that this is a separate script.
+  if (req.url === "/worker.js") {
+    res.writeHead(200, { "content-type": "text/javascript" });
+    res.end(workerBundle);
     return;
   }
   res.writeHead(200, { "content-type": "text/html" });
@@ -287,6 +322,15 @@ const reactRows = await evaluate(
     ", " +
     JSON.stringify(sizes) +
     ")",
+);
+
+// --- 3d. the worker seam ----------------------------------------------------
+process.stderr.write("measuring the worker seam (real worker)...\n");
+// The full `--reps`, not a cap: the seam's own ranges turned out to be the
+// widest in this benchmark (an incremental reindex measured 17-57 ms), so this
+// is the table that needs samples most.
+const seam = await evaluate(
+  "window.valBench.runWorkerSeam(" + reps + ", " + JSON.stringify(sizes) + ")",
 );
 
 ws.close();
@@ -497,6 +541,122 @@ console.log(
   "  a few percent but repeating it does not make it more meaningful.",
 );
 
+// --- the worker seam -------------------------------------------------------
+/**
+ * Two columns, and the decision is the pair.
+ *
+ * `total` is wall clock: a worker should always LOSE it, because it does the
+ * same work plus two structured clones plus scheduling. `block` is the longest
+ * uninterrupted main-thread task during the call, which is the only thing a
+ * worker can improve and the only thing a keystroke feels.
+ *
+ * So a row is worth moving to a worker when its `block` drops a lot and its
+ * `total` does not matter — a background pass. It is not worth moving when
+ * `block` was already small, because then all the worker did was add latency.
+ */
+console.log("");
+console.log("the worker seam: three stores in a REAL worker vs in-process");
+console.log(
+  "  " +
+    "op".padEnd(15) +
+    "payload".padStart(9) +
+    "  |" +
+    "in-proc total".padStart(14) +
+    "delay".padStart(9) +
+    "  |" +
+    "worker total".padStart(13) +
+    "delay".padStart(9) +
+    "  |" +
+    "  total".padStart(8) +
+    "delay".padStart(8),
+);
+const seamByCell = new Map();
+for (const row of seam.results) {
+  seamByCell.set(row.size + " " + row.op + " " + row.realm, row);
+}
+const seamOps = [...new Set(seam.results.map((r) => r.op))];
+for (const size of sizes) {
+  if (!seam.results.some((r) => r.size === size)) continue;
+  for (const op of seamOps) {
+    const local = seamByCell.get(size + " " + op + " in-process");
+    const worker = seamByCell.get(size + " " + op + " worker");
+    if (!local || !worker) continue;
+    const lt = median(local.samples.map((s) => s.totalMs));
+    const wt = median(worker.samples.map((s) => s.totalMs));
+    const lb = median(local.samples.map((s) => s.maxDelayMs));
+    const wb = median(worker.samples.map((s) => s.maxDelayMs));
+    const bytes = median(worker.samples.map((s) => s.payloadBytes));
+    // Zero ticks means the main thread never yielded once during the region.
+    // Marked, because "waited 121 ms" and "never got a turn at all" are the
+    // same reading and not the same fact.
+    const lYield = local.samples.every((s) => s.ticks === 0) ? "!" : " ";
+    const wYield = worker.samples.every((s) => s.ticks === 0) ? "!" : " ";
+    // The same rule the main table follows, and it earned its place here: an
+    // incremental reindex measured 17-57 ms in-process against 28-36 in the
+    // worker, whose medians say "the worker is 0.7x, i.e. FASTER" - which is
+    // impossible, and is just the ranges overlapping.
+    const overlaps = (a, b) =>
+      Math.min(...a) <= Math.max(...b) && Math.min(...b) <= Math.max(...a);
+    const lTotals = local.samples.map((s) => s.totalMs);
+    const wTotals = worker.samples.map((s) => s.totalMs);
+    const lDelays = local.samples.map((s) => s.maxDelayMs);
+    const wDelays = worker.samples.map((s) => s.maxDelayMs);
+    const totalMark = overlaps(lTotals, wTotals) ? "?" : " ";
+    const delayMark = overlaps(lDelays, wDelays) ? "?" : " ";
+    // `answered` is this table's `fieldsReady`: if the two realms disagree on
+    // what the call returned, the row is not a comparison.
+    const la = local.samples[0]?.answered ?? 0;
+    const wa = worker.samples[0]?.answered ?? 0;
+    const payload =
+      bytes >= 1024 ? (bytes / 1024).toFixed(0) + " KB" : bytes + " B";
+    console.log(
+      "  " +
+        op.padEnd(15) +
+        payload.padStart(9) +
+        "  |" +
+        fmt(lt).padStart(14) +
+        fmt(lb).padStart(8) +
+        lYield +
+        "  |" +
+        fmt(wt).padStart(13) +
+        fmt(wb).padStart(8) +
+        wYield +
+        "  |" +
+        // Worker-relative, so >1 means the worker cost more. The other tables
+        // read the other way round; labelled below rather than silently flipped.
+        (lt > 0 ? (wt / lt).toFixed(1) + "x" : "-").padStart(7) +
+        totalMark +
+        (lb > 0 ? (wb / lb).toFixed(2) + "x" : "-").padStart(7) +
+        delayMark +
+        (la === wa
+          ? ""
+          : "   answered " + la + " vs " + wa + " NOT COMPARABLE"),
+    );
+  }
+}
+console.log(
+  "  ratios are WORKER / IN-PROCESS, the opposite of the tables above: above",
+);
+console.log(
+  "  1.0x means the worker cost more. total should always be >1 - a worker does",
+);
+console.log(
+  "  the same work plus two clones. delay below 1.0x is the win. `delay` is how",
+);
+console.log(
+  "  long a task queued behind the call waited; ! = the main thread never",
+);
+console.log(
+  "  yielded at all during the region. ? = the two ranges overlap, so that ratio",
+);
+console.log("  is not established by this run.");
+console.log(
+  "  probe floor: " +
+    fmt(seam.probeFloorMs) +
+    " ms - a block reading at the floor means nothing",
+);
+console.log("  longer than the floor happened, not that nothing happened.");
+
 console.log("");
 for (const [name, note] of Object.entries(payload.notes)) {
   console.log("  " + name.padEnd(13) + " " + note);
@@ -506,7 +666,7 @@ console.log("");
 if (jsonOut) {
   writeFileSync(
     jsonOut,
-    JSON.stringify({ ...payload, memory, react: reactRows }, null, 2),
+    JSON.stringify({ ...payload, memory, react: reactRows, seam }, null, 2),
   );
   console.log("raw samples -> " + jsonOut);
 }
