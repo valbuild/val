@@ -85,33 +85,39 @@ describe("store test rig", () => {
       type: "external-complete", // external-complete, external-partial, external-failed?
       patch: testPatches.firstBatch.slice(-1)[0],
     });
-    // When we get something from system, we need to pass in what we believe is the head
-    // the reason we want to do this is to know when we need to compute
-    // Quoting the CURRENT head gets the cheap answer: what you hold is right, and
-    // no value is marshalled. That is the only reason to pass a head.
-    expect(
-      await sourceStore.get('/test.val.ts?p="field"', head1),
-    ).toMatchObject({ status: "unchanged" });
-
-    // Quoting nothing gets the value, and the head it was computed at.
+    // Quoting nothing gets the value, and the REVISION it was computed at. The
+    // patch head is not the comparator: it describes the chain, and the chain
+    // cannot see a base-source replacement.
     const fieldResult1 = await sourceStore.get('/test.val.ts?p="field"', null);
     expect(fieldResult1).toMatchObject({
       status: "resolved-head",
       data: "external",
-      head: { seq: head1.seq },
+      revision: { module: "/test.val.ts" },
     });
+    if (fieldResult1.status !== "resolved-head") {
+      throw new Error("expected a value");
+    }
 
-    // A read quoting a head the system has moved past is ANSWERED, not refused,
-    // with the current value and the current head. The earlier protocol refused
-    // and made the caller re-ask, which needed a retry cap and was the one way
-    // this design could hang. A reader with two reads in flight keeps the newest
-    // head it has accepted and drops the rest — see `isNewerHead`.
+    // Quoting the revision just handed back gets the cheap answer: what you hold
+    // is right, and no value is marshalled. That is the only reason to pass one.
     expect(
-      await sourceStore.get('/test.val.ts?p="field"', emptyHead),
+      await sourceStore.get('/test.val.ts?p="field"', fieldResult1.revision),
+    ).toMatchObject({ status: "unchanged" });
+
+    // And a read quoting a revision the module has moved past is ANSWERED, not
+    // refused. The earlier protocol refused and made the caller re-ask, which
+    // needed a retry cap and was the one way this design could hang. A reader
+    // with two reads in flight keeps the newest revision it accepted and drops
+    // the rest — see `isNewerRevision`.
+    expect(
+      await sourceStore.get('/test.val.ts?p="field"', {
+        module: fieldResult1.revision.module,
+        n: fieldResult1.revision.n - 1,
+      }),
     ).toMatchObject({
       status: "resolved-head",
       data: "external",
-      head: { seq: head1.seq },
+      revision: { module: "/test.val.ts" },
     });
 
     //

@@ -60,38 +60,56 @@ export type HeadStatus = "complete" | "partial" | "failed";
  * data.
  */
 export type Head =
-  | { type: "empty"; seq: number }
+  | { type: "empty" }
   | {
       type: `${PatchOrigin}-${HeadStatus}`;
       patchId: PatchId;
       /** `null` while the id is known but the data has not been fetched. */
       patch: PatchRecord | null;
-      /**
-       * Monotonic, bumped by the patch store on every change to the chain.
-       *
-       * Heads have to be ORDERABLE, not just comparable, because a reader
-       * handles out-of-order replies by keeping the newest head it has accepted
-       * and discarding anything not newer. Ordering by position in the chain
-       * would mean a lookup per comparison; a counter makes it one `<`.
-       *
-       * Conservative in the right direction: a bump that did not actually change
-       * a given path can only make a reader prefer a newer read, never an older
-       * one.
-       */
-      seq: number;
     };
+
+/**
+ * How much the source of ONE module has moved.
+ *
+ * The comparator for reads, and deliberately not the patch head. The patch head
+ * describes the chain, and the chain cannot see a base-source replacement — a new
+ * commit, `PUT /sources/~`, HMR, or a `.jsonValues()` entry file changing on disk
+ * all change what a read returns without touching it. A reader asks "did my value
+ * change?"; the chain answers "did the chain change?". Those coincide for patches
+ * and diverge for everything else, which is why this counter lives in the source
+ * store, next to the assignments that mutate source.
+ *
+ * PER MODULE, not global. A patch in module A must not make a module-B reader
+ * re-read, and that matters most for `.jsonValues()`: one local `*.val.json` save
+ * marks every entry stale, which under a global counter would make every mounted
+ * field in the project re-read for content it does not show.
+ */
+export type Revision = {
+  module: ModuleFilePath;
+  /** Monotonic within `module`. Comparison is one `<`. */
+  n: number;
+};
 
 /**
  * Is `candidate` strictly newer than `held`?
  *
- * The whole of out-of-order reply handling. A reader keeps the newest head it has
- * accepted and drops any reply that is not newer — safe precisely because a drop
- * can only happen once something better has arrived, so there is always a value
- * and it is always the newest. No retry, no timer, and no way to cycle: dropping
- * schedules nothing.
+ * The whole of out-of-order reply handling. A reader keeps the newest revision it
+ * has accepted and drops any reply that is not newer — safe precisely because a
+ * drop can only happen once something better has arrived, so there is always a
+ * value and it is always the newest. No retry, no timer, and no way to cycle:
+ * dropping schedules nothing.
+ *
+ * Throws across modules rather than answering. Two revisions for different
+ * modules are not ordered, and silently returning `false` would let a reader
+ * treat a foreign revision as "not newer" and keep stale data.
  */
-export function isNewerHead(candidate: Head, held: Head): boolean {
-  return candidate.seq > held.seq;
+export function isNewerRevision(candidate: Revision, held: Revision): boolean {
+  if (candidate.module !== held.module) {
+    throw new Error(
+      `Revisions are per module and not comparable across them: ${candidate.module} vs ${held.module}`,
+    );
+  }
+  return candidate.n > held.n;
 }
 
 /**
@@ -107,7 +125,7 @@ export function isNewerHead(candidate: Head, held: Head): boolean {
  * makes progress in a single round trip.
  */
 export type SourceRead =
-  | { status: "resolved-head"; data: Json; head: Head }
+  | { status: "resolved-head"; data: Json; revision: Revision }
   /**
    * The head you quoted is still current, so what you already hold is right and
    * no value was marshalled.
@@ -116,13 +134,13 @@ export type SourceRead =
    * cheap answer is the difference between a read costing a structured clone and
    * costing nothing.
    */
-  | { status: "unchanged"; head: Head }
+  | { status: "unchanged"; revision: Revision }
   /**
    * DEFINITIVE: the module is loaded, every known patch is applied, and the
    * path is not there. Distinct from `module-loading`, which says nothing at
    * all about the path.
    */
-  | { status: "absent"; head: Head }
+  | { status: "absent"; revision: Revision }
   | { status: "module-loading" }
   | { status: "error"; message: string };
 
@@ -137,7 +155,9 @@ export type FieldEvent = {
   /** The registered path, not the patch's path — so `?"a"` gets its own name
    *  back even when the patch that woke it landed on `?"a".b`. */
   path: SourcePath;
-  head: Head;
+  /** What this path's module has moved to, so a woken reader knows what it
+   *  would be reading at without asking. */
+  revision: Revision;
 };
 
 /**

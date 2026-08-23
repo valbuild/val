@@ -325,17 +325,33 @@ Because the same function does both, in that order, a field woken by an event
 can read immediately and cannot get a pre-patch value. Structural, not a
 convention someone has to remember.
 
-### 2. A read hands back the head it was computed at
+### 2. A read hands back the REVISION it was computed at
 
 `sourceStore.get(path, head | null)` always answers, and every answer that says
 anything about the value carries the head behind it. Nothing asks the system
 "what is current?" in order to then read — the read IS how you learn that.
 
-The head passed IN is a claim about what the caller has already **incorporated**.
-Only two values are legal: `null` ("nothing yet") and a head a previous `get`
-returned. Quoting one obtained any other way asserts something untrue, and the
-store will answer `unchanged` to a caller that holds nothing. `getHead()` exists
-for the patch store and for tests; nothing field-facing may call it.
+The revision passed IN is a claim about what the caller has already
+**incorporated**. Only two values are legal: `null` ("nothing yet") and a revision
+a previous `get` returned. Quoting one obtained any other way asserts something
+untrue, and the store will answer `unchanged` to a caller that holds nothing.
+
+**The comparator is a per-module `Revision` owned by the SOURCE store, not the
+patch head.** The patch head describes the chain, and the chain cannot see a
+base-source replacement — a commit, `PUT /sources/~`, HMR, or a `.jsonValues()`
+entry file changing on disk all change what a read returns without touching it.
+A reader asks "did my value change?"; the chain answers "did the chain change?".
+Those coincide for patches and diverge for everything else. `Revision` is bumped
+from the two places that assign to `sources`, so every way source can change is
+covered by construction, and adding a third way means adding one `bump()` beside
+that assignment.
+
+Per module rather than global: a patch in module A no longer makes a module-B
+reader re-read. That matters most for `.jsonValues()`, where one local
+`*.val.json` save marks every entry stale — under a global counter every mounted
+field in the project would re-read for content it does not show. Being a pair
+(`{module, n}`) also means a revision for the wrong module can never produce a
+false `unchanged`.
 
 Passing what you hold buys the cheap answer: if it is still current the reply is
 `unchanged` and no value is marshalled — which, once source is behind a worker
@@ -343,11 +359,12 @@ seam, is the difference between a read costing a structured clone and costing
 nothing.
 
 **Out-of-order replies are handled by the reader, not by refusing.** Keep the
-newest head accepted and drop any reply not newer (`isNewerHead`). Safe precisely
+newest revision accepted and drop any reply not newer (`isNewerRevision`). Safe precisely
 because a drop can only happen once something better has arrived, so there is
-always a value and it is always the newest. This needs heads ORDERABLE, so `Head`
-carries a monotonic `seq` — the patch store's chain version — and comparison is
-one `<`.
+always a value and it is always the newest. This needs revisions ORDERABLE, so `Revision`
+carries a monotonic `n` per module and comparison is one `<`. Comparing across
+modules throws rather than answering `false`, which would let a reader treat a
+foreign revision as "not newer" and keep stale data.
 
 An earlier version refused a stale read and made the caller re-ask. That needed a
 retry cap and was the one way the design could hang; answering always makes
@@ -359,10 +376,9 @@ or a path-matching miss. Monotonic acceptance cannot see that, so
 polling after every reply would double round trips and turn an ordering problem
 into a loop.
 
-The head is still **one global linear head**, mirroring the server's single patch
-chain (`parentRef: { type: "patch", patchId }`). The cost is that a patch in
-module A makes a module-B reader's head stale, so it re-asks once and gets its
-unchanged value back — and now that costs an `unchanged`, not a re-sent value.
+The patch head is still **one global linear head**, mirroring the server's single
+patch chain (`parentRef: { type: "patch", patchId }`) — but nothing reads it to
+decide staleness any more, so its globalness costs nothing.
 
 ### 2b. Cycles are prevented structurally
 

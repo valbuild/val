@@ -107,7 +107,7 @@ Leaving `event → read → reply → (accept | drop)`, which terminates. The on
 back to a cycle is a field that WRITES on read — stated as a rule so it is not
 left to convention.
 
-### The comparator is in the wrong store — a live defect, pinned
+### ~~The comparator is in the wrong store~~ — FIXED
 
 `head.seq` is the PATCH STORE's chain version, and the patch chain cannot see a
 base-source replacement. So a source reset — a new commit, `PUT /sources/~`, HMR,
@@ -123,12 +123,13 @@ the module's source is markers and the content sits behind a thunk
 `JSON.stringify` drops, which is exactly why `jsonEntriesSha` exists as its own
 fingerprint (FS mode only).
 
-The fix is the split already sketched below: a **source revision** owned by the
-source store and bumped by anything that changes readable source — patch applied,
-base replaced, entry content loaded — with the patch head left describing the
-chain for the review UI and `parentRef`. The defect is the argument: the patch
-chain is structurally the wrong thing to compare against, because it cannot see
-half of what changes a value.
+**Done.** `Revision` — `{module, n}` — is owned by the source store and bumped from
+the two assignments that mutate source. The patch head keeps describing the chain
+for the review UI and `parentRef`, and `PatchStore.chainVersion()` keeps its real
+job of telling the lazy patch sets the chain moved. Each counter now answers the
+question it is named for. Both specs green, plus two new ones pinning that a
+change in one module does not stale a reader of another and that a revision from
+the wrong module can never produce a false `unchanged`.
 
 ### How `.jsonValues()` content can change at all
 
@@ -399,7 +400,8 @@ was **deleted** rather than committed, per instruction.
       using `.jsonValues()` would read paths inside unloaded entries as `absent`
       — the precise confusion invariant 3 exists to prevent. Decide whether an
       entry load bumps the head or carries its own revision.
-- [ ] **Global head wastes reads.** A patch in module A makes a reader in module B
+- [x] **~~Global head wastes reads.~~** Fixed by the per-module `Revision`: a patch
+      in module A no longer stales a module-B reader. Was: a patch in module B
       stale, so it re-asks and gets its unchanged value back. Correct, never
       wrong — but the volume is unmeasured. If it is high, a per-module revision
       alongside the global head fixes it.

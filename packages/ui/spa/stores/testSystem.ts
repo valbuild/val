@@ -14,6 +14,7 @@ import type {
   FieldEvent,
   Head,
   PatchRecord,
+  Revision,
   SourceRead,
   SystemEvent,
 } from "./types";
@@ -265,9 +266,9 @@ export type Listeners = {
 };
 
 export type TestSourceStore = {
-  get(path: string, head: Head | null): Promise<SourceRead>;
-  /** The cheap probe: is this head still current? */
-  isCurrent(head: Head): Promise<boolean>;
+  get(path: string, revision: Revision | null): Promise<SourceRead>;
+  /** The cheap probe: is this revision still current? */
+  isCurrent(revision: Revision): Promise<boolean>;
   /**
    * Convenience forward to `host.receive` — the real entry point.
    *
@@ -561,8 +562,9 @@ export function initTestSystem(): TestSystem {
     getPatchSets: () => system.getPatchSets(),
     search: (query, limit, offset) => system.search(query, limit, offset),
     sourceStore: {
-      get: (path, head) => system.sourceStore.get(path as SourcePath, head),
-      isCurrent: (head) => system.sourceStore.isCurrent(head),
+      get: (path, revision) =>
+        system.sourceStore.get(path as SourcePath, revision),
+      isCurrent: (revision) => system.sourceStore.isCurrent(revision),
       async testReceive(modules) {
         system.host.receive(modules);
         await settle();

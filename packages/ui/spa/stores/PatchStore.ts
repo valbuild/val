@@ -391,21 +391,27 @@ export class PatchStore {
    * {@link StoreBus} — so making them await would buy nothing and would make
    * the apply/emit ordering in {@link SourceStore} impossible to guarantee.
    */
+  /**
+   * The last patch in the chain.
+   *
+   * Describes the CHAIN, and nothing reads it to decide whether a value is
+   * stale — that is {@link Revision}, owned by the source store. This is for the
+   * review UI, for `parentRef`, and for the `patch:head` event.
+   */
   currentHead(): Head {
-    const seq = this.version;
     if (this.ordered.length === 0) {
-      return { type: "empty", seq };
+      return { type: "empty" };
     }
     const patchId = this.ordered[this.ordered.length - 1];
     const origin = this.originOf(patchId);
     const patch = this.dataById.get(patchId) ?? null;
     if (this.failedById.has(patchId)) {
-      return { type: `${origin}-failed`, patchId, patch, seq };
+      return { type: `${origin}-failed`, patchId, patch };
     }
     if (patch === null || !this.appliedIds.has(patchId)) {
-      return { type: `${origin}-partial`, patchId, patch, seq };
+      return { type: `${origin}-partial`, patchId, patch };
     }
-    return { type: `${origin}-complete`, patchId, patch, seq };
+    return { type: `${origin}-complete`, patchId, patch };
   }
 
   /**

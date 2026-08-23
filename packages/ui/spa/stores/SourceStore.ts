@@ -16,9 +16,9 @@ import { StoreBus } from "./StoreBus";
 import { touchesPath } from "./pathMatch";
 import type {
   FieldEvent,
-  Head,
   PatchOrigin,
   PatchRecord,
+  Revision,
   SourceRead,
   SystemEvent,
 } from "./types";
@@ -27,9 +27,6 @@ import type { PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
 
 const ops = new JSONOps();
-
-/** How the source store learns the current head without owning the chain. */
-export type ReadHead = () => Head;
 
 type Resolved =
   | { status: "found"; value: Json }
@@ -83,6 +80,20 @@ export class SourceStore {
   >();
 
   /**
+   * How far each module's source has moved. THE comparator for reads.
+   *
+   * Deliberately here rather than on the patch chain: it is bumped from the two
+   * places that assign to `this.sources`, so every way source can change is
+   * covered by construction. The chain version could not do that — it cannot see
+   * a base-source replacement, so a commit, `PUT /sources/~`, HMR or a
+   * `.jsonValues()` entry file change moved the value while it sat still.
+   *
+   * Adding a third way to change source (entry-content substitution) means adding
+   * one `bump()` next to that assignment, not remembering to notify another store.
+   */
+  private revisions = new Map<ModuleFilePath, number>();
+
+  /**
    * One `EventTarget` per REGISTERED path, not per module.
    *
    * This is the registry that makes "no messages" a guarantee: a listener on a
@@ -98,9 +109,23 @@ export class SourceStore {
 
   constructor(
     private readonly schemaStore: SchemaStore,
-    private readonly readHead: ReadHead,
     private readonly activity: ActivitySink = noopActivity,
   ) {}
+
+  private bump(moduleFilePath: ModuleFilePath): void {
+    this.revisions.set(
+      moduleFilePath,
+      (this.revisions.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
+
+  /** Where this module's source has got to. */
+  revisionOf(moduleFilePath: ModuleFilePath): Revision {
+    return {
+      module: moduleFilePath,
+      n: this.revisions.get(moduleFilePath) ?? 0,
+    };
+  }
 
   /**
    * Reacts to both `patch:receive` (data arrived for an external patch) and
@@ -139,6 +164,9 @@ export class SourceStore {
       const base = deepClone(source as JSONValue);
       this.baseSources[moduleFilePath as ModuleFilePath] = base;
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
+      // The base was replaced, so every reader of this module is holding
+      // something that may no longer be right — whatever the patch chain did.
+      this.bump(moduleFilePath as ModuleFilePath);
     }
     this.events.emit({
       type: "source:init",
@@ -169,10 +197,10 @@ export class SourceStore {
    * overwrite a newer value. Without it, a read racing a patch would silently
    * win with stale data.
    */
-  async get(path: SourcePath, head: Head | null): Promise<SourceRead> {
-    const current = this.readHead();
+  async get(path: SourcePath, revision: Revision | null): Promise<SourceRead> {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
+    const current = this.revisionOf(moduleFilePath);
     const source = this.sources[moduleFilePath];
     // The cheap answer: what you hold is still right, so nothing is marshalled.
     // This is the only reason to pass a head — once source is across a worker
@@ -180,12 +208,16 @@ export class SourceStore {
     // nothing. It is checked before `module-loading` only for a loaded module,
     // so an unloaded one still says so rather than claiming to be unchanged.
     if (
-      head !== null &&
-      headsEqual(head, current) &&
+      revision !== null &&
+      // Same module AND same count. The module check means a revision for some
+      // other module can never produce a false `unchanged` — the one way this
+      // fast path could silently mislead.
+      revision.module === moduleFilePath &&
+      revision.n === current.n &&
       source !== undefined &&
       this.schemaStore.get(moduleFilePath) !== undefined
     ) {
-      return { status: "unchanged", head: current };
+      return { status: "unchanged", revision: current };
     }
     // `absent` is only ever returned when we know enough to say so. Without
     // the schema we do not: a module whose schema has not loaded may resolve
@@ -200,14 +232,14 @@ export class SourceStore {
     this.activity.work("source:read-path", path);
     const resolved = resolveAtModulePath(source, modulePath);
     if (resolved.status === "absent") {
-      return { status: "absent", head: current };
+      return { status: "absent", revision: current };
     }
     if (resolved.status === "error") {
       return { status: "error", message: resolved.message };
     }
     // The head travels with the value. A reader with two reads in flight keeps
     // the newest head it has accepted and drops the rest — see `isNewerHead`.
-    return { status: "resolved-head", data: resolved.value, head: current };
+    return { status: "resolved-head", data: resolved.value, revision: current };
   }
 
   /**
@@ -219,8 +251,8 @@ export class SourceStore {
    * cheaply. Async like every other field-facing read, so moving source behind a
    * worker does not rewrite the caller.
    */
-  async isCurrent(head: Head): Promise<boolean> {
-    return headsEqual(head, this.readHead());
+  async isCurrent(revision: Revision): Promise<boolean> {
+    return revision.n === this.revisionOf(revision.module).n;
   }
 
   /**
@@ -380,6 +412,7 @@ export class SourceStore {
       );
       if (result.isOk(res)) {
         this.sources[record.moduleFilePath] = res.value;
+        this.bump(record.moduleFilePath);
         success.push(record.patchId);
         changedModules.add(record.moduleFilePath);
         const paths = touchedSourcePaths(record);
@@ -418,7 +451,6 @@ export class SourceStore {
     });
 
     if (touched.length === 0) return;
-    const head = this.readHead();
     // The scan is O(registered paths); the wakes are what the design promises
     // is O(fields actually affected). Counting both is how a test tells the
     // difference between "we looked at everything" and "we woke everything".
@@ -430,6 +462,10 @@ export class SourceStore {
     for (const [path, byField] of this.listenerTargets) {
       for (const group of wokenBy) {
         if (!touchesPath(group.paths, path)) continue;
+        // Per matched path, not per registered path: only paths that are
+        // actually being woken pay for the split.
+        const [wokenModule] = Internal.splitModuleFilePathAndModulePath(path);
+        const revision = this.revisionOf(wokenModule);
         for (const [fieldId, entry] of byField) {
           // The one listener that caused this stays asleep. Everyone else on the
           // path is woken — which is what makes a studio field and an inline
@@ -440,7 +476,7 @@ export class SourceStore {
           const detail: FieldEvent = {
             type: `${group.origin}-patch`,
             path,
-            head,
+            revision,
           };
           entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
         }
@@ -451,17 +487,6 @@ export class SourceStore {
 }
 
 const FIELD_EVENT = "val:field-changed";
-
-/**
- * Two heads describe the same chain state iff their sequence matches.
- *
- * `seq` is bumped by the patch store on every change to the chain, so it is the
- * identity of a chain state — comparing type and patch id as well would add a
- * way for the two to disagree without adding information.
- */
-function headsEqual(a: Head, b: Head): boolean {
-  return a.seq === b.seq;
-}
 
 /**
  * Which source paths a patch may have changed.

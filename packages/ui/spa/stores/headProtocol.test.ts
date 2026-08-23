@@ -1,6 +1,6 @@
 import { initVal } from "@valbuild/core";
 import { externalPatch, initTestSystem } from "./testSystem";
-import { isNewerHead, type Head, type SourceRead } from "./types";
+import { isNewerRevision, type Revision, type SourceRead } from "./types";
 
 /**
  * The read protocol, and why it cannot cycle.
@@ -30,11 +30,15 @@ function valueOf(read: SourceRead): unknown {
   return read.data;
 }
 
-function headOf(read: SourceRead): Head {
-  if (read.status !== "resolved-head" && read.status !== "unchanged") {
-    throw new Error(`expected a head, got ${read.status}`);
+function revisionOf(read: SourceRead): Revision {
+  if (
+    read.status !== "resolved-head" &&
+    read.status !== "unchanged" &&
+    read.status !== "absent"
+  ) {
+    throw new Error(`expected a revision, got ${read.status}`);
   }
-  return read.head;
+  return read.revision;
 }
 
 describe("a read carries the head it was computed at", () => {
@@ -45,7 +49,7 @@ describe("a read carries the head it was computed at", () => {
     const read = await sourceStore.get(TITLE, null);
 
     expect(valueOf(read)).toBe("Hello");
-    expect(typeof headOf(read).seq).toBe("number");
+    expect(typeof revisionOf(read).n).toBe("number");
     dispose();
   });
 
@@ -54,7 +58,7 @@ describe("a read carries the head it was computed at", () => {
     await sourceStore.testReceive([module()]);
 
     const first = await sourceStore.get(TITLE, null);
-    const again = await sourceStore.get(TITLE, headOf(first));
+    const again = await sourceStore.get(TITLE, revisionOf(first));
 
     // No value marshalled: the caller's own copy is still right. Once source is
     // across a worker seam this is the difference between a read costing a
@@ -77,10 +81,10 @@ describe("a read carries the head it was computed at", () => {
       { op: "replace", path: ["title"], value: "Changed" },
     ]);
 
-    const stale = await sourceStore.get(TITLE, headOf(first));
+    const stale = await sourceStore.get(TITLE, revisionOf(first));
 
     expect(valueOf(stale)).toBe("Changed");
-    expect(isNewerHead(headOf(stale), headOf(first))).toBe(true);
+    expect(isNewerRevision(revisionOf(stale), revisionOf(first))).toBe(true);
     dispose();
   });
 
@@ -93,29 +97,29 @@ describe("a read carries the head it was computed at", () => {
     if (read.status !== "absent") {
       throw new Error(`expected absent, got ${read.status}`);
     }
-    // Dated, so a reader can tell "absent as of a head I have moved past" from
-    // "absent now" without having to re-ask to find out.
-    expect(typeof read.head.seq).toBe("number");
+    // Dated, so a reader can tell "absent as of a revision I have moved past"
+    // from "absent now" without having to re-ask to find out.
+    expect(typeof read.revision.n).toBe("number");
     dispose();
   });
 });
 
-describe("heads are orderable, which is what handles out-of-order replies", () => {
-  it("advances the sequence on every change to the chain", async () => {
+describe("revisions are orderable, which is what handles out-of-order replies", () => {
+  it("advances the revision on every change to the module's source", async () => {
     const { sourceStore, patchStore, dispose } = initTestSystem();
     await sourceStore.testReceive([module()]);
 
-    const before = await patchStore.getHead();
+    const before = revisionOf(await sourceStore.get(TITLE, null));
     await patchStore.createPatch("/t.val.ts", [
       { op: "replace", path: ["title"], value: "One" },
     ]);
-    const after = await patchStore.getHead();
+    const after = revisionOf(await sourceStore.get(TITLE, null));
 
-    expect(isNewerHead(after, before)).toBe(true);
-    expect(isNewerHead(before, after)).toBe(false);
+    expect(isNewerRevision(after, before)).toBe(true);
+    expect(isNewerRevision(before, after)).toBe(false);
     // Not newer than itself: a reply that ties must be dropped, not accepted,
     // or two replies at one head could fight.
-    expect(isNewerHead(after, after)).toBe(false);
+    expect(isNewerRevision(after, after)).toBe(false);
     dispose();
   });
 
@@ -136,12 +140,12 @@ describe("heads are orderable, which is what handles out-of-order replies", () =
     const second = await sourceStore.get(TITLE, null);
 
     // The field's accept rule, applied with the replies deliberately reversed.
-    let held: Head = headOf(first);
+    let held: Revision = revisionOf(first);
     let shown = valueOf(first);
     for (const reply of [second, first]) {
-      const head = headOf(reply);
-      if (!isNewerHead(head, held)) continue;
-      held = head;
+      const revision = revisionOf(reply);
+      if (!isNewerRevision(revision, held)) continue;
+      held = revision;
       shown = valueOf(reply);
     }
 
@@ -149,19 +153,83 @@ describe("heads are orderable, which is what handles out-of-order replies", () =
     dispose();
   });
 
-  it("says whether a held head is still current, without a value", async () => {
+  it("says whether a held revision is still current, without a value", async () => {
     const { sourceStore, patchStore, dispose } = initTestSystem();
     await sourceStore.testReceive([module()]);
 
     const read = await sourceStore.get(TITLE, null);
-    expect(await sourceStore.isCurrent(headOf(read))).toBe(true);
+    expect(await sourceStore.isCurrent(revisionOf(read))).toBe(true);
 
     await patchStore.createPatch("/t.val.ts", [
       { op: "replace", path: ["title"], value: "Changed" },
     ]);
     // The watchdog's question. Its only job is catching a LOST event — monotonic
     // acceptance already handles replies that merely arrive late.
-    expect(await sourceStore.isCurrent(headOf(read))).toBe(false);
+    expect(await sourceStore.isCurrent(revisionOf(read))).toBe(false);
+    dispose();
+  });
+});
+
+describe("revisions are per module", () => {
+  /**
+   * The payoff of per-module rather than one global counter, and it retires
+   * `openquestions.md` item 10's first bullet: a patch in module A used to make
+   * every reader in the project stale, so each re-read once and got its unchanged
+   * value back — "a wasted read, never wrong data".
+   *
+   * It matters most for `.jsonValues()`: one local `*.val.json` save marks every
+   * entry stale, which under a global counter would make every mounted field in
+   * the project re-read for content it does not show.
+   */
+  it("does not stale a reader of another module", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([
+      module(),
+      c.define("/other.val.ts", s.object({ name: s.string() }), {
+        name: "Ada",
+      }),
+    ]);
+
+    const other = await sourceStore.get('/other.val.ts?p="name"', null);
+
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "Changed" },
+    ]);
+
+    // Untouched module, so still current and still the cheap answer.
+    expect(await sourceStore.isCurrent(revisionOf(other))).toBe(true);
+    expect(
+      await sourceStore.get('/other.val.ts?p="name"', revisionOf(other)),
+    ).toMatchObject({ status: "unchanged" });
+    dispose();
+  });
+
+  /**
+   * And the safety property that falls out of making a revision a pair: a
+   * revision for the wrong module can never produce a false `unchanged`. Under a
+   * bare counter, module B at n=1 would look "current" to a read of module A at
+   * n=1 and the reader would keep a value belonging to nothing.
+   */
+  it("never answers `unchanged` to a revision from another module", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([
+      module(),
+      c.define("/other.val.ts", s.object({ name: s.string() }), {
+        name: "Ada",
+      }),
+    ]);
+
+    const other = await sourceStore.get('/other.val.ts?p="name"', null);
+    const wrongModule = await sourceStore.get(TITLE, revisionOf(other));
+
+    expect(valueOf(wrongModule)).toBe("Hello");
+    // And comparing them is an error rather than a silent `false`, which would
+    // let a reader treat a foreign revision as "not newer" and keep stale data.
+    expect(() =>
+      isNewerRevision(revisionOf(wrongModule), revisionOf(other)),
+    ).toThrow();
     dispose();
   });
 });
@@ -313,7 +381,7 @@ describe("cycles are prevented structurally", () => {
     await ledger.has({ type: "source:patch-apply", success: ["ext-2"] });
     await listener.didReceive({ type: "external-patch" });
 
-    const second = await sourceStore.get(TITLE, headOf(first));
+    const second = await sourceStore.get(TITLE, revisionOf(first));
     expect(valueOf(second)).toBe("Foreign");
 
     // Exactly one wake, and no second one provoked by the read that followed it.
@@ -359,7 +427,7 @@ describe("the comparator must see everything that changes source", () => {
 
     const again = await sourceStore.get(
       '/reset.val.ts?p="title"',
-      headOf(first),
+      revisionOf(first),
     );
     // Not `unchanged`: what this field holds is no longer what the store holds.
     expect(valueOf(again)).toBe("changed on disk");
@@ -375,12 +443,12 @@ describe("the comparator must see everything that changes source", () => {
 
     await sourceStore.testReceive([withTitle("authored")]);
     const read = await sourceStore.get('/reset2.val.ts?p="title"', null);
-    expect(await sourceStore.isCurrent(headOf(read))).toBe(true);
+    expect(await sourceStore.isCurrent(revisionOf(read))).toBe(true);
 
     await sourceStore.testReceive([withTitle("changed on disk")]);
 
     // Otherwise the watchdog cannot catch it either, and nothing can.
-    expect(await sourceStore.isCurrent(headOf(read))).toBe(false);
+    expect(await sourceStore.isCurrent(revisionOf(read))).toBe(false);
     dispose();
   });
 });

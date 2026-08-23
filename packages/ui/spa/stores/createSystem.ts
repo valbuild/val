@@ -160,11 +160,9 @@ export function createSystem(options: SystemOptions): System {
     activity,
     options.uploadFile,
   );
-  const sourceStore = new SourceStore(
-    schemaStore,
-    () => patchStore.currentHead(),
-    activity,
-  );
+  // No head callback: the source store owns its own revision now. The chain is
+  // the patch store's business and cannot see a base-source replacement.
+  const sourceStore = new SourceStore(schemaStore, activity);
   const stat = new StatStore();
   const host = new HostStore(schemaStore, sourceStore, activity);
   const renderStore = new RenderStore(host, sourceStore, schemaStore, activity);
