@@ -11,7 +11,12 @@ import {
   PanelEmptyState,
   PanelSectionLabel,
 } from "./FloatingPanel";
-import { PanelRow, PanelFilterInput } from "./PanelPrimitives";
+import {
+  PanelErrorState,
+  PanelFilterInput,
+  PanelRow,
+  PanelSkeleton,
+} from "./PanelPrimitives";
 import { ShellBreakpoint, ShellExternalPage, ShellPage } from "./types";
 
 export type PagesPanelProps = {
@@ -25,6 +30,11 @@ export type PagesPanelProps = {
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
+  /** Show placeholder rows instead of content while data loads. */
+  isLoading?: boolean;
+  /** Message to show instead of content when the data could not be loaded. */
+  loadError?: string;
+  onRetryLoad?: () => void;
 };
 
 /** Pages whose name or URL matches the query, keeping ancestors of matches. */
@@ -80,6 +90,9 @@ export function PagesPanel({
   onNewPage,
   onClose,
   navSwitcher,
+  isLoading,
+  loadError,
+  onRetryLoad,
 }: PagesPanelProps) {
   const [query, setQuery] = useState("");
   // Top-level sections start open; deeper folders stay collapsed so a project
@@ -187,56 +200,64 @@ export function PagesPanel({
         </button>
       }
       sticky={
-        <PanelFilterInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Filter pages…"
-        />
+        isLoading || loadError ? undefined : (
+          <PanelFilterInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Filter pages…"
+          />
+        )
       }
     >
-      <div className="pb-3">
-        <PanelSectionLabel className="pt-3">
-          Pages
-          <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-            {filtered.length}
-          </span>
-        </PanelSectionLabel>
-        {filtered.length === 0 ? (
-          <PanelEmptyState>
-            {query ? "No pages match your search." : "No pages yet."}
-          </PanelEmptyState>
-        ) : (
-          filtered.map((page) => renderPage(page, 0))
-        )}
+      {isLoading ? (
+        <PanelSkeleton rows={12} />
+      ) : loadError ? (
+        <PanelErrorState message={loadError} onRetry={onRetryLoad} />
+      ) : (
+        <div className="pb-3">
+          <PanelSectionLabel className="pt-3">
+            Pages
+            <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
+              {filtered.length}
+            </span>
+          </PanelSectionLabel>
+          {filtered.length === 0 ? (
+            <PanelEmptyState>
+              {query ? "No pages match this filter." : "No pages yet."}
+            </PanelEmptyState>
+          ) : (
+            filtered.map((page) => renderPage(page, 0))
+          )}
 
-        <PanelSectionLabel>
-          External pages
-          <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-            {filteredExternal.length}
-          </span>
-        </PanelSectionLabel>
-        {filteredExternal.length === 0 ? (
-          <PanelEmptyState>
-            {query
-              ? "No external pages match your search."
-              : "No external pages yet."}
-          </PanelEmptyState>
-        ) : (
-          filteredExternal.map((page) => (
-            <PanelRow
-              key={page.id}
-              selected={selectedId === page.id}
-              title={page.url}
-              onClick={() => onSelectExternalPage(page)}
-              leading={
-                <ExternalLink size={12} className="text-fg-secondary-alt" />
-              }
-              label={page.name}
-              errorCount={page.errorCount}
-            />
-          ))
-        )}
-      </div>
+          <PanelSectionLabel>
+            External pages
+            <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
+              {filteredExternal.length}
+            </span>
+          </PanelSectionLabel>
+          {filteredExternal.length === 0 ? (
+            <PanelEmptyState>
+              {query
+                ? "No external pages match this filter."
+                : "No external pages yet."}
+            </PanelEmptyState>
+          ) : (
+            filteredExternal.map((page) => (
+              <PanelRow
+                key={page.id}
+                selected={selectedId === page.id}
+                title={page.url}
+                onClick={() => onSelectExternalPage(page)}
+                leading={
+                  <ExternalLink size={12} className="text-fg-secondary-alt" />
+                }
+                label={page.name}
+                errorCount={page.errorCount}
+              />
+            ))
+          )}
+        </div>
+      )}
     </FloatingPanel>
   );
 }

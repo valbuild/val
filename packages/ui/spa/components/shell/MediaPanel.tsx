@@ -1,7 +1,12 @@
 import { ReactNode, useMemo, useState } from "react";
 import { FileText, Image, Plus } from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
-import { PanelRow, PanelFilterInput } from "./PanelPrimitives";
+import {
+  PanelErrorState,
+  PanelFilterInput,
+  PanelRow,
+  PanelSkeleton,
+} from "./PanelPrimitives";
 import { ShellBreakpoint, ShellMediaGallery } from "./types";
 
 export type MediaPanelProps = {
@@ -13,6 +18,11 @@ export type MediaPanelProps = {
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
+  /** Show placeholder rows instead of content while data loads. */
+  isLoading?: boolean;
+  /** Message to show instead of content when the data could not be loaded. */
+  loadError?: string;
+  onRetryLoad?: () => void;
 };
 
 /** Media galleries — `s.images()` / `s.files()` modules, by directory. */
@@ -24,6 +34,9 @@ export function MediaPanel({
   onUpload,
   onClose,
   navSwitcher,
+  isLoading,
+  loadError,
+  onRetryLoad,
 }: MediaPanelProps) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -55,17 +68,23 @@ export function MediaPanel({
         </button>
       }
       sticky={
-        <PanelFilterInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Filter media…"
-        />
+        isLoading || loadError ? undefined : (
+          <PanelFilterInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Filter media…"
+          />
+        )
       }
     >
       <div className="py-2">
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <PanelSkeleton />
+        ) : loadError ? (
+          <PanelErrorState message={loadError} onRetry={onRetryLoad} />
+        ) : filtered.length === 0 ? (
           <PanelEmptyState>
-            {query ? "No galleries match your search." : "No galleries yet."}
+            {query ? "No galleries match this filter." : "No galleries yet."}
           </PanelEmptyState>
         ) : (
           filtered.map((gallery) => (

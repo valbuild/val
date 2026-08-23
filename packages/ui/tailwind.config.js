@@ -77,6 +77,7 @@ module.exports = {
         "border-error-secondary": "var(--border-error-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
+        "fg-error-on-surface": "var(--fg-error-on-surface)",
         "bg-accent-primary": "var(--bg-accent-primary)",
         "bg-accent-primary-hover": "var(--bg-accent-primary-hover)",
         "bg-accent-subtle": "var(--bg-accent-subtle)",

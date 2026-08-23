@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { Shell } from "../Shell";
+import { PublishState } from "../TopBar";
+import { SaveState } from "../StatusBar";
 import { ShellPanel } from "../types";
 import { emptyShellData, mockShellData } from "../mockShellData";
 
@@ -52,6 +54,25 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Open the global search on mount (⌘K / Ctrl+K)",
     },
+    publishState: {
+      control: "select",
+      options: ["idle", "publishing", "error"],
+      description:
+        "Publish button state. Validation errors override this with `blocked`.",
+    },
+    saveState: {
+      control: "select",
+      options: ["saved", "saving", "error"],
+    },
+    isLoading: { control: "boolean", description: "Nav panels still loading" },
+    loadError: {
+      control: "text",
+      description: "Nav panel load failure message",
+    },
+    withValidationErrors: {
+      control: "boolean",
+      description: "Include validation errors, which block publishing",
+    },
   },
 };
 export default meta;
@@ -62,6 +83,11 @@ type HarnessProps = {
   empty: boolean;
   searchOpen: boolean;
   theme: "dark" | "light";
+  publishState: PublishState;
+  saveState: SaveState;
+  isLoading: boolean;
+  loadError: string;
+  withValidationErrors: boolean;
 };
 
 /**
@@ -75,18 +101,29 @@ function ShellHarness({
   empty,
   searchOpen,
   theme,
+  publishState,
+  saveState,
+  isLoading,
+  loadError,
+  withValidationErrors,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
+  const base = empty ? emptyShellData : mockShellData;
+  const data = withValidationErrors ? base : { ...base, validationErrors: [] };
   return (
     <Shell
-      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}`}
-      data={empty ? emptyShellData : mockShellData}
+      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}`}
+      data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
       initialSearchOpen={searchOpen}
       theme={currentTheme}
       onThemeChange={setCurrentTheme}
       pendingChanges={empty ? 0 : 12}
+      publishState={publishState}
+      saveState={saveState}
+      isLoading={isLoading}
+      loadError={loadError || undefined}
     />
   );
 }
@@ -101,6 +138,11 @@ export const Default: Story = {
     empty: false,
     searchOpen: false,
     theme: "dark",
+    publishState: "idle",
+    saveState: "saved",
+    isLoading: false,
+    loadError: "",
+    withValidationErrors: false,
   },
 };
 
@@ -153,6 +195,52 @@ export const SettingsOpen: Story = {
  */
 export const GlobalSearchOpen: Story = {
   args: { ...Default.args, searchOpen: true, selectionId: "home" },
+};
+
+/** Nav panels while their data loads: placeholder rows, no filter yet. */
+export const Loading: Story = {
+  args: { ...Default.args, openPanel: "pages", isLoading: true },
+};
+
+/** The nav data could not be loaded. */
+export const LoadFailed: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "pages",
+    loadError: "Could not load pages. The dev server may have restarted.",
+  },
+};
+
+/** Mid-publish: the button is busy and cannot be clicked again. */
+export const Publishing: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    publishState: "publishing",
+  },
+};
+
+/** The publish failed. */
+export const PublishFailed: Story = {
+  args: { ...Default.args, selectionId: "home", publishState: "error" },
+};
+
+/** Auto save could not write to the working tree. */
+export const SaveFailed: Story = {
+  args: { ...Default.args, selectionId: "home", saveState: "error" },
+};
+
+/**
+ * Validation errors block publishing, so the count sits next to the button it
+ * blocks, and the utility panel leads with them.
+ */
+export const WithValidationErrors: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "data-products",
+    openPanel: "utility",
+    withValidationErrors: true,
+  },
 };
 
 /** Light mode. Dark is the default, but both are first-class. */

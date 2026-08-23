@@ -163,6 +163,11 @@
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
 
+    /* Error text sitting directly on a normal surface. The
+       `fg-error-secondary` pair above is only legible against a tinted error
+       background, so icons and inline error copy need their own value. */
+    --fg-error-on-surface: var(--colors-error-red-500);
+
     /* Accent colors (purple) - used sparingly for primary actions
        and selection in the floating shell layout. */
     --bg-accent-primary: var(--colors-accent-purple-600);
@@ -253,6 +258,10 @@
     --fg-error-secondary: var(--colors-error-red-500);
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
+
+    /* Error text on a normal surface: red-500 is too dim against the dark
+       canvas, so this lightens rather than mirroring the light value. */
+    --fg-error-on-surface: var(--colors-error-red-300);
 
     /* Accent colors (purple) */
     --bg-accent-primary: var(--colors-accent-purple-600);

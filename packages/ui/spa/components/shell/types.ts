@@ -71,6 +71,17 @@ export type ShellNotification = {
   unread?: boolean;
 };
 
+/** A validation error, grouped by the item it belongs to. */
+export type ShellValidationError = {
+  id: string;
+  /** The item the errors are on, e.g. "Products". */
+  title: string;
+  /** Where they are, e.g. "/content/products.val.ts". */
+  detail: string;
+  /** How many errors on that item. */
+  count: number;
+};
+
 export type ShellActivityEntry = {
   id: string;
   title: string;
@@ -129,6 +140,7 @@ export type ShellData = {
   data: ShellDataModule[];
   notifications: ShellNotification[];
   activity: ShellActivityEntry[];
+  validationErrors: ShellValidationError[];
   chat: ShellChatMessage[];
   /** Suggested prompts offered as one-click chips in the AI panel. */
   chatSuggestions: string[];

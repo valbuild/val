@@ -1,14 +1,28 @@
-import { Braces, Clock, FilePlus2, ImagePlus, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  Braces,
+  Clock,
+  FilePlus2,
+  ImagePlus,
+  Sparkles,
+} from "lucide-react";
 import {
   FloatingPanel,
   PanelEmptyState,
   PanelSectionLabel,
 } from "./FloatingPanel";
-import { ShellActivityEntry, ShellBreakpoint } from "./types";
+import {
+  ShellActivityEntry,
+  ShellBreakpoint,
+  ShellValidationError,
+} from "./types";
 
 export type UtilityPanelProps = {
   breakpoint: ShellBreakpoint;
   activity: ShellActivityEntry[];
+  /** Validation errors, grouped by item. Shown first when there are any. */
+  validationErrors?: ShellValidationError[];
+  onSelectValidationError?: (error: ShellValidationError) => void;
   onNewPage: () => void;
   onUploadMedia: () => void;
   onNewDataFile: () => void;
@@ -25,6 +39,8 @@ export type UtilityPanelProps = {
 export function UtilityPanel({
   breakpoint,
   activity,
+  validationErrors = [],
+  onSelectValidationError,
   onNewPage,
   onUploadMedia,
   onNewDataFile,
@@ -42,6 +58,46 @@ export function UtilityPanel({
       onClose={onClose}
     >
       <div className="pb-4">
+        {validationErrors.length > 0 && (
+          <>
+            {/* Errors come before the shortcuts: they block publishing, so
+                they are the most useful thing this panel can say. */}
+            <PanelSectionLabel className="pt-3 text-fg-error-on-surface">
+              Validation errors
+              <span className="ml-1.5 font-normal normal-case tracking-normal tabular-nums">
+                {validationErrors.reduce((sum, e) => sum + e.count, 0)}
+              </span>
+            </PanelSectionLabel>
+            <ul className="px-3 pt-0.5">
+              {validationErrors.map((error) => (
+                <li key={error.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectValidationError?.(error)}
+                    className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
+                  >
+                    <AlertTriangle
+                      size={13}
+                      className="mt-0.5 shrink-0 text-fg-error-on-surface"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs text-fg-primary truncate">
+                        {error.title}
+                      </span>
+                      <span className="block text-[0.6875rem] text-fg-secondary-alt truncate">
+                        {error.detail}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[0.6875rem] tabular-nums text-fg-secondary-alt">
+                      {error.count}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <PanelSectionLabel>Quick actions</PanelSectionLabel>
+          </>
+        )}
         <div className="px-3 pt-3 space-y-0.5">
           <QuickAction icon={FilePlus2} label="New page" onClick={onNewPage} />
           <QuickAction

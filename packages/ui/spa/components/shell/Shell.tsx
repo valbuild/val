@@ -15,7 +15,7 @@ import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { StatusBar, SaveState } from "./StatusBar";
-import { TopBar } from "./TopBar";
+import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
@@ -48,6 +48,11 @@ export type ShellProps = {
   saveState?: SaveState;
   /** Number of changes Publish would ship. */
   pendingChanges?: number;
+  publishState?: PublishState;
+  /** Show placeholder rows in the nav panels instead of content. */
+  isLoading?: boolean;
+  /** Show a load failure in the nav panels instead of content. */
+  loadError?: string;
 };
 
 /**
@@ -67,6 +72,9 @@ export function Shell({
   onThemeChange,
   saveState = "saved",
   pendingChanges = 12,
+  publishState = "idle",
+  isLoading = false,
+  loadError,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
@@ -84,6 +92,10 @@ export function Shell({
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
 
+  const validationErrorCount = useMemo(
+    () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
+    [data.validationErrors],
+  );
   const unreadNotifications = useMemo(
     () => notifications.filter((n) => n.unread).length,
     [notifications],
@@ -161,6 +173,13 @@ export function Shell({
         onPreview={() => undefined}
         onPublish={() => undefined}
         pendingChanges={pendingChanges}
+        publishState={
+          publishState === "idle" && validationErrorCount > 0
+            ? "blocked"
+            : publishState
+        }
+        validationErrorCount={validationErrorCount}
+        onShowErrors={() => setOpenPanel("utility")}
       />
 
       {breakpoint === "mobile" ? (
@@ -210,6 +229,8 @@ export function Shell({
           onNewPage={() => undefined}
           onClose={closePanel}
           navSwitcher={navSwitcher}
+          isLoading={isLoading}
+          loadError={loadError}
         />
       )}
 
@@ -230,6 +251,8 @@ export function Shell({
           onUpload={() => undefined}
           onClose={closePanel}
           navSwitcher={navSwitcher}
+          isLoading={isLoading}
+          loadError={loadError}
         />
       )}
 
@@ -251,6 +274,8 @@ export function Shell({
           onNewDataFile={() => undefined}
           onClose={closePanel}
           navSwitcher={navSwitcher}
+          isLoading={isLoading}
+          loadError={loadError}
         />
       )}
 
@@ -275,6 +300,8 @@ export function Shell({
         <UtilityPanel
           breakpoint={breakpoint}
           activity={data.activity}
+          validationErrors={data.validationErrors}
+          onSelectValidationError={() => undefined}
           onNewPage={() => undefined}
           onUploadMedia={() => undefined}
           onNewDataFile={() => undefined}

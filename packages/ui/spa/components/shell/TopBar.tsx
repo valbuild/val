@@ -1,8 +1,10 @@
 import {
+  AlertTriangle,
   Bell,
   Check,
   ChevronsUpDown,
   Eye,
+  Loader2,
   Menu,
   PanelRight,
   Search,
@@ -35,7 +37,17 @@ export type TopBarProps = {
   onPublish: () => void;
   /** Number of changes Publish would ship. 0 disables the button. */
   pendingChanges: number;
+  publishState?: PublishState;
+  /**
+   * Number of validation errors across the project. Publishing with errors is
+   * blocked, so the count is surfaced next to the button that is blocked.
+   */
+  validationErrorCount?: number;
+  onShowErrors?: () => void;
 };
+
+/** `blocked` means validation errors are stopping the publish. */
+export type PublishState = "idle" | "publishing" | "error" | "blocked";
 
 /**
  * The floating top bar.
@@ -58,6 +70,9 @@ export function TopBar({
   onPreview,
   onPublish,
   pendingChanges,
+  publishState = "idle",
+  validationErrorCount = 0,
+  onShowErrors,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -105,9 +120,16 @@ export function TopBar({
                 (draft)
               </span>
             </button>
+            {validationErrorCount > 0 && onShowErrors && (
+              <ValidationErrorPill
+                count={validationErrorCount}
+                onClick={onShowErrors}
+              />
+            )}
             <PublishButton
               pendingChanges={pendingChanges}
               onPublish={onPublish}
+              publishState={publishState}
             />
           </>
         )}
@@ -188,30 +210,77 @@ function IconButton({
 export function PublishButton({
   pendingChanges,
   onPublish,
+  publishState = "idle",
   className,
 }: {
   pendingChanges: number;
   onPublish: () => void;
+  publishState?: PublishState;
   className?: string;
 }) {
-  const disabled = pendingChanges === 0;
+  // Nothing to ship, mid-flight, or blocked by validation errors: all three
+  // mean the button must not accept another click.
+  const disabled =
+    pendingChanges === 0 ||
+    publishState === "publishing" ||
+    publishState === "blocked";
   return (
     <button
       type="button"
       onClick={onPublish}
       disabled={disabled}
+      title={
+        publishState === "blocked"
+          ? "Fix the validation errors before publishing"
+          : undefined
+      }
       className={cn(
         "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
-        "bg-bg-accent-primary text-fg-on-accent hover:bg-bg-accent-primary-hover",
+        publishState === "error"
+          ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "bg-bg-accent-primary text-fg-on-accent hover:bg-bg-accent-primary-hover",
         "disabled:bg-bg-disabled disabled:text-fg-disabled",
         className,
       )}
     >
-      <Upload size={14} />
-      Publish
-      {pendingChanges > 0 && (
+      {publishState === "publishing" ? (
+        <Loader2 size={14} className="animate-spin" />
+      ) : publishState === "error" ? (
+        <AlertTriangle size={14} />
+      ) : (
+        <Upload size={14} />
+      )}
+      {publishState === "publishing"
+        ? "Publishing…"
+        : publishState === "error"
+          ? "Publish failed"
+          : "Publish"}
+      {publishState === "idle" && pendingChanges > 0 && (
         <span className="tabular-nums opacity-80">{pendingChanges}</span>
       )}
+    </button>
+  );
+}
+
+/** How many validation errors stand between here and a publish. */
+function ValidationErrorPill({
+  count,
+  onClick,
+}: {
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-error-on-surface border border-border-error-primary hover:bg-bg-error-secondary"
+    >
+      <AlertTriangle size={14} />
+      <span className="tabular-nums">{count}</span>
+      <span className="hidden lg:inline">
+        {count === 1 ? "error" : "errors"}
+      </span>
     </button>
   );
 }

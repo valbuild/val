@@ -1,7 +1,12 @@
 import { ReactNode, useMemo, useState } from "react";
 import { Braces, Plus } from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
-import { PanelRow, PanelFilterInput } from "./PanelPrimitives";
+import {
+  PanelErrorState,
+  PanelFilterInput,
+  PanelRow,
+  PanelSkeleton,
+} from "./PanelPrimitives";
 import { ShellBreakpoint, ShellDataModule } from "./types";
 
 export type DataPanelProps = {
@@ -13,6 +18,11 @@ export type DataPanelProps = {
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
+  /** Show placeholder rows instead of content while data loads. */
+  isLoading?: boolean;
+  /** Message to show instead of content when the data could not be loaded. */
+  loadError?: string;
+  onRetryLoad?: () => void;
 };
 
 /** Non-router val modules: settings, navigation, records, lookup tables. */
@@ -24,6 +34,9 @@ export function DataPanel({
   onNewDataFile,
   onClose,
   navSwitcher,
+  isLoading,
+  loadError,
+  onRetryLoad,
 }: DataPanelProps) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -55,17 +68,23 @@ export function DataPanel({
         </button>
       }
       sticky={
-        <PanelFilterInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Filter data files…"
-        />
+        isLoading || loadError ? undefined : (
+          <PanelFilterInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Filter data files…"
+          />
+        )
       }
     >
       <div className="py-2">
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <PanelSkeleton />
+        ) : loadError ? (
+          <PanelErrorState message={loadError} onRetry={onRetryLoad} />
+        ) : filtered.length === 0 ? (
           <PanelEmptyState>
-            {query ? "No data files match your search." : "No data files yet."}
+            {query ? "No data files match this filter." : "No data files yet."}
           </PanelEmptyState>
         ) : (
           filtered.map((module) => (

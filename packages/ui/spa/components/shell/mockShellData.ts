@@ -7,6 +7,7 @@ import {
   ShellMediaGallery,
   ShellNotification,
   ShellPage,
+  ShellValidationError,
 } from "./types";
 
 /**
@@ -246,6 +247,28 @@ export const mockNotifications: ShellNotification[] = [
   },
 ];
 
+export const mockValidationErrors: ShellValidationError[] = [
+  { id: "v1", title: "Products", detail: "/content/products.val.ts", count: 3 },
+  {
+    id: "v2",
+    title: "Docs › Remote files",
+    detail: "/docs/remote-files",
+    count: 2,
+  },
+  {
+    id: "v3",
+    title: "Features › Validation",
+    detail: "/features/validation",
+    count: 1,
+  },
+  {
+    id: "v4",
+    title: "External › Job listings",
+    detail: "https://jobs.example.com/val",
+    count: 1,
+  },
+];
+
 export const mockActivity: ShellActivityEntry[] = [
   {
     id: "a1",
@@ -309,6 +332,7 @@ export const mockShellData: ShellData = {
   data: mockDataModules,
   notifications: mockNotifications,
   activity: mockActivity,
+  validationErrors: mockValidationErrors,
   chat: mockChat,
   chatSuggestions: mockChatSuggestions,
   user: {
@@ -327,5 +351,6 @@ export const emptyShellData: ShellData = {
   data: [],
   notifications: [],
   activity: [],
+  validationErrors: [],
   chat: [],
 };

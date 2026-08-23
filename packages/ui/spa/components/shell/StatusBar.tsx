@@ -116,7 +116,7 @@ export function SaveIndicator({ saveState }: { saveState: SaveState }) {
   }
   if (saveState === "error") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-fg-error-secondary">
+      <span className="inline-flex items-center gap-1.5 text-fg-error-on-surface">
         <CircleDot size={13} />
         Could not save
       </span>

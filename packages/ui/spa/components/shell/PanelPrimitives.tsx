@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { ListFilter } from "lucide-react";
+import { AlertTriangle, ListFilter } from "lucide-react";
 import { cn } from "../designSystem/cn";
 
 /**
@@ -118,6 +118,61 @@ export function PanelRow({
           {trailing}
         </span>
       </button>
+    </div>
+  );
+}
+
+/**
+ * Placeholder rows while a panel's data loads.
+ *
+ * Rows rather than a spinner: the panel keeps its shape, so nothing jumps
+ * when the real list arrives.
+ */
+export function PanelSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <div className="py-2" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center h-7 px-3.5">
+          <span
+            className="h-2.5 rounded bg-bg-float-raised animate-pulse"
+            // Varying widths so it reads as a list, not a progress bar.
+            style={{ width: `${45 + ((i * 17) % 45)}%` }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A panel could not load. Distinct from an empty panel: something is wrong
+ * and there is something to do about it.
+ */
+export function PanelErrorState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="flex gap-2.5 px-4 py-4">
+      <AlertTriangle
+        size={14}
+        className="mt-0.5 shrink-0 text-fg-error-on-surface"
+      />
+      <div className="min-w-0">
+        <p className="text-xs text-fg-primary">{message}</p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 h-7 px-2 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+          >
+            Try again
+          </button>
+        )}
+      </div>
     </div>
   );
 }
