@@ -593,6 +593,37 @@ same index, because it is the same fact read the other way round. `KeyOfField`
 and the validation fixes need it, and a second index of the same thing could go
 stale differently.
 
+## Measured, in a browser
+
+Every cost claim above is an invocation COUNT asserted in node, and a count
+cannot say whether the thing it counted takes 20 microseconds or 20
+milliseconds. `../bench/` closes that: both systems run in a real Chromium on
+the same synthetic project, and the unit of measurement is **a field becoming
+ready** — source, validation and render in hand — because timing `addPatch`
+against `createPatch` would time the eager system doing all the work and the
+lazy system doing none of it. See `bench/README.md` for the full fairness
+contract and `openquestions.md` item 1 for the numbers.
+
+Headline, on 141 modules with 260 fields mounted: intake **7.8x**, a keystroke
+**3.1x**, a keystroke into a rendered list **14x**, the `handboka` nested shape
+**5.2x** — and `select` running 2 times where the engine runs 650, for the same
+one field ready.
+
+Two findings came back the other way and both changed the code:
+
+- **Mounting was 2.5x SLOWER.** `listenedPaths` walked the whole listener
+  registry, making a mount O(fields x modules) — now indexed per module. And
+  mounting fired an eager `executeRender` for every module, with ~2.3ms of 3.1ms
+  spent rendering modules that declare no render at all. `SerializedSchema` now
+  carries `render?: true` and `SchemaStore.declaresRender` answers from the
+  schema, so the render store no longer crosses the host seam for a module that
+  cannot produce a render. Mount is now a wash.
+- **Registration is still ~10x slower** — 2.1ms for 260 fields, about 8
+  microseconds each. That is the price of per-path precision: one `EventTarget`
+  per (path, fieldId) and two `StoreBus` dispatches per registration. The engine
+  is fast on subscribe because subscribing does nothing, and it pays for that on
+  every keystroke after. A trade, not a free win, and worth stating as one.
+
 ## Known gaps
 
 Unfinished work, as distinct from the undecided questions in

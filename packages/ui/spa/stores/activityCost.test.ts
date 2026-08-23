@@ -30,6 +30,25 @@ const authors = () => {
   });
 };
 
+/**
+ * A module that actually declares a render.
+ *
+ * Needed because `RenderStore` no longer crosses the host seam for a module
+ * whose schema declares no render — so a test about how many host calls a render
+ * costs has to use a module that can produce one, or it measures nothing.
+ */
+const rendered = () => {
+  const { c, s } = initVal();
+  return c.define(
+    "/rendered.val.ts",
+    s.array(s.object({ title: s.string() })).render({
+      as: "list",
+      select: ({ val }) => ({ title: val.title }),
+    }),
+    [{ title: "one" }, { title: "two" }],
+  );
+};
+
 describe("cost of intake", () => {
   it("clones and serializes each module exactly once, and computes nothing", async () => {
     const { sourceStore, activity, dispose } = initTestSystem();
@@ -205,27 +224,52 @@ describe("cost of reading", () => {
   it("renders a module once for concurrent readers of different paths", async () => {
     const { sourceStore, renderStore, activity, dispose } = initTestSystem();
 
-    await sourceStore.testReceive([blogs()]);
+    await sourceStore.testReceive([rendered()]);
     const before = activity.position();
 
     await Promise.all([
-      renderStore.get(sp('/blogs.val.ts?p="title"')),
-      renderStore.get(sp('/blogs.val.ts?p="body"')),
-      renderStore.get(sp('/blogs.val.ts?p="title"')),
+      renderStore.get(sp("/rendered.val.ts?p=0")),
+      renderStore.get(sp("/rendered.val.ts?p=1")),
+      renderStore.get(sp("/rendered.val.ts?p=0")),
     ]);
 
     expect(activity.count("host:execute-render", { since: before })).toBe(1);
     dispose();
   });
 
+  /**
+   * CLAIM (`SchemaStore.declaresRender`): a module that cannot render is never
+   * sent to the host to be rendered.
+   *
+   * Measured, not guessed: mounting 260 fields across 141 modules in Chromium
+   * spent ~2.3ms of 3.1ms inside `executeRender` on modules that returned an
+   * empty result. In a real project most modules declare no render, so most of
+   * that work was provably wasted.
+   */
+  it("never asks the host to render a module that declares no render", async () => {
+    const { sourceStore, renderStore, activity, listeners, dispose } =
+      initTestSystem();
+
+    await sourceStore.testReceive([blogs(), authors()]);
+    // Both routes to a render: a field mounting, and a caller asking.
+    listeners.set('/blogs.val.ts?p="title"');
+    const read = await renderStore.get(sp('/blogs.val.ts?p="title"'));
+
+    expect(activity.count("host:execute-render")).toBe(0);
+    // And the answer is the same one the host would have produced from an empty
+    // render, so nothing downstream can tell the difference.
+    expect(read.status).toBe("no-render-at-path");
+    dispose();
+  });
+
   it("serves a second render read from cache", async () => {
     const { sourceStore, renderStore, activity, dispose } = initTestSystem();
 
-    await sourceStore.testReceive([blogs()]);
-    await renderStore.get(sp('/blogs.val.ts?p="title"'));
+    await sourceStore.testReceive([rendered()]);
+    await renderStore.get(sp("/rendered.val.ts?p=0"));
 
     const before = activity.position();
-    await renderStore.get(sp('/blogs.val.ts?p="title"'));
+    await renderStore.get(sp("/rendered.val.ts?p=0"));
 
     expect(activity.count("host:execute-render", { since: before })).toBe(0);
     expect(activity.count("render:cache-hit", { since: before })).toBe(1);

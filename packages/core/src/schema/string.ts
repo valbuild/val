@@ -16,6 +16,8 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
+  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
+  render?: true;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -288,6 +290,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
+      render: this.renderInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,

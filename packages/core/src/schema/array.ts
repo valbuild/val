@@ -23,6 +23,16 @@ export type SerializedArraySchema = {
   type: "array";
   item: SerializedSchema;
   opt: boolean;
+  /**
+   * Set when this schema declares a `render`.
+   *
+   * The render itself cannot be serialized — `select` is a user closure — but
+   * whether one EXISTS can be, and that is worth carrying: it lets the non-host
+   * side skip asking the host to render a module that cannot produce one.
+   * Measured in a browser: mounting 260 fields across 141 modules spent ~2.3ms
+   * of 3.1ms calling `executeRender` on modules that returned nothing.
+   */
+  render?: true;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
@@ -200,6 +210,7 @@ export class ArraySchema<
       type: "array",
       item: this.item["executeSerialize"](),
       opt: this.opt,
+      render: this.renderInput ? true : undefined,
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,

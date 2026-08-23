@@ -333,7 +333,14 @@ export class RenderStore {
     // `const` despite the self-reference in `finally` below: that callback runs
     // long after the binding is initialised.
     const request: Promise<void> = (async () => {
-      const result = await this.host.render(moduleFilePath, [...scope]);
+      // Asked before crossing the host seam: a module whose schema declares no
+      // render cannot produce one, so the walk is pure cost. Cached as an empty
+      // render rather than skipped outright, so `get` and `peek` answer
+      // `no-render-at-path` exactly as they did when the host was asked and
+      // returned nothing.
+      const result = this.schemaStore.declaresRender(moduleFilePath)
+        ? await this.host.render(moduleFilePath, [...scope])
+        : { status: "rendered" as const, render: {} };
       if (result.status === "rendered") {
         // An empty scope is not a scope: with nothing listened and nobody
         // asking, the host rendered the whole module, so that is what is cached.

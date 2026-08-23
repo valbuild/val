@@ -42,6 +42,8 @@ export type SerializedRecordSchema = {
   item: SerializedSchema;
   key?: SerializedSchema;
   opt: boolean;
+  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
+  render?: true;
   router?: string;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
@@ -781,6 +783,7 @@ export class RecordSchema<
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
+      render: this.renderInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&

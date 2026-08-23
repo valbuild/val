@@ -165,6 +165,18 @@ export class SourceStore {
     Map<string, { target: EventTarget; count: number }>
   >();
 
+  /**
+   * The registered paths, grouped by module.
+   *
+   * Redundant with `listenerTargets` on purpose, and the redundancy is paid for:
+   * `listenedPaths(module)` is asked once per render refresh, and a browser
+   * measurement showed the obvious implementation — walk every registered path
+   * and split each one — making a mount O(fields x modules). Mounting 260 fields
+   * across 141 modules cost 3.3ms in registry scanning alone, against 0.2ms for
+   * the engine this replaces. Per-module makes it O(paths in that module).
+   */
+  private listenersByModule = new Map<ModuleFilePath, Set<SourcePath>>();
+
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly activity: ActivitySink = noopActivity,
@@ -538,14 +550,8 @@ export class SourceStore {
    * converges back on rendering the whole module.
    */
   listenedPaths(moduleFilePath: ModuleFilePath): SourcePath[] {
-    const paths: SourcePath[] = [];
-    for (const path of this.listenerTargets.keys()) {
-      const [candidate] = Internal.splitModuleFilePathAndModulePath(path);
-      if (candidate === moduleFilePath) {
-        paths.push(path);
-      }
-    }
-    return paths;
+    const paths = this.listenersByModule.get(moduleFilePath);
+    return paths === undefined ? [] : [...paths];
   }
 
   /**
@@ -578,6 +584,13 @@ export class SourceStore {
     }
     const registered = entry;
     const fields = byField;
+    const [listenModule] = Internal.splitModuleFilePathAndModulePath(path);
+    let inModule = this.listenersByModule.get(listenModule);
+    if (inModule === undefined) {
+      inModule = new Set();
+      this.listenersByModule.set(listenModule, inModule);
+    }
+    inModule.add(path);
     const handler = (ev: Event) => {
       listener((ev as CustomEvent<FieldEvent>).detail);
     };
@@ -602,6 +615,16 @@ export class SourceStore {
         fields.delete(fieldId);
         if (fields.size === 0 && this.listenerTargets.get(path) === fields) {
           this.listenerTargets.delete(path);
+          // Kept in step with `listenerTargets`, which is the risk of holding
+          // the same fact twice: a path left here after its target is gone would
+          // widen every later render scope to cover a field that unmounted.
+          const stillInModule = this.listenersByModule.get(listenModule);
+          if (stillInModule !== undefined) {
+            stillInModule.delete(path);
+            if (stillInModule.size === 0) {
+              this.listenersByModule.delete(listenModule);
+            }
+          }
         }
       }
     };

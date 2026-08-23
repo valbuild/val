@@ -10,38 +10,85 @@
 
 ---
 
-## 1. Nothing has been measured IN A BROWSER. This is the go/no-go. 🔴
+## 1. ~~Nothing has been measured IN A BROWSER~~ — MEASURED. 🟢 GO, with one caveat
 
-**The question:** does per-path eventing + lazy compute actually beat the current
-engine, in a browser, on a real project?
+**The question was:** does per-path eventing + lazy compute actually beat the
+current engine, in a browser? Every performance claim in `architecture.md` was
+read off the code, and `ValSyncEngine` had already had four independent fixes
+landed (#476) — it was entirely possible those bought most of the available win,
+in which case the right call was to stop and keep the engine.
 
-Every performance claim in `architecture.md` is **read off the code**. Not one
-number came from a profile. The premise of the whole design — that a keystroke's
-cost today is proportional to the project and can be made proportional to the
-field — is plausible and specific, and still unverified.
+**Answered.** `bench/` runs both systems in a real Chromium on the same
+synthetic project. The fairness contract is at the top of `bench/drivers.ts` and
+is the load-bearing part: the unit of measurement is **a field becoming ready**
+(source + validation + render in hand), because timing `addPatch` against
+`createPatch` would time the eager system doing all the work and the lazy system
+doing none of it. `select` invocations are counted next to every duration, and
+`fieldsReady` is printed so a row where the two systems were not asked the same
+question fails the run.
 
-This matters more than it sounds: `ValSyncEngine` already had four independent
-fixes landed (Step 0 on this branch), and it is entirely possible those bought
-most of the available win. If so, the correct decision is to stop here and keep
-the engine.
+On the large project (141 modules, 260 mounted fields), medians of 7,
+non-overlapping ranges only:
 
-Partly addressed, and worth being precise about how: work COUNTS are now
-asserted in node (`activity.ts`, `activityCost.test.ts`) — one keystroke costs
-one clone, one apply, one registry scan and exactly one woken field; a
-40-keystroke burst costs zero renders and zero validations. That channel already
-earned its keep by catching a demand-driven render fix that had put one
-whole-module render back on every keystroke.
+| scenario                          | engine  | stores | ratio             |
+| --------------------------------- | ------- | ------ | ----------------- |
+| intake                            | 15.7 ms | 2.0 ms | **7.8x**          |
+| keystroke (260 fields mounted)    | 2.8 ms  | 0.9 ms | **3.1x**          |
+| keystroke into a rendered list    | 2.8 ms  | 0.2 ms | **14x**           |
+| nested-row (the `handboka` shape) | 2.6 ms  | 0.5 ms | **5.2x**          |
+| burst of 40                       | 4.0 ms  | 2.5 ms | **1.6x**          |
+| list-view (whole list shown)      | 3.3 ms  | 2.2 ms | **1.5x**          |
+| mount 260 fields                  | 3.9 ms  | 5.3 ms | ranges overlap    |
+| mount, registration only          | 0.2 ms  | 2.1 ms | **0.1x — a loss** |
 
-What it does NOT give is durations, bytes, or any comparison against the current
-engine. A count is exactly reproducible in node; a duration is not.
+The `select` counts tell the same story from the other side: the `nested-row`
+case runs `select` **650** times in the engine and **2** in the stores, for the
+same one field ready. `list-view` runs 1200 in both, which is the honest control
+— when the whole list is on screen there is nothing to scope away, and the
+remaining 1.5x is not about renders at all.
 
-- [ ] Build the bench harness (a `StringField` burst against a `handboka`-shaped
-      407 KB fixture) and record: commits/keystroke, deepClone bytes, validation
-      calls, render calls — for the engine, and for this.
-- [ ] Decide go/no-go on that number, not on the design.
+So the answer is go. But two things must be said with it.
 
-**Recommendation:** answer this before item 3 or 5. They are both expensive and
-both pointless if the answer here is no.
+**The caveat: mount registration is ~10x slower.** Registering 260 listeners
+costs 2.1 ms against the engine's 0.2 ms. Two fixes came out of measuring it,
+both real:
+
+1. `listenedPaths(module)` walked the whole listener registry and split every
+   path, making a mount O(fields x modules). Now indexed per module.
+2. The bigger one: mounting fired an eager `executeRender` for every module, and
+   ~2.3 ms of 3.1 ms was spent inside `executeRender` on modules that returned
+   an empty result. Most modules in a real project declare no render, so most of
+   that work was provably wasted. `SerializedSchema` now carries `render?: true`
+   (a small additive core change) and `SchemaStore.declaresRender` answers from
+   the schema, so the render store no longer crosses the host seam for a module
+   that cannot produce a render.
+
+Together those took the full mount from 2.5x SLOWER to a wash. What remains —
+2.1 ms for 260 registrations, about 8 microseconds per field — is the price of
+per-path precision: one `EventTarget` per (path, fieldId) and two `StoreBus`
+dispatches per registration. The engine is fast here because subscribing does
+essentially nothing, and it pays for that on every keystroke afterwards. That is
+a trade worth taking, and it is a trade, not a free win.
+
+**What the numbers do not cover:**
+
+- **Absolute magnitudes are small.** The worst engine number here is 15.7 ms.
+  On a 4-core headless container, on a synthetic project, nothing in this table
+  is a frame drop on its own. The case for the rewrite is the SCALING and the
+  simplification, not a user-visible stall being removed today.
+- **No memory measurement.** The engine holds ~30 hand-enumerated snapshot
+  caches and deep-clones per module read; the stores clone nothing on the read
+  path. That should show up as a real difference and this harness cannot see it.
+- **No React.** Neither driver mounts a component tree, so nothing here includes
+  reconciliation — which in the real Studio may dominate everything measured
+  above.
+- **Synthetic, not `handboka`.** The nested shape is modelled, not the real
+  project. Running this against the real fixture is the obvious next step.
+
+- [x] Build the bench harness and record durations for both systems.
+- [x] Decide go/no-go on the number. **Go.**
+- [ ] Run it against the real `handboka` fixture rather than a synthetic one.
+- [ ] Measure memory, and measure with React in the loop.
 
 ---
 
