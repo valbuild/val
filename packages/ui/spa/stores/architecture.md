@@ -720,10 +720,24 @@ finished work.
 - **`stat` has no real input.** No polling, no websocket, and it ignores
   `baseSha`/`schemaSha`/`sourcesSha`. Those are inputs to `schemaStore.receive`,
   not new events.
-- **No local patch write-back.** `createPatch` never issues `PUT /patches`, so
-  nothing exercises optimistic state, retry, or `patch-head-conflict`. File
-  bytes DO now go through a real seam (`UploadFile`) with the ordering and
-  rollback above; the patch itself still does not.
+- ~~**No local patch write-back.**~~ **Done, and the head model survives a 409.**
+  `PatchSync` is the write-back loop and the one thing in this system that is NOT
+  demand-driven: an edit has to reach the server whether or not anything reads it
+  again, so it drives itself off `patch:create` rather than waiting to be asked.
+  One `PUT` in flight at a time (the server checks every `parentRef`, so two is a
+  409 by construction), everything unsaved in one batch (a batch shares one parent,
+  so its members could not be sent separately anyway), and the parent computed from
+  what the SERVER has acknowledged rather than from the local head.
+  Optimistic state is a third axis — `PatchStore.pendingIds` — deliberately not
+  folded into `Head`: a patch can be internal, applied and complete while existing
+  only in this tab, and making the read path answer a durability question would
+  force a reader to tell "not applied" from "not saved" out of one word.
+  A 409 re-syncs and re-sends; a 400 drops the patches and rebuilds source from
+  base + the surviving chain, since an applied patch cannot be un-applied. See
+  `openquestions.md` item 6 for the four bugs this found, three of them in the
+  design.
+  Still a SEAM, like `FetchPatches` and `UploadFile`: nothing in the app calls
+  `createSystem` yet, so the app-side implementation lands with the hooks.
 - **No hooks.** Nothing consumes any of this from React yet.
 - ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
   search and patch sets are now covered: `systemFlow` (one session-order flow),

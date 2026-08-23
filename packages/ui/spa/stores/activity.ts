@@ -63,6 +63,13 @@ export type WorkKind =
   | "source:share-json-entry-load"
   /** Entry content was folded into a module's source for an in-realm walk. */
   | "source:substitute-json-entries"
+  /**
+   * One module was reset to base and its surviving chain re-applied.
+   *
+   * The cost of dropping a patch, and proportional to the MODULE rather than to
+   * the patch — which is why it is not counted as an apply.
+   */
+  | "source:rebuild-module"
   // --- patch chain ----------------------------------------------------------
   /** One `fetchPatches` round trip. `count` is how many ids it asked for. */
   | "patch:fetch"
@@ -74,6 +81,23 @@ export type WorkKind =
   | "patch:delete-file"
   /** A best-effort cleanup of a file uploaded for a patch that then failed. */
   | "patch:rollback-file"
+  // --- write-back: the one path that is not demand-driven ------------------
+  /**
+   * One `PUT /patches` round trip. `count` is how many patches it carried.
+   *
+   * Worth counting separately from `patch:create`: the whole point of batching
+   * the write is that N keystrokes should not be N round trips, and this is the
+   * only number that can show whether they were.
+   */
+  | "patch:save"
+  /** The server acknowledged patches. `count` is how many it named. */
+  | "patch:mark-saved"
+  /** A save was rejected as a conflict and will be retried against a new head. */
+  | "patch:save-conflict"
+  /** A save was retried after a network failure. */
+  | "patch:save-retry"
+  /** Patches removed from the chain. `count` is how many. */
+  | "patch:drop"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------

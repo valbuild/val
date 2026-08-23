@@ -17,6 +17,7 @@ import {
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
+import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
 import { HostStore } from "./HostStore";
 import { RenderStore } from "./RenderStore";
 import { PatchSetStore } from "./PatchSetStore";
@@ -53,6 +54,11 @@ export type HostRealm = {
   schemaStore: SchemaStore;
   sourceStore: SourceStore;
   patchStore: PatchStore;
+  /**
+   * The write-back loop. In the host realm because it drives the patch store,
+   * and because a retry timer has to live where the chain does.
+   */
+  patchSync: PatchSync;
   renderStore: RenderStore;
   validationStore: ValidationStore;
 };
@@ -152,6 +158,28 @@ export type SystemOptions = {
    */
   fetchJsonEntry?: FetchJsonEntry;
   /**
+   * Where a local patch is written back to (`PUT /patches`).
+   *
+   * Omitting it means this system never writes: edits stay local, and
+   * `patchSync.currentState()` reports them pending forever. That is the honest
+   * behaviour for a driver with no server (a benchmark, a test of the read path)
+   * and it is deliberately not a silent success — an edit that reports itself
+   * saved when nothing was written is the worst outcome available here.
+   */
+  savePatches?: SavePatches;
+  /**
+   * Bring the chain back in step after a 409. Required WITH `savePatches` to
+   * make conflicts recoverable; without it a conflict retries against the same
+   * parent and can only fail again.
+   */
+  resyncChain?: ResyncChain;
+  /** Attributes writes to this editing session. Metadata; nothing branches on it. */
+  sessionId?: string | null;
+  /** Retry backoff, injected so a test does not wait real seconds. */
+  saveBackoffMs?: (attempt: number) => number;
+  /** How the retry waits, injected for the same reason. */
+  saveSleep?: (ms: number) => Promise<void>;
+  /**
    * The worker realm. Defaults to the in-process stores.
    *
    * Supply these to move search, patch sets and references onto a real thread:
@@ -225,6 +253,19 @@ export function createSystem(options: SystemOptions): System {
     options.fetchJsonEntry,
   );
   const stat = new StatStore();
+  const patchSync = new PatchSync(
+    patchStore,
+    // Passed through as-is, including `undefined`: no write seam is a real
+    // configuration (a benchmark, a read-path test) and `PatchSync` reports it
+    // as `pending`. A stand-in that returned a retryable error instead would
+    // spin a retry loop forever against a server that does not exist.
+    options.savePatches,
+    options.resyncChain ?? (async () => {}),
+    activity,
+    options.sessionId,
+    options.saveBackoffMs,
+    options.saveSleep,
+  );
   const host = new HostStore(schemaStore, sourceStore, activity);
   const renderStore = new RenderStore(host, sourceStore, schemaStore, activity);
   const validationStore = new ValidationStore(
@@ -252,6 +293,21 @@ export function createSystem(options: SystemOptions): System {
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
+    // The write is the one path that is not demand-driven: a local patch has to
+    // reach the server whether or not anything reads it again. So the sync
+    // subscribes to `patch:create` and drives itself.
+    patchSync.listenTo(),
+    // The parent ref is computed from stat, so the sync has to see every stat.
+    // Read from the store rather than carried on the event, so the event stays
+    // an announcement rather than becoming the API — see `currentBaseSha`.
+    stat.events.on("stat:receive", (event) => {
+      const baseSha = stat.currentBaseSha();
+      if (baseSha === null) return;
+      patchSync.receiveStat(baseSha, event.patches);
+      // A stat can unblock a save that had no honest parent to name. Nothing
+      // else would retry it: `patch:create` already fired and found no base.
+      void patchSync.flush();
+    }),
     renderStore.listenTo(),
     validationStore.listenTo(),
 
@@ -348,6 +404,7 @@ export function createSystem(options: SystemOptions): System {
     schemaStore,
     sourceStore,
     patchStore,
+    patchSync,
     renderStore,
     validationStore,
     searchStore,
@@ -394,6 +451,10 @@ export function createSystem(options: SystemOptions): System {
     },
     dispose() {
       for (const off of unsubscribe) off();
+      // Before the unsubscribes would be wrong-ish and after is right: a retry
+      // mid-backoff has to be told to stop, or it wakes up and writes to a
+      // torn-down system — in a test, after the test that made it has finished.
+      patchSync.dispose();
     },
   };
 }

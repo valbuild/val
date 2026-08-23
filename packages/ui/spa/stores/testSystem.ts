@@ -7,13 +7,14 @@ import {
   type ValModule,
 } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
+import type { ParentRef, Patch } from "@valbuild/core/patch";
 import { createSystem, type System } from "./createSystem";
 import { SearchStore } from "./SearchStore";
 import { PatchSetStore } from "./PatchSetStore";
 import { ReferenceStore } from "./ReferenceStore";
 import { RecordingActivity } from "./activity";
 import type { CreatePatchResult } from "./PatchStore";
+import type { SaveResult } from "./PatchSync";
 import type { SourcePeek } from "./SourceStore";
 import type {
   FieldEvent,
@@ -315,6 +316,10 @@ export type TestStatStore = {
 
 export type TestPatchStore = {
   getHead(): Promise<Head>;
+  /** Does this patch exist only here? The optimistic-state axis. */
+  isPending(patchId: string): boolean;
+  /** Everything still local-only, in chain order. */
+  pendingPatchIds(): PatchId[];
   /**
    * Create a patch and assume it worked.
    *
@@ -375,6 +380,39 @@ export type TestJsonEntries = {
   clearFailures(): void;
 };
 
+/**
+ * The fake `PUT /patches`.
+ *
+ * It genuinely enforces the head: a write whose `parentRef` is not the server's
+ * current tip is answered 409, computed from the server's own chain rather than
+ * from a flag a test sets. That distinction is the point — a stubbed conflict
+ * proves the client handles a 409 it was handed, and this proves the client can
+ * PRODUCE the situation and recover from it. {@link simulateConcurrentWrite} is
+ * how another session moves the head without telling this client, which is the
+ * only way a real 409 ever happens.
+ */
+export type TestServer = {
+  /** The server's chain, in order. What `/stat` would return. */
+  patchIds(): PatchId[];
+  /** Every `PUT` the client made, in order, with the parent it named. */
+  writes(): { patchIds: PatchId[]; parentRef: ParentRef }[];
+  /**
+   * Another session writes. The head moves and this client is NOT told, so its
+   * next write names a stale parent and is answered 409.
+   */
+  simulateConcurrentWrite(records: PatchRecord[]): void;
+  /**
+   * Answer the next N writes with this instead of processing them.
+   *
+   * For the outcomes the fake server cannot produce on its own: a network
+   * failure, a 400 on a patch it has no opinion about, a 401.
+   */
+  failNextWrites(result: SaveResult, times?: number): void;
+  clearFailures(): void;
+  /** What the chain is rooted at. */
+  baseSha: string;
+};
+
 export type TestSystem = {
   sourceStore: TestSourceStore;
   patchStore: TestPatchStore;
@@ -421,6 +459,10 @@ export type TestSystem = {
   referenceStore: System["referenceStore"];
   files: TestFiles;
   jsonEntries: TestJsonEntries;
+  /** The write path: what reached the server, and how to make it fail. */
+  server: TestServer;
+  /** The write-back loop, so a test can await a save and read its state. */
+  patchSync: System["patchSync"];
   ledger: Ledger;
   /**
    * What each store DID, as opposed to what it announced.
@@ -444,6 +486,18 @@ export function initTestSystem(): TestSystem {
   const serverPatches = new Map<PatchId, PatchRecord>();
   const announced: PatchId[] = [];
   let nextPatchId = 0;
+
+  /**
+   * Stands in for the server's write endpoint.
+   *
+   * `serverChain` is what the server would return from `/stat`, and it is the
+   * SAME list `announced` holds — kept as one list on purpose, because a fake
+   * server with two ideas of its own chain would let a test pass against a
+   * server that could not exist.
+   */
+  const baseSha = "test-base-sha";
+  const writes: { patchIds: PatchId[]; parentRef: ParentRef }[] = [];
+  const queuedWriteFailures: SaveResult[] = [];
 
   /** Stands in for the server's file store. */
   const serverFiles = new Map<string, string>();
@@ -516,7 +570,80 @@ export function initTestSystem(): TestSystem {
       }
       return { patches, errors };
     },
+    savePatches: async ({ patches, parentRef }) => {
+      // Genuinely async, like every seam in this rig.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      writes.push({
+        patchIds: patches.map((entry) => entry.patchId),
+        parentRef,
+      });
+      const queued = queuedWriteFailures.shift();
+      if (queued !== undefined) {
+        return queued;
+      }
+      // The head check, done for real. `expected` is computed from the server's
+      // own chain, so a conflict happens because the parent IS stale, not
+      // because a test said so.
+      const tip = announced[announced.length - 1];
+      const expected: ParentRef =
+        tip === undefined
+          ? { type: "head", headBaseSha: baseSha }
+          : { type: "patch", patchId: tip };
+      const matches =
+        expected.type === parentRef.type &&
+        (expected.type === "head"
+          ? parentRef.type === "head" &&
+            expected.headBaseSha === parentRef.headBaseSha
+          : parentRef.type === "patch" &&
+            expected.patchId === parentRef.patchId);
+      if (!matches) {
+        return {
+          status: "conflict",
+          message: `Expected parent ${JSON.stringify(
+            expected,
+          )} but got ${JSON.stringify(parentRef)}`,
+        };
+      }
+      const newPatchIds: PatchId[] = [];
+      for (const entry of patches) {
+        // Stored so a later `/stat` + `/patches` round trip can serve them back,
+        // which is what a resync after a conflict actually does.
+        serverPatches.set(entry.patchId, {
+          patchId: entry.patchId,
+          moduleFilePath: entry.path,
+          patch: entry.patch,
+          createdAt: new Date().toISOString(),
+        });
+        announced.push(entry.patchId);
+        newPatchIds.push(entry.patchId);
+      }
+      const last = newPatchIds[newPatchIds.length - 1];
+      return {
+        status: "saved",
+        newPatchIds,
+        parentRef:
+          last === undefined
+            ? { type: "head", headBaseSha: baseSha }
+            : { type: "patch", patchId: last },
+      };
+    },
+    /**
+     * What a real client does after a 409: ask what the server has now, which
+     * feeds both the patch store (fetch the ops it is missing) and the sync (a
+     * new parent to name).
+     */
+    resyncChain: async () => {
+      system.stat.receiveStat({ patches: [...announced], baseSha });
+      // One tick, so the fetch the stat kicks off has a chance to land before
+      // the retry names a parent — otherwise the retry can be correct and the
+      // chain still be missing the other session's ops.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
     createPatchId: () => `local-${++nextPatchId}` as PatchId,
+    // No real waiting. The backoff schedule is arithmetic and needs no test;
+    // what needs testing is that a retry HAPPENS, and a rig that waited the real
+    // 500 ms would make every retry test slow enough that nobody runs it.
+    saveBackoffMs: () => 0,
     fetchJsonEntry: async (moduleFilePath, key) => {
       // Genuinely async, like every other seam in this rig: against a real
       // `GET /json` it never resolves synchronously, so nothing may come to
@@ -571,6 +698,10 @@ export function initTestSystem(): TestSystem {
     workerReferences.events.onAny((event) => ledger.record(event)),
     system.host.events.onAny((event) => ledger.record(event)),
     system.renderStore.events.onAny((event) => ledger.record(event)),
+    // The write path emits on its own bus, and the conflict/rejected events are
+    // the only record that a save went wrong at all — a test that could not see
+    // them could only assert the recovery, never that recovery was needed.
+    system.patchSync.events.onAny((event) => ledger.record(event)),
   ];
 
   const registered: FieldListener[] = [];
@@ -729,6 +860,8 @@ export function initTestSystem(): TestSystem {
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),
+      isPending: (patchId) => system.patchStore.isPending(patchId as PatchId),
+      pendingPatchIds: () => system.patchStore.pendingPatchIds(),
       async tryCreatePatch(moduleFilePath, patch, meta, fieldId) {
         const res = await system.patchStore.createPatch(
           moduleFilePath as ModuleFilePath,
@@ -737,11 +870,18 @@ export function initTestSystem(): TestSystem {
           fieldId,
         );
         if (res.status === "created") {
-          // A locally created patch is also on the server as far as every later
-          // read is concerned, so the fake table gets it too. Without this, a
-          // later `/stat` announcing it would fetch and fail.
+          // The fake patch TABLE gets it, so a later `/stat` announcing this id
+          // can serve its ops rather than failing the fetch.
+          //
+          // Deliberately NOT pushed onto `announced`. It used to be, back when
+          // nothing wrote patches back: "a local patch is also on the server as
+          // far as every later read is concerned" was true when no write path
+          // existed. It is now actively wrong — it puts the patch on the server
+          // BEFORE the client writes it, so the client's first real write names a
+          // parent the server has already moved past and is answered 409, and
+          // then the retry stores the patch a second time. The save is what puts
+          // a patch on the server now.
           serverPatches.set(res.record.patchId, res.record);
-          announced.push(res.record.patchId);
         }
         await settle();
         return res;
@@ -767,7 +907,33 @@ export function initTestSystem(): TestSystem {
           serverPatches.set(record.patchId, record);
           announced.push(record.patchId);
         }
-        system.stat.receiveStat({ patches: [...announced] });
+        // `baseSha` included so the write path has a parent to name. Without it
+        // a test that edits after a stat would report "cannot save yet", which
+        // is correct behaviour and a confusing thing to hit by accident.
+        system.stat.receiveStat({ patches: [...announced], baseSha });
+      },
+    },
+    patchSync: system.patchSync,
+    server: {
+      baseSha,
+      patchIds: () => [...announced],
+      writes: () => writes.map((write) => ({ ...write })),
+      simulateConcurrentWrite(records) {
+        // Deliberately NOT followed by `receiveStat`: the whole point is that
+        // this client does not know, so its next write names a stale parent. A
+        // version of this that also told the client could never produce a 409.
+        for (const record of records) {
+          serverPatches.set(record.patchId, record);
+          announced.push(record.patchId);
+        }
+      },
+      failNextWrites(result, times = 1) {
+        for (let index = 0; index < times; index++) {
+          queuedWriteFailures.push(result);
+        }
+      },
+      clearFailures() {
+        queuedWriteFailures.length = 0;
       },
     },
     dispose() {

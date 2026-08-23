@@ -6,7 +6,7 @@ import type {
   SourcePath,
   ValidationErrors,
 } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
+import type { ParentRef, Patch } from "@valbuild/core/patch";
 
 /**
  * A patch as it exists once its data is known: the ops plus the module they
@@ -194,6 +194,50 @@ export type SystemEvent =
   | { type: "patch:receive"; patches: PatchId[] }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
+  /**
+   * These locally-created patches are on their way to the server.
+   *
+   * The write is the one thing in this system that is NOT demand-driven: a read
+   * is only owed if someone asks, but an edit the user made has to reach the
+   * server whether or not anything reads it again. So the save has its own
+   * events rather than being a side effect of a read.
+   */
+  | { type: "patch:save"; patches: PatchId[]; parentRef: ParentRef }
+  /** The server accepted them. They are no longer local-only. */
+  | { type: "patch:saved"; patches: PatchId[]; parentRef: ParentRef }
+  /**
+   * The server said our parent is no longer the head (409).
+   *
+   * Someone else wrote. Nothing is lost: the patches stay pending, the chain is
+   * re-synced, and they are re-sent against the new head. Announced because it
+   * is the one state where the user's edit is real locally and provably not yet
+   * real anywhere else.
+   */
+  | { type: "patch:save-conflict"; patches: PatchId[]; message: string }
+  /**
+   * The server refused them permanently (400), so they were dropped locally.
+   *
+   * Distinct from a conflict on purpose: a conflict is retried and a rejection
+   * cannot be. The patches no longer exist, and the source has been rebuilt
+   * without them — a `source:patch-drop` says which modules moved.
+   */
+  | {
+      type: "patch:save-rejected";
+      patches: PatchId[];
+      message: string;
+      errors?: Record<ModuleFilePath, string[]>;
+    }
+  /** Patches were removed from the chain, and source rebuilt without them. */
+  | { type: "patch:drop"; patches: PatchId[]; modules: ModuleFilePath[] }
+  /**
+   * Source was rebuilt from base + the surviving chain.
+   *
+   * Its own event rather than a `source:patch-apply`: an apply says "this patch
+   * landed", and this says the opposite — a value moved because something was
+   * taken away. A consumer that invalidates on either is correct; one that
+   * counts patches as it goes would be wrong to treat them as the same news.
+   */
+  | { type: "source:patch-drop"; modules: ModuleFilePath[] }
   | { type: "patch:head"; head: Head }
   | {
       type: "source:patch-apply";

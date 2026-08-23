@@ -94,6 +94,20 @@ export class PatchStore {
    */
   private creatorByPatchId = new Map<PatchId, string>();
   /**
+   * Locally created patches the server has not acknowledged yet.
+   *
+   * A THIRD axis, deliberately not folded into {@link Head}. The head already
+   * carries origin (who made it) and status (did it apply), and "has the server
+   * got it" is neither of those: a patch can be internal, applied and complete
+   * while still existing only in this tab. Overloading `internal-partial` to
+   * mean unsaved would make the read path — which is about whether a VALUE is
+   * current — answer a question about durability, and a reader would then have
+   * to distinguish "not applied" from "not saved" out of one word.
+   *
+   * Cleared by {@link markSaved}, not by anything on the read path.
+   */
+  private pendingIds = new Set<PatchId>();
+  /**
    * Bumped whenever the chain or its data changes.
    *
    * A monotonic counter rather than a hash, for the same reason the module
@@ -318,6 +332,11 @@ export class PatchStore {
     };
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");
+    // Pending from the instant it exists. A locally created patch has by
+    // definition not reached the server, and the alternative — marking it
+    // pending when a save is attempted — leaves a window in which an edit is
+    // real, unsaved, and indistinguishable from a saved one.
+    this.pendingIds.add(patchId);
     if (fieldId !== undefined) {
       this.creatorByPatchId.set(patchId, fieldId);
     }
@@ -342,6 +361,100 @@ export class PatchStore {
       }
     }
     return { status: "created", record };
+  }
+
+  /**
+   * Locally created patches the server has not acknowledged, in chain order.
+   *
+   * Order matters and is not incidental: the server keeps ONE linear chain and
+   * checks the `parentRef` of every write, so patches sent out of order are
+   * rejected as conflicts. `this.ordered` is already the authority on order, so
+   * this filters it rather than keeping a second list that could disagree with
+   * it.
+   */
+  unsavedRecords(): PatchRecord[] {
+    const records: PatchRecord[] = [];
+    for (const patchId of this.ordered) {
+      if (!this.pendingIds.has(patchId)) continue;
+      const record = this.dataById.get(patchId);
+      if (record) records.push(record);
+    }
+    return records;
+  }
+
+  /** Does this patch exist only here? */
+  isPending(patchId: PatchId): boolean {
+    return this.pendingIds.has(patchId);
+  }
+
+  /** Everything still local-only. For a "you have unsaved changes" reader. */
+  pendingPatchIds(): PatchId[] {
+    return this.ordered.filter((patchId) => this.pendingIds.has(patchId));
+  }
+
+  /**
+   * The server has these. They are no longer local-only.
+   *
+   * Takes the ids the SERVER named rather than the ids we sent: a partial accept
+   * is a shape the response can express, and assuming our list was accepted
+   * whole would silently mark an unsaved patch saved — the one bookkeeping error
+   * here that loses an edit without any error appearing anywhere.
+   */
+  markSaved(patchIds: readonly PatchId[]): void {
+    const saved: PatchId[] = [];
+    for (const patchId of patchIds) {
+      if (!this.pendingIds.delete(patchId)) continue;
+      saved.push(patchId);
+    }
+    if (saved.length === 0) return;
+    this.version++;
+    this.activity.work("patch:mark-saved", undefined, saved.length);
+  }
+
+  /**
+   * Remove patches from the chain entirely.
+   *
+   * For a patch the server refused PERMANENTLY (400): it cannot be retried and
+   * it cannot be left in place, because the local source shows an edit that will
+   * never exist anywhere else. Dropping it and rebuilding is the only outcome
+   * that leaves the user looking at something true.
+   *
+   * Not a general undo. It emits `patch:drop` with the affected modules, and
+   * {@link SourceStore} rebuilds those from base + the surviving chain — because
+   * an already-applied patch cannot be un-applied, only recomputed without.
+   */
+  drop(patchIds: readonly PatchId[]): void {
+    const dropped: PatchId[] = [];
+    const modules = new Set<ModuleFilePath>();
+    for (const patchId of patchIds) {
+      const record = this.dataById.get(patchId);
+      if (record === undefined && !this.ordered.includes(patchId)) continue;
+      if (record !== undefined) {
+        modules.add(record.moduleFilePath);
+      }
+      this.dataById.delete(patchId);
+      this.originById.delete(patchId);
+      this.pendingIds.delete(patchId);
+      this.appliedIds.delete(patchId);
+      this.failedById.delete(patchId);
+      this.creatorByPatchId.delete(patchId);
+      this.fetching.delete(patchId);
+      dropped.push(patchId);
+    }
+    if (dropped.length === 0) return;
+    const droppedSet = new Set(dropped);
+    this.ordered = this.ordered.filter((patchId) => !droppedSet.has(patchId));
+    this.version++;
+    this.activity.work("patch:drop", undefined, dropped.length);
+    this.events.emit({
+      type: "patch:drop",
+      patches: dropped,
+      modules: [...modules],
+    });
+    // The head may have been the dropped patch. Announced after the drop so a
+    // consumer reading `currentHead()` on this event sees the chain as it now
+    // is, not as it was.
+    this.events.emit({ type: "patch:head", head: this.currentHead() });
   }
 
   /**

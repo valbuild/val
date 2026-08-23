@@ -365,10 +365,110 @@ export class SourceStore {
         (id) => patchStore.creatorOf(id),
       );
     });
+    const offDrop = patchStore.events.on("patch:drop", (event) => {
+      this.dropFromChains(event.patches, event.modules);
+    });
     return () => {
       offReceive();
       offCreate();
+      offDrop();
     };
+  }
+
+  /**
+   * Forget these patches and rebuild the modules they touched.
+   *
+   * An applied patch cannot be un-applied: a JSON patch is not invertible in
+   * general (a `replace` does not record what it replaced), so "remove the
+   * middle patch" can only mean recompute base + the surviving chain. That is
+   * the same rebase `receive()` does, which is why the chain is kept in the
+   * first place — and it is the reason a drop is affordable at all.
+   *
+   * Listeners are woken with origin `external`. A dropped patch is news to every
+   * field including the one that made it: the field that typed the value is
+   * exactly the one now showing something that no longer exists, so leaving it
+   * asleep — the suppression the normal path applies — would leave the wrong
+   * value on screen.
+   */
+  private dropFromChains(
+    patchIds: readonly PatchId[],
+    modules: readonly ModuleFilePath[],
+  ): void {
+    const dropped = new Set(patchIds);
+    const rebuilt: ModuleFilePath[] = [];
+    /**
+     * The paths the dropped patches touched.
+     *
+     * Collected from the chain entries being removed, because those are the only
+     * remaining copy: `PatchStore.drop` has already deleted the records by the
+     * time this event arrives, and the event carries ids and modules rather than
+     * ops. Needed for the wake — a dropped `replace` changes exactly the paths it
+     * originally changed, so those are the readers that are now wrong.
+     */
+    const touched: SourcePath[] = [];
+    for (const moduleFilePath of modules) {
+      const chain = this.chains.get(moduleFilePath);
+      if (chain !== undefined) {
+        const surviving = chain.filter(
+          (entry) => !dropped.has(entry.record.patchId),
+        );
+        if (surviving.length === chain.length) {
+          // Nothing of this module's chain was dropped, so its source is
+          // already right. Skipping keeps a rebuild from bumping a revision
+          // and waking every reader for no change.
+          continue;
+        }
+        for (const entry of chain) {
+          if (!dropped.has(entry.record.patchId)) continue;
+          touched.push(...touchedSourcePaths(entry.record));
+        }
+        this.chains.set(moduleFilePath, surviving);
+      }
+      const base = this.baseSources[moduleFilePath];
+      if (base === undefined) {
+        // Never loaded, so there is no source to rebuild. The chain edit above
+        // still had to happen, or the patch would re-land when it does load.
+        continue;
+      }
+      this.activity.work("source:rebuild-module", moduleFilePath);
+      this.sources[moduleFilePath] = deepClone(base as JSONValue);
+      this.bump(moduleFilePath);
+      rebuilt.push(moduleFilePath);
+    }
+    if (rebuilt.length > 0) {
+      // Announced BEFORE re-applying, so a consumer sees "these modules went
+      // back to base" and then the applies that follow, in that order. The
+      // reverse order would show the surviving patches landing on a value that,
+      // as far as any consumer could tell, still had the dropped one in it.
+      this.events.emit({ type: "source:patch-drop", modules: rebuilt });
+      for (const moduleFilePath of rebuilt) {
+        const chain = this.chains.get(moduleFilePath);
+        if (chain === undefined || chain.length === 0) continue;
+        this.applyEntries(
+          // Origin forced to `external` for the reason in the doc comment: the
+          // author of a dropped patch is a reader who must be woken, not
+          // suppressed.
+          chain.map((entry) => ({
+            record: entry.record,
+            origin: "external",
+            creatorFieldId: undefined,
+          })),
+        );
+      }
+      // AFTER the re-apply, and unconditionally rather than left to it.
+      //
+      // The re-apply wakes the paths the SURVIVING patches touch, which is not
+      // the same set — dropping a module's only patch leaves nothing to apply,
+      // and the paths that patch had changed would then be woken by nobody. So
+      // the drop does its own wake, with no `creatorFieldId`: a dropped patch is
+      // news to every reader including its author, who is precisely the one
+      // still showing a value that no longer exists.
+      if (touched.length > 0) {
+        this.wakeListeners(new Set(rebuilt), [
+          { origin: "external", creatorFieldId: undefined, paths: touched },
+        ]);
+      }
+    }
   }
 
   receive(sources: Record<ModuleFilePath, Json>): void {
@@ -761,6 +861,27 @@ export class SourceStore {
     });
 
     if (touched.length === 0) return;
+    this.wakeListeners(changedModules, wokenBy);
+  }
+
+  /**
+   * Wake every listener on a changed path, except the one that caused it.
+   *
+   * Extracted from {@link applyEntries} because a DROP has to wake the same way
+   * an apply does — and dropping the last patch of a module reaches this with
+   * nothing to apply at all. The first version of the drop path relied on the
+   * re-apply of the surviving chain to do the waking, which meant that dropping
+   * a module's only patch reset its source to base and told nobody: the field
+   * showing the rejected value kept showing it.
+   */
+  private wakeListeners(
+    changedModules: Set<ModuleFilePath>,
+    wokenBy: {
+      origin: PatchOrigin;
+      creatorFieldId?: string;
+      paths: SourcePath[];
+    }[],
+  ): void {
     // Scoped to the modules that actually changed, not the whole registry.
     //
     // Equivalent by construction rather than by approximation: every path in

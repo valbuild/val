@@ -595,22 +595,121 @@ established, the one-liner ruled out with evidence, fix left to the search index
       message, and the point of `noopActivity` is that an uninstrumented run pays
       one returning call.
 
-## 6. Nothing is written back to the server. 🟡
+## 6. Writes go back now, and the head model survives a 409. 🟢
 
-**The question:** is the head model right once writes can fail?
+**The question was:** is the head model right once writes can fail?
 
-`PatchStore.createPatch` records a patch locally and never issues
-`PUT /patches`. So none of this is exercised:
+`PatchStore.createPatch` used to record a patch locally and never issue
+`PUT /patches`, so the head handshake — the core safety property of the read
+path — had only ever been tested against writes that cannot fail.
 
-- optimistic state — a patch that exists locally and not yet on the server;
-- retry and `patch-head-conflict` (409) — the server rejecting a patch whose
-  parent is no longer the head;
-- `Head` of `internal-partial` — currently reachable in theory and never in fact.
+`PatchSync` is the write-back loop, `patchSync.test.ts` is the answer.
 
-The head handshake is the core safety property of the read path, and it has only
-ever been tested against writes that cannot fail.
+### The write is the one thing here that is not demand-driven
 
-- [ ] Wire `PUT /patches` and confirm the head model survives a 409.
+Everything else in this system is: a change MARKS and a read COMPUTES, so nothing
+is paid for unless somebody is looking. A write cannot work that way — an edit has
+to reach the server whether or not anything reads it again, and nobody is going to
+"demand" durability. So it gets a driver of its own rather than a method on
+`PatchStore`, which every read path touches and which should not own a retry timer.
+
+### Optimistic state is a THIRD axis, not a head status
+
+`Head` already carries origin (who made it) and status (did it apply), and "has
+the server got it" is neither. A patch can be internal, applied and complete while
+existing only in this tab. Overloading `internal-partial` to mean unsaved would
+make the read path — which answers "is this VALUE current" — answer a question
+about durability, and a reader would then have to tell "not applied" from "not
+saved" out of one word. So `PatchStore` keeps `pendingIds`, and nothing on the
+read path touches it.
+
+(`internal-partial` is still reachable-in-theory-only, and the write path turned
+out not to be what would make it real: it needs a locally created patch whose
+module is not loaded. Left as it was.)
+
+### One write in flight, and the batch is forced rather than chosen
+
+The server keeps one linear chain and checks every `parentRef`, so two writes in
+flight is a 409 by construction — a conflict this client would be causing itself
+and then "resolving" by re-sending. So at most one `PUT` is in flight and a save
+requested during one is CHAINED behind it.
+
+The batch is not an optimization on top of that, it is the same constraint: every
+patch in a batch shares one `parentRef`, so they could not be sent separately even
+if the round trips were free. What batching buys is that a burst costs two
+requests rather than N — the first patch alone, then everything made while it was
+in flight. The test says exactly that, and deliberately does not pin the split,
+which depends on microtask ordering.
+
+### The parent ref is computed, and not from the local head
+
+`{ type: "patch", patchId }` of the last patch the SERVER has acknowledged, else
+`{ type: "head", headBaseSha }`. Never the local head: that includes patches the
+server has never seen, and naming one is a guaranteed 409.
+
+"What the server has acknowledged" is two things joined — the last stat's id list,
+plus the ids our own 200s named that stat has not caught up to. A stat snapshot can
+be OLDER than our own successful write, so using it alone walks the parent
+backwards and conflicts with ourselves. `StatStore` gained `baseSha` for this; it
+is the only new field and the write is the only thing that needs it.
+
+### Three failures, and collapsing any two would be a bug
+
+- **409 conflict** — retryable, and only after a re-sync: retrying with the same
+  parent can only fail again. `ResyncChain` is injected for exactly this.
+- **400 rejected** — NOT retryable. The patches are dropped and the source rebuilt
+  from base + the surviving chain, because an applied patch cannot be un-applied
+  (a `replace` does not record what it replaced) and because the alternative is a
+  user staring at an edit that will never exist anywhere.
+- **network / 401** — retryable, and nothing local changes: the response says
+  nothing about the patches.
+
+Collapsing conflict and rejected into one "failed" is the expensive mistake: one
+must be retried and the other must never be, and getting it backwards either loses
+an edit forever or retries a bad patch until the end of time.
+
+### Four bugs this found, three of them in the design
+
+1. **A swallowed write.** `flush` set an `again` flag and returned the in-flight
+   promise. A flush arriving after the running drain had finished looping but
+   before its `finally` cleared `inFlight` set the flag on a loop that would never
+   read it again — and the patch then sat unsaved until something else happened to
+   flush. Chaining has no such window.
+2. **A rejection erased by the truth.** `rejected` was a `SyncState`. But the queue
+   state after a drop genuinely IS `in-sync` — the patches are gone, nothing is
+   pending — so the next drain overwrote it, and the one outcome that destroys a
+   user's edit became the one a UI could not reliably see. Now the queue reports the
+   queue (`currentState`) and the failure reports the failure (`lastRejection`,
+   sticky until acknowledged), and neither can erase the other.
+3. **A drop that woke nobody.** The rebuild relied on re-applying the surviving
+   chain to wake listeners. Dropping a module's ONLY patch leaves nothing to
+   re-apply, so the source went back to base and the field showing the rejected
+   value kept showing it. The wake is now the drop's own, extracted from
+   `applyEntries`, with no `creatorFieldId` — a dropped patch is news to every
+   reader _including its author_, who is precisely the one still showing something
+   that no longer exists.
+4. **A runaway retry.** A system with no write seam had a stand-in returning a
+   retryable error, which spun forever against a server that does not exist. No
+   seam is now its own state: `pending`, reported honestly, because no amount of
+   waiting configures a seam — and emphatically not `in-sync`, since an edit that
+   reports itself saved while nothing left the tab is the worst outcome available.
+
+And one in the test rig, which is the one that made every real write fail:
+`tryCreatePatch` pushed each locally created patch onto the fake server's chain.
+That was correct when nothing wrote patches back — "a local patch is also on the
+server as far as every later read is concerned". With a write path it puts the
+patch on the server BEFORE the client writes it, so the first real write named a
+parent the server had already moved past, was answered 409, and the retry then
+stored the patch twice. The save is what puts a patch on the server now.
+
+### What is deliberately still open
+
+- **No app-side implementation.** `savePatches` is a seam, like `fetchPatches`,
+  `uploadFile` and `fetchJsonEntry` — and like those, nothing in the app calls
+  `createSystem` yet, so there is nothing to wire it into. It lands with the hooks.
+- **Unbounded retry.** A network failure retries forever with backoff capped at
+  30s, which is what an editor should do, and there is no "give up" state. If one
+  is wanted it is a product decision, not a missing mechanism.
 
 ---
 

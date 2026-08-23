@@ -5,14 +5,27 @@ import type { SystemEvent } from "./types";
 /**
  * The subset of the `/stat` response this prototype reacts to.
  *
- * The real response also carries `baseSha` / `schemaSha` / `sourcesSha`, which
- * is how the schema and source stores learn they need to refetch. Left out here
- * because nothing in `system.test.ts` exercises it — the field it would add is
- * an input to `SchemaStore.receive`, not a new event.
+ * The real response also carries `schemaSha` / `sourcesSha`, which is how the
+ * schema and source stores learn they need to refetch. Left out here because
+ * nothing exercises it yet — the field it would add is an input to
+ * `SchemaStore.receive`, not a new event.
+ *
+ * `baseSha` IS here, because the write path needs it and nothing else can supply
+ * it: a `PUT /patches` against an empty chain names `{ type: "head", headBaseSha }`
+ * as its parent, so without this the first write of a session has nothing honest
+ * to send. See `PatchSync.currentParentRef`.
  */
 export type StatSnapshot = {
   /** The authoritative ordered patch-id list. Ids only — no ops. */
   patches: PatchId[];
+  /**
+   * What the chain is rooted at: the sha of the committed base source.
+   *
+   * Optional so a caller that has no server — a test driving the stores from
+   * local modules — is not forced to invent one. Absent means writes cannot be
+   * attempted, which is the honest consequence rather than a guessed sha.
+   */
+  baseSha?: string;
 };
 
 /**
@@ -29,6 +42,7 @@ export class StatStore {
   readonly events = new StoreBus<SystemEvent>();
 
   private patches: PatchId[] = [];
+  private baseSha: string | null = null;
 
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
@@ -36,10 +50,25 @@ export class StatStore {
    */
   receiveStat(snapshot: StatSnapshot): void {
     this.patches = [...snapshot.patches];
+    if (snapshot.baseSha !== undefined) {
+      this.baseSha = snapshot.baseSha;
+    }
     this.events.emit({ type: "stat:receive", patches: [...this.patches] });
   }
 
   currentPatchIds(): PatchId[] {
     return [...this.patches];
+  }
+
+  /**
+   * What the chain is rooted at, or `null` if no stat has said.
+   *
+   * Read rather than carried on `stat:receive`, for the same reason the patch
+   * ids are carried: the event announces that something changed, and a consumer
+   * that needs a value asks. Putting every field of the stat response into the
+   * event would make the event the API.
+   */
+  currentBaseSha(): string | null {
+    return this.baseSha;
   }
 }
