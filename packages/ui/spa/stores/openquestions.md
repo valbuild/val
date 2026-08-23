@@ -178,7 +178,42 @@ Note what the fix actually is, because it is more than a parameter:
 — so scoping it means making a list render **windowed**, across the ~16 schema
 classes that implement `executeRender`.
 
-- [ ] Decide whether this experiment is allowed to change `packages/core`.
+- [x] **Changing `packages/core` is allowed** (decided 2026-08-23: no external
+      users, two internal ones). So this is now a work item, not a question.
+
+**The surface is far smaller than first estimated.** 17 schema classes implement
+`executeRender`, but only 3 PRODUCE a render, and only **2 run a user closure**:
+`array.select` (per item) and `record.select` (per entry). `string`'s render is a
+static layout hint (`{as:"textarea"}` / `{as:"code",language}`) with no closure,
+so it costs nothing. The other 14 implementations are pure recursion. The whole
+expense lives in two `map`s.
+
+Four real callers: `ValOps.ts:595` (server, whole module), `ValSyncEngine.ts:1074`
+(current engine), `HostStore.ts:117` (this prototype), and
+`InlineField.stories.tsx:70`.
+
+**The one API decision left:** a list render's payload IS the aggregate
+(`{layout, parent, items: [...]}`), so evaluating a window makes `items` partial.
+Either the aggregate becomes sparse, or renders become per-item entries keyed by
+the ITEM's source path and the list UI assembles what it needs.
+
+Proposed, because it is additive and breaks no existing caller:
+
+```ts
+executeRender(path, src, opts?: { only?: SourcePath[] })
+```
+
+- No `opts` — today's behaviour exactly, plus per-item entries alongside the
+  aggregate. Existing callers unaffected.
+- `only` — run `select` ONLY for items whose path is listed, emit per-item
+  entries for them, and omit the aggregate rather than shipping a partial one
+  under a name that implies completeness.
+
+That makes `RenderStore.get(path)` genuinely path-scoped: a field at one row asks
+for one row. And the same mechanism serves the virtualized list, which wants its
+visible window (~58 rows) rather than one row or all 5000 — a window is just a
+longer `only`.
+
 - [ ] If not: say so, and accept that the `handboka` render cost is unaddressed —
       and re-examine whether item 1's numbers still justify the rewrite.
 
