@@ -77,7 +77,26 @@ export type WaitOptions = {
   timeoutMs?: number;
 };
 
-const DEFAULT_TIMEOUT_MS = 500;
+/**
+ * How long a waiting assertion waits before declaring absence.
+ *
+ * 50ms, down from an arbitrary 500. The number is measured, not guessed: an
+ * instrumented run of this suite showed the longest a waiter ACTUALLY waits is
+ * 1-6ms — the `ledger.has` calls that span the async patch fetch. So this is
+ * roughly 8x the observed peak.
+ *
+ * Two things make a low value right here. A passing test never reaches this
+ * timeout at all — `didReceive` and `ledger.has` resolve the moment their event
+ * arrives, and the timer only governs giving up — so lowering it costs nothing on
+ * the happy path and makes a genuine failure report 10x sooner, which is most of
+ * what this rig is for. And a value 80x the requirement hides exactly the
+ * slowness it should surface.
+ *
+ * Not lower than this: 5ms is BELOW the measured 6ms peak. It passed several
+ * runs, which is what a marginal timeout looks like right before it becomes a
+ * flake someone else has to chase.
+ */
+const DEFAULT_TIMEOUT_MS = 50;
 
 /**
  * Lets the whole event pipeline run to quiescence.

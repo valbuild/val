@@ -4,6 +4,7 @@ import { transform } from "sucrase";
 import { ValOpsFS } from "./ValOpsFS";
 import fs from "fs";
 import path from "node:path";
+import os from "node:os";
 import synchronizedPrettier from "@prettier/sync";
 import { result } from "@valbuild/core/fp";
 
@@ -71,9 +72,15 @@ function setup() {
     { filepath: "test.val.js" },
   );
 
-  const tmpDir = ".tmp";
-  fs.mkdirSync(tmpDir, { recursive: true });
-  const rootDir = fs.mkdtempSync(path.join(tmpDir, "val-file-upload-test"));
+  // The OS temp dir, NOT the repo-local `.tmp`: `ValOpsFS.test.ts` does
+  // `rmSync(".tmp", { recursive: true })` at the top of its run, and jest runs
+  // suites in parallel workers — so a suite holding files under `.tmp` gets them
+  // deleted underneath it. That is a ~12% flake when these two interleave, and
+  // it presents as a bewildering "the file I just uploaded is gone".
+  //
+  // `prepareContinueOnError.test.ts`, `ValOpsFS.jsonValues.test.ts` and
+  // `cli/src/debug/snapshotRoundTrip.test.ts` all carry the same warning.
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "val-file-upload-"));
   const absSource = path.join(rootDir, MODULE);
   fs.mkdirSync(path.dirname(absSource), { recursive: true });
   fs.writeFileSync(absSource, source);
