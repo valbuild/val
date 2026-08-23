@@ -8,3 +8,5 @@ tsconfig.tsbuildinfo
 # Customer debug snapshots (see debug/README.md). Contains customer content.
 /debug/*
 !/debug/README.md
+# Git worktrees checked out inside the repo (see jest.config.js)
+.claude/worktrees/
