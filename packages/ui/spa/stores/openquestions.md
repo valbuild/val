@@ -107,6 +107,42 @@ Leaving `event → read → reply → (accept | drop)`, which terminates. The on
 back to a cycle is a field that WRITES on read — stated as a rule so it is not
 left to convention.
 
+### The comparator is in the wrong store — a live defect, pinned
+
+`head.seq` is the PATCH STORE's chain version, and the patch chain cannot see a
+base-source replacement. So a source reset — a new commit, `PUT /sources/~`, HMR,
+or a `.jsonValues()` entry file changing on disk — changes the value while the
+comparator sits still, and a field quoting the head it correctly read at is told
+`unchanged` about a value that is now wrong. Confirmed: held `"authored"` at
+`seq 0`, re-received as `"changed on disk"`, re-read answered
+`{status:"unchanged", seq:0}`. Two failing specs in `headProtocol.test.ts`.
+
+Note this is NOT jsonValues-specific — it hits ordinary HMR. jsonValues only
+makes it likelier, because an entry file change cannot move `sourcesSha` either:
+the module's source is markers and the content sits behind a thunk
+`JSON.stringify` drops, which is exactly why `jsonEntriesSha` exists as its own
+fingerprint (FS mode only).
+
+The fix is the split already sketched below: a **source revision** owned by the
+source store and bumped by anything that changes readable source — patch applied,
+base replaced, entry content loaded — with the patch head left describing the
+chain for the review UI and `parentRef`. The defect is the argument: the patch
+chain is structurally the wrong thing to compare against, because it cannot see
+half of what changes a value.
+
+### How `.jsonValues()` content can change at all
+
+Only two ways, and both are already modelled:
+
+1. **A patch**, exactly like any other source. Goes through the chain, so the
+   comparator moves and `unchanged` is correctly refused.
+2. **A source reset** — a new commit (`sourcesSha`), or an entry file changing
+   locally (`jsonEntriesSha` → `markAllJsonEntriesStale`).
+
+There is no third path, which is what makes the revision split sufficient rather
+than merely helpful: cover "the chain moved" and "base was replaced" and every
+way content can change is covered.
+
 ### Still open
 
 - [ ] `getHead()` stays for tests and for the patch store's own use, but nothing

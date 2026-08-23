@@ -322,3 +322,65 @@ describe("cycles are prevented structurally", () => {
     dispose();
   });
 });
+
+describe("the comparator must see everything that changes source", () => {
+  /**
+   * SPEC — currently failing, and the reason the comparator has to move out of
+   * the patch store.
+   *
+   * `head.seq` is the patch store's CHAIN version. A source reset — a new commit,
+   * `PUT /sources/~`, HMR, or a `.jsonValues()` entry file changing on disk —
+   * replaces base source without touching the chain. So the value changes and the
+   * comparator sits still, and a field quoting the head it correctly read at is
+   * told `unchanged` about a value that is now wrong.
+   *
+   * `.jsonValues()` makes this likelier rather than different: an entry file
+   * change cannot move `sourcesSha` either, because the module's source is
+   * markers and the content sits behind a thunk `JSON.stringify` drops — which is
+   * why `jsonEntriesSha` exists as a separate fingerprint.
+   *
+   * The fix is to give the SOURCE store its own revision, bumped by anything that
+   * changes readable source, and leave the patch head describing the chain. The
+   * patch chain structurally cannot see a base-source replacement, so it is the
+   * wrong thing to compare against.
+   */
+  it("reports a value as changed after a source reset", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, dispose } = initTestSystem();
+    const withTitle = (title: string) =>
+      c.define("/reset.val.ts", s.object({ title: s.string() }), { title });
+
+    await sourceStore.testReceive([withTitle("authored")]);
+    const first = await sourceStore.get('/reset.val.ts?p="title"', null);
+    expect(valueOf(first)).toBe("authored");
+
+    // The reset: same module, new base source.
+    await sourceStore.testReceive([withTitle("changed on disk")]);
+
+    const again = await sourceStore.get(
+      '/reset.val.ts?p="title"',
+      headOf(first),
+    );
+    // Not `unchanged`: what this field holds is no longer what the store holds.
+    expect(valueOf(again)).toBe("changed on disk");
+    dispose();
+  });
+
+  /** The same reset must also make a held head report itself out of date. */
+  it("reports a held head as no longer current after a source reset", async () => {
+    const { c, s } = initVal();
+    const { sourceStore, dispose } = initTestSystem();
+    const withTitle = (title: string) =>
+      c.define("/reset2.val.ts", s.object({ title: s.string() }), { title });
+
+    await sourceStore.testReceive([withTitle("authored")]);
+    const read = await sourceStore.get('/reset2.val.ts?p="title"', null);
+    expect(await sourceStore.isCurrent(headOf(read))).toBe(true);
+
+    await sourceStore.testReceive([withTitle("changed on disk")]);
+
+    // Otherwise the watchdog cannot catch it either, and nothing can.
+    expect(await sourceStore.isCurrent(headOf(read))).toBe(false);
+    dispose();
+  });
+});
