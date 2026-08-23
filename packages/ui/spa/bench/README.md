@@ -1,9 +1,10 @@
 # Browser benchmark: stores vs `ValSyncEngine`
 
 ```bash
-node packages/ui/spa/bench/run.mjs                       # small + large, 5 reps
-node packages/ui/spa/bench/run.mjs --reps 9 --size large
-node packages/ui/spa/bench/run.mjs --json /tmp/bench.json # keep the raw samples
+node packages/ui/spa/bench/run.mjs                        # screen, 5 reps
+node packages/ui/spa/bench/run.mjs --reps 15
+node packages/ui/spa/bench/run.mjs --size small,large,page # diagnostic sizes
+node packages/ui/spa/bench/run.mjs --json /tmp/bench.json  # keep the raw samples
 ```
 
 No setup: the runner bundles with the esbuild binary out of the pnpm store,
@@ -59,21 +60,61 @@ Three supporting rules:
   a comparison and the runner exits non-zero. That is the guard against the
   classic benchmark lie: fast because it silently did nothing.
 
-The project is synthetic because the claim under test is about how cost scales
-with project size, and a single real project gives one point. It includes the
-case that actually hurts: `select` at two nested array levels, which is the
-`handboka` shape named throughout the architecture notes.
+### The mounted-field count decides the answer
+
+Five sizes. Picking the wrong one produced a wrong answer three times:
+
+| size         | modules | fields mounted        | what it is for               |
+| ------------ | ------- | --------------------- | ---------------------------- |
+| **`screen`** | 141     | **16, in one module** | **MEASURED. Quote this one** |
+| `realistic`  | 141     | 60, all of one page   | the pessimistic screen       |
+| `small`      | 14      | 23                    | a quick check                |
+| `large`      | 141     | 260, 2 per module     | a site-wide sample           |
+| `page`       | 22      | 1202, 60 per module   | finding scaling defects      |
+
+Two of the costs measured here are **linear in mounted fields** — listener
+registration and the per-path read cache — so an inflated count overstates them.
+Every claim of a LOSS in this benchmark's history came from that, and the fix was
+to stop guessing:
+
+`examples/next` was run for real — Next dev server plus the UI's Vite dev server
+— and the Studio driven over CDP to count what a screen mounts.
+`/~/app/page.val.ts`, the richest real module, renders a content area of 63
+elements: **~15 field rows**. The 24-chapter handbook list renders ~24 rows. The
+Studio shows a compact PREVIEW row per field, not a form full of inputs.
+
+So `screen` is 16 mounted fields, and at that count there is no loss anywhere.
+
+Keep the inflated sizes: mounting far more than is real is how a scaling defect
+surfaces — the O(all registered paths) listener scan was found on `page` and
+nowhere else. They are instruments, not descriptions.
+
+The inflated sizes are kept because mounting far more than is real is how a
+scaling defect surfaces: the O(all registered paths) listener scan was found on
+`page` and nowhere else. They are diagnostic instruments, not descriptions.
+
+The project is generated because the claim under test is about how cost scales,
+and a single real project gives one point. It includes the case that actually
+hurts: `select` at two nested array levels, the `handboka` shape named throughout
+the architecture notes. `examples/next` now carries the same shape for real —
+a 344 KB generated handbook (`cd examples/next && pnpm handbook generate`) with
+nested lists, richtext, images, routes and `keyOf` references, in a project that
+really builds and really validates.
 
 ## What is deliberately not measured
 
 - **`PUT /patches`.** Unwired in the stores. The engine does that work and the
   stores do not, so every scenario stops before the sync and the engine is not
   charged for it.
-- **React.** No component tree in either driver. Reconciliation would land in
-  every measurement and it is the same React on both sides.
+- **A real field component.** There IS a React harness now
+  (`reactHarness.tsx`), and it produced the clearest result in the exercise: one
+  keystroke re-renders 60 components in the engine and 0 in the stores. But its
+  field is a `<span>`, so its millisecond column is a floor — a real Val field is
+  a rich-text editor. Read the render COUNT, not the time.
 - **HTTP.** Same server for both; it would only add noise.
-- **Memory.** Worth doing and not done. The engine holds ~30 hand-enumerated
-  snapshot caches, so it is a fair question — this harness cannot answer it.
+- **The `examples/next` modules themselves.** The handbook fixture there has the
+  right shape, but the benchmark still generates its own modules rather than
+  importing that app's.
 
 ## Reading the output
 

@@ -1,4 +1,12 @@
-import { runAll, SCENARIO_NOTES, type ScenarioResult } from "./scenarios";
+import {
+  buildForMemory,
+  releaseMemoryHold,
+  runAll,
+  SCENARIO_NOTES,
+  type ScenarioResult,
+} from "./scenarios";
+import { generateProject, SIZES } from "./generateProject";
+import { runReactScenario, type ReactSample } from "./reactHarness";
 
 /**
  * The browser entry point.
@@ -18,11 +26,49 @@ declare global {
   interface Window {
     valBench: {
       run(repetitions?: number, sizes?: string[]): Promise<BenchPayload>;
+      /** Build a system and hold it, so the runner can GC and weigh the heap. */
+      buildForMemory(
+        driver: string,
+        size: string,
+      ): Promise<{ fieldsReady: number; modules: number }>;
+      releaseMemoryHold(): void;
+      /** The same comparison with React mounted, which the plain run cannot see. */
+      runReact(
+        repetitions?: number,
+        sizes?: string[],
+      ): Promise<{ driver: string; size: string; samples: ReactSample[] }[]>;
     };
   }
 }
 
 window.valBench = {
+  buildForMemory,
+  releaseMemoryHold,
+  async runReact(repetitions = 5, sizes = Object.keys(SIZES)) {
+    const rows: { driver: string; size: string; samples: ReactSample[] }[] = [];
+    for (const sizeName of sizes) {
+      for (const driver of ["ValSyncEngine", "stores"]) {
+        const samples: ReactSample[] = [];
+        for (let rep = 0; rep <= repetitions; rep++) {
+          // A fresh project and a fresh React root per repetition, for the same
+          // reason the plain scenarios do it: sharing would let one repetition's
+          // caches serve the next, and the two systems cache differently.
+          const project = generateProject(SIZES[sizeName]);
+          const sample = await runReactScenario(
+            driver,
+            project.modules,
+            project.mountedPaths,
+            project.typedModule,
+            project.typedFieldPath,
+          );
+          if (rep > 0) samples.push(sample);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        rows.push({ driver, size: sizeName, samples });
+      }
+    }
+    return rows;
+  },
   async run(repetitions, sizes) {
     const results = await runAll(repetitions, sizes);
     return {

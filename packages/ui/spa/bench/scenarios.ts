@@ -1,4 +1,9 @@
-import { generateProject, SIZES, type ProjectSize } from "./generateProject";
+import {
+  generateProject,
+  SIZES,
+  type GeneratedProject,
+  type ProjectSize,
+} from "./generateProject";
 import { engineDriver, storesDriver, type Driver } from "./drivers";
 
 /**
@@ -258,7 +263,7 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
-const DRIVERS: { name: string; make: () => Driver }[] = [
+export const DRIVERS: { name: string; make: () => Driver }[] = [
   { name: "ValSyncEngine", make: engineDriver },
   { name: "stores", make: storesDriver },
 ];
@@ -303,3 +308,43 @@ export async function runAll(
 export const SCENARIO_NOTES: Record<string, string> = Object.fromEntries(
   SCENARIOS.map((scenario) => [scenario.name, scenario.note]),
 );
+
+/**
+ * A live system, held so it cannot be collected while its heap is measured.
+ *
+ * Memory has to be driven from OUTSIDE the page: the reading worth having is
+ * retained heap after a forced GC, and both the GC and the measurement are CDP
+ * calls. So the page's job is only to build the thing and hold on to it —
+ * `build`, then the runner collects and reads, then `release`.
+ *
+ * `readAll` is included in the build because an unread system has not populated
+ * its caches, and the caches are the interesting part: the engine keeps ~30
+ * snapshot maps and deep-clones per module read, the stores clone nothing on the
+ * read path. Measuring before the first read would compare two empty systems.
+ */
+let held: { driver: Driver; project: GeneratedProject } | null = null;
+
+export async function buildForMemory(
+  driverName: string,
+  sizeName: string,
+): Promise<{ fieldsReady: number; modules: number }> {
+  releaseMemoryHold();
+  const entry = DRIVERS.find((candidate) => candidate.name === driverName);
+  if (entry === undefined) {
+    throw new Error(`No such driver: ${driverName}`);
+  }
+  const project = generateProject(SIZES[sizeName]);
+  const driver = entry.make();
+  await driver.setup(project.modules);
+  await driver.mount(project.mountedPaths);
+  const reads = await driver.readAll();
+  held = { driver, project };
+  return { fieldsReady: reads.fieldsReady, modules: project.moduleCount };
+}
+
+export function releaseMemoryHold(): void {
+  if (held !== null) {
+    held.driver.dispose();
+    held = null;
+  }
+}

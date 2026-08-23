@@ -1,7 +1,13 @@
 /**
  * Runs the store benchmark in a real Chromium and prints the table.
  *
- *   node packages/ui/spa/bench/run.mjs [--reps 5] [--size small,large] [--json out.json]
+ *   node packages/ui/spa/bench/run.mjs [--reps 5] [--size realistic] [--json out.json]
+ *
+ * Sizes: screen (default, MEASURED against the real Studio), realistic, small,
+ * large, page. See README.md —
+ * the inflated mount counts in `large` and `page` are diagnostic instruments, and
+ * quoting them as a session cost is how an early version of this benchmark
+ * reported mounting as a loss.
  *
  * Why a real browser at all: every cost claim in `architecture.md` is an
  * invocation COUNT asserted in node. Counts were chosen because they are exactly
@@ -34,7 +40,9 @@ const flag = (name, fallback) => {
   return at === -1 ? fallback : args[at + 1];
 };
 const reps = Number(flag("reps", "5"));
-const sizes = flag("size", "small,large").split(",");
+// `realistic` by default: it is the only shape that describes a session. The
+// others are diagnostic — see bench/README.md.
+const sizes = flag("size", "screen").split(",");
 const jsonOut = flag("json", null);
 
 function sh(cmd, cmdArgs, opts = {}) {
@@ -71,6 +79,9 @@ await sh(
     "--format=iife",
     "--platform=browser",
     "--target=chrome120",
+    // The React harness is .tsx. Automatic runtime, so no React import is
+    // needed in a file that only renders.
+    "--jsx=automatic",
     // Production-like: the shipped Studio is minified, and measuring unminified
     // code would flatter whichever system has more dead code to strip.
     "--minify",
@@ -213,6 +224,71 @@ const payload = await evaluate(
   "window.valBench.run(" + reps + ", " + JSON.stringify(sizes) + ")",
 );
 
+// --- 3b. retained heap ------------------------------------------------------
+/**
+ * How much does each system HOLD?
+ *
+ * Driven from out here rather than in the page because the reading worth having
+ * is retained heap after a forced collection, and both the collection and the
+ * measurement are CDP calls. `performance.memory` in-page reports a number the
+ * GC has not been asked to settle, which for a comparison of two caches is
+ * noise.
+ *
+ * The engine keeps ~30 hand-enumerated snapshot maps and deep-clones per module
+ * read; the stores clone nothing on the read path. That should be visible, and
+ * it is the one claim in `architecture.md` that neither the counts nor the
+ * durations can speak to.
+ */
+async function heapAfterGc() {
+  await send("HeapProfiler.collectGarbage", {});
+  // Twice: one pass frees the objects, the second frees what the first made
+  // unreachable. A single collect reliably over-reports by a few hundred KB.
+  await send("HeapProfiler.collectGarbage", {});
+  const usage = await send("Runtime.getHeapUsage", {});
+  return usage.usedSize;
+}
+
+async function measureMemory(sizeNames) {
+  const rows = [];
+  for (const size of sizeNames) {
+    // A baseline taken with nothing held, in the same page, so the delta is the
+    // system rather than the bundle and the runtime.
+    await evaluate("window.valBench.releaseMemoryHold()");
+    const baseline = await heapAfterGc();
+    for (const driver of ["ValSyncEngine", "stores"]) {
+      const built = await evaluate(
+        "window.valBench.buildForMemory(" +
+          JSON.stringify(driver) +
+          ", " +
+          JSON.stringify(size) +
+          ")",
+      );
+      const held = await heapAfterGc();
+      rows.push({
+        size,
+        driver,
+        retainedBytes: held - baseline,
+        fieldsReady: built.fieldsReady,
+        modules: built.modules,
+      });
+      await evaluate("window.valBench.releaseMemoryHold()");
+    }
+  }
+  return rows;
+}
+
+process.stderr.write("weighing retained heap...\n");
+const memory = await measureMemory(sizes);
+
+process.stderr.write("running with React mounted...\n");
+const reactRows = await evaluate(
+  "window.valBench.runReact(" +
+    Math.min(reps, 5) +
+    ", " +
+    JSON.stringify(sizes) +
+    ")",
+);
+
 ws.close();
 chrome.kill("SIGKILL");
 server.close();
@@ -331,13 +407,107 @@ for (const size of sizes) {
 }
 
 console.log("");
+console.log(
+  "with React mounted - what reconciliation adds, and who re-renders:",
+);
+console.log(
+  "  " +
+    "size".padEnd(8) +
+    "driver".padEnd(15) +
+    "mount ms".padStart(9) +
+    "renders".padStart(9) +
+    "  |" +
+    "keystroke ms".padStart(13) +
+    "renders".padStart(9) +
+    "   fields",
+);
+for (const size of sizes) {
+  for (const driver of ["ValSyncEngine", "stores"]) {
+    const row = reactRows.find((r) => r.size === size && r.driver === driver);
+    if (!row || row.samples.length === 0) continue;
+    const mountMs = median(row.samples.map((s) => s.mountMs));
+    const keyMs = median(row.samples.map((s) => s.keystrokeMs));
+    const mountRenders = median(row.samples.map((s) => s.mountRenders));
+    const keyRenders = median(row.samples.map((s) => s.keystrokeRenders));
+    const fields = row.samples[0].fields;
+    console.log(
+      "  " +
+        size.padEnd(8) +
+        driver.padEnd(15) +
+        fmt(mountMs).padStart(9) +
+        String(mountRenders).padStart(9) +
+        "  |" +
+        fmt(keyMs).padStart(13) +
+        String(keyRenders).padStart(9) +
+        "   " +
+        fields,
+    );
+  }
+}
+console.log(
+  "  `keystroke renders` is the number this table exists for: the engine's",
+);
+console.log(
+  "  finest source subscription is per MODULE, so every mounted field in the",
+);
+console.log("  edited module re-renders. Per-path notification wakes one.");
+
+console.log("");
+console.log(
+  "retained heap, after two forced collections (delta over baseline):",
+);
+console.log(
+  "  " +
+    "size".padEnd(8) +
+    "engine".padStart(11) +
+    "stores".padStart(11) +
+    "ratio".padStart(8) +
+    "   per field",
+);
+for (const size of sizes) {
+  const engine = memory.find(
+    (r) => r.size === size && r.driver === "ValSyncEngine",
+  );
+  const stores = memory.find((r) => r.size === size && r.driver === "stores");
+  if (!engine || !stores) continue;
+  const kb = (bytes) => (bytes / 1024).toFixed(0) + " KB";
+  const perField = (row) =>
+    row.fieldsReady > 0
+      ? (row.retainedBytes / row.fieldsReady / 1024).toFixed(1) + " KB"
+      : "-";
+  console.log(
+    "  " +
+      size.padEnd(8) +
+      kb(engine.retainedBytes).padStart(11) +
+      kb(stores.retainedBytes).padStart(11) +
+      (stores.retainedBytes > 0
+        ? (engine.retainedBytes / stores.retainedBytes).toFixed(1) + "x"
+        : "-"
+      ).padStart(8) +
+      "   " +
+      perField(engine) +
+      " vs " +
+      perField(stores),
+  );
+}
+console.log(
+  "  A single reading each, not a median: a forced-GC heap delta is stable to",
+);
+console.log(
+  "  a few percent but repeating it does not make it more meaningful.",
+);
+
+console.log("");
 for (const [name, note] of Object.entries(payload.notes)) {
   console.log("  " + name.padEnd(13) + " " + note);
 }
 console.log("");
 
 if (jsonOut) {
-  writeFileSync(jsonOut, JSON.stringify(payload, null, 2));
+  writeFileSync(
+    jsonOut,
+    JSON.stringify({ ...payload, memory, react: reactRows }, null, 2),
+  );
   console.log("raw samples -> " + jsonOut);
 }
 

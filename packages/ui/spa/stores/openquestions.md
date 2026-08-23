@@ -10,85 +10,150 @@
 
 ---
 
-## 1. ~~Nothing has been measured IN A BROWSER~~ — MEASURED. 🟢 GO, with one caveat
+## 1. ~~Nothing has been measured IN A BROWSER~~ — MEASURED. 🟢 GO
 
 **The question was:** does per-path eventing + lazy compute actually beat the
 current engine, in a browser? Every performance claim in `architecture.md` was
-read off the code, and `ValSyncEngine` had already had four independent fixes
-landed (#476) — it was entirely possible those bought most of the available win,
-in which case the right call was to stop and keep the engine.
+read off the code, and `ValSyncEngine` had already had four fixes landed (#476) —
+it was entirely possible those bought most of the available win.
 
-**Answered.** `bench/` runs both systems in a real Chromium on the same
-synthetic project. The fairness contract is at the top of `bench/drivers.ts` and
-is the load-bearing part: the unit of measurement is **a field becoming ready**
-(source + validation + render in hand), because timing `addPatch` against
-`createPatch` would time the eager system doing all the work and the lazy system
-doing none of it. `select` invocations are counted next to every duration, and
-`fieldsReady` is printed so a row where the two systems were not asked the same
-question fails the run.
+**Answered, and it is not close.** `bench/` runs both systems in a real Chromium.
+The fairness contract is at the top of `bench/drivers.ts`; the short version is
+that the unit of measurement is **a field becoming ready** (source + validation +
+render in hand), because timing `addPatch` against `createPatch` would time the
+eager system doing all the work and the lazy system doing none of it.
 
-On the large project (141 modules, 260 mounted fields), medians of 7,
-non-overlapping ranges only:
+### First, the fixture — because it decided the answer three times
 
-| scenario                          | engine  | stores | ratio             |
-| --------------------------------- | ------- | ------ | ----------------- |
-| intake                            | 15.7 ms | 2.0 ms | **7.8x**          |
-| keystroke (260 fields mounted)    | 2.8 ms  | 0.9 ms | **3.1x**          |
-| keystroke into a rendered list    | 2.8 ms  | 0.2 ms | **14x**           |
-| nested-row (the `handboka` shape) | 2.6 ms  | 0.5 ms | **5.2x**          |
-| burst of 40                       | 4.0 ms  | 2.5 ms | **1.6x**          |
-| list-view (whole list shown)      | 3.3 ms  | 2.2 ms | **1.5x**          |
-| mount 260 fields                  | 3.9 ms  | 5.3 ms | ranges overlap    |
-| mount, registration only          | 0.2 ms  | 2.1 ms | **0.1x — a loss** |
+**Every claim of a LOSS in earlier revisions of this section came from a fixture
+that mounted too many fields**, and two of the costs measured here are linear in
+mounted fields: listener registration, and the per-path read cache.
 
-The `select` counts tell the same story from the other side: the `nested-row`
-case runs `select` **650** times in the engine and **2** in the stores, for the
-same one field ready. `list-view` runs 1200 in both, which is the honest control
-— when the whole list is on screen there is nothing to scope away, and the
-remaining 1.5x is not about renders at all.
+The counts went 260 (2 fields in each of 120 modules), then 1202 (60 in each of
+20), then 60 (all of one page). A reviewer asked why a benchmark was registering
+260 listeners when there should be one per rendered field. The count was right —
+one each — but the number of fields was not, and the question was the right one.
 
-So the answer is go. But two things must be said with it.
+So it was **measured against the real thing**: `examples/next` running for real,
+Next dev server plus the UI's Vite dev server, with the Studio driven over CDP.
 
-**The caveat: mount registration is ~10x slower.** Registering 260 listeners
-costs 2.1 ms against the engine's 0.2 ms. Two fixes came out of measuring it,
-both real:
+- `/~/app/page.val.ts` — the richest real module (object, array, `keyOf`,
+  `route`, richtext, file): a content area of 63 elements, **~15 field rows**.
+- `/~/content/handbook.val.ts` — the 24-chapter list: 507 elements, 74 buttons,
+  **~24 rows**.
 
-1. `listenedPaths(module)` walked the whole listener registry and split every
-   path, making a mount O(fields x modules). Now indexed per module.
-2. The bigger one: mounting fired an eager `executeRender` for every module, and
-   ~2.3 ms of 3.1 ms was spent inside `executeRender` on modules that returned
-   an empty result. Most modules in a real project declare no render, so most of
-   that work was provably wasted. `SerializedSchema` now carries `render?: true`
-   (a small additive core change) and `SchemaStore.declaresRender` answers from
-   the schema, so the render store no longer crosses the host seam for a module
-   that cannot produce a render.
+The Studio renders a compact PREVIEW row per field, not a form full of inputs. A
+screen is **15–25 field components**. Every earlier fixture was 3x to 50x over.
 
-Together those took the full mount from 2.5x SLOWER to a wash. What remains —
-2.1 ms for 260 registrations, about 8 microseconds per field — is the price of
-per-path precision: one `EventTarget` per (path, fieldId) and two `StoreBus`
-dispatches per registration. The engine is fast here because subscribing does
-essentially nothing, and it pays for that on every keystroke afterwards. That is
-a trade worth taking, and it is a trade, not a free win.
+`SIZES.screen` is that shape: 141 modules loaded, 16 fields mounted in one
+module. The inflated sizes are kept as diagnostic instruments — mounting far more
+than is real is how the O(registered paths) listener scan was found, and it was
+found on `page` and nowhere else — but they are not descriptions of a session.
 
-**What the numbers do not cover:**
+### screen — 141 modules loaded, 16 fields on one open screen
 
-- **Absolute magnitudes are small.** The worst engine number here is 15.7 ms.
-  On a 4-core headless container, on a synthetic project, nothing in this table
-  is a frame drop on its own. The case for the rewrite is the SCALING and the
-  simplification, not a user-visible stall being removed today.
-- **No memory measurement.** The engine holds ~30 hand-enumerated snapshot
-  caches and deep-clones per module read; the stores clone nothing on the read
-  path. That should show up as a real difference and this harness cannot see it.
-- **No React.** Neither driver mounts a component tree, so nothing here includes
-  reconciliation — which in the real Studio may dominate everything measured
-  above.
-- **Synthetic, not `handboka`.** The nested shape is modelled, not the real
-  project. Running this against the real fixture is the obvious next step.
+15 repetitions, medians, all ranges non-overlapping unless marked:
 
-- [x] Build the bench harness and record durations for both systems.
-- [x] Decide go/no-go on the number. **Go.**
-- [ ] Run it against the real `handboka` fixture rather than a synthetic one.
-- [ ] Measure memory, and measure with React in the loop.
+| scenario                          | engine  | stores  |                     |
+| --------------------------------- | ------- | ------- | ------------------- |
+| keystroke into a rendered list    | 18.3 ms | 0.4 ms  | **45.7x**           |
+| mount (register + first paint)    | 17.5 ms | 0.4 ms  | **43.8x**           |
+| keystroke                         | 17.0 ms | 0.4 ms  | **42.5x**           |
+| nested-row (the `handboka` shape) | 17.9 ms | 0.9 ms  | **19.9x**           |
+| burst of 40                       | 23.3 ms | 1.6 ms  | **14.6x**           |
+| intake                            | 71.1 ms | 8.2 ms  | **8.7x**            |
+| list-view (whole list shown)      | 19.7 ms | 3.8 ms  | **5.2x**            |
+| retained heap                     | 3722 KB | 2295 KB | **1.6x**            |
+| mount, registration only          | 0.1 ms  | 0.2 ms  | 0.5x? (overlapping) |
+
+**At the measured mount count there is no loss anywhere.** Registration — the one
+consistent loss across every earlier fixture — is 0.1 ms against 0.2 ms with
+overlapping ranges. It was never a real cost at a real field count.
+
+**The engine spends 17 ms on one character.** At 60 fps a frame is 16.7 ms, so
+that is a dropped frame per keystroke on a realistic screen. Where it goes:
+`getSourceSnapshot` deep-clones the whole module per read, and the per-path
+validation getter delegates to `getAllValidationErrorsSnapshot`, which is cached
+and invalidated by every patch — so the first read after a keystroke rebuilds
+validation errors for the **entire project**. That is the "cost proportional to
+the project" thesis, measured.
+
+The `select` counts say it from the other side: `nested-row` runs `select` **650**
+times in the engine and **2** in the stores for the same one field ready.
+`list-view` runs 1200 in both — the honest control, since with the whole list on
+screen there is nothing to scope away, and its remaining 5.2x is not about
+renders at all.
+
+### With React mounted
+
+| driver | mount ms | mount renders | keystroke ms | **keystroke renders** |
+| ------ | -------- | ------------- | ------------ | --------------------- |
+| engine | 0.5      | 16            | 0.6          | **16**                |
+| stores | 1.0      | 32            | 0.2          | **0**                 |
+
+The engine's finest source subscription is `subscribe("source", module)` — its
+API, used exactly that way by `ValFieldProvider.tsx` — so typing into one field
+notifies every field of the open module. **Zero for the stores, not one:**
+per-path notification wakes only the changed path, and per-instance suppression
+means the field that typed the character already holds it.
+
+Two qualifications:
+
+- **The stores render every field TWICE on mount** — 32 against 16, in every
+  shape. `get` is async, so the first commit paints nothing and a second render
+  follows when the read lands: a flash of empty fields. It is the async
+  protocol's cost, and in the host realm it buys nothing. See the open item.
+- **The millisecond column is a floor.** The harness's field is a `<span>`; a
+  real Val field is a rich-text editor. Read the render COUNT.
+
+### The defects the measurement found
+
+Three, all real, all fixed. This is the argument for keeping the harness:
+
+1. `listenedPaths(module)` walked the whole listener registry, making a mount
+   O(fields x modules). Now indexed per module.
+2. Mounting rendered every module — ~2.3 ms of 3.1 ms inside `executeRender` on
+   modules that declare no render. `SerializedSchema` carries `render?: true` and
+   `SchemaStore.declaresRender` answers from the schema.
+3. **The listener scan was O(all registered paths) per patch.** On the
+   1202-field shape a 40-key burst walked all 1202 paths 40 times and made the
+   stores **slower than the engine** (12.8 ms vs 9.2 ms). The comment in
+   `applyEntries` said the scan was O(registered paths) while the design promised
+   cost proportional to affected fields; those are not the same thing. Now scoped
+   to the changed modules' paths — equivalent by construction, because
+   `touchesPath` only matches within one module.
+
+### Corrections to earlier revisions of this section
+
+Kept because the pattern matters more than the numbers: **every wrong conclusion
+here came from the fixture, not the code.**
+
+- "intake 7.8x, keystroke 3.1x, nested-row 5.2x" from one 7-rep run of one
+  shape. All understated; keystroke is 42.5x on a measured screen.
+- "Mounting went from 2.5x slower to a wash." It was a loss on three fixtures and
+  is a **43.8x win** at the real mount count.
+- "Registration is ~10x slower, a trade rather than a free win." At 16 mounted
+  fields the ranges overlap. There is no trade.
+- "The engine will use visibly more memory" → measured 1.0x → concluded the
+  prediction was wrong → at a real mount count it is **1.6x in the stores'
+  favour**. Both earlier conclusions were premature.
+
+- [x] Build the harness; record durations for both systems.
+- [x] Decide go/no-go. **Go.**
+- [x] Memory.
+- [x] React in the loop.
+- [x] A mount count measured against the real Studio, not assumed.
+- [x] A real project of the right shape — `examples/next` now carries a 344 KB
+      generated handbook (`pnpm handbook generate`) with `select` at two nested
+      array levels, which is the `handboka` shape in an app that really builds and
+      really validates.
+- [ ] **Decide: should the host realm get a synchronous read?** The double mount
+      render is the async protocol's cost, and in the host realm source is right
+      there. A `readSync(path, revision)` alongside `get` would remove the wasted
+      renders, at the price of a second read API and a rule about which one a
+      field may use.
+- [ ] Drive the bench from the `examples/next` modules themselves, not only from
+      generated ones of the same shape.
 
 ---
 
@@ -441,6 +506,62 @@ was **deleted** rather than committed, per instruction.
       which five are fixed and one — item 3 — needs the decision below.
 
 ---
+
+## 9b. `.jsonValues()` entry staleness is coarse, and a key↔file map would fix it 🟡
+
+**The idea (raised in review):** every `.jsonValues()` value is lazy — a
+`c.json(() => import("./kb/entry-000.val.json"))` thunk — so you have to evaluate
+it to know what is behind it. But for a VALID jsonValues record, key and backing
+file are 1:1. Can that be used?
+
+**Half right, and the half that is wrong is the useful part.**
+
+The 1:1 relation holds: one key, one `*.val.json`, no sharing. But the mapping is
+**not derivable** — from either end:
+
+- The MARKER carries nothing. `JsonSource` is `{_type:"json", patch_id?}` plus a
+  runtime-only `_import`. Deliberately: `Source` has to stay JSON-serializable,
+  so the transport marker has no path in it at all.
+- The KEY implies nothing. There is no naming rule — `examples/next` has
+  `"kb-000": c.json(() => import("./kb/entry-000.val.json"))`, where the key is
+  `kb-000` and the stem is `entry-000`.
+- Only the CLOSURE knows, and `ValOps.getJsonEntries` is the proof: it looks up
+  `record[entryKey]`, takes `Internal.getJsonImport(marker)`, and `await thunk()`.
+  Nothing anywhere records the path.
+
+### Why it is worth solving anyway
+
+`SourceStore.markJsonEntriesStale(module)` drops a module's ENTIRE loaded
+content, and its own comment says why: `jsonEntriesSha` is one fingerprint over
+all of a module's entry files, so it cannot say WHICH entry changed. Editing one
+`*.val.json` on disk therefore refetches every loaded entry — 120 in the `kb`
+fixture, and a handbook-scale record is worse.
+
+A key→file map plus a per-file sha turns that into one refetch. That is the prize,
+and it is the same shape as the wins already measured: stop doing project-scale
+work for a field-scale change.
+
+### Options
+
+1. **The server publishes the map.** It already evaluates every thunk (that is how
+   `jsonEntriesSha` is computed), so it can serve `key → filePath` — and better,
+   `key → sha` — beside the schema. No core change, no convention, no client
+   evaluation. **Recommended.** With per-key shas the client does not even need
+   the paths: it diffs the shas and invalidates exactly the keys that moved.
+2. **Make the key the file stem, by convention and validation.** Require
+   `"kb-000": c.json(() => import("./kb/kb-000.val.json"))`, enforced by a
+   validator. Then the mapping IS derivable and the premise becomes true by
+   construction. Cheap and clean for new content; a migration for existing.
+3. **Read the thunk's source.** `thunk.toString()` exposes the import specifier.
+   Works unbundled; a bundler rewrites it to a chunk id. Fragile — do not.
+4. **Record the path in the marker.** Needs `c.json` to be told a path it cannot
+   otherwise see, so the author writes it twice. Rejected.
+
+Option 1 and option 2 compose: the convention makes the map checkable, the
+server publishing it makes the client not care.
+
+- [ ] Decide. This is a follow-up to the stores work, not a blocker for it —
+      `markJsonEntriesStale` is correct today, just coarse.
 
 ## 10. Smaller correctness questions 🟢
 

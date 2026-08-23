@@ -225,6 +225,14 @@ export class SourceStore {
    * thunk `JSON.stringify` drops. Coarse by necessity (the fingerprint cannot say
    * WHICH entry) and cheap because of it: dropping content causes no fetches,
    * only the next read of an entry does.
+   *
+   * It COULD be per entry. Key and backing `*.val.json` are 1:1 for a valid
+   * record, so a per-key sha from the server would let this invalidate exactly the
+   * entry that changed rather than all of them — for a 120-entry record, 1 refetch
+   * instead of 120. The mapping is not derivable client-side: the path lives only
+   * inside the `c.json` thunk's closure, and there is no naming rule between key
+   * and file. So it has to come from the server, which already evaluates every
+   * thunk to compute `jsonEntriesSha`. See `openquestions.md` item 9b.
    */
   markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
     if (!this.jsonEntries.has(moduleFilePath)) return;
@@ -751,15 +759,33 @@ export class SourceStore {
     });
 
     if (touched.length === 0) return;
-    // The scan is O(registered paths); the wakes are what the design promises
-    // is O(fields actually affected). Counting both is how a test tells the
-    // difference between "we looked at everything" and "we woke everything".
-    this.activity.work(
-      "source:scan-listeners",
-      undefined,
-      this.listenerTargets.size,
-    );
-    for (const [path, byField] of this.listenerTargets) {
+    // Scoped to the modules that actually changed, not the whole registry.
+    //
+    // Equivalent by construction rather than by approximation: every path in
+    // `touched` came from a record whose module is in `changedModules`, and
+    // `touchesPath` only ever matches within one module — so a registered path
+    // in some other module could not have matched, and skipping it cannot lose
+    // a wake.
+    //
+    // This was a measured defect, not a tidy-up. With one page open — 60 fields
+    // of one module, 1202 mounted across the project — a burst of 40 keystrokes
+    // walked the full registry 40 times, ~48k comparisons, and the stores came
+    // out SLOWER than the engine on that scenario. The design's own note said
+    // the scan was O(registered paths) while promising cost proportional to
+    // affected fields; those are not the same thing and the browser found the
+    // gap.
+    const candidates = new Set<SourcePath>();
+    for (const moduleFilePath of changedModules) {
+      const registered = this.listenersByModule.get(moduleFilePath);
+      if (registered === undefined) continue;
+      for (const path of registered) {
+        candidates.add(path);
+      }
+    }
+    this.activity.work("source:scan-listeners", undefined, candidates.size);
+    for (const path of candidates) {
+      const byField = this.listenerTargets.get(path);
+      if (byField === undefined) continue;
       for (const group of wokenBy) {
         if (!touchesPath(group.paths, path)) continue;
         // Per matched path, not per registered path: only paths that are

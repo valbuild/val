@@ -597,32 +597,63 @@ stale differently.
 
 Every cost claim above is an invocation COUNT asserted in node, and a count
 cannot say whether the thing it counted takes 20 microseconds or 20
-milliseconds. `../bench/` closes that: both systems run in a real Chromium on
-the same synthetic project, and the unit of measurement is **a field becoming
-ready** — source, validation and render in hand — because timing `addPatch`
-against `createPatch` would time the eager system doing all the work and the
-lazy system doing none of it. See `bench/README.md` for the full fairness
-contract and `openquestions.md` item 1 for the numbers.
+milliseconds. `../bench/` closes that: both systems run in a real Chromium, and
+the unit of measurement is **a field becoming ready** — source, validation and
+render in hand — because timing `addPatch` against `createPatch` would time the
+eager system doing all the work and the lazy system doing none of it. See
+`bench/README.md` for the fairness contract and `openquestions.md` item 1 for the
+numbers, the provenance, and the corrections.
 
-Headline, on 141 modules with 260 fields mounted: intake **7.8x**, a keystroke
-**3.1x**, a keystroke into a rendered list **14x**, the `handboka` nested shape
-**5.2x** — and `select` running 2 times where the engine runs 650, for the same
-one field ready.
+**The mount count was measured, not assumed**, and that mattered more than
+anything else: earlier fixtures mounted 260, 1202 and 60 fields, and every one of
+them reported a LOSS somewhere — because two costs here are linear in mounted
+fields. Driving the real Studio over CDP against `examples/next` shows a screen
+renders a compact preview row per field: **15–25 field components**, not 60 and
+nowhere near 1202.
 
-Two findings came back the other way and both changed the code:
+At that count (141 modules loaded, 16 fields on screen), 15 repetitions,
+non-overlapping ranges:
 
-- **Mounting was 2.5x SLOWER.** `listenedPaths` walked the whole listener
-  registry, making a mount O(fields x modules) — now indexed per module. And
-  mounting fired an eager `executeRender` for every module, with ~2.3ms of 3.1ms
-  spent rendering modules that declare no render at all. `SerializedSchema` now
-  carries `render?: true` and `SchemaStore.declaresRender` answers from the
-  schema, so the render store no longer crosses the host seam for a module that
-  cannot produce a render. Mount is now a wash.
-- **Registration is still ~10x slower** — 2.1ms for 260 fields, about 8
-  microseconds each. That is the price of per-path precision: one `EventTarget`
-  per (path, fieldId) and two `StoreBus` dispatches per registration. The engine
-  is fast on subscribe because subscribing does nothing, and it pays for that on
-  every keystroke after. A trade, not a free win, and worth stating as one.
+| scenario                          | engine  | stores  |           |
+| --------------------------------- | ------- | ------- | --------- |
+| keystroke into a rendered list    | 18.3 ms | 0.4 ms  | **45.7x** |
+| mount                             | 17.5 ms | 0.4 ms  | **43.8x** |
+| keystroke                         | 17.0 ms | 0.4 ms  | **42.5x** |
+| nested-row (the `handboka` shape) | 17.9 ms | 0.9 ms  | **19.9x** |
+| burst of 40                       | 23.3 ms | 1.6 ms  | **14.6x** |
+| intake                            | 71.1 ms | 8.2 ms  | **8.7x**  |
+| list-view (whole list shown)      | 19.7 ms | 3.8 ms  | **5.2x**  |
+| retained heap                     | 3722 KB | 2295 KB | **1.6x**  |
+
+**At a real mount count there is no loss anywhere** — registration, the one
+consistent loss across every earlier fixture, comes out with overlapping ranges.
+At 60 fps a frame is 16.7 ms, so the engine's 17 ms keystroke is a dropped frame
+per character. `select` runs 650 times in the engine and 2 in the stores on the
+nested case; `list-view` runs 1200 in both, which is the honest control.
+
+**With React mounted, one keystroke re-renders 16 components in the engine and 0
+in the stores** — zero because per-path notification wakes only the changed path
+and per-instance suppression means the typing field already holds its own value.
+That is this design's central claim and the first measurement able to see it.
+
+Three defects came back the other way, all fixed, and they are the argument for
+keeping the harness rather than treating it as a one-off:
+
+- `listenedPaths` walked the whole listener registry, making a mount
+  O(fields x modules). Now indexed per module.
+- Mounting rendered every module, spending most of its time inside
+  `executeRender` on modules that declare no render. `SerializedSchema` carries
+  `render?: true` and `SchemaStore.declaresRender` answers from the schema.
+- **The listener scan was O(all registered paths) per patch.** The comment in
+  `applyEntries` said exactly that while the design promised cost proportional to
+  affected fields — and on a 1202-field mount a 40-key burst made the stores
+  SLOWER than the engine. Now scoped to the changed modules' registered paths,
+  equivalent by construction because `touchesPath` only matches within a module.
+
+One cost remains, and only React could see it: **the stores render every field
+twice on mount**, because `get` is async and the first commit paints nothing. In
+the host realm that buys nothing, and whether to add a synchronous read is an open
+question in `openquestions.md`.
 
 ## Known gaps
 

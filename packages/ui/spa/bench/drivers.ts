@@ -166,10 +166,16 @@ function patchPathOf(path: string): string[] {
 function readEngineField(engine: ValSyncEngine, path: string): boolean {
   const moduleFilePath = path.split("?p=")[0] as ModuleFilePath;
   const source = engine.getSourceSnapshot(moduleFilePath);
-  // Reading the render and the validation errors, because a field needs all
-  // three before it can paint. Both are per module in this engine.
+  // A field needs all three before it can paint. The finest API the engine
+  // offers for each: source and render are per MODULE, validation is per path.
   engine.getRenderSnapshot(moduleFilePath);
-  engine.getAllValidationErrorsSnapshot();
+  // Deliberately the per-path getter rather than `getAllValidationErrorsSnapshot`,
+  // so this reads as what a field asks for. It costs the same — the per-path
+  // getter delegates to the whole-project one, which is cached but invalidated
+  // by every patch, so the first read after a keystroke rebuilds errors for the
+  // entire project. That is the engine's behaviour, not a choice made here, and
+  // it is a large part of why a keystroke costs what it costs.
+  engine.getValidationErrorSnapshot(path as SourcePath);
   return source.status === "success";
 }
 
