@@ -24,7 +24,7 @@ export function EditorCanvas({ children }: { children: ReactNode }) {
       {/* Top and bottom padding clear the floating bars. */}
       <div
         style={{ maxWidth: CANVAS_MAX_WIDTH }}
-        className="mx-auto px-4 md:px-6 pt-20 pb-24"
+        className="mx-auto px-4 md:px-6 pt-20 desktop:pt-24 pb-24"
       >
         {children}
       </div>
@@ -42,8 +42,10 @@ export function EmptyEditorState() {
           className="mx-auto mb-4 text-fg-secondary-alt"
           strokeWidth={1.25}
         />
-        <h2 className="text-sm font-medium">No item selected</h2>
-        <p className="mt-1.5 text-xs text-fg-secondary-alt leading-relaxed">
+        <h2 className="text-[0.9375rem] font-medium tracking-tight">
+          No item selected
+        </h2>
+        <p className="mt-2 text-xs text-fg-secondary-alt leading-relaxed">
           Pick a page, a media file or a data item from the navigation to start
           editing.
         </p>
@@ -77,24 +79,28 @@ export function PageEditor({
 }: PageEditorProps) {
   return (
     <article>
-      <header className="pb-6 mb-6 border-b border-border-secondary">
-        <div className="flex items-center gap-2 mb-2 text-xs text-fg-secondary-alt">
-          <span className="font-mono">{urlPath}</span>
+      <header className="pb-7 mb-8 border-b border-border-secondary">
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-tertiary font-mono text-[0.6875rem] text-fg-tertiary">
+            {urlPath}
+          </span>
           {hasDraft && (
-            <span className="inline-flex items-center gap-1 px-1.5 h-5 rounded bg-bg-accent-subtle text-fg-accent-primary text-[0.625rem] font-medium">
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-accent-subtle text-fg-accent-primary text-[0.625rem] font-medium uppercase tracking-wide">
               Draft
             </span>
           )}
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-[1.75rem] leading-tight font-semibold tracking-[-0.02em]">
+          {title}
+        </h1>
         {isDevMode && sourcePath && (
-          <p className="mt-2 font-mono text-[0.6875rem] text-fg-secondary-alt">
+          <p className="mt-2.5 font-mono text-[0.6875rem] text-fg-secondary-alt">
             {sourcePath}
           </p>
         )}
       </header>
 
-      <div className="space-y-7">
+      <div className="space-y-8">
         <Field label="Title" hint="Shown in the browser tab and search results">
           <TextInputMock value="Build better websites" />
         </Field>
@@ -130,7 +136,7 @@ export function PageEditor({
                 <Link2 size={12} />
               </span>
             </div>
-            <div className="px-3 py-3 space-y-2.5 text-sm text-fg-primary leading-relaxed">
+            <div className="px-3 py-3 space-y-3 text-[0.9375rem] text-fg-primary leading-relaxed">
               <p>
                 Content lives next to your code. Every change is a patch, every
                 patch is reviewable, and publishing is a commit.
@@ -148,13 +154,13 @@ export function PageEditor({
             {["Hero", "Features", "Logos", "Call to action"].map((section) => (
               <li
                 key={section}
-                className="flex items-center gap-2 h-9 px-2 rounded-md border border-border-secondary bg-bg-surface"
+                className="flex items-center gap-2 h-10 px-2.5 rounded-md border border-border-secondary bg-bg-surface"
               >
                 <GripVertical
                   size={14}
                   className="shrink-0 text-fg-secondary-alt"
                 />
-                <span className="text-xs">{section}</span>
+                <span className="text-[0.8125rem]">{section}</span>
                 <ChevronDown
                   size={14}
                   className="ml-auto shrink-0 text-fg-secondary-alt"
@@ -180,9 +186,13 @@ function Field({
   return (
     <section>
       <div className="flex items-baseline gap-2 mb-2">
-        <h2 className="text-xs font-medium text-fg-primary">{label}</h2>
+        <h2 className="text-[0.8125rem] font-medium leading-none text-fg-primary">
+          {label}
+        </h2>
         {hint && (
-          <span className="text-[0.6875rem] text-fg-secondary-alt">{hint}</span>
+          <span className="text-[0.6875rem] leading-none text-fg-secondary-alt">
+            {hint}
+          </span>
         )}
       </div>
       {children}
@@ -200,7 +210,7 @@ function TextInputMock({
   return (
     <div
       className={cn(
-        "h-9 px-2.5 flex items-center rounded-md border border-border-secondary bg-bg-surface text-sm",
+        "h-10 px-3 flex items-center rounded-md border border-border-secondary bg-bg-surface text-[0.9375rem]",
         className,
       )}
     >
@@ -211,7 +221,7 @@ function TextInputMock({
 
 function TextAreaMock({ value }: { value: string }) {
   return (
-    <div className="px-2.5 py-2 rounded-md border border-border-secondary bg-bg-surface text-sm leading-relaxed text-fg-secondary">
+    <div className="px-3 py-2.5 rounded-md border border-border-secondary bg-bg-surface text-[0.9375rem] leading-relaxed text-fg-secondary">
       {value}
     </div>
   );

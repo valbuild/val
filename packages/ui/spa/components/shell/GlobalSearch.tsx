@@ -166,7 +166,7 @@ export function GlobalSearch({
       <div
         role="dialog"
         aria-label="Search"
-        className="absolute z-overlay left-1/2 -translate-x-1/2 top-[12svh] w-[min(34rem,calc(100vw-1.5rem))] max-h-[70svh] flex flex-col rounded-xl bg-bg-float border border-border-float shadow-2xl overflow-hidden"
+        className="absolute z-overlay left-1/2 -translate-x-1/2 top-[12svh] w-[min(34rem,calc(100vw-1.5rem))] max-h-[70svh] flex flex-col rounded-xl bg-bg-float border border-border-float shadow-xl overflow-hidden"
       >
         <div className="flex items-center gap-2 h-11 px-3 border-b border-border-float shrink-0">
           <Search size={15} className="shrink-0 text-fg-secondary-alt" />

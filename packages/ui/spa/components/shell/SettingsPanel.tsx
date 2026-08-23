@@ -91,7 +91,7 @@ export function SettingsPanel({
           </div>
         </div>
 
-        <PanelSectionLabel>Workspace</PanelSectionLabel>
+        <PanelSectionLabel divided>Workspace</PanelSectionLabel>
         <div className="px-4 pt-1 space-y-2.5">
           <SettingsToggle
             label="Auto save"

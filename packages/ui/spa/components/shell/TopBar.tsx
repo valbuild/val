@@ -131,6 +131,7 @@ export function TopBar({
               onPublish={onPublish}
               publishState={publishState}
             />
+            <BarDivider />
           </>
         )}
         <IconButton
@@ -165,17 +166,23 @@ export function TopBar({
             </span>
           )}
         </IconButton>
+        <BarDivider />
         <button
           type="button"
           aria-label={`Account: ${user.name}`}
           onClick={() => onTogglePanel("settings")}
-          className="ml-0.5 rounded-full shrink-0"
+          className="rounded-full shrink-0"
         >
           <Avatar initials={user.initials} size="sm" />
         </button>
       </div>
     </header>
   );
+}
+
+/** Groups the bar's controls: actions, then surfaces, then the account. */
+function BarDivider() {
+  return <span aria-hidden className="w-px h-5 mx-0.5 bg-border-float" />;
 }
 
 function IconButton({
@@ -274,13 +281,12 @@ function ValidationErrorPill({
     <button
       type="button"
       onClick={onClick}
+      title={`${count} validation ${count === 1 ? "error" : "errors"} — fix these before publishing`}
+      aria-label={`${count} validation ${count === 1 ? "error" : "errors"}`}
       className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-error-on-surface border border-border-error-primary hover:bg-bg-error-secondary"
     >
       <AlertTriangle size={14} />
       <span className="tabular-nums">{count}</span>
-      <span className="hidden lg:inline">
-        {count === 1 ? "error" : "errors"}
-      </span>
     </button>
   );
 }
@@ -299,7 +305,7 @@ function ProjectSwitcher({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 h-8 min-w-0 px-2 rounded-md text-sm font-medium hover:bg-bg-float-raised"
+          className="inline-flex items-center gap-1.5 h-8 min-w-0 px-2 rounded-md text-[0.8125rem] font-semibold tracking-tight hover:bg-bg-float-raised"
         >
           <span className="truncate">{projectName}</span>
           <ChevronsUpDown size={13} className="shrink-0 text-fg-secondary" />

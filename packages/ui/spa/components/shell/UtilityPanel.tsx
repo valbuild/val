@@ -95,7 +95,7 @@ export function UtilityPanel({
                 </li>
               ))}
             </ul>
-            <PanelSectionLabel>Quick actions</PanelSectionLabel>
+            <PanelSectionLabel divided>Quick actions</PanelSectionLabel>
           </>
         )}
         <div className="px-3 pt-3 space-y-0.5">
@@ -112,7 +112,7 @@ export function UtilityPanel({
           />
         </div>
 
-        <PanelSectionLabel>Recent activity</PanelSectionLabel>
+        <PanelSectionLabel divided>Recent activity</PanelSectionLabel>
         {activity.length === 0 ? (
           <PanelEmptyState>
             No recent activity. Your changes will show up here.

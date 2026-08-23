@@ -80,7 +80,7 @@ export function FloatingPanel({
         style={isMobile ? undefined : { width }}
         className={cn(
           "absolute z-full flex flex-col",
-          "bg-bg-float border border-border-float shadow-xl",
+          "bg-bg-float border border-border-float shadow-lg",
           isMobile
             ? mobileVariant === "sheet"
               ? "inset-y-0 left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
@@ -100,7 +100,9 @@ export function FloatingPanel({
         )}
       >
         <div className="flex items-center gap-2 shrink-0 h-11 pl-4 pr-2 border-b border-border-float">
-          <span className="text-sm font-medium truncate">{title}</span>
+          <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
+            {title}
+          </span>
           <div className="ml-auto flex items-center gap-1">
             {headerAction}
             <button
@@ -138,14 +140,18 @@ export function FloatingPanel({
 export function PanelSectionLabel({
   children,
   className,
+  /** Hairline above the label, to separate it from the section before it. */
+  divided,
 }: {
   children: ReactNode;
   className?: string;
+  divided?: boolean;
 }) {
   return (
     <div
       className={cn(
         "px-4 pt-4 pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-secondary-alt",
+        divided && "mt-3 border-t border-border-float",
         className,
       )}
     >

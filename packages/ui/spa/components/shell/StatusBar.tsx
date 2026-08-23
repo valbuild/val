@@ -51,7 +51,7 @@ export function StatusBar({
         breakpoint === "desktop" ? "left-[4.75rem]" : "left-3",
       )}
     >
-      <SaveIndicator saveState={saveState} />
+      <SaveIndicator saveState={saveState} breakpoint={breakpoint} />
       <Divider />
       {isDevMode && (
         <>
@@ -71,7 +71,7 @@ export function StatusBar({
         Auto save
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-fg-secondary-alt">
+            <span className="hidden lg:inline text-fg-secondary-alt">
               <Info size={12} />
             </span>
           </TooltipTrigger>
@@ -105,7 +105,13 @@ function Divider() {
   return <span aria-hidden className="w-px h-4 bg-border-float" />;
 }
 
-export function SaveIndicator({ saveState }: { saveState: SaveState }) {
+export function SaveIndicator({
+  saveState,
+  breakpoint,
+}: {
+  saveState: SaveState;
+  breakpoint?: ShellBreakpoint;
+}) {
   if (saveState === "saving") {
     return (
       <span className="inline-flex items-center gap-1.5">
@@ -125,7 +131,7 @@ export function SaveIndicator({ saveState }: { saveState: SaveState }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="w-1.5 h-1.5 rounded-full bg-bg-brand-secondary" />
-      All changes saved locally
+      {breakpoint === "tablet" ? "Saved locally" : "All changes saved locally"}
     </span>
   );
 }
