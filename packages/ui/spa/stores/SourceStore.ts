@@ -226,13 +226,15 @@ export class SourceStore {
    * WHICH entry) and cheap because of it: dropping content causes no fetches,
    * only the next read of an entry does.
    *
-   * It COULD be per entry. Key and backing `*.val.json` are 1:1 for a valid
-   * record, so a per-key sha from the server would let this invalidate exactly the
-   * entry that changed rather than all of them — for a 120-entry record, 1 refetch
-   * instead of 120. The mapping is not derivable client-side: the path lives only
-   * inside the `c.json` thunk's closure, and there is no naming rule between key
-   * and file. So it has to come from the server, which already evaluates every
-   * thunk to compute `jsonEntriesSha`. See `openquestions.md` item 9b.
+   * It COULD be per entry, and cheaply: the key↔file mapping is CANONICAL —
+   * `/content/kb.val.ts` + key `kb-000` is `/content/kb/kb-000.val.json`, per
+   * `getNewJsonEntryPaths`. So a changed file localises to exactly one key by
+   * derivation, no server metadata needed: 1 refetch instead of 120.
+   *
+   * Blocked on enforcement, not on the derivation. Nothing validates that an
+   * entry's import target IS the canonical path — `examples/next` itself points
+   * key `kb-000` at `entry-000.val.json` and passes — so the derivation cannot be
+   * trusted yet. See `openquestions.md` item 9b.
    */
   markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
     if (!this.jsonEntries.has(moduleFilePath)) return;

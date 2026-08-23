@@ -507,61 +507,82 @@ was **deleted** rather than committed, per instruction.
 
 ---
 
-## 9b. `.jsonValues()` entry staleness is coarse, and a key↔file map would fix it 🟡
+## 9b. The `.jsonValues()` key↔file mapping is canonical but UNENFORCED 🔴
 
-**The idea (raised in review):** every `.jsonValues()` value is lazy — a
-`c.json(() => import("./kb/entry-000.val.json"))` thunk — so you have to evaluate
-it to know what is behind it. But for a VALID jsonValues record, key and backing
-file are 1:1. Can that be used?
+**Raised in review, and the reviewer was right where I was wrong.** My first answer
+here said the mapping was 1:1 but "not derivable — there is no naming rule between
+key and file". That is false. There IS a naming rule, it is canonical, and it is
+already implemented.
 
-**Half right, and the half that is wrong is the useful part.**
+`getNewJsonEntryPaths(moduleFilePath, entryKey)` in
+`packages/server/src/patch/jsonValuesPatch.ts`:
 
-The 1:1 relation holds: one key, one `*.val.json`, no sharing. But the mapping is
-**not derivable** — from either end:
+```
+/content/kb.val.ts  +  key "kb-000"   ->   /content/kb/kb-000.val.json
+```
 
-- The MARKER carries nothing. `JsonSource` is `{_type:"json", patch_id?}` plus a
-  runtime-only `_import`. Deliberately: `Source` has to stay JSON-serializable,
-  so the transport marker has no path in it at all.
-- The KEY implies nothing. There is no naming rule — `examples/next` has
-  `"kb-000": c.json(() => import("./kb/entry-000.val.json"))`, where the key is
-  `kb-000` and the stem is `entry-000`.
-- Only the CLOSURE knows, and `ValOps.getJsonEntries` is the proof: it looks up
-  `record[entryKey]`, takes `Internal.getJsonImport(marker)`, and `await thunk()`.
-  Nothing anywhere records the path.
+The key IS the filename. The directory IS the module name minus `.val.ts`. Both
+write paths go through it — the `jsonValues:extract-entry` fix
+(`extractJsonValuesEntry.ts`) and the patch commit — so anything Val itself
+produces is canonical, and the intended authoring flow is exactly what the
+reviewer described: the user writes normal data, and `--fix` extracts it to the
+derived path.
 
-### Why it is worth solving anyway
+### The defect: nothing checks it
 
-`SourceStore.markJsonEntriesStale(module)` drops a module's ENTIRE loaded
-content, and its own comment says why: `jsonEntriesSha` is one fingerprint over
-all of a module's entry files, so it cannot say WHICH entry changed. Editing one
-`*.val.json` on disk therefore refetches every loaded entry — 120 in the `kb`
-fixture, and a handbook-scale record is worse.
+`validateJsonValuesEntries` (`packages/server/src/validateJsonValues.ts`) checks
+two things — that the entry is not written inline, and that its CONTENT matches the
+item schema. It gets the content by calling the thunk. **It never compares the
+thunk's target to the canonical path.** So a module can point a key at any file in
+the project and pass validation.
 
-A key→file map plus a per-file sha turns that into one refetch. That is the prize,
-and it is the same shape as the wins already measured: stop doing project-scale
-work for a field-scale change.
+This is not hypothetical. The repo's own fixture is the counter-example:
 
-### Options
+```ts
+// examples/next/content/kb.val.ts — SHOULD FAIL, currently passes
+"kb-000": c.json(() => import("./kb/entry-000.val.json")),
+//                            canonical: ./kb/kb-000.val.json
+```
 
-1. **The server publishes the map.** It already evaluates every thunk (that is how
-   `jsonEntriesSha` is computed), so it can serve `key → filePath` — and better,
-   `key → sha` — beside the schema. No core change, no convention, no client
-   evaluation. **Recommended.** With per-key shas the client does not even need
-   the paths: it diffs the shas and invalidates exactly the keys that moved.
-2. **Make the key the file stem, by convention and validation.** Require
-   `"kb-000": c.json(() => import("./kb/kb-000.val.json"))`, enforced by a
-   validator. Then the mapping IS derivable and the premise becomes true by
-   construction. Cheap and clean for new content; a migration for existing.
-3. **Read the thunk's source.** `thunk.toString()` exposes the import specifier.
-   Works unbundled; a bundler rewrites it to a chunk id. Fragile — do not.
-4. **Record the path in the marker.** Needs `c.json` to be told a path it cannot
-   otherwise see, so the author writes it twice. Rejected.
+`examples/next/scripts/jsonvalues-fixtures.mjs:60` generates
+`entry-${index}.val.json` for key `kb-${index}`, so all 120 entries are
+non-canonical — in the app people read to learn what a Val project looks like.
+`val validate --root examples/next` reports it as valid.
 
-Option 1 and option 2 compose: the convention makes the map checkable, the
-server publishing it makes the client not care.
+### Why it matters beyond tidiness
 
-- [ ] Decide. This is a follow-up to the stores work, not a blocker for it —
-      `markJsonEntriesStale` is correct today, just coarse.
+1. **A rename or a delete can orphan or clobber.** `getNewJsonEntryPaths` derives
+   the path from the key, so renaming a key writes to the derived path — which, for
+   a non-canonical entry, is NOT the file the old key was reading. The old file is
+   left behind and the new key reads a file that was never written.
+2. **It blocks the optimisation this item started as.** `markJsonEntriesStale`
+   drops a module's ENTIRE loaded content because `jsonEntriesSha` cannot say which
+   entry changed. With the mapping guaranteed, a changed file localises to exactly
+   one key with no server round trip and no extra metadata: 1 refetch instead of 120. Today the guarantee does not hold, so the derivation cannot be trusted.
+3. **It is a silent divergence between read and write.** Reads follow the thunk;
+   writes follow the derivation. They agree only by luck.
+
+### What to do
+
+- [ ] **Validate it.** `validateJsonValuesEntries` should compare each entry's
+      import target against `getNewJsonEntryPaths(module, key)` and report a
+      mismatch. The target is available server-side without guessing: the module's
+      `.val.ts` is parsed already (`ValSourceFileHandler`), so the import
+      specifier is readable from the AST rather than from `thunk.toString()`.
+      A `jsonValues:rename-entry-file` fix could move the file and rewrite the
+      import, exactly as `extract-entry` does.
+- [ ] **Fix the fixture.** `jsonvalues-fixtures.mjs` should emit
+      `kb-${index}.val.json`. Mechanical: the generator (3 places), the 120
+      committed files, `kb.val.ts`'s import list, and one reference in
+      `docs/plans/jsonValues-walkthrough.md`. Left for a decision because it
+      renames 120 committed files and touches a manual walkthrough.
+- [ ] **Then** make `markJsonEntriesStale` per entry, which is what the reviewer
+      was actually reaching for.
+
+Rejected alternatives, kept so they are not re-proposed: reading
+`thunk.toString()` to recover the path works unbundled and breaks under any
+bundler (it becomes a chunk id); and having `c.json` take the path explicitly
+makes the author write it twice.
 
 ## 10. Smaller correctness questions 🟢
 
