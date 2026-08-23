@@ -13,9 +13,14 @@
 @tailwind utilities;
 
 @layer base {
-  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude */
+  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude.
+     `[data-mode="light"]` is listed here rather than in a block of its own so
+     light is declared exactly once: a subtree can opt back into light even
+     when an ancestor is dark, which is what the theme switch inside the shell
+     needs (and what a light region nested in a dark host page needs). */
   :host,
-  :root {
+  :root,
+  *[data-mode="light"] {
     --colors-base-white: #ffffff;
 
     --colors-gray-light-mode-gray-100: #f2f4f7;
@@ -78,6 +83,19 @@
     --colors-error-red-800: #560009;
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
+
+    --colors-accent-purple-25: #fcfaff;
+    --colors-accent-purple-50: #f9f5ff;
+    --colors-accent-purple-100: #f4ebff;
+    --colors-accent-purple-200: #e9d7fe;
+    --colors-accent-purple-300: #d6bbfb;
+    --colors-accent-purple-400: #b692f6;
+    --colors-accent-purple-500: #9e77ed;
+    --colors-accent-purple-600: #7f56d9;
+    --colors-accent-purple-700: #6941c6;
+    --colors-accent-purple-800: #53389e;
+    --colors-accent-purple-900: #42307d;
+    --colors-accent-purple-950: #2c1c5f;
 
     --radius: 0.5rem;
 
@@ -144,6 +162,26 @@
     --fg-error-secondary: var(--colors-error-red-500);
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
+
+    /* Accent colors (purple) - used sparingly for primary actions
+       and selection in the floating shell layout. */
+    --bg-accent-primary: var(--colors-accent-purple-600);
+    --bg-accent-primary-hover: var(--colors-accent-purple-700);
+    --bg-accent-subtle: var(--colors-accent-purple-50);
+    --bg-accent-subtle-hover: var(--colors-accent-purple-100);
+    --fg-accent-primary: var(--colors-accent-purple-700);
+    --fg-on-accent: var(--colors-base-white);
+    --border-accent-primary: var(--colors-accent-purple-200);
+
+    /* Shell surfaces: the canvas the editor sits on, and the floating
+       surfaces (rail, panels, bars) that hover above it. In light mode the
+       canvas is tinted and floating surfaces are white; in dark mode the
+       relationship inverts. */
+    --bg-canvas: var(--colors-gray-light-mode-gray-50);
+    --bg-surface: var(--colors-base-white);
+    --bg-float: var(--colors-base-white);
+    --bg-float-raised: var(--colors-gray-light-mode-gray-100);
+    --border-float: var(--colors-gray-light-mode-gray-200);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
@@ -215,6 +253,22 @@
     --fg-error-secondary: var(--colors-error-red-500);
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
+
+    /* Accent colors (purple) */
+    --bg-accent-primary: var(--colors-accent-purple-600);
+    --bg-accent-primary-hover: var(--colors-accent-purple-500);
+    --bg-accent-subtle: var(--colors-accent-purple-950);
+    --bg-accent-subtle-hover: var(--colors-accent-purple-900);
+    --fg-accent-primary: var(--colors-accent-purple-300);
+    --fg-on-accent: var(--colors-base-white);
+    --border-accent-primary: var(--colors-accent-purple-800);
+
+    /* Shell surfaces */
+    --bg-canvas: var(--colors-gray-dark-mode-gray-950);
+    --bg-surface: var(--colors-gray-dark-mode-gray-900);
+    --bg-float: var(--colors-gray-dark-mode-gray-900);
+    --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
+    --border-float: var(--colors-gray-dark-mode-gray-700);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);

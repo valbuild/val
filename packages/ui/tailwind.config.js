@@ -24,6 +24,12 @@ module.exports = {
       serif: ["Space Grotesk", "sans-serif"],
     },
     extend: {
+      screens: {
+        // The floating shell layout switches to its full desktop chrome
+        // (permanent left rail) at 1200px, which sits between Tailwind's
+        // `lg` (1024px) and `xl` (1280px).
+        desktop: "1200px",
+      },
       colors: {
         "bg-selection": "var(--bg-selection)",
         "text-selection": "var(--text-selection)",
@@ -71,6 +77,18 @@ module.exports = {
         "border-error-secondary": "var(--border-error-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
+        "bg-accent-primary": "var(--bg-accent-primary)",
+        "bg-accent-primary-hover": "var(--bg-accent-primary-hover)",
+        "bg-accent-subtle": "var(--bg-accent-subtle)",
+        "bg-accent-subtle-hover": "var(--bg-accent-subtle-hover)",
+        "fg-accent-primary": "var(--fg-accent-primary)",
+        "fg-on-accent": "var(--fg-on-accent)",
+        "border-accent-primary": "var(--border-accent-primary)",
+        "bg-canvas": "var(--bg-canvas)",
+        "bg-surface": "var(--bg-surface)",
+        "bg-float": "var(--bg-float)",
+        "bg-float-raised": "var(--bg-float-raised)",
+        "border-float": "var(--border-float)",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
