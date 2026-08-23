@@ -423,23 +423,84 @@ schema walk per validation, so it is a perf answer as well as a correctness one.
 
 ---
 
-## 5. The worker seam is designed but not wired. 🟡
+## 5. The worker seam — PROVEN CROSSABLE, not yet crossed. 🟡
 
-**The question:** do we actually put search / patch sets / schema validation on a
-thread, and does that pay?
+**The question was:** three stores are declared worker-realm. Would they actually
+survive a thread boundary, or is "worker realm" a comment?
 
-Both realms currently run in one thread. The seams exist and are honest —
-worker-realm stores hold no store references and take snapshots as arguments, so
-they _cannot_ accidentally read across — but nothing has been connected to
-`postMessage`.
+Two things have to be true, and they fail differently.
 
-Blocked on item 1: whether the thread hop pays for the structured clone is a
-measurement, not an argument.
+### 1. Everything crossing must be structured-cloneable — TRUE, and now guarded
 
-- [ ] Measure, then wire or delete the seam. A seam that is never crossed is
-      indirection with a comment attached.
+`workerSeam.test.ts` runs every payload through `structuredClone`, which IS the
+`postMessage` algorithm, so it fails with the same `DataCloneError` a worker
+would throw — without needing a worker. Covered: the search snapshot and its
+result, the reference snapshot / query / scan / `Reference`, the patch records
+and schemas handed to the patch-set store, and every return value.
 
----
+Two stronger assertions, because cloneable is not the property actually relied
+on: **a serialized schema is JSON** and **module source is JSON**. `structuredClone`
+would happily carry a `RegExp` or a `Map`; JSON round-tripping is what lets these
+be cached, hashed and compared by value. `HostStore.receive` JSON round-trips
+source on intake precisely so this holds, and that guarantee is now asserted
+where it is relied on rather than only where it is created.
+
+All green. Nothing in the design was hiding a closure.
+
+### 2. Nothing may be read SYNCHRONOUSLY across the seam — WAS FALSE. Fixed.
+
+This is the one cloneability could never have found, and it is why the seam was
+worth testing before it was worth building. A value can be perfectly cloneable
+and still unreachable: across a thread boundary **a read is a message**, so a
+synchronous signature cannot be crossed at all.
+
+`createSystem` did it in eight places:
+
+    searchStore.needsIndex()        searchStore.staleModules()
+    searchStore.indexedModules()    searchStore.markStale(modules)
+    referenceStore.staleModules()   referenceStore.scannedModules()
+    referenceStore.find(query)      referenceStore.at(path)
+
+So the code as written **could not have worked** across a real seam. Not slower —
+impossible. "A seam that is never crossed is a comment" turned out to understate
+it: the comment was wrong.
+
+The fix was forced by what the information IS. **The host is the side that knows
+a module changed** — it emits `source:patch-apply`. It was pushing that into the
+worker store and then asking the worker back what it owed, which across a seam is
+four messages for something already in hand. So:
+
+- `StaleModules` (host) owns the stale set, the covered set, and the decision
+  about what to gather. One instance per consumer, because the search index and
+  the reference index go stale independently.
+- The worker-realm stores are now pure: handed a snapshot and a query, they
+  answer. `find`, `at` and `forget` became `async` — not because they compute
+  asynchronously, but because their SIGNATURE has to be crossable.
+- `SearchResult` split in two. `WorkerSearchResult` is what the worker can say
+  (results, total, `partialModules` — completeness travels in the snapshot);
+  `SearchResult` adds `staleModules` from host state, joined at the system
+  boundary. Each realm reports what it knows and neither interrogates the other.
+
+A consequence worth naming: through `system.search()`, `staleModules` is now
+almost always empty, because the query reconciles the index before answering.
+What it reports now is "modules a pass could not cover" — one with no schema or no
+source stays stale, since `covers()` is called with what the worker actually
+indexed rather than with what was asked for. `systemFlow.test.ts` was updated to
+assert the stronger guarantee this enables: after an edit the query returns the
+NEW value and the old one is gone, rather than reporting itself behind.
+
+### Still to do
+
+- [ ] **Build the actual bridge.** A `WorkerBridge` in the shape of
+      `SchemaValidationBridge`, an entry module that hosts the three stores inside
+      a worker, and a test that runs a real `node:worker_threads` worker. The API
+      is now crossable, so this is plumbing rather than design — which is exactly
+      what the two items above were for.
+- [ ] Then measure it. A worker moves work off the main thread and adds a clone
+      per call; `bench/` is the place to find out whether that trade is worth
+      taking, and for which store. The patch-set store is the likeliest win (a
+      whole-chain rebuild) and the reference store the likeliest loss (small
+      queries, frequent).
 
 ## 6. Nothing is written back to the server. 🟡
 

@@ -289,6 +289,15 @@ export type TestSourceStore = {
   receiveJsonEntry(moduleFilePath: string, key: string, content: Json): void;
   /** Status at a path with no side effects — notably, no entry fetch. */
   peek(path: string): SourcePeek;
+  /**
+   * The in-realm read: patched source for one module, uncloned.
+   *
+   * Exposed for tests that have to build the payload the way `createSystem`
+   * builds it — a test about what crosses the worker seam cannot use `get()`,
+   * because `get` is the FIELD-facing read and the seam carries whole modules.
+   */
+  moduleSource(moduleFilePath: string): Json | undefined;
+  loadedModules(): ModuleFilePath[];
 };
 
 export type TestStatStore = {
@@ -397,6 +406,11 @@ export type TestSystem = {
   getPatchSets: System["getPatchSets"];
   /** Search, indexing first if a build is owed. The query is what pays. */
   search: System["search"];
+  /**
+   * Handed through so a test can gather the snapshot the worker realm is given.
+   * Read-only in practice: intake goes through `host.receive`.
+   */
+  schemaStore: System["schemaStore"];
   /** Who points at this thing, scanning first if a pass is owed. */
   findReferences: System["findReferences"];
   /** What the field at one path points at. */
@@ -669,6 +683,7 @@ export function initTestSystem(): TestSystem {
     findReferences: (query) => system.findReferences(query),
     referenceAt: (path) => system.referenceAt(path as SourcePath),
     referenceStore: system.referenceStore,
+    schemaStore: system.schemaStore,
     sourceStore: {
       get: (path, revision) =>
         system.sourceStore.get(path as SourcePath, revision),
@@ -691,6 +706,9 @@ export function initTestSystem(): TestSystem {
           content,
         ),
       peek: (path) => system.sourceStore.peek(path as SourcePath),
+      moduleSource: (moduleFilePath) =>
+        system.sourceStore.moduleSource(moduleFilePath as ModuleFilePath),
+      loadedModules: () => system.sourceStore.loadedModules(),
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),

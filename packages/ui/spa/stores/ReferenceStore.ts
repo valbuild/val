@@ -106,6 +106,13 @@ export type ReferenceSnapshot = Record<
  * nothing; the next query re-walks that one module. The old scans re-walked the
  * project for a change to one string.
  *
+ * **Staleness is tracked on the HOST**, not here — see `StaleModules` in
+ * `createSystem.ts`. Same reason as the search store: the host is the side that
+ * saw the change, so keeping the set here meant pushing it in and reading it
+ * back, which across a thread boundary is messages for something already known.
+ * Every method here is `async` for the same reason: a read across a seam is a
+ * message, so a synchronous signature cannot be crossed at all.
+ *
  * ## Completeness is the store's job
  *
  * Only something that knows what is loaded can say whether a scan is exhaustive,
@@ -117,8 +124,6 @@ export class ReferenceStore {
   readonly events = new StoreBus<SystemEvent>();
 
   private byModule = new Map<ModuleFilePath, Map<SourcePath, Reference>>();
-  private scanned = new Set<ModuleFilePath>();
-  private stale = new Set<ModuleFilePath>();
   /**
    * Modules scanned from source that was not all of it, and the referrer kinds
    * each could still be hiding.
@@ -135,38 +140,12 @@ export class ReferenceStore {
   constructor(private readonly activity: ActivitySink = noopActivity) {}
 
   /**
-   * Pushed in from the host realm, because an event emitted there is not
-   * observable here — `EventTarget` dispatch is per-realm.
+   * Drop a module entirely, for one that has gone away rather than changed.
+   *
+   * Async for the same reason `find` is: it is a message.
    */
-  markStale(modules: ModuleFilePath[]): void {
-    const newlyStale = modules.filter(
-      (moduleFilePath) => !this.stale.has(moduleFilePath),
-    );
-    for (const moduleFilePath of modules) {
-      this.stale.add(moduleFilePath);
-    }
-    // Only when the stale SET grew, as everywhere else: 40 keystrokes in one
-    // module are one piece of news, not 40.
-    if (newlyStale.length > 0) {
-      this.events.emit({ type: "references:invalidate", modules: newlyStale });
-    }
-  }
-
-  /** Which modules the next query owes a scan for. */
-  staleModules(): ModuleFilePath[] {
-    return [...this.stale];
-  }
-
-  /** Everything currently in the index. */
-  scannedModules(): ModuleFilePath[] {
-    return [...this.scanned];
-  }
-
-  /** Drop a module entirely, for one that has gone away rather than changed. */
-  forget(moduleFilePath: ModuleFilePath): void {
+  async forget(moduleFilePath: ModuleFilePath): Promise<void> {
     this.byModule.delete(moduleFilePath);
-    this.scanned.delete(moduleFilePath);
-    this.stale.delete(moduleFilePath);
     this.incomplete.delete(moduleFilePath);
   }
 
@@ -191,8 +170,6 @@ export class ReferenceStore {
         found,
       );
       this.byModule.set(moduleFilePath, found);
-      this.scanned.add(moduleFilePath);
-      this.stale.delete(moduleFilePath);
       if (entry.complete) {
         this.incomplete.delete(moduleFilePath);
       } else {
@@ -205,8 +182,16 @@ export class ReferenceStore {
     return target;
   }
 
-  /** Answer `query` from the index. Walks nothing. */
-  find(query: ReferenceQuery): ReferenceScan {
+  /**
+   * Answer `query` from the index. Walks nothing.
+   *
+   * Async despite computing synchronously, and that is the point: this store is
+   * worker-realm, and across a thread boundary a read IS a message. A synchronous
+   * signature here is not merely slow to cross — it cannot be crossed, and it
+   * would silently stop working the moment the store really moved. Same reasoning
+   * as `SchemaValidationBridge`.
+   */
+  async find(query: ReferenceQuery): Promise<ReferenceScan> {
     this.activity.work("references:query", query.kind);
     const refs: SourcePath[] = [];
     for (const found of this.byModule.values()) {
@@ -235,7 +220,7 @@ export class ReferenceStore {
    * THIS field reference", and computing that separately would be a second index
    * of the same thing.
    */
-  at(path: SourcePath): Reference | null {
+  async at(path: SourcePath): Promise<Reference | null> {
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
     return this.byModule.get(moduleFilePath)?.get(path) ?? null;
   }

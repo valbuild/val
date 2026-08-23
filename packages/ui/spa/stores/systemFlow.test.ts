@@ -32,7 +32,7 @@ describe("system flow", () => {
       stat,
       validationStore,
       getPatchSets,
-      searchStore,
+      search,
       buildSearchIndex,
       ledger,
       listeners,
@@ -242,7 +242,7 @@ describe("system flow", () => {
     expect(built.all).toContain("/authors.val.ts");
     await ledger.has({ type: "search:build-index" });
 
-    const found = await searchStore.search("Grace");
+    const found = await search("Grace");
     expect(found).toMatchObject({ status: "results" });
     if (found.status !== "results") {
       throw new Error("expected search results");
@@ -250,15 +250,29 @@ describe("system flow", () => {
     expect(found.results.length).toBeGreaterThan(0);
     expect(found.staleModules).toEqual([]);
 
-    // An edit after the index was built makes the results honestly partial.
+    // An edit, then a query. The query RECONCILES rather than reporting itself
+    // stale, so the stronger guarantee is available and this asserts that one:
+    // the edited value is findable and the old one is gone.
+    //
+    // (An earlier version asserted `staleModules` contained the edited module.
+    // That was true when a caller reached past the system into
+    // `searchStore.search()` without a rebuild. Through `search()` the query
+    // pays for the index first, so results are never behind — which is the point
+    // of demand-driven indexing, and a better thing to hold the system to.)
     await patchStore.createPatch("/authors.val.ts", [
       { op: "replace", path: ["name"], value: "Radia Perlman" },
     ]);
-    const afterEdit = await searchStore.search("Grace");
+    const afterEdit = await search("Radia");
     if (afterEdit.status !== "results") {
       throw new Error("expected search results");
     }
-    expect(afterEdit.staleModules).toContain("/authors.val.ts");
+    expect(afterEdit.results.length).toBeGreaterThan(0);
+    expect(afterEdit.staleModules).toEqual([]);
+    const gone = await search("Grace");
+    if (gone.status !== "results") {
+      throw new Error("expected a result set");
+    }
+    expect(gone.results).toEqual([]);
 
     // -------------------------------------------------------------- the chain
     // A patch for a module that has not loaded yet. The source store skips it

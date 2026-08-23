@@ -36,6 +36,7 @@ import {
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
+import { StaleModules } from "./StaleModules";
 
 /**
  * Stores in the HOST realm: they either hold user closures, or need to read
@@ -209,6 +210,12 @@ export function createSystem(options: SystemOptions): System {
   const searchStore = new SearchStore(activity);
   const patchSetStore = new PatchSetStore(activity);
   const referenceStore = new ReferenceStore(activity);
+  // Staleness is tracked HERE, on the host, not inside the worker-realm stores.
+  // The host is the side that sees the change; keeping the set in the worker
+  // meant pushing it in and reading it back, which across a thread boundary is
+  // four messages for something already known. See `StaleModules`.
+  const searchStale = new StaleModules("search:invalidate");
+  const referenceStale = new StaleModules("references:invalidate");
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -216,17 +223,17 @@ export function createSystem(options: SystemOptions): System {
     renderStore.listenTo(),
     validationStore.listenTo(),
 
-    // --- host → worker pushes ---------------------------------------------
-    // These exist because an event dispatched in the host realm is not
-    // observable in the worker realm: `EventTarget` dispatch is per-realm. So
-    // the host side subscribes and forwards, carrying the data with it.
+    // --- host-side staleness ----------------------------------------------
+    // No longer a push ACROSS the seam: the host records what changed and keeps
+    // it, so a query can decide what to gather without asking the worker
+    // anything first.
     sourceStore.events.on("source:patch-apply", (event) => {
-      searchStore.markStale(event.modules);
-      referenceStore.markStale(event.modules);
+      searchStale.mark(event.modules);
+      referenceStale.mark(event.modules);
     }),
     sourceStore.events.on("source:init", (event) => {
-      searchStore.markStale(event.sources);
-      referenceStore.markStale(event.sources);
+      searchStale.mark(event.sources);
+      referenceStale.mark(event.sources);
     }),
   ];
 
@@ -269,19 +276,20 @@ export function createSystem(options: SystemOptions): System {
    * safe delete.
    */
   async function rescanReferences(): Promise<void> {
-    if (
-      referenceStore.staleModules().length === 0 &&
-      referenceStore.scannedModules().length > 0
-    ) {
+    if (!referenceStale.needsPass()) {
       return;
     }
     // Only what the index owes a pass for. On a first query that is every loaded
-    // module; after an edit it is the one module that changed.
-    const target =
-      referenceStore.scannedModules().length === 0
-        ? sourceStore.loadedModules()
-        : referenceStore.staleModules();
-    await referenceStore.rescan(gatherReferenceSnapshot(target));
+    // module; after an edit it is the one module that changed. Decided here, from
+    // host state, so a real seam is crossed once rather than four times.
+    const target = referenceStale.target(sourceStore.loadedModules());
+    const scanned = await referenceStore.rescan(
+      gatherReferenceSnapshot(target),
+    );
+    // Marked covered from what the worker actually scanned, not from what was
+    // asked for: a module it skipped (no schema, no source) must stay stale or it
+    // never gets another chance.
+    referenceStale.covers(scanned);
   }
 
   function gatherReferenceSnapshot(
@@ -333,20 +341,24 @@ export function createSystem(options: SystemOptions): System {
       // every loaded module; after an edit it is the one module that changed.
       // The gather is the whole-project copy, so scoping it here is the point:
       // one edit then one query used to clone and re-walk the entire project.
-      if (searchStore.needsIndex()) {
-        const stale = searchStore.staleModules();
-        const target =
-          searchStore.indexedModules().length === 0
-            ? sourceStore.loadedModules()
-            : stale;
-        await searchStore.reindex(gatherSnapshot(target));
+      if (searchStale.needsPass()) {
+        const target = searchStale.target(sourceStore.loadedModules());
+        const indexed = await searchStore.reindex(gatherSnapshot(target));
+        searchStale.covers(indexed.all);
       }
-      return searchStore.search(query, limit, offset);
+      const found = await searchStore.search(query, limit, offset);
+      if (found.status === "no-index") {
+        return found;
+      }
+      // Joined here, at the realm boundary: the worker's answer plus what the
+      // host knows about staleness. Neither side has to interrogate the other.
+      return { ...found, staleModules: searchStale.staleModules() };
     },
     async buildSearchIndex() {
-      return searchStore.buildIndex(
-        gatherSnapshot(sourceStore.loadedModules()),
-      );
+      const loaded = sourceStore.loadedModules();
+      const result = await searchStore.buildIndex(gatherSnapshot(loaded));
+      searchStale.covers(result.all);
+      return result;
     },
     dispose() {
       for (const off of unsubscribe) off();
