@@ -121,8 +121,10 @@ realm** but come from **different bundles**, each with its own copy of
                 └──────┘               └────┬─────┘  │              ▼
                    ▲                        │        │        ┌──────────┐
       render ──────┘  executeRender         │        │        │  search  │ (worker)
-      customValidate  executeValidate       │        └── push ►└──────────┘
-                   ▲                        │
+      customValidate  executeValidate       │        ├── push ►└──────────┘
+                   ▲                        │        │        ┌──────────┐
+                   │                        │        └── push ►│references│ (worker)
+                   │                        │                 └──────────┘
                    │                        ▼
               ┌────┴─────┐        per-path field events
               │ render   │        (external-patch / internal-patch)
@@ -499,6 +501,7 @@ _before its cause_, and a ledger reading `validation:invalidate` then
 | `validation` | host   | errors and their staleness                          | Coordinates the two-seam split above; neither seam can own the merge.                                                                                                                |
 | `patch sets` | worker | patches grouped into reviewable units               | Answers _"what are the units of change?"_ — coalesced across many patches, only when the review UI is open. The source store answers _"who do I wake?"_ — exact, now, per keystroke. |
 | `search`     | worker | the full-text index                                 | The most expensive walk in the system, so it must never be a side effect of an edit.                                                                                                 |
+| `references` | worker | who points at what, per module                      | Answers _"is it safe to delete this?"_ — and only something that knows what is loaded can say whether the answer is exhaustive. Three separate whole-project walks in the app today. |
 
 ## Testing
 
@@ -531,15 +534,77 @@ host:receive → schema:init → source:init → search:invalidate
 → patch-set:update
 ```
 
+## References: who points at what, and whether that is all of them
+
+Three questions in the app today, each with its own whole-project walk called
+from its own React hook: `getKeysOf` (which `s.keyOf()` fields name this record),
+`getReferencedFiles` (which image/file fields name this gallery),
+`getRouteReferences` (which `s.route()` fields hold this route). Each re-walks
+every leaf of every module, on every render of the component that asks.
+
+They are the same walk. A referrer is a LEAF fact — this path, this kind, this
+target, this value — so ONE index over those facts answers all three, and a
+narrower question ("who points at THIS key", which is what a delete actually
+asks) becomes a filter rather than another walk.
+
+`ReferenceStore` is in the WORKER realm, for the same reason search is: the scan
+needs serialized schemas and JSON source and nothing else. It is indexed per
+module (`byModule`), so a keystroke marks its module stale and computes nothing,
+and the next query re-walks that one module. Replacing a module's slice rather
+than merging into it is load-bearing: **a stale referrer is the dangerous
+direction** — it blocks a delete that is in fact safe, and the user has no way to
+see why.
+
+### Completeness is the answer, not metadata
+
+`find()` returns `complete` or `partial`, not a bare array. The reason is that
+these answers gate destructive actions, and "delete this key" is only safe on an
+EXHAUSTIVE referrer list. A walk over a `.jsonValues()` record whose entry content
+has not been fetched cannot be exhaustive — the referrer may be inside an entry
+the walk saw as an opaque marker — so an empty array would read as "safe to
+delete" and be wrong. `useJsonValuesLoad.ts` already states the contract; putting
+it in the store's return type is what stops a caller gating on `refs.length`.
+
+`refs` is populated in both states, because a reference that IS found is real.
+Hiding it until everything is loaded shows "no references" for a record that
+visibly has them.
+
+What keeps this from meaning "load the whole project before you can delete
+anything" is direction, the same argument `jsonValuesLoadRequirements` makes:
+incompleteness is tracked **per referrer KIND**, decided from the item schema. A
+jsonValues record of `{ body: s.string() }` cannot hide a `keyOf` however much of
+it is unloaded, so a delete does not wait for it. Only a record whose item schema
+actually contains a referrer of the asked-for kind blocks the answer.
+
+### Two asymmetries worth knowing
+
+- **`route` has no target.** `SerializedRouteSchema` carries include/exclude
+  patterns and NOT the router it points into, so a route reference can only be
+  matched by comparing the field's string VALUE. `Reference.target` is `null`
+  there, named rather than left for a caller to discover.
+- **A union is walked, not resolved.** Every variant is walked against the same
+  source. A union's variants are structurally distinct, so a key present in the
+  source belongs to at most one of them and walking all of them finds it without
+  the discriminant. Over-walking costs a few misses; resolving wrongly LOSES a
+  referrer, which is a delete that should have been blocked.
+
+`at(path)` answers the inverse — what does the field here point at — from the
+same index, because it is the same fact read the other way round. `KeyOfField`
+and the validation fixes need it, and a second index of the same thing could go
+stale differently.
+
 ## Known gaps
 
 Unfinished work, as distinct from the undecided questions in
 [`openquestions.md`](./openquestions.md). Named so they are not mistaken for
 finished work.
 
-- **Renders are not path-scoped.** The interface is; the execution is not. This
-  is the largest open question — it is what would fix the `handboka` worst case,
-  and it needs a new entry point in `packages/core`.
+- ~~**Renders are not path-scoped.**~~ **Done.** `RenderScope` in
+  `packages/core` is threaded through every `executeRender`, so a listener on one
+  row of a list costs one `select` call rather than one per row, and a nested list
+  prunes the sibling subtrees. A request for a CONTAINER still renders all of it,
+  because a list view needs every row. See `openquestions.md` item 3.
+- ~~**No references store.**~~ **Done.** See below.
 - ~~**No rebase.**~~ **Done.** The source store now keeps base source and the
   per-module chain, and `receive()` genuinely rebuilds from base + chain. This
   also closed two defects that shared its cause: a patch announced before its

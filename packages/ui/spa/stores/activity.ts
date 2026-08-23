@@ -103,7 +103,11 @@ export type WorkKind =
   /** One module was walked and its documents replaced. */
   | "search:index-module"
   | "search:build-index"
-  | "search:query";
+  | "search:query"
+  /** One module was walked for referrers and its index slice replaced. */
+  | "references:scan-module"
+  /** One reference query was answered from the index, walking nothing. */
+  | "references:query";
 
 export type WorkRecord = {
   kind: WorkKind;

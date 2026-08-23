@@ -249,7 +249,9 @@ export type SystemEvent =
       new: ModuleFilePath[];
       /** Every module now in the index. */
       all: ModuleFilePath[];
-    };
+    }
+  | { type: "references:invalidate"; modules: ModuleFilePath[] }
+  | { type: "references:scan"; modules: ModuleFilePath[] };
 
 export type SystemEventType = SystemEvent["type"];
 

@@ -397,6 +397,11 @@ export type TestSystem = {
   getPatchSets: System["getPatchSets"];
   /** Search, indexing first if a build is owed. The query is what pays. */
   search: System["search"];
+  /** Who points at this thing, scanning first if a pass is owed. */
+  findReferences: System["findReferences"];
+  /** What the field at one path points at. */
+  referenceAt: (path: string) => ReturnType<System["referenceAt"]>;
+  referenceStore: System["referenceStore"];
   files: TestFiles;
   jsonEntries: TestJsonEntries;
   ledger: Ledger;
@@ -532,6 +537,7 @@ export function initTestSystem(): TestSystem {
     system.patchSetStore.events.onAny((event) => ledger.record(event)),
     system.validationStore.events.onAny((event) => ledger.record(event)),
     system.searchStore.events.onAny((event) => ledger.record(event)),
+    system.referenceStore.events.onAny((event) => ledger.record(event)),
     system.host.events.onAny((event) => ledger.record(event)),
     system.renderStore.events.onAny((event) => ledger.record(event)),
   ];
@@ -660,6 +666,9 @@ export function initTestSystem(): TestSystem {
     buildSearchIndex: () => system.buildSearchIndex(),
     getPatchSets: () => system.getPatchSets(),
     search: (query, limit, offset) => system.search(query, limit, offset),
+    findReferences: (query) => system.findReferences(query),
+    referenceAt: (path) => system.referenceAt(path as SourcePath),
+    referenceStore: system.referenceStore,
     sourceStore: {
       get: (path, revision) =>
         system.sourceStore.get(path as SourcePath, revision),

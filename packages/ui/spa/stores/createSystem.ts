@@ -3,6 +3,7 @@ import type {
   SelectorSource,
   SerializedSchema,
   Source,
+  SourcePath,
   ValModule,
   ValidationErrors,
 } from "@valbuild/core";
@@ -25,6 +26,13 @@ import {
   type SearchResult,
   type SourceSnapshot,
 } from "./SearchStore";
+import {
+  ReferenceStore,
+  type Reference,
+  type ReferenceQuery,
+  type ReferenceScan,
+  type ReferenceSnapshot,
+} from "./ReferenceStore";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
@@ -50,6 +58,7 @@ export type HostRealm = {
 export type WorkerRealm = {
   searchStore: SearchStore;
   patchSetStore: PatchSetStore;
+  referenceStore: ReferenceStore;
 };
 
 export type System = HostRealm &
@@ -84,6 +93,16 @@ export type System = HostRealm &
       limit?: number,
       offset?: number,
     ): Promise<SearchResult>;
+    /**
+     * Who points at this thing, scanning first if the index owes a pass.
+     *
+     * On the system for the same reason `search` is: the reference store is in
+     * the worker realm and cannot gather the source it needs. The QUERY is the
+     * demand signal, so the query is what pays.
+     */
+    findReferences(query: ReferenceQuery): Promise<ReferenceScan>;
+    /** What the field at one path points at. Scans first if a pass is owed. */
+    referenceAt(path: SourcePath): Promise<Reference | null>;
     dispose(): void;
   };
 
@@ -189,6 +208,7 @@ export function createSystem(options: SystemOptions): System {
   // --- worker realm ---------------------------------------------------------
   const searchStore = new SearchStore(activity);
   const patchSetStore = new PatchSetStore(activity);
+  const referenceStore = new ReferenceStore(activity);
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -202,9 +222,11 @@ export function createSystem(options: SystemOptions): System {
     // the host side subscribes and forwards, carrying the data with it.
     sourceStore.events.on("source:patch-apply", (event) => {
       searchStore.markStale(event.modules);
+      referenceStore.markStale(event.modules);
     }),
     sourceStore.events.on("source:init", (event) => {
       searchStore.markStale(event.sources);
+      referenceStore.markStale(event.sources);
     }),
   ];
 
@@ -238,6 +260,48 @@ export function createSystem(options: SystemOptions): System {
     return snapshot;
   }
 
+  /**
+   * Bring the reference index up to date, then answer from it.
+   *
+   * Shared by both reference entry points so the scan-then-read pair cannot
+   * drift: an `at()` served from a stale index reports what a field USED to
+   * point at, which is the same class of bug as a stale referrer blocking a
+   * safe delete.
+   */
+  async function rescanReferences(): Promise<void> {
+    if (
+      referenceStore.staleModules().length === 0 &&
+      referenceStore.scannedModules().length > 0
+    ) {
+      return;
+    }
+    // Only what the index owes a pass for. On a first query that is every loaded
+    // module; after an edit it is the one module that changed.
+    const target =
+      referenceStore.scannedModules().length === 0
+        ? sourceStore.loadedModules()
+        : referenceStore.staleModules();
+    await referenceStore.rescan(gatherReferenceSnapshot(target));
+  }
+
+  function gatherReferenceSnapshot(
+    modules: ModuleFilePath[],
+  ): ReferenceSnapshot {
+    const schemas = schemaStore.all();
+    const snapshot: ReferenceSnapshot = {};
+    for (const moduleFilePath of modules) {
+      const schema = schemas[moduleFilePath];
+      const source = sourceStore.moduleSource(moduleFilePath);
+      if (schema === undefined || source === undefined) continue;
+      snapshot[moduleFilePath] = {
+        source,
+        schema,
+        complete: !sourceStore.hasUnloadedEntries(moduleFilePath),
+      };
+    }
+    return snapshot;
+  }
+
   return {
     host,
     stat,
@@ -248,6 +312,15 @@ export function createSystem(options: SystemOptions): System {
     validationStore,
     searchStore,
     patchSetStore,
+    referenceStore,
+    async findReferences(query) {
+      await rescanReferences();
+      return referenceStore.find(query);
+    },
+    async referenceAt(path) {
+      await rescanReferences();
+      return referenceStore.at(path);
+    },
     async getPatchSets() {
       return patchSetStore.getPatchSets(
         patchStore.allRecords(),
@@ -295,4 +368,4 @@ export function receiveModules(
 }
 
 /** Re-exported so `SourceSnapshot`'s shape is visible from the system module. */
-export type { SourceSnapshot };
+export type { SourceSnapshot, ReferenceSnapshot };
