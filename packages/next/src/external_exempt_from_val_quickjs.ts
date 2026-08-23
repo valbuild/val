@@ -42,6 +42,16 @@ export { ValProvider } from "./ValProvider";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValApp } from "./ValApp";
 export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
+export {
+  unstable_renderValComponent,
+  unstable_getValComponents,
+  type ValComponentPreviewOptions,
+} from "./ValComponentPreview";
+export {
+  ValPreviewRefresh,
+  VAL_PREVIEW_REFRESH_MESSAGE,
+} from "./ValPreviewRefresh";
+export { ValPreviewError } from "./ValPreviewError";
 
 import { Internal as InternalCore } from "@valbuild/core";
 // Auto-tag JSX with Val paths:

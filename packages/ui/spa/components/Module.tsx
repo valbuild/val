@@ -45,6 +45,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
+import { ComponentPreview } from "./ComponentPreview";
 
 export function Module({
   path,
@@ -211,6 +212,7 @@ export function Module({
           )}
         </div>
       </div>
+      <ComponentPreview path={path} />
       <div>
         {isKey && nonKeyErrors.length > 0 && (
           <FieldValidationError validationErrors={validationErrors} />

@@ -66,7 +66,7 @@ export async function validate({
       ),
     );
 
-    const valFiles: string[] = await glob("**/*.val.{js,ts}", {
+    const valFiles: string[] = await glob("**/*.val.{js,jsx,ts,tsx}", {
       ignore: ["node_modules/**"],
       cwd: projectRoot,
     });

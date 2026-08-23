@@ -1,4 +1,5 @@
 import { define } from "./module";
+import { component } from "./component";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { initFile } from "./source/file";
@@ -9,6 +10,13 @@ import { initRemote } from "./source/remote";
 
 export type ContentConstructor = {
   define: typeof define;
+  /**
+   * EXPERIMENTAL: like `define`, but the module also carries the component that
+   * renders it, so the Val UI can show a live preview while editing.
+   *
+   * @see {@link component}
+   */
+  component: typeof component;
   // remote: typeof remote;
   file: ReturnType<typeof initFile>;
   image: ReturnType<typeof initImage>;
@@ -93,6 +101,7 @@ InitVal => {
     },
     c: {
       define,
+      component,
       remote: initRemote(config),
       file: initFile(config),
       image: initImage(config),

@@ -360,7 +360,9 @@ export class ValOpsFS extends ValOps {
                   this.getPatchesDir().slice(this.rootDir.length + 1),
                 ) ||
                 filename.endsWith(".val.ts") ||
+                filename.endsWith(".val.tsx") ||
                 filename.endsWith(".val.js") ||
+                filename.endsWith(".val.jsx") ||
                 filename.endsWith("val.config.ts") ||
                 filename.endsWith("val.config.js") ||
                 filename.endsWith("val.modules.ts") ||

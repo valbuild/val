@@ -14,7 +14,12 @@ export type {
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
-export type { ValModule, SerializedModule, InferValModuleType } from "./module";
+export type {
+  ValModule,
+  SerializedModule,
+  InferValModuleType,
+  ReplaceRawStringWithString,
+} from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RemoteSource, RemoteRef } from "./source/remote";
@@ -61,6 +66,15 @@ export type { ValidationFix } from "./schema/validation/ValidationFix";
 export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
+export {
+  component,
+  getComponent,
+  isComponentModule,
+  getValFileLocation,
+  GetComponent,
+  type ValComponentRenderer,
+  type ValFileLocation,
+} from "./component";
 export {
   type SelectorSource,
   type SelectorOf,
@@ -133,6 +147,7 @@ export {
 } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
+export { emptyOf } from "./schema/emptyOf";
 export {
   type ListRecordRender,
   type ListArrayRender,

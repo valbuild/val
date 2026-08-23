@@ -8,4 +8,7 @@ export default modules(config, [
   { def: () => import("./content/media.val") },
   { def: () => import("./app/page.val") },
   { def: () => import("./app/external.val") },
+  { def: () => import("./app/sections/hero.val") },
+  { def: () => import("./app/sections/quote.val") },
+  { def: () => import("./content/pages.val") },
 ]);

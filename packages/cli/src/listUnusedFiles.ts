@@ -23,7 +23,7 @@ export async function listUnusedFiles({ root }: { root?: string }) {
   const service = await createService(projectRoot);
   const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
 
-  const valFiles: string[] = await glob("**/*.val.{js,ts}", {
+  const valFiles: string[] = await glob("**/*.val.{js,jsx,ts,tsx}", {
     ignore: ["node_modules/**"],
     cwd: projectRoot,
   });
