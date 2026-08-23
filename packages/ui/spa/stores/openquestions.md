@@ -312,7 +312,18 @@ was **deleted** rather than committed, per instruction.
 - [ ] **Who sweeps orphaned files?** Rollback is best effort by design, so
       `orphaned` is a list someone has to act on. A server-side sweep of
       unreferenced patch files is the only real answer; until then the bytes leak.
-- [ ] **`.jsonValues()` is not handled at all** (see the hypothesis in
+- [ ] **`.jsonValues()` is not handled at all** — now pinned by
+      `jsonValues.test.ts`, 4 failing specs against 5 guards. What the guards
+      establish: the record's KEY SET resolves while its entries are markers, so
+      load state cannot be per module. What the specs show, live:
+      a read inside an unloaded entry answers `absent` where the field does exist
+      and its content simply has not arrived — so a field renders "not found" and
+      stops asking, and the entry never loads; search returns
+      `{results: [], staleModules: []}`, indistinguishable from "nothing
+      matched", against a module the walk skipped by construction; validation
+      returns `errors: false, customValidateStatus: "not-needed"` for a module
+      whose content was never seen. **Blocked on the decision below**, because
+      where entry content lives determines whether loading it moves the head. (see the hypothesis in
       `architecture.md`). The prototype has no marker substitution, so a project
       using `.jsonValues()` would read paths inside unloaded entries as `absent`
       — the precise confusion invariant 3 exists to prevent. Decide whether an
