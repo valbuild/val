@@ -1,6 +1,7 @@
 import {
   Internal,
   type Json,
+  type JsonObject,
   type ModuleFilePath,
   type PatchId,
   type SourcePath,
@@ -28,9 +29,50 @@ import { noopActivity, type ActivitySink } from "./activity";
 
 const ops = new JSONOps();
 
+/**
+ * Fetch one `.jsonValues()` entry's content (`GET /json` in the app).
+ *
+ * Injected like the other seams. Absent means this system cannot read INTO an
+ * entry — the read reports an error rather than pretending the path is absent,
+ * because "not there" and "nobody can fetch it" are different facts.
+ */
+export type FetchJsonEntry = (
+  moduleFilePath: ModuleFilePath,
+  key: string,
+) => Promise<
+  { status: "ok"; content: Json } | { status: "error"; message: string }
+>;
+
+/**
+ * What `peek` says, without loading anything.
+ *
+ * `peek` exists because `get` has a SIDE EFFECT: it triggers an entry fetch. The
+ * moment a read can cause work, anything that merely wants to look — a nav menu
+ * counting entries, a badge, a progress indicator — becomes a fetch storm. So the
+ * two are a pair: `get` asks for content and accepts the cost, `peek` observes
+ * and cannot cost anything.
+ */
+export type SourcePeek =
+  | { status: "ready"; revision: Revision }
+  | { status: "absent"; revision: Revision }
+  /** The module itself has not arrived. Nothing a read could do about it. */
+  | { status: "module-loading" }
+  /** Inside a `.jsonValues()` entry whose content has not been fetched. */
+  | { status: "entry-missing"; key: string }
+  /** Inside an entry whose fetch is in flight. */
+  | { status: "entry-loading"; key: string };
+
 type Resolved =
   | { status: "found"; value: Json }
   | { status: "absent" }
+  /**
+   * The path continues INSIDE a `.jsonValues()` entry whose content has not been
+   * fetched. Deliberately its own status rather than folded into `absent` or
+   * `error`: it is the one outcome the store can do something about, and the
+   * only one where saying "not found" would be a lie that also stops the fetch
+   * from ever being asked for.
+   */
+  | { status: "needs-entry"; key: string }
   | { status: "error"; message: string };
 
 /**
@@ -94,6 +136,22 @@ export class SourceStore {
   private revisions = new Map<ModuleFilePath, number>();
 
   /**
+   * Loaded `.jsonValues()` entry content, keyed by module then entry key.
+   *
+   * A jsonValues module's own source carries only opaque `{_type:"json"}`
+   * markers; the content lives in separate `*.val.json` files. Holding it HERE,
+   * and substituting it on read, is the point: everything downstream — fields,
+   * renders, validation, the search walk — then sees real content without any of
+   * them knowing markers exist. The current engine keeps this beside source and
+   * substitutes in `getPatchedSource`; this is that, moved to where source lives.
+   */
+  private jsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
+  private loadingEntries = new Map<string, Promise<void>>();
+  /** Substituted source, cached against the revision it was computed at. */
+  private substituted = new Map<ModuleFilePath, { n: number; source: Json }>();
+
+  /**
    * One `EventTarget` per REGISTERED path, not per module.
    *
    * This is the registry that makes "no messages" a guarantee: a listener on a
@@ -110,6 +168,7 @@ export class SourceStore {
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly activity: ActivitySink = noopActivity,
+    private readonly fetchJsonEntry?: FetchJsonEntry,
   ) {}
 
   private bump(moduleFilePath: ModuleFilePath): void {
@@ -117,6 +176,140 @@ export class SourceStore {
       moduleFilePath,
       (this.revisions.get(moduleFilePath) ?? 0) + 1,
     );
+    this.substituted.delete(moduleFilePath);
+  }
+
+  /**
+   * Deliver one entry's content. Bumps the module, because this changes what
+   * reads return — the third way source can change, alongside a patch and a base
+   * replacement, and the reason the revision lives in this store.
+   */
+  receiveJsonEntry(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+    content: Json,
+  ): void {
+    let byKey = this.jsonEntries.get(moduleFilePath);
+    if (byKey === undefined) {
+      byKey = new Map();
+      this.jsonEntries.set(moduleFilePath, byKey);
+    }
+    byKey.set(key, content);
+    this.activity.work("source:receive-json-entry", moduleFilePath);
+    this.bump(moduleFilePath);
+    this.events.emit({
+      type: "source:patch-apply",
+      success: [],
+      failed: [],
+      modules: [moduleFilePath],
+    });
+  }
+
+  /**
+   * Drop this module's loaded entry content.
+   *
+   * For `jsonEntriesSha` moving: an entry file changed on disk, and no other sha
+   * can see it — the module's source is markers and the content sits behind a
+   * thunk `JSON.stringify` drops. Coarse by necessity (the fingerprint cannot say
+   * WHICH entry) and cheap because of it: dropping content causes no fetches,
+   * only the next read of an entry does.
+   */
+  markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
+    if (!this.jsonEntries.has(moduleFilePath)) return;
+    this.jsonEntries.delete(moduleFilePath);
+    this.bump(moduleFilePath);
+  }
+
+  /**
+   * Does this module hold `.jsonValues()` markers with no content loaded?
+   *
+   * Asked by anything that WALKS source and must report its answer as partial:
+   * the search index skips markers, and validation cannot claim a module is valid
+   * whose content it never saw.
+   */
+  hasUnloadedEntries(moduleFilePath: ModuleFilePath): boolean {
+    const source = this.sources[moduleFilePath];
+    if (source === undefined || !isJsonObject(source)) {
+      return false;
+    }
+    const loaded = this.jsonEntries.get(moduleFilePath);
+    for (const [key, value] of Object.entries(source)) {
+      if (!Internal.isJson(value)) continue;
+      if (loaded?.has(key) !== true) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Status without side effects. See {@link SourcePeek}: `get` triggers a fetch,
+   * so there has to be a way to look that cannot.
+   */
+  peek(path: SourcePath): SourcePeek {
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(path);
+    const source = this.sources[moduleFilePath];
+    if (
+      source === undefined ||
+      this.schemaStore.get(moduleFilePath) === undefined
+    ) {
+      return { status: "module-loading" };
+    }
+    const resolved = resolveAtModulePath(
+      source,
+      modulePath,
+      this.jsonEntries.get(moduleFilePath),
+    );
+    if (resolved.status === "needs-entry") {
+      const inFlight = this.loadingEntries.has(
+        entryKey(moduleFilePath, resolved.key),
+      );
+      return inFlight
+        ? { status: "entry-loading", key: resolved.key }
+        : { status: "entry-missing", key: resolved.key };
+    }
+    const revision = this.revisionOf(moduleFilePath);
+    if (resolved.status === "found") return { status: "ready", revision };
+    if (resolved.status === "absent") return { status: "absent", revision };
+    return { status: "module-loading" };
+  }
+
+  private async loadEntry(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
+    if (this.fetchJsonEntry === undefined) {
+      return {
+        status: "error",
+        message: `Cannot read inside '${key}' of ${moduleFilePath}: no jsonValues fetch is configured. Refusing rather than reporting the path absent.`,
+      };
+    }
+    const cacheKey = entryKey(moduleFilePath, key);
+    const inFlight = this.loadingEntries.get(cacheKey);
+    if (inFlight !== undefined) {
+      // N readers of one entry cause ONE fetch.
+      this.activity.work("source:share-json-entry-load", moduleFilePath);
+      await inFlight;
+      return { status: "ok" };
+    }
+    let failure: string | undefined;
+    const request = (async () => {
+      this.activity.work("source:load-json-entry", moduleFilePath);
+      const res = await this.fetchJsonEntry!(moduleFilePath, key);
+      if (res.status === "error") {
+        failure = res.message;
+        return;
+      }
+      this.receiveJsonEntry(moduleFilePath, key, res.content);
+    })().finally(() => {
+      this.loadingEntries.delete(cacheKey);
+    });
+    this.loadingEntries.set(cacheKey, request);
+    await request;
+    // A definite failure, never a promise that never settles: a hanging read is
+    // the one shape a field can neither render nor retry.
+    return failure === undefined
+      ? { status: "ok" }
+      : { status: "error", message: failure };
   }
 
   /** Where this module's source has got to. */
@@ -230,16 +423,63 @@ export class SourceStore {
       return { status: "module-loading" };
     }
     this.activity.work("source:read-path", path);
-    const resolved = resolveAtModulePath(source, modulePath);
+    let resolved = resolveAtModulePath(
+      source,
+      modulePath,
+      this.jsonEntries.get(moduleFilePath),
+    );
+    if (resolved.status === "needs-entry") {
+      // The READ is the demand signal for entry content, and it waits for it.
+      //
+      // Not a `module-loading` reply the caller has to re-issue: nothing tells a
+      // caller when to retry, so a field would either poll or hang. `get` is
+      // already async, so "loading" is a state the CALL is in — the awaited
+      // promise is the loading state, and `peek` is there for anything that
+      // wants to observe it without paying for it.
+      const load = await this.loadEntry(moduleFilePath, resolved.key);
+      if (load.status === "error") {
+        return { status: "error", message: load.message };
+      }
+      // Re-resolved from the store rather than from `source`: the load bumped
+      // the revision and the substitution cache, so `source` is a stale handle.
+      const loaded = this.sources[moduleFilePath];
+      if (loaded === undefined) {
+        return { status: "module-loading" };
+      }
+      resolved = resolveAtModulePath(
+        loaded,
+        modulePath,
+        this.jsonEntries.get(moduleFilePath),
+      );
+      if (resolved.status === "needs-entry") {
+        // At most ONE load per read, by construction rather than by a depth
+        // counter: `.jsonValues()` is root-only, so one entry is all a path can
+        // need. Reaching here means the fetch reported success and delivered
+        // nothing, which is a bug in the seam — reported, not retried, because a
+        // retry loop here is an unbounded fetch storm.
+        return {
+          status: "error",
+          message: `Entry '${resolved.key}' of ${moduleFilePath} was loaded but its content is still missing.`,
+        };
+      }
+    }
+    // Read AFTER any load, because a load moves the revision. Handing back the
+    // pre-load revision would make the very next read of this path report
+    // `unchanged` against source that had in fact changed underneath it.
+    const resolvedAt = this.revisionOf(moduleFilePath);
     if (resolved.status === "absent") {
-      return { status: "absent", revision: current };
+      return { status: "absent", revision: resolvedAt };
     }
     if (resolved.status === "error") {
       return { status: "error", message: resolved.message };
     }
     // The head travels with the value. A reader with two reads in flight keeps
     // the newest head it has accepted and drops the rest — see `isNewerHead`.
-    return { status: "resolved-head", data: resolved.value, revision: current };
+    return {
+      status: "resolved-head",
+      data: resolved.value,
+      revision: resolvedAt,
+    };
   }
 
   /**
@@ -264,7 +504,23 @@ export class SourceStore {
    * be defended is the one to the main thread, and that is `get()`.
    */
   moduleSource(moduleFilePath: ModuleFilePath): Json | undefined {
-    return this.sources[moduleFilePath];
+    const source = this.sources[moduleFilePath];
+    if (source === undefined) return undefined;
+    const entries = this.jsonEntries.get(moduleFilePath);
+    if (entries === undefined || entries.size === 0) return source;
+    // Cached against the revision it was computed at, because every in-realm
+    // consumer of a `.jsonValues()` module asks for the same substituted source:
+    // the search walk, schema validation and the custom-validate walk would
+    // otherwise each rebuild it, per module, per pass.
+    const n = this.revisions.get(moduleFilePath) ?? 0;
+    const cached = this.substituted.get(moduleFilePath);
+    if (cached !== undefined && cached.n === n) {
+      return cached.source;
+    }
+    this.activity.work("source:substitute-json-entries", moduleFilePath);
+    const substituted = substituteJsonEntries(source, entries);
+    this.substituted.set(moduleFilePath, { n, source: substituted });
+    return substituted;
   }
 
   loadedModules(): ModuleFilePath[] {
@@ -542,10 +798,17 @@ function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   }
 }
 
-function resolveAtModulePath(source: Json, modulePath: string): Resolved {
+function resolveAtModulePath(
+  source: Json,
+  modulePath: string,
+  entries: Map<string, Json> | undefined,
+): Resolved {
   const parts = Internal.splitModulePath(modulePath as never);
-  let current: Json = source;
-  for (const part of parts) {
+  // Substituted up front rather than per step, so a path that continues into an
+  // entry walks real content with no further marker handling below.
+  let current: Json = substituteJsonEntries(source, entries);
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
     if (current === null || typeof current !== "object") {
       return { status: "absent" };
     }
@@ -561,6 +824,63 @@ function resolveAtModulePath(source: Json, modulePath: string): Resolved {
       return { status: "absent" };
     }
     current = (current as Record<string, Json>)[part];
+    // A marker that survived substitution is content nobody has fetched.
+    //
+    // Only when the caller wants to go DEEPER: reading the entry path itself is
+    // answered with the marker, because the marker is what the source holds
+    // there, and a read of the record's own value must not trigger N fetches.
+    //
+    // `.jsonValues()` is root-only, so the entry key is always the first segment
+    // — which is why `i === 0` is a condition and not an assertion: a marker
+    // found deeper is not an entry and this function cannot name its key.
+    if (i === 0 && i < parts.length - 1 && Internal.isJson(current)) {
+      return { status: "needs-entry", key: part };
+    }
   }
   return { status: "found", value: current };
+}
+
+/**
+ * `source` with every loaded `.jsonValues()` entry's content in place of its
+ * marker.
+ *
+ * Root-only and marker-guarded, matching the schema: content is only ever
+ * substituted where the source actually holds a marker, so a stale cache entry
+ * for a key that has since become a normal value cannot resurrect it.
+ *
+ * Copy-on-write — the input is returned untouched when there is nothing to
+ * substitute, which is every module in a project that uses no `.jsonValues()`.
+ */
+function substituteJsonEntries(
+  source: Json,
+  entries: Map<string, Json> | undefined,
+): Json {
+  if (entries === undefined || entries.size === 0) return source;
+  if (!isJsonObject(source)) return source;
+  let copy: Record<string, Json> | null = null;
+  for (const [key, content] of entries) {
+    if (!Internal.isJson(source[key])) continue;
+    if (copy === null) {
+      copy = { ...source };
+    }
+    copy[key] = content;
+  }
+  return copy ?? source;
+}
+
+/**
+ * A keyed JSON object, as opposed to an array or a primitive.
+ *
+ * A predicate rather than the three checks inline, because `Array.isArray`
+ * narrows to `any[]` and so does NOT remove `JsonArray` (`readonly Json[]`) from
+ * the union — the checks read as though they narrow and then do not. Mirrors
+ * `isRecordSource` in `validation/customValidate.ts`.
+ */
+function isJsonObject(value: Json): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Cache key for one entry of one module. `\0` cannot occur in either half. */
+function entryKey(moduleFilePath: ModuleFilePath, key: string): string {
+  return `${moduleFilePath}\0${key}`;
 }

@@ -18,7 +18,19 @@ import { noopActivity, type ActivitySink } from "./activity";
 /** What has to be cloned across the worker seam to index. */
 export type SourceSnapshot = Record<
   ModuleFilePath,
-  { source: Json; schema: SerializedSchema }
+  {
+    source: Json;
+    schema: SerializedSchema;
+    /**
+     * Is this source everything the module has?
+     *
+     * `false` for a `.jsonValues()` module with entry content still unfetched.
+     * It travels IN the snapshot rather than being asked for later because this
+     * store cannot ask: the fact lives in the source store, on the far side of
+     * the worker seam, and the snapshot is the only thing that crosses it.
+     */
+    complete: boolean;
+  }
 >;
 
 export type SearchResult =
@@ -33,6 +45,16 @@ export type SearchResult =
        * "why isn't my new text findable" far more than for "find me the page".
        */
       staleModules: ModuleFilePath[];
+      /**
+       * Modules that were indexed from an INCOMPLETE source — a `.jsonValues()`
+       * record whose entry content has not been fetched.
+       *
+       * Separate from `staleModules`, because the two ask the caller for
+       * different things: stale means "re-index me", incomplete means "load more
+       * content first". Collapsing them would tell a caller to re-index, which
+       * would walk the same partial source again and change nothing.
+       */
+      partialModules: ModuleFilePath[];
     };
 
 /**
@@ -65,6 +87,8 @@ export class SearchStore {
   private index: SearchIndex | null = null;
   private indexed = new Set<ModuleFilePath>();
   private stale = new Set<ModuleFilePath>();
+  /** Modules whose last index pass walked source that was not all of it. */
+  private partial = new Set<ModuleFilePath>();
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
 
@@ -142,6 +166,15 @@ export class SearchStore {
       }
       this.indexed.add(moduleFilePath);
       this.stale.delete(moduleFilePath);
+      // Set AND cleared from the same flag, so a module that was partial and has
+      // since had its content loaded stops being reported the moment it is
+      // re-indexed — the alternative is a project that never stops looking
+      // incomplete once any entry was ever unloaded.
+      if (entry.complete) {
+        this.partial.delete(moduleFilePath);
+      } else {
+        this.partial.add(moduleFilePath);
+      }
     }
     const result = { new: added, all: [...this.indexed] };
     this.events.emit({ type: "search:build-index", ...result });
@@ -161,6 +194,7 @@ export class SearchStore {
     }
     this.indexed.delete(moduleFilePath);
     this.stale.delete(moduleFilePath);
+    this.partial.delete(moduleFilePath);
   }
 
   /**
@@ -181,6 +215,7 @@ export class SearchStore {
     this.index = createSearchIndex();
     this.indexed = new Set();
     this.stale.clear();
+    this.partial.clear();
     return this.reindex(snapshot);
   }
 
@@ -199,6 +234,7 @@ export class SearchStore {
       results,
       total,
       staleModules: [...this.stale],
+      partialModules: [...this.partial],
     };
   }
 }

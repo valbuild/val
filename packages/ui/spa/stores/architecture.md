@@ -225,49 +225,87 @@ Patch sets follow the same rule for a different reason: they are built from the
 chain when the review UI asks, not accumulated per patch. The store always said
 so; the wiring used not to.
 
-## `.jsonValues()` should load through source, on the host — hypothesis
-
-Not implemented, and recorded here because the prototype currently ignores
-`.jsonValues()` entirely, which will not survive contact with a real project.
-
-The shape the rest of this design implies:
+## `.jsonValues()` loads through source, on the host
 
 A `.jsonValues()` record's on-disk source holds opaque `{_type:"json"}` MARKERS,
-and each entry's content is fetched separately (`GET /json`). Today the engine
-keeps that content in a field beside source (`jsonEntryContents`) and
-`getPatchedSource` substitutes it in on read. That substitution is the right
-idea and it belongs in the **source store**, for the same reason patched source
-does: it is what every reader reads, and the host realm is where readers are.
+and each entry's content lives in a separate `*.val.json` fetched on its own
+(`GET /json`). The engine being replaced keeps that content in a field beside
+source (`jsonEntryContents`) and `getPatchedSource` substitutes it in on read.
+That substitution is the right idea and it lives in the **source store** here,
+for the same reason patched source does: it is what every reader reads, and the
+host realm is where readers are.
 
-What makes it fit rather than being extra machinery is that the demand signal is
-already there. A read is `get(path, head)`, so a read at a path INSIDE an
+`substituteJsonEntries` is root-only and marker-guarded, matching the schema, and
+copy-on-write — so a project using no `.jsonValues()` pays a `Map` lookup and
+nothing else. `moduleSource()` caches the substituted source against the revision
+it was computed at, because every in-realm walker (search, schema validation, the
+custom-validate walk) asks for the same thing.
+
+**The read is the demand signal, and the read WAITS.** A read at a path inside an
 unloaded entry is exactly the moment the content is wanted — the same rule as a
-render being computed when a listener appears. So:
+render being computed when a listener appears. `get` triggers the fetch, awaits
+it, re-resolves once and answers with the content:
 
-- a read inside an unloaded entry answers `module-loading` and starts the fetch;
-- it must NOT answer `absent`, which is the trap the `absent` /
-  `module-loading` split (invariant 3) exists to avoid: a path inside a marker is
-  unknown, not missing, and collapsing the two makes a loaded-but-empty field
-  indistinguishable from a field whose content has not arrived;
+- it must NOT answer `absent`, which is the trap the `absent` / `module-loading`
+  split (invariant 3) exists to avoid: a path inside a marker is unknown, not
+  missing, and a field told "not found" stops asking, so the entry never loads;
+- it does not answer `module-loading` either, which an earlier draft of this
+  section proposed. `module-loading` means "come back later", and nothing tells a
+  caller when later is — so a field would poll or hang. It stays the right answer
+  for an unloaded MODULE, where a read genuinely cannot help. `get` is already
+  async, so **the awaited call IS the loading state**;
+- `peek(path)` is the companion, and it is not optional: the moment a read can
+  cause a fetch, anything that merely wants to LOOK — a nav menu counting
+  entries, a badge, a progress indicator — becomes a fetch storm. `peek` reports
+  `entry-missing` / `entry-loading` and cannot cost anything;
+- concurrent readers of one entry share one fetch (`loadingEntries`), which is
+  what makes N fields on one entry N reads and one request;
+- a failed fetch is an `error`, never `absent`. "Not found" is a fact about the
+  content; a failed request is a fact about the network, and a field shown "not
+  found" has nothing to retry. With no `fetchJsonEntry` configured at all, a read
+  inside an entry is likewise an error — "nobody can fetch it" is not "it is not
+  there";
 - the entry KEY SET is loaded even when no content is, so a read of the keys is
-  `resolved-head` while a read inside an entry is `module-loading`. Two different
-  answers about the same record, which is why the load state cannot be per
-  module.
+  `resolved-head` and a read of an entry's own value is the MARKER. Which is why
+  load state cannot be per module: the same record answers definitively about its
+  keys and indefinitely about what is inside them.
+
+**Entry content arriving moves the module's revision.** This is settled by the
+revision living in the source store rather than on the patch chain: `bump()` sits
+next to each of the three assignments that change what a read returns — a patch
+applying, a base-source replacement, and now `receiveJsonEntry`. A chain version
+could not have covered it, and the earlier worry ("would that not invalidate
+every reader in the project for something no one edited?") does not arise,
+because the revision is PER MODULE and readers compare against their own.
 
 The consequence to carry into every walker: a walk over source is **partial**
-while entries are markers. Search already treats a partial index as normal and
-reports `staleModules`. Reference resolution and the delete/rename guards cannot
-— `useJsonValuesLoad.ts` already establishes that contract, and it is worth
-restating: "no references found" means nothing while entries are unloaded, so a
-destructive action must gate on a status, never on an empty result. Custom
-validation has the same problem and `collectCustomValidateTargets` already
-returns `needsJsonKeys` for it.
+while entries are markers, and each walker now says so rather than looking
+exhaustive.
 
-Open: whether loading an entry bumps the head. It changes what a read returns
-without being a patch, so either the head stops being the only staleness signal
-for reads, or entry loads get their own revision. Probably the latter — a
-content load is not an edit, and making it move the patch head would invalidate
-every reader in the project for something no one edited.
+- Search carries `complete` per module IN the snapshot — it has to, because the
+  search store is across the worker seam and cannot ask the source store
+  anything — and reports `partialModules` alongside `staleModules`. The two are
+  deliberately separate: stale means "re-index me", incomplete means "load more
+  content first", and a caller told to re-index would walk the same partial
+  source again and change nothing.
+- Validation reports `jsonEntriesLoaded`. `errors: false` on a module with
+  unloaded entries means "nothing wrong in what I could see", which is a
+  different claim from "this module is valid" — the same reason
+  `customValidateStatus: "unavailable"` exists rather than the custom half being
+  silently dropped. `collectCustomValidateTargets` already returns
+  `needsJsonKeys` for the stronger case where a declared validator specifically
+  needs entry content.
+- Reference resolution and the delete/rename guards still have to be built, and
+  `useJsonValuesLoad.ts` already establishes their contract: "no references
+  found" means nothing while entries are unloaded, so a destructive action must
+  gate on a status, never on an empty result.
+
+`markJsonEntriesStale(module)` drops a module's loaded content for the case no
+other fingerprint can see: an entry file changed on disk while the module's own
+source (bare markers) stayed byte-identical, so `sourcesSha` does not move. That
+is what the FS-only `jsonEntriesSha` exists for. Coarse by necessity — the
+fingerprint cannot say WHICH entry — and cheap because of it: dropping content
+causes no fetches, only the next read of an entry does.
 
 ## Files in patches: a file must exist for as long as anything references it
 

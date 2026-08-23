@@ -52,6 +52,17 @@ export type WorkKind =
   | "source:skip-unloaded"
   /** One `get()` walked the module to a path. */
   | "source:read-path"
+  /** One `.jsonValues()` entry's content was delivered into the store. */
+  | "source:receive-json-entry"
+  /** One `.jsonValues()` entry fetch was started. The request count. */
+  | "source:load-json-entry"
+  /**
+   * A reader joined an entry fetch already in flight. This one being high while
+   * `source:load-json-entry` stays at one is the dedup working.
+   */
+  | "source:share-json-entry-load"
+  /** Entry content was folded into a module's source for an in-realm walk. */
+  | "source:substitute-json-entries"
   // --- patch chain ----------------------------------------------------------
   /** One `fetchPatches` round trip. `count` is how many ids it asked for. */
   | "patch:fetch"

@@ -26,6 +26,17 @@ export type ValidationResult =
       errors: ValidationErrors;
       customValidatePaths: SourcePath[];
       customValidateStatus: CustomValidateStatus;
+      /**
+       * Was the module's whole content available to check?
+       *
+       * `false` when a `.jsonValues()` record still holds unfetched entries: both
+       * halves of validation walk source, and neither can see inside an opaque
+       * `{_type:"json"}` marker. `errors: false` then means "nothing wrong in
+       * what I could see", which is a different claim from "this module is
+       * valid" — and the same reason `customValidateStatus: "unavailable"`
+       * exists rather than the custom half being silently dropped.
+       */
+      jsonEntriesLoaded: boolean;
     };
 
 /**
@@ -65,6 +76,7 @@ export class ValidationStore {
       errors: ValidationErrors;
       customValidatePaths: SourcePath[];
       customValidateStatus: CustomValidateStatus;
+      jsonEntriesLoaded: boolean;
     }
   >();
   private stale = new Set<ModuleFilePath>();
@@ -193,7 +205,15 @@ export class ValidationStore {
       }
     }
 
-    const result = { errors, customValidatePaths, customValidateStatus };
+    // Asked AFTER both halves have run: the custom half can trigger entry loads,
+    // so asking first could report a module incomplete that is complete by the
+    // time the result is handed back.
+    const result = {
+      errors,
+      customValidatePaths,
+      customValidateStatus,
+      jsonEntriesLoaded: !this.sourceStore.hasUnloadedEntries(moduleFilePath),
+    };
     this.results.set(moduleFilePath, result);
     this.stale.delete(moduleFilePath);
     this.events.emit({

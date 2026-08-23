@@ -144,6 +144,38 @@ There is no third path, which is what makes the revision split sufficient rather
 than merely helpful: cover "the chain moved" and "base was replaced" and every
 way content can change is covered.
 
+Implementing it added a third _assignment_ rather than a third path: content
+ARRIVING (`receiveJsonEntry`) changes what a read returns without being either of
+the two above. It gets a `bump()` next to the assignment, which is the whole point
+of the revision living in the source store — a new way to change source is one
+line at the mutation, not a notification another store has to remember to send.
+
+### ~~Does loading an entry move the head?~~ — ANSWERED
+
+Two questions were tangled here and separating them dissolved it:
+
+- _does loading change what a read returns?_ Yes, so it moves the module's
+  REVISION. Per module, so a reader of another module is unaffected.
+- _does loading belong to the patch chain?_ No. It is not an edit, has no patch
+  id, and must not appear in the review UI or in `parentRef`.
+
+The comparator split is what let both answers stand at once. Before it there was
+one counter and the two answers contradicted each other.
+
+### ~~`get` inside an unloaded entry answers `module-loading`~~ — SUPERSEDED
+
+The original draft had a read inside an unloaded entry answer `module-loading` and
+start the fetch. Wrong, and worth keeping the reason: `module-loading` says "come
+back later" and nothing tells a caller when later is, so a field would poll or
+hang. `get` is already async — the awaited call IS the loading state. It triggers
+the fetch, awaits it, re-resolves once and answers with the content.
+
+That makes `get` a read with a side effect, which needs the companion it now has:
+`peek(path)` reports `entry-missing` / `entry-loading` and cannot cost anything,
+so a nav menu counting entries does not become a fetch storm. `module-loading`
+survives for an unloaded MODULE, where a read genuinely cannot help — that is the
+distinction, not "loaded vs not".
+
 ### Still open
 
 - [ ] `getHead()` stays for tests and for the patch store's own use, but nothing

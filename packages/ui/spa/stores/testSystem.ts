@@ -1,15 +1,17 @@
-import type {
-  ModuleFilePath,
-  PatchId,
-  SelectorSource,
-  SourcePath,
-  ValModule,
+import {
+  Internal,
+  type ModuleFilePath,
+  type PatchId,
+  type SelectorSource,
+  type SourcePath,
+  type ValModule,
 } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { createSystem, type System } from "./createSystem";
 import { RecordingActivity } from "./activity";
 import type { CreatePatchResult } from "./PatchStore";
+import type { SourcePeek } from "./SourceStore";
 import type {
   FieldEvent,
   Head,
@@ -277,6 +279,16 @@ export type TestSourceStore = {
    * instances and pushes only the serialized halves down. Nothing bypasses that.
    */
   testReceive(modules: ValModule<SelectorSource>[]): Promise<void>;
+  /**
+   * Deliver one `.jsonValues()` entry's content directly, bypassing the fetch.
+   *
+   * For the case where the ARRIVAL is the subject rather than the fetching of
+   * it: what a load does to the revision, to the search index, to validity.
+   * A test about the fetch itself just reads a path inside the entry.
+   */
+  receiveJsonEntry(moduleFilePath: string, key: string, content: Json): void;
+  /** Status at a path with no side effects — notably, no entry fetch. */
+  peek(path: string): SourcePeek;
 };
 
 export type TestStatStore = {
@@ -333,6 +345,24 @@ export type TestFiles = {
   clearFailures(): void;
 };
 
+/**
+ * The fake `GET /json` server: which entry fetches were asked for, and a way to
+ * make one fail.
+ *
+ * The CONTENT is not configured here. It is resolved from the module definition
+ * the test already wrote — `c.json(() => ...)` carries a runtime import thunk,
+ * and the fake awaits it. So an entry's content is declared once, in the schema,
+ * the way an author declares it; a rig that took the content separately would let
+ * a test assert against content the module does not actually have.
+ */
+export type TestJsonEntries = {
+  /** Every `${moduleFilePath}\0${key}` fetched, in order, duplicates included. */
+  requests(): string[];
+  /** Make fetches of this entry fail until cleared. */
+  failFor(moduleFilePath: string, key: string, message?: string): void;
+  clearFailures(): void;
+};
+
 export type TestSystem = {
   sourceStore: TestSourceStore;
   patchStore: TestPatchStore;
@@ -368,6 +398,7 @@ export type TestSystem = {
   /** Search, indexing first if a build is owed. The query is what pays. */
   search: System["search"];
   files: TestFiles;
+  jsonEntries: TestJsonEntries;
   ledger: Ledger;
   /**
    * What each store DID, as opposed to what it announced.
@@ -398,6 +429,20 @@ export function initTestSystem(): TestSystem {
   const deleteFailures = new Set<string>();
   const fileKey = (patchId: string, filePath: string) =>
     `${patchId}\0${filePath}`;
+
+  /**
+   * Stands in for the server's `.val.json` files.
+   *
+   * The modules handed to `testReceive` are kept because they are the only place
+   * the entry content exists: `HostStore.receive` JSON round-trips source, which
+   * strips the `c.json` thunk on the way in — deliberately, since a real client
+   * receives markers over the wire and has no thunk to call.
+   */
+  const receivedModules = new Map<ModuleFilePath, ValModule<SelectorSource>>();
+  const jsonEntryRequests: string[] = [];
+  const jsonEntryFailures = new Map<string, string>();
+  const entryKey = (moduleFilePath: string, key: string) =>
+    `${moduleFilePath}\0${key}`;
 
   const system = createSystem({
     uploadFile: async ({ patchId, filePath, data }) => {
@@ -436,6 +481,46 @@ export function initTestSystem(): TestSystem {
       return { patches, errors };
     },
     createPatchId: () => `local-${++nextPatchId}` as PatchId,
+    fetchJsonEntry: async (moduleFilePath, key) => {
+      // Genuinely async, like every other seam in this rig: against a real
+      // `GET /json` it never resolves synchronously, so nothing may come to
+      // depend on it doing so.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      jsonEntryRequests.push(entryKey(moduleFilePath, key));
+      const failure = jsonEntryFailures.get(entryKey(moduleFilePath, key));
+      if (failure !== undefined) {
+        return { status: "error", message: failure };
+      }
+      const module = receivedModules.get(moduleFilePath);
+      if (module === undefined) {
+        return {
+          status: "error",
+          message: `No such module: ${moduleFilePath}`,
+        };
+      }
+      const source = Internal.getSource(module);
+      if (source === null || typeof source !== "object") {
+        return {
+          status: "error",
+          message: `${moduleFilePath} is not a record`,
+        };
+      }
+      const entry = (source as Record<string, unknown>)[key];
+      if (!Internal.isJson(entry)) {
+        return {
+          status: "error",
+          message: `'${key}' of ${moduleFilePath} is not a json entry`,
+        };
+      }
+      const thunk = Internal.getJsonImport(entry);
+      if (thunk === undefined) {
+        return {
+          status: "error",
+          message: `'${key}' of ${moduleFilePath} carries no import thunk`,
+        };
+      }
+      return { status: "ok", content: (await thunk()).default as Json };
+    },
     activity,
   });
 
@@ -548,8 +633,22 @@ export function initTestSystem(): TestSystem {
     },
   };
 
+  const jsonEntries: TestJsonEntries = {
+    requests: () => [...jsonEntryRequests],
+    failFor: (moduleFilePath, key, message) => {
+      jsonEntryFailures.set(
+        entryKey(moduleFilePath, key),
+        message ?? `Could not fetch '${key}' of ${moduleFilePath}`,
+      );
+    },
+    clearFailures: () => {
+      jsonEntryFailures.clear();
+    },
+  };
+
   return {
     files,
+    jsonEntries,
     ledger,
     activity,
     listeners,
@@ -566,9 +665,23 @@ export function initTestSystem(): TestSystem {
         system.sourceStore.get(path as SourcePath, revision),
       isCurrent: (revision) => system.sourceStore.isCurrent(revision),
       async testReceive(modules) {
+        for (const module of modules) {
+          const path = Internal.getValPath(module);
+          if (path === undefined) {
+            throw new Error("Module has no path");
+          }
+          receivedModules.set(path as string as ModuleFilePath, module);
+        }
         system.host.receive(modules);
         await settle();
       },
+      receiveJsonEntry: (moduleFilePath, key, content) =>
+        system.sourceStore.receiveJsonEntry(
+          moduleFilePath as ModuleFilePath,
+          key,
+          content,
+        ),
+      peek: (path) => system.sourceStore.peek(path as SourcePath),
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),

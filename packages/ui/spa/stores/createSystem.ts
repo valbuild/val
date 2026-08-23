@@ -8,7 +8,7 @@ import type {
 } from "@valbuild/core";
 import { SchemaValidator } from "../validation/validateModule";
 import { SchemaStore } from "./SchemaStore";
-import { SourceStore } from "./SourceStore";
+import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
   PatchStore,
   type CreatePatchId,
@@ -112,6 +112,14 @@ export type SystemOptions = {
    * accepting one and dropping the bytes — see `PatchStore.createPatch`.
    */
   uploadFile?: UploadFile;
+  /**
+   * Where one `.jsonValues()` entry's content is fetched from (`GET /json`).
+   *
+   * Omitting it means this system cannot read INTO an entry: such a read reports
+   * an error rather than `absent`, because "the content is not here" and "nobody
+   * can fetch it" are different facts and only one of them is about the content.
+   */
+  fetchJsonEntry?: FetchJsonEntry;
 };
 
 /**
@@ -162,7 +170,11 @@ export function createSystem(options: SystemOptions): System {
   );
   // No head callback: the source store owns its own revision now. The chain is
   // the patch store's business and cannot see a base-source replacement.
-  const sourceStore = new SourceStore(schemaStore, activity);
+  const sourceStore = new SourceStore(
+    schemaStore,
+    activity,
+    options.fetchJsonEntry,
+  );
   const stat = new StatStore();
   const host = new HostStore(schemaStore, sourceStore, activity);
   const renderStore = new RenderStore(host, sourceStore, schemaStore, activity);
@@ -214,7 +226,14 @@ export function createSystem(options: SystemOptions): System {
       // Skipping keeps it out of `all`, so it reads as not-indexed rather than
       // as indexed-and-empty.
       if (schema === undefined || source === undefined) continue;
-      snapshot[moduleFilePath] = { source, schema };
+      snapshot[moduleFilePath] = {
+        source,
+        schema,
+        // Asked HERE, on the host side, because this is the last point at which
+        // it can be: the search store is across the worker seam and cannot ask
+        // the source store anything.
+        complete: !sourceStore.hasUnloadedEntries(moduleFilePath),
+      };
     }
     return snapshot;
   }

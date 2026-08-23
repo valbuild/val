@@ -82,24 +82,88 @@ describe("reading a `.jsonValues()` record", () => {
   });
 
   /**
-   * SPEC: a path INSIDE an unloaded entry is not known to be absent.
+   * SPEC: a path INSIDE an unloaded entry is not known to be absent — the read
+   * FETCHES the content and resolves with it.
    *
    * `resolveAtModulePath` walks into the marker, finds no `title` key on it, and
    * says `absent` — which claims the field does not exist. It does exist; its
    * content has not been fetched. A field told `absent` renders "not found" and
    * stops asking, so the entry never loads and the content never appears.
    *
-   * This is the case `architecture.md` invariant 3 is about, and the one place
-   * the two statuses are genuinely easy to conflate: unlike an unloaded MODULE,
-   * here the module IS loaded and its schema IS known.
+   * SUPERSEDES an earlier version of this spec that asserted `module-loading`.
+   * That was wrong in a way worth recording: `module-loading` says "come back
+   * later", and nothing tells a caller when later is, so a field would poll or
+   * hang. It is the right answer for an unloaded MODULE, where a read genuinely
+   * cannot help — here the module IS loaded, its schema IS known, and the store
+   * can fetch. `get` is already async, so the awaited call IS the loading state;
+   * `peek` below is what observes it without paying for it.
    */
-  it("answers `module-loading` for a path inside an unloaded entry", async () => {
-    const { sourceStore, dispose } = initTestSystem();
+  it("fetches the entry and resolves a path inside it", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
     await sourceStore.testReceive([jsonValuesModule()]);
+
+    // Before the read: the store says the content is missing, and says so
+    // without fetching anything.
+    expect(sourceStore.peek('/blogs.val.ts?p="/a"."title"')).toEqual({
+      status: "entry-missing",
+      key: "/a",
+    });
+    expect(jsonEntries.requests()).toEqual([]);
 
     const read = await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
 
-    expect(read.status).toBe("module-loading");
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected the read to resolve, got ${read.status}`);
+    }
+    expect(read.data).toEqual("Alpha");
+    expect(jsonEntries.requests()).toEqual(["/blogs.val.ts\u0000/a"]);
+    dispose();
+  });
+
+  /**
+   * SPEC: the second reader of the same entry does not cause a second fetch.
+   *
+   * The read being the demand signal is what makes this the thing to pin: a
+   * record rendering its entries mounts one field per key, and every one of them
+   * reads on mount. N fields on one entry must be one request.
+   */
+  it("fetches an entry once for concurrent readers", async () => {
+    const { sourceStore, activity, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+
+    const reads = await Promise.all([
+      sourceStore.get('/blogs.val.ts?p="/a"."title"', null),
+      sourceStore.get('/blogs.val.ts?p="/a"."body"', null),
+      sourceStore.get('/blogs.val.ts?p="/a"."title"', null),
+    ]);
+
+    expect(reads.map((read) => read.status)).toEqual([
+      "resolved-head",
+      "resolved-head",
+      "resolved-head",
+    ]);
+    expect(jsonEntries.requests()).toEqual(["/blogs.val.ts\u0000/a"]);
+    expect(activity.count("source:load-json-entry")).toBe(1);
+    expect(activity.count("source:share-json-entry-load")).toBe(2);
+    dispose();
+  });
+
+  /**
+   * SPEC: a fetch that fails is an error, never `absent`.
+   *
+   * The distinction the whole `absent` / not-absent split exists for, at the one
+   * seam that can genuinely fail. "Not found" is a fact about the content; a
+   * failed request is a fact about the network, and a field shown "not found"
+   * has nothing to retry.
+   */
+  it("reports an error when the entry fetch fails", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+
+    const read = await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    expect(read).toEqual({ status: "error", message: "the network is down" });
     dispose();
   });
 
@@ -195,28 +259,62 @@ describe("searching a `.jsonValues()` record", () => {
     await sourceStore.testReceive([jsonValuesModule()]);
     await search("Alpha");
 
-    // The load an entry-content fetch would perform. There is no API for it yet,
-    // which is the point of the test.
-    const store: unknown = sourceStore;
-    if (
-      typeof store !== "object" ||
-      store === null ||
-      !("receiveJsonEntry" in store)
-    ) {
-      throw new Error(
-        "no way to deliver entry content: the source store has no `receiveJsonEntry`",
-      );
-    }
+    // Delivered directly rather than by reading a path inside the entry, so that
+    // what is under test is the ARRIVAL of content and not the fetch: a read
+    // would prove both at once and neither on its own.
+    sourceStore.receiveJsonEntry("/blogs.val.ts", "/a", {
+      title: "Alpha",
+      body: "First body",
+    });
 
     const before = activity.position();
     const found = await search("Alpha");
 
+    // One module re-walked, not the project: entry content arriving marks its own
+    // module stale and nothing else.
     expect(activity.count("search:index-module", { since: before })).toBe(1);
     if (found.status !== "results") {
       throw new Error("expected a result set");
     }
     expect(found.results.map((hit) => hit.path)).toContain(
       '/blogs.val.ts?p="/a"."title"',
+    );
+    // Still partial: `/b` has not been loaded. The flag tracks the module, not
+    // the query, so one loaded entry does not make the module complete.
+    expect(found.partialModules).toEqual(["/blogs.val.ts"]);
+    dispose();
+  });
+
+  /**
+   * SPEC: and a module whose every entry is loaded stops being reported partial.
+   *
+   * The complement, so that `partialModules` cannot be satisfied by a flag that
+   * is set once and never cleared — which would make every project with any
+   * `.jsonValues()` record permanently "incompletely indexed" and the signal
+   * worthless.
+   */
+  it("stops reporting the module partial once every entry is loaded", async () => {
+    const { sourceStore, search, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await search("Alpha");
+
+    sourceStore.receiveJsonEntry("/blogs.val.ts", "/a", {
+      title: "Alpha",
+      body: "First body",
+    });
+    sourceStore.receiveJsonEntry("/blogs.val.ts", "/b", {
+      title: "Beta",
+      body: "Second body",
+    });
+
+    const found = await search("Beta");
+
+    if (found.status !== "results") {
+      throw new Error("expected a result set");
+    }
+    expect(found.partialModules).toEqual([]);
+    expect(found.results.map((hit) => hit.path)).toContain(
+      '/blogs.val.ts?p="/b"."title"',
     );
     dispose();
   });
