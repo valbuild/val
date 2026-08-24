@@ -8,7 +8,7 @@ import {
   type ValModule,
   initVal,
 } from "@valbuild/core";
-import { filterBlockingValidationErrors } from "./resolveValidationErrors";
+import { filterBlockingValidationErrors } from "./blockingValidationErrors";
 
 const { s, c } = initVal();
 

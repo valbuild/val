@@ -9,6 +9,7 @@ import type {
   ValidationErrors,
 } from "@valbuild/core";
 import { SchemaValidator } from "../validation/validateModule";
+import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
@@ -626,11 +627,28 @@ export function createSystem(options: SystemOptions): System {
         const invalid: ModuleFilePath[] = [];
         for (const moduleFilePath of affected) {
           const result = await validationStore.validate(moduleFilePath);
-          if (
-            result.status === "validated" &&
-            result.errors !== false &&
-            Object.keys(result.errors).length > 0
-          ) {
+          if (result.status !== "validated" || result.errors === false) {
+            continue;
+          }
+          /**
+           * Filtered, not counted raw — and this was a real regression, caught
+           * by driving the Save button in a browser rather than by any test.
+           *
+           * `router:check-route` and `keyof:check-keys` reach here unresolved,
+           * carrying the message "should typically be processed by Val
+           * internally... you have a Val version mismatch". Every route module
+           * in a project has them. Gating on the raw errors therefore refused
+           * every publish, with nothing showing an error anywhere on screen,
+           * because the UI runs its errors through this same filter before
+           * displaying them. A gate and a display that disagree about what an
+           * error is, is a Save button that does nothing and cannot say why.
+           */
+          const blocking = filterBlockingValidationErrors(
+            result.errors,
+            schemaStore.all(),
+            sourceStore.allSources(),
+          );
+          if (Object.keys(blocking).length > 0) {
             invalid.push(moduleFilePath);
           }
         }

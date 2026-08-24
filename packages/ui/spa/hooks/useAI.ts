@@ -58,7 +58,7 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "./resolveValidationErrors";
+import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
