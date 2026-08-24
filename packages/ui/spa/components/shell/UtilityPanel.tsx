@@ -19,7 +19,8 @@ import {
 
 export type UtilityPanelProps = {
   breakpoint: ShellBreakpoint;
-  activity: ShellActivityEntry[];
+  /** Absent while the patch sets are still loading. */
+  activity?: ShellActivityEntry[];
   /** Validation errors, grouped by item. Shown first when there are any. */
   validationErrors?: ShellValidationError[];
   onSelectValidationError?: (error: ShellValidationError) => void;
@@ -38,7 +39,7 @@ export type UtilityPanelProps = {
  */
 export function UtilityPanel({
   breakpoint,
-  activity,
+  activity = [],
   validationErrors = [],
   onSelectValidationError,
   onNewPage,

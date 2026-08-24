@@ -11,7 +11,8 @@ import {
 export type AIChatPanelProps = {
   breakpoint: ShellBreakpoint;
   messages: ShellChatMessage[];
-  suggestions: string[];
+  /** From `config.ai.chat.suggestions`; the row is empty without them. */
+  suggestions?: string[];
   /** Where the assistant is currently pointed, e.g. "Home › Hero". */
   context: string;
   onSend: (message: string) => void;
@@ -37,7 +38,7 @@ const ACTION_LABEL: Record<ShellProposalAction, string> = {
 export function AIChatPanel({
   breakpoint,
   messages,
-  suggestions,
+  suggestions = [],
   context,
   onSend,
   onProposalAction,

@@ -23,8 +23,10 @@ export type StatusBarProps = {
   isDevMode: boolean;
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
-  branch: string;
-  repositoryUrl: string;
+  /** From `config.gitBranch`; hidden when Val is not in a git checkout. */
+  branch?: string;
+  /** No provider supplies this yet, so the link is hidden without it. */
+  repositoryUrl?: string;
 };
 
 /**
@@ -81,21 +83,27 @@ export function StatusBar({
         </Tooltip>
       </label>
       <div className="ml-auto flex items-center gap-3">
-        <span className="inline-flex items-center gap-1.5 font-mono">
-          <GitBranch size={13} className="text-fg-secondary-alt" />
-          {branch}
-        </span>
-        <Divider />
-        <a
-          href={repositoryUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 hover:text-fg-primary"
-        >
-          <span className="hidden md:inline">View on GitHub</span>
-          <span className="md:hidden">GitHub</span>
-          <ExternalLink size={12} />
-        </a>
+        {branch && (
+          <>
+            <span className="inline-flex items-center gap-1.5 font-mono">
+              <GitBranch size={13} className="text-fg-secondary-alt" />
+              {branch}
+            </span>
+            {repositoryUrl && <Divider />}
+          </>
+        )}
+        {repositoryUrl && (
+          <a
+            href={repositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 hover:text-fg-primary"
+          >
+            <span className="hidden md:inline">View on GitHub</span>
+            <span className="md:hidden">GitHub</span>
+            <ExternalLink size={12} />
+          </a>
+        )}
       </div>
     </footer>
   );

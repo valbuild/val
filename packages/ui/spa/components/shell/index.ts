@@ -38,4 +38,6 @@ export {
   SHELL_MOBILE_BREAKPOINT,
   SHELL_DESKTOP_BREAKPOINT,
 } from "./useShellBreakpoint";
+export { useShellData } from "./useShellData";
+export type { ShellDataState } from "./useShellData";
 export * from "./types";

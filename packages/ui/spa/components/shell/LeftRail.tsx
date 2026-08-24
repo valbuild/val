@@ -30,7 +30,7 @@ export const RAIL_ITEMS: RailItem[] = [
 export type LeftRailProps = {
   openPanel: ShellPanel | null;
   onSelect: (panel: ShellPanel) => void;
-  user: { initials: string; name: string };
+  user?: { initials: string; name: string };
   /** Number of pending draft changes, shown as a dot on the account button. */
   hasDraftChanges?: boolean;
 };
@@ -76,24 +76,26 @@ export function LeftRail({
           <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
       ))}
-      <div className="mt-auto shrink-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Account: ${user.name}`}
-              onClick={() => onSelect("settings")}
-              className="relative grid place-items-center w-8 h-8 rounded-full"
-            >
-              <Avatar initials={user.initials} size="sm" />
-              {hasDraftChanges && (
-                <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">{user.name}</TooltipContent>
-        </Tooltip>
-      </div>
+      {user && (
+        <div className="mt-auto shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Account: ${user.name}`}
+                onClick={() => onSelect("settings")}
+                className="relative grid place-items-center w-8 h-8 rounded-full"
+              >
+                <Avatar initials={user.initials} size="sm" />
+                {hasDraftChanges && (
+                  <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{user.name}</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
     </nav>
   );
 }

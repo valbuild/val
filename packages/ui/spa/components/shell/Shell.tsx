@@ -81,9 +81,9 @@ export function Shell({
   const [autoSave, setAutoSave] = useState(true);
   const [isDevMode, setIsDevMode] = useState(true);
   const [notifications, setNotifications] = useState<ShellNotification[]>(
-    data.notifications,
+    data.notifications ?? [],
   );
-  const [chat, setChat] = useState<ShellChatMessage[]>(data.chat);
+  const [chat, setChat] = useState<ShellChatMessage[]>(data.chat ?? []);
   const [selection, setSelection] = useState<Selection | null>(() =>
     initialSelectionId ? findSelection(data, initialSelectionId) : null,
   );
@@ -162,13 +162,13 @@ export function Shell({
       <TopBar
         breakpoint={breakpoint}
         projectName={data.projectName}
-        projects={data.projects}
-        onSelectProject={() => undefined}
         openPanel={openPanel}
         onTogglePanel={togglePanel}
         onOpenMenu={() => setOpenPanel("pages")}
         onOpenSearch={openSearch}
-        unreadNotifications={unreadNotifications}
+        unreadNotifications={
+          data.notifications === undefined ? undefined : unreadNotifications
+        }
         user={data.user}
         onPreview={() => undefined}
         onPublish={() => undefined}

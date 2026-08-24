@@ -323,7 +323,6 @@ export const mockChatSuggestions: string[] = [
 
 export const mockShellData: ShellData = {
   projectName: "val-demo-project",
-  projects: ["val-demo-project", "valbuild.com", "docs.valbuild.com"],
   branch: "main",
   repositoryUrl: "https://github.com/valbuild/val",
   pages: mockPages,

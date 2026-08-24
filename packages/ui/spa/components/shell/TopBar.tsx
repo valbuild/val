@@ -1,8 +1,6 @@
 import {
   AlertTriangle,
   Bell,
-  Check,
-  ChevronsUpDown,
   Eye,
   Loader2,
   Menu,
@@ -12,11 +10,6 @@ import {
   Upload,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../designSystem/popover";
 import { Avatar } from "./Avatar";
 import { ValLogo } from "./ValLogo";
 import { ShellBreakpoint, ShellPanel } from "./types";
@@ -24,14 +17,17 @@ import { ShellBreakpoint, ShellPanel } from "./types";
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
   projectName: string;
-  projects: string[];
-  onSelectProject: (project: string) => void;
   openPanel: ShellPanel | null;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
   onOpenMenu: () => void;
-  unreadNotifications: number;
-  user: { name: string; initials: string };
+  /**
+   * `undefined` means Val has no notification feed to show, and the bell is
+   * hidden; a number — including 0 — means show it.
+   */
+  unreadNotifications?: number;
+  /** Absent until a profile loads, and in modes that have none. */
+  user?: { name: string; initials: string };
   onOpenSearch: () => void;
   onPreview: () => void;
   onPublish: () => void;
@@ -59,8 +55,6 @@ export type PublishState = "idle" | "publishing" | "error" | "blocked";
 export function TopBar({
   breakpoint,
   projectName,
-  projects,
-  onSelectProject,
   openPanel,
   onTogglePanel,
   onOpenMenu,
@@ -100,11 +94,7 @@ export function TopBar({
           <ValLogo className="h-5" />
         </div>
       )}
-      <ProjectSwitcher
-        projectName={projectName}
-        projects={projects}
-        onSelectProject={onSelectProject}
-      />
+      <ProjectName projectName={projectName} />
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {!isMobile && (
@@ -150,31 +140,37 @@ export function TopBar({
             <PanelRight size={16} />
           </IconButton>
         )}
-        <IconButton
-          label={
-            unreadNotifications > 0
-              ? `Notifications (${unreadNotifications} unread)`
-              : "Notifications"
-          }
-          active={openPanel === "notifications"}
-          onClick={() => onTogglePanel("notifications")}
-        >
-          <Bell size={16} />
-          {unreadNotifications > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
-              {unreadNotifications > 9 ? "9+" : unreadNotifications}
-            </span>
-          )}
-        </IconButton>
-        <BarDivider />
-        <button
-          type="button"
-          aria-label={`Account: ${user.name}`}
-          onClick={() => onTogglePanel("settings")}
-          className="rounded-full shrink-0"
-        >
-          <Avatar initials={user.initials} size="sm" />
-        </button>
+        {unreadNotifications !== undefined && (
+          <IconButton
+            label={
+              unreadNotifications > 0
+                ? `Notifications (${unreadNotifications} unread)`
+                : "Notifications"
+            }
+            active={openPanel === "notifications"}
+            onClick={() => onTogglePanel("notifications")}
+          >
+            <Bell size={16} />
+            {unreadNotifications > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
+                {unreadNotifications > 9 ? "9+" : unreadNotifications}
+              </span>
+            )}
+          </IconButton>
+        )}
+        {user && (
+          <>
+            <BarDivider />
+            <button
+              type="button"
+              aria-label={`Account: ${user.name}`}
+              onClick={() => onTogglePanel("settings")}
+              className="rounded-full shrink-0"
+            >
+              <Avatar initials={user.initials} size="sm" />
+            </button>
+          </>
+        )}
       </div>
     </header>
   );
@@ -291,45 +287,15 @@ function ValidationErrorPill({
   );
 }
 
-function ProjectSwitcher({
-  projectName,
-  projects,
-  onSelectProject,
-}: {
-  projectName: string;
-  projects: string[];
-  onSelectProject: (project: string) => void;
-}) {
+/**
+ * The project's name. Val runs one project per config, so this is a label
+ * rather than a switcher — there is nothing to switch to.
+ */
+function ProjectName({ projectName }: { projectName: string }) {
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 h-8 min-w-0 px-2 rounded-md text-[0.8125rem] font-semibold tracking-tight hover:bg-bg-float-raised"
-        >
-          <span className="truncate">{projectName}</span>
-          <ChevronsUpDown size={13} className="shrink-0 text-fg-secondary" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-1">
-        <div className="px-2 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-secondary-alt">
-          Projects
-        </div>
-        {projects.map((project) => (
-          <button
-            key={project}
-            type="button"
-            onClick={() => onSelectProject(project)}
-            className="flex w-full items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left hover:bg-bg-secondary-hover"
-          >
-            <span className="truncate">{project}</span>
-            {project === projectName && (
-              <Check size={14} className="ml-auto shrink-0 text-fg-primary" />
-            )}
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
+    <span className="min-w-0 px-2 text-[0.8125rem] font-semibold tracking-tight truncate">
+      {projectName}
+    </span>
   );
 }
 

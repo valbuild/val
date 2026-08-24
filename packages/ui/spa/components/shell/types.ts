@@ -127,22 +127,44 @@ export type ShellPanel =
 /** Breakpoint the shell is rendering at. */
 export type ShellBreakpoint = "mobile" | "tablet" | "desktop";
 
-/** Everything the shell needs to render. */
+/**
+ * Everything the shell needs to render.
+ *
+ * Optional fields are the ones Val cannot always answer — see
+ * `useShellData`. They are optional rather than defaulted because the shell
+ * hides the affordance when there is no data for it: a notification bell with
+ * nothing behind it is worse than no bell.
+ */
 export type ShellData = {
   projectName: string;
-  /** Other projects, for the project switcher. */
-  projects: string[];
-  branch: string;
-  repositoryUrl: string;
+  /** From `config.gitBranch`. Absent outside a git checkout. */
+  branch?: string;
+  /**
+   * Link for "View on GitHub". No provider supplies this yet, so the status
+   * bar omits the link unless a caller passes one.
+   */
+  repositoryUrl?: string;
   pages: ShellPage[];
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];
   data: ShellDataModule[];
-  notifications: ShellNotification[];
-  activity: ShellActivityEntry[];
+  /**
+   * Val has no notification feed. Left optional so the design can keep the
+   * surface while the bell stays hidden until something populates it.
+   */
+  notifications?: ShellNotification[];
+  /** Derived from patch sets. Absent while they are still loading. */
+  activity?: ShellActivityEntry[];
   validationErrors: ShellValidationError[];
-  chat: ShellChatMessage[];
-  /** Suggested prompts offered as one-click chips in the AI panel. */
-  chatSuggestions: string[];
-  user: { name: string; initials: string; email: string };
+  /**
+   * Static seed only. The live conversation comes from `useAI`, not from
+   * here, so this stays optional and empty in the app.
+   */
+  chat?: ShellChatMessage[];
+  /** Suggested prompts, from `config.ai.chat.suggestions`. */
+  chatSuggestions?: string[];
+  /** Absent until a profile has loaded, and in modes that have none. */
+  user?: { name: string; initials: string; email?: string };
+  /** Changes Publish would ship. */
+  pendingChanges?: number;
 };

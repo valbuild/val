@@ -8,14 +8,14 @@ import { ShellBreakpoint } from "./types";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
-  user: { name: string; email: string; initials: string };
+  user?: { name: string; email?: string; initials: string };
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
   isDevMode: boolean;
   onDevModeChange: (devMode: boolean) => void;
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
-  branch: string;
+  branch?: string;
   onSignOut: () => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
@@ -53,15 +53,19 @@ export function SettingsPanel({
       subheader={navSwitcher}
     >
       <div className="pb-4">
-        <div className="flex items-center gap-2.5 px-4 py-3">
-          <Avatar initials={user.initials} />
-          <div className="min-w-0">
-            <div className="text-xs font-medium truncate">{user.name}</div>
-            <div className="text-[0.6875rem] text-fg-secondary-alt truncate">
-              {user.email}
+        {user && (
+          <div className="flex items-center gap-2.5 px-4 py-3">
+            <Avatar initials={user.initials} />
+            <div className="min-w-0">
+              <div className="text-xs font-medium truncate">{user.name}</div>
+              {user.email && (
+                <div className="text-[0.6875rem] text-fg-secondary-alt truncate">
+                  {user.email}
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         <PanelSectionLabel>Appearance</PanelSectionLabel>
         <div className="px-4 pt-1">
@@ -105,10 +109,12 @@ export function SettingsPanel({
             checked={isDevMode}
             onChange={onDevModeChange}
           />
-          <div className="flex items-baseline justify-between text-xs">
-            <span className="text-fg-secondary">Branch</span>
-            <span className="font-mono text-fg-primary">{branch}</span>
-          </div>
+          {branch && (
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="text-fg-secondary">Branch</span>
+              <span className="font-mono text-fg-primary">{branch}</span>
+            </div>
+          )}
         </div>
 
         <div className="px-4 pt-4">
