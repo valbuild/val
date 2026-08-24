@@ -9,11 +9,12 @@ import {
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
 import { useMemo, useState } from "react";
 import { ValidationErrors } from "./ValidationErrors";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { createStorySystem } from "../stores/react/storySystem";
+import type { System } from "../stores/createSystem";
+import { ValSystemProvider } from "../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -68,24 +69,20 @@ function createMockData(
   };
 }
 
-function makeEngine(client: ValClient, mockData: MockData): ValSyncEngine {
-  const engine = new ValSyncEngine(client, undefined);
-  engine.setSchemas(mockData.schemas);
-  engine.setSources(
-    mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
-  );
-  engine.setRenders(mockData.renders);
-  engine.setBaseSha("storybook-mock-sha");
-  engine.setInitializedAt(Date.now());
-  return engine;
+function makeSystem(mockData: MockData): System {
+  return createStorySystem({
+    schemas: mockData.schemas,
+    sources: mockData.sources,
+    renders: mockData.renders,
+  });
 }
 
 function StoryProviders({
   children,
-  syncEngine,
+  system,
 }: {
   children: React.ReactNode;
-  syncEngine: ValSyncEngine;
+  system: System;
 }) {
   const [theme, setTheme] = useState<Themes | null>("dark");
   const getDirectFileUploadSettings = useMemo(
@@ -101,31 +98,32 @@ function StoryProviders({
     [],
   );
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <TooltipProvider>
-        <ValRouter>
-          <ValErrorProvider syncEngine={syncEngine}>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                <ValRemoteProvider
-                  remoteFiles={{
-                    status: "inactive",
-                    message: "Storybook mock",
-                    reason: "project-not-configured",
-                  }}
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <TooltipProvider>
+          <ValRouter>
+            <ValErrorProvider>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
                 >
-                  {children}
-                </ValRemoteProvider>
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValErrorProvider>
-        </ValRouter>
-      </TooltipProvider>
-    </ValThemeProvider>
+                  <ValRemoteProvider
+                    remoteFiles={{
+                      status: "inactive",
+                      message: "Storybook mock",
+                      reason: "project-not-configured",
+                    }}
+                  >
+                    {children}
+                  </ValRemoteProvider>
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValRouter>
+        </TooltipProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 
@@ -191,9 +189,9 @@ function StorySetup({
   allErrors: Record<SourcePath, ValidationError[] | undefined>;
 }) {
   const client = useMemo(() => createMockClient(), []);
-  const engine = useMemo(() => makeEngine(client, mockData), [client]);
+  const engine = useMemo(() => makeSystem(mockData), [client]);
   return (
-    <StoryProviders syncEngine={engine}>
+    <StoryProviders system={engine}>
       <ValidationErrors errorFields={errorFields} allErrors={allErrors} />
     </StoryProviders>
   );

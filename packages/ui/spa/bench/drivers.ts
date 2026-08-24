@@ -4,59 +4,51 @@ import {
   type SelectorSource,
   type SourcePath,
   type ValModule,
-  type ValModules,
-  initVal,
 } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
-import type { ValClient } from "@valbuild/shared/internal";
-import { ValSyncEngine } from "../ValSyncEngine";
 import { createSystem, type System } from "../stores/createSystem";
 import type { Revision } from "../stores/types";
 
 /**
- * # The fairness contract
+ * # What the benchmark measures, and why the unit is what it is
  *
- * A benchmark between two architectures is worthless unless what it asks of each
- * is genuinely the same question. The two systems are shaped differently on
- * purpose, so "call the equivalent method" does not exist:
+ * This began as a comparison against `ValSyncEngine`, and the contract it was
+ * written under is worth keeping now that the engine is gone — because it is
+ * what makes the remaining numbers mean anything at all, and because it is the
+ * contract any future comparison has to be held to.
  *
- * - `ValSyncEngine.getSourceSnapshot(module)` is per MODULE and deep-clones the
- *   whole module. `SourceStore.get(path, revision)` is per PATH and clones
- *   nothing.
- * - The engine is EAGER: `addPatch` applies the patch and kicks validation,
- *   renders and patch sets before it returns. The stores are LAZY: a patch marks,
- *   and the following read computes.
+ * The two systems were shaped differently on purpose, so "call the equivalent
+ * method" did not exist. The engine's `getSourceSnapshot(module)` was per MODULE
+ * and deep-cloned the whole module; `SourceStore.get(path, revision)` is per
+ * PATH and clones nothing. The engine was EAGER — `addPatch` applied the patch
+ * and kicked validation, renders and patch sets before returning — and the
+ * stores are LAZY: a patch marks, and the following read computes.
  *
- * Measuring only `addPatch` versus only `createPatch` would therefore be a rigged
- * comparison in the stores' favour — it would time the eager system doing all the
- * work and the lazy system doing none of it. Measuring only the reads would rig it
- * the other way.
+ * Timing `addPatch` against `createPatch` would therefore have been rigged in
+ * the stores' favour: it would time the eager system doing all the work and the
+ * lazy system doing none of it. Timing only the reads would rig it the other
+ * way.
  *
  * **So the unit of measurement is a FIELD BECOMING READY.** Every scenario runs
  * from "the keystroke is issued" to "every mounted field has, in hand, the three
  * things it needs to paint: the source at its path, the validation errors for its
  * module, and the render at its path (where there is one)." That is what the user
- * waits for, it is well-defined for both systems, and neither can win it by
- * deferring work to after the stopwatch stops.
+ * waits for, and nothing can win it by deferring work past the stopwatch.
  *
- * Two further rules, so the numbers mean what they look like:
+ * Two rules follow, and they still bind:
  *
- * 1. **Both systems get their modules the same way** — locally, from the same
- *    generated `ValModule[]`, with no network in either. The engine's
- *    `setValModules` is its local-modules path (dev/fs mode) and is the closest
- *    thing to `HostStore.receive`. Nothing here measures HTTP, because HTTP is
- *    the same server for both and would only add noise.
- * 2. **`select` invocations are counted alongside the duration.** A system can
+ * 1. **Modules come from local `ValModule[]`, never over HTTP.** The injected
+ *    client throws, so a scenario that takes a network path fails loudly rather
+ *    than reporting a suspiciously fast 0ms.
+ * 2. **`select` invocations are counted alongside every duration.** A system can
  *    be faster because it is better or because it did less; only the count
- *    separates those, and "did less" is a legitimate win ONLY if the field still
- *    got what it needed — which rule above enforces.
+ *    separates those, and "did less" is legitimate ONLY if the field still got
+ *    what it needed — which the rule above enforces.
  *
- * ## What is NOT measured, and would flatter the stores if it were
+ * ## What is NOT measured
  *
- * `PUT /patches` is unwired in the stores, so no scenario includes syncing a
- * patch to a server. The engine does that work and the stores do not. Every
- * scenario below therefore stops before the sync, and the engine is not charged
- * for it.
+ * `PUT /patches`. No scenario syncs a patch to a server, so nothing here is a
+ * measurement of the write path — that is what `e2e/studio.spec.ts` covers,
+ * against a real one.
  */
 
 export type DriverReads = {
@@ -79,73 +71,6 @@ export type Driver = {
   dispose(): void;
 };
 
-// --------------------------------------------------------------------------
-// the engine being replaced
-// --------------------------------------------------------------------------
-
-/**
- * `ValSyncEngine` needs a `ValClient`. The local-modules path does not call it,
- * so this one exists to satisfy the constructor and to FAIL LOUDLY if a scenario
- * accidentally takes a network path — a silent 0ms from a stubbed request would
- * be the easiest way to publish a wrong number.
- */
-const refusingClient: ValClient = async (route, method) => {
-  throw new Error(
-    `The benchmark took a network path it should not have: ${String(method)} ` +
-      `${String(route)}. Both systems are driven from local modules only.`,
-  );
-};
-
-export function engineDriver(): Driver {
-  const { config } = initVal();
-  const engine = new ValSyncEngine(refusingClient, undefined, undefined);
-  let mounted: string[] = [];
-  let now = 0;
-  const unsubscribes: (() => void)[] = [];
-
-  return {
-    name: "ValSyncEngine",
-    async setup(modules) {
-      const valModules: ValModules = {
-        config,
-        modules: modules.map((module) => ({
-          def: () => Promise.resolve({ default: module }),
-        })),
-      };
-      await engine.setValModules(valModules);
-    },
-    async mount(paths) {
-      mounted = paths;
-      // The engine's subscription is per module, which is itself part of what is
-      // being measured — so subscribe once per distinct module, which is the most
-      // favourable reading of its API rather than one subscription per field.
-      const modules = new Set(
-        paths.map((path) => path.split("?p=")[0] as ModuleFilePath),
-      );
-      for (const moduleFilePath of modules) {
-        unsubscribes.push(engine.subscribe("source", moduleFilePath)(() => {}));
-      }
-    },
-    async type(module, path, value) {
-      const patch: Patch = [{ op: "replace", path: patchPathOf(path), value }];
-      engine.addPatch(path as SourcePath, "string", patch, ++now);
-    },
-    async readAll() {
-      let fieldsReady = 0;
-      for (const path of mounted) {
-        if (readEngineField(engine, path)) fieldsReady++;
-      }
-      return { fieldsReady };
-    },
-    async readOne(_module, path) {
-      return { fieldsReady: readEngineField(engine, path) ? 1 : 0 };
-    },
-    dispose() {
-      for (const off of unsubscribes) off();
-    },
-  };
-}
-
 /**
  * A source path's module path, as the segment array a patch op wants.
  *
@@ -161,22 +86,6 @@ function patchPathOf(path: string): string[] {
   return modulePath === ""
     ? []
     : Internal.splitModulePath(modulePath).map(String);
-}
-
-function readEngineField(engine: ValSyncEngine, path: string): boolean {
-  const moduleFilePath = path.split("?p=")[0] as ModuleFilePath;
-  const source = engine.getSourceSnapshot(moduleFilePath);
-  // A field needs all three before it can paint. The finest API the engine
-  // offers for each: source and render are per MODULE, validation is per path.
-  engine.getRenderSnapshot(moduleFilePath);
-  // Deliberately the per-path getter rather than `getAllValidationErrorsSnapshot`,
-  // so this reads as what a field asks for. It costs the same — the per-path
-  // getter delegates to the whole-project one, which is cached but invalidated
-  // by every patch, so the first read after a keystroke rebuilds errors for the
-  // entire project. That is the engine's behaviour, not a choice made here, and
-  // it is a large part of why a keystroke costs what it costs.
-  engine.getValidationErrorSnapshot(path as SourcePath);
-  return source.status === "success";
 }
 
 // --------------------------------------------------------------------------

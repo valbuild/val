@@ -42,7 +42,7 @@ if (globals.crypto === undefined) {
   globals.crypto = webcrypto;
 } else {
   // jsdom ships a PARTIAL `crypto` — present, so a whole-object guard never
-  // fires, but missing `randomUUID`, which `ValSyncEngine.createPatchId` calls.
+  // fires, but missing `randomUUID`, which `PatchStore.newPatchId` calls.
   // Filled in per member rather than replaced, so jsdom's own implementations of
   // everything else stay in place.
   const existing = globals.crypto as { randomUUID?: unknown };

@@ -1,9 +1,10 @@
 /**
  * The React layer over the store system.
  *
- * A parallel layer to `components/ValFieldProvider.tsx`, mirroring its hook
- * contracts so components can be moved across one at a time with the engine still
- * present to disagree with. See `SystemContext.tsx` for why that matters.
+ * The directly tested read/write hooks over the stores. `hooks.test.tsx` drives
+ * these; `components/ValFieldProvider.tsx` is the app-facing surface and is built
+ * the same way. See `SystemContext.tsx` for the history and for why every read
+ * hook peeks synchronously and demands from an effect.
  */
 export {
   ValSystemProvider,

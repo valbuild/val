@@ -14,7 +14,7 @@ import { useSourceAtPath, type SourceAtPath } from "./useSourceAtPath";
 /**
  * Write at one path.
  *
- * Mirrors the engine's `useAddPatch(sourcePath, creatorId)`: it hands back the
+ * Same shape as `ValFieldProvider`'s `useAddPatch(sourcePath, creatorId)`: it hands back the
  * patch path for the caller to build ops against, plus a way to apply them.
  *
  * ## `fieldId` defaults to this instance, and that is the point
@@ -23,7 +23,7 @@ import { useSourceAtPath, type SourceAtPath } from "./useSourceAtPath";
  * which listener stays asleep. Defaulting it to `useId()` means a field that types
  * into itself is not woken by its own keystroke, while a second instance on the
  * same path — a studio field and an inline overlay — still is. The engine's
- * `creatorId` is optional and usually omitted, because the engine has no
+ * `creatorId` is optional and usually omitted, because the engine this replaced had no
  * per-instance suppression to feed.
  *
  * Passing `creatorId` explicitly is for the case where the writer is not the

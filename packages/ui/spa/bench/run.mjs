@@ -34,6 +34,16 @@ const ESBUILD = path.join(
 );
 const CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 
+/**
+ * The drivers the page can build.
+ *
+ * One, since `ValSyncEngine` was removed. Kept as a list because the runner
+ * iterates it in three places, so a second driver — a future alternative, or a
+ * deliberately naive implementation to check a claim against — drops back in
+ * without any of the tables changing.
+ */
+const DRIVERS = ["stores"];
+
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`);
@@ -269,10 +279,11 @@ const payload = await evaluate(
  * GC has not been asked to settle, which for a comparison of two caches is
  * noise.
  *
- * The engine keeps ~30 hand-enumerated snapshot maps and deep-clones per module
- * read; the stores clone nothing on the read path. That should be visible, and
- * it is the one claim in `architecture.md` that neither the counts nor the
- * durations can speak to.
+ * The claim it exists to check is that the read path clones nothing. It is the
+ * one claim in `architecture.md` that neither the invocation counts nor the
+ * durations can speak to. For scale: the engine this replaced retained 3717 KB
+ * where the stores retain 2263 KB, because it deep-cloned a whole module on
+ * every source read — see `README.md`, which keeps its last numbers.
  */
 async function heapAfterGc() {
   await send("HeapProfiler.collectGarbage", {});
@@ -290,7 +301,7 @@ async function measureMemory(sizeNames) {
     // system rather than the bundle and the runtime.
     await evaluate("window.valBench.releaseMemoryHold()");
     const baseline = await heapAfterGc();
-    for (const driver of ["ValSyncEngine", "stores"]) {
+    for (const driver of DRIVERS) {
       const built = await evaluate(
         "window.valBench.buildForMemory(" +
           JSON.stringify(driver) +
@@ -381,73 +392,32 @@ for (const size of sizes) {
   console.log("");
   console.log("== " + size + " " + "=".repeat(Math.max(0, 70 - size.length)));
   console.log(
-    "scenario".padEnd(14) +
-      "engine ms".padStart(10) +
-      "(range)".padStart(14) +
-      "stores ms".padStart(10) +
-      "(range)".padStart(14) +
-      "ratio".padStart(7) +
-      "  " +
-      "eng sel".padStart(8) +
-      "sto sel".padStart(8) +
-      "  fields",
+    "scenario".padEnd(16) +
+      "ms".padStart(9) +
+      "(range)".padStart(15) +
+      "blocking".padStart(10) +
+      "select".padStart(9) +
+      "fields".padStart(8),
   );
   for (const scenario of scenarioNames) {
-    const engine = byCell.get(size + " " + scenario + " ValSyncEngine");
     const stores = byCell.get(size + " " + scenario + " stores");
-    if (!engine || !stores) continue;
-    const em = median(engine.samples.map((s) => s.ms));
-    const sm = median(stores.samples.map((s) => s.ms));
-    const eSel = median(engine.samples.map((s) => s.selectCalls));
-    const sSel = median(stores.samples.map((s) => s.selectCalls));
-    const eFields = engine.samples[0]?.fieldsReady ?? 0;
-    const sFields = stores.samples[0]?.fieldsReady ?? 0;
-    const eMs = engine.samples.map((s) => s.ms);
+    if (!stores) continue;
     const sMs = stores.samples.map((s) => s.ms);
-    // Overlapping ranges mean the medians are not separated by the measurement.
-    // Marked rather than left for the reader to compute, because an unmarked
-    // 1.4x on overlapping ranges is the single most misleading thing a
-    // benchmark can print.
-    const overlap =
-      Math.min(...eMs) <= Math.max(...sMs) &&
-      Math.min(...sMs) <= Math.max(...eMs);
     console.log(
-      scenario.padEnd(14) +
-        fmt(em).padStart(10) +
-        ("[" + spread(eMs) + "]").padStart(14) +
-        fmt(sm).padStart(10) +
-        ("[" + spread(sMs) + "]").padStart(14) +
-        (sm > 0 ? (em / sm).toFixed(1) + "x" : "-").padStart(7) +
-        (overlap ? "?" : " ") +
-        " " +
-        String(eSel).padStart(8) +
-        String(sSel).padStart(8) +
-        "  " +
-        eFields +
-        (eFields === sFields ? "" : " vs " + sFields + "  NOT COMPARABLE"),
+      scenario.padEnd(16) +
+        fmt(median(sMs)).padStart(9) +
+        ("[" + spread(sMs) + "]").padStart(15) +
+        fmt(median(stores.samples.map((s) => s.blockingMs))).padStart(10) +
+        String(median(stores.samples.map((s) => s.selectCalls))).padStart(9) +
+        String(stores.samples[0]?.fieldsReady ?? 0).padStart(8),
     );
   }
-}
-
-console.log("");
-console.log(
-  "? = the two ranges overlap, so the ratio is not established by this run.",
-);
-console.log("");
-console.log("blocking - the part that runs inside the keydown handler:");
-for (const size of sizes) {
-  for (const scenario of ["keystroke", "keystroke-list", "burst-40"]) {
-    const engine = byCell.get(size + " " + scenario + " ValSyncEngine");
-    const stores = byCell.get(size + " " + scenario + " stores");
-    if (!engine || !stores) continue;
-    const eb = median(engine.samples.map((s) => s.blockingMs));
-    const sb = median(stores.samples.map((s) => s.blockingMs));
-    console.log(
-      ("  " + size + "/" + scenario).padEnd(24) +
-        ("engine " + fmt(eb) + "ms").padStart(18) +
-        ("stores " + fmt(sb) + "ms").padStart(18),
-    );
-  }
+  console.log(
+    "  `blocking` is the part that runs synchronously inside the keydown\n" +
+      "  handler. It matters separately from total: total can be paid after the\n" +
+      "  character appears, blocking cannot. `fields` at 0 where a scenario\n" +
+      "  should have mounted some means the row is timing nothing.",
+  );
 }
 
 console.log("");
@@ -466,7 +436,7 @@ console.log(
     "   fields",
 );
 for (const size of sizes) {
-  for (const driver of ["ValSyncEngine", "stores"]) {
+  for (const driver of DRIVERS) {
     const row = reactRows.find((r) => r.size === size && r.driver === driver);
     if (!row || row.samples.length === 0) continue;
     const mountMs = median(row.samples.map((s) => s.mountMs));
@@ -489,31 +459,26 @@ for (const size of sizes) {
   }
 }
 console.log(
-  "  `keystroke renders` is the number this table exists for: the engine's",
+  "  `keystroke renders` is the number this table exists for. It should be 0:",
 );
 console.log(
-  "  finest source subscription is per MODULE, so every mounted field in the",
+  "  a keystroke wakes the fields whose own path moved, and the field being",
 );
-console.log("  edited module re-renders. Per-path notification wakes one.");
+console.log(
+  "  typed into is suppressed by its own id. Anything above 0 means a",
+);
+console.log(
+  "  subscription has widened - the engine this replaced re-rendered 16 of 16.",
+);
 
 console.log("");
 console.log(
   "retained heap, after two forced collections (delta over baseline):",
 );
-console.log(
-  "  " +
-    "size".padEnd(8) +
-    "engine".padStart(11) +
-    "stores".padStart(11) +
-    "ratio".padStart(8) +
-    "   per field",
-);
+console.log("  " + "size".padEnd(8) + "retained".padStart(11) + "   per field");
 for (const size of sizes) {
-  const engine = memory.find(
-    (r) => r.size === size && r.driver === "ValSyncEngine",
-  );
   const stores = memory.find((r) => r.size === size && r.driver === "stores");
-  if (!engine || !stores) continue;
+  if (!stores) continue;
   const kb = (bytes) => (bytes / 1024).toFixed(0) + " KB";
   const perField = (row) =>
     row.fieldsReady > 0
@@ -522,15 +487,8 @@ for (const size of sizes) {
   console.log(
     "  " +
       size.padEnd(8) +
-      kb(engine.retainedBytes).padStart(11) +
       kb(stores.retainedBytes).padStart(11) +
-      (stores.retainedBytes > 0
-        ? (engine.retainedBytes / stores.retainedBytes).toFixed(1) + "x"
-        : "-"
-      ).padStart(8) +
       "   " +
-      perField(engine) +
-      " vs " +
       perField(stores),
   );
 }

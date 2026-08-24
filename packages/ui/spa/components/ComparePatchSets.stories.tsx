@@ -4,18 +4,18 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  PatchId,
   ReifiedRender,
   SerializedSchema,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
-import { JSONValue } from "@valbuild/core/patch";
 import { Patch } from "@valbuild/core/patch";
 import { useMemo, useState } from "react";
 import { ComparePatchSets } from "./ComparePatchSets";
 import { Profile } from "./ValProvider";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSets";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { createStorySystem } from "../stores/react/storySystem";
+import type { System } from "../stores/createSystem";
+import { ValSystemProvider } from "../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -97,22 +97,31 @@ type TestPatch = {
  * pending patches.
  */
 function applyPatchesAndSerialize(
-  engine: ValSyncEngine,
+  system: System,
   moduleFilePath: ModuleFilePath,
   serializedSchema: SerializedSchema,
   patches: TestPatch[],
 ): SerializedPatchSet {
   const patchSets = new PatchSets();
-  let now = Date.now();
   for (const p of patches) {
-    const result = engine.addPatch(
+    /**
+     * The id is minted first and handed in, so it is known without awaiting.
+     *
+     * `createPatch` is async because a patch CAN carry file bytes, but these
+     * carry none — so it records the patch and emits `patch:create`, which is
+     * what applies it to source, before it reaches its first await. The story's
+     * fixture is therefore complete by the time this loop ends, which is what
+     * lets it be built in a `useMemo` rather than in state behind an effect.
+     */
+    const realPatchId = system.patchStore.mintPatchId();
+    void system.patchStore.createPatch(
       moduleFilePath,
-      serializedSchema.type,
       p.patch,
-      now++,
+      undefined,
+      undefined,
+      undefined,
+      realPatchId,
     );
-    const realPatchId =
-      "patchId" in result ? result.patchId : (`fallback-${now}` as PatchId);
     for (const op of p.patch) {
       patchSets.insert(
         moduleFilePath,
@@ -135,24 +144,20 @@ type MockData = {
   renders: Record<ModuleFilePath, ReifiedRender>;
 };
 
-function makeEngine(client: ValClient, mockData: MockData): ValSyncEngine {
-  const engine = new ValSyncEngine(client, undefined);
-  engine.setSchemas(mockData.schemas);
-  engine.setSources(
-    mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
-  );
-  engine.setRenders(mockData.renders);
-  engine.setBaseSha("storybook-mock-sha");
-  engine.setInitializedAt(Date.now());
-  return engine;
+function makeSystem(mockData: MockData): System {
+  return createStorySystem({
+    schemas: mockData.schemas,
+    sources: mockData.sources,
+    renders: mockData.renders,
+  });
 }
 
 function StoryProviders({
   children,
-  syncEngine,
+  system,
 }: {
   children: React.ReactNode;
-  syncEngine: ValSyncEngine;
+  system: System;
 }) {
   const [theme, setTheme] = useState<Themes | null>("dark");
   const getDirectFileUploadSettings = useMemo(
@@ -169,31 +174,32 @@ function StoryProviders({
   );
 
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <TooltipProvider>
-        <ValRouter>
-          <ValErrorProvider syncEngine={syncEngine}>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                <ValRemoteProvider
-                  remoteFiles={{
-                    status: "inactive",
-                    message: "Storybook mock",
-                    reason: "project-not-configured",
-                  }}
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <TooltipProvider>
+          <ValRouter>
+            <ValErrorProvider>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
                 >
-                  {children}
-                </ValRemoteProvider>
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValErrorProvider>
-        </ValRouter>
-      </TooltipProvider>
-    </ValThemeProvider>
+                  <ValRemoteProvider
+                    remoteFiles={{
+                      status: "inactive",
+                      message: "Storybook mock",
+                      reason: "project-not-configured",
+                    }}
+                  >
+                    {children}
+                  </ValRemoteProvider>
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValRouter>
+        </TooltipProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 
@@ -215,18 +221,18 @@ function StorySetup({
   readonly?: boolean;
 }) {
   const client = useMemo(() => createMockClient(), []);
-  const { engine, patchSets } = useMemo(() => {
-    const engine = makeEngine(client, mockData);
+  const { system, patchSets } = useMemo(() => {
+    const system = makeSystem(mockData);
     const patchSets = applyPatchesAndSerialize(
-      engine,
+      system,
       moduleFilePath,
       serializedSchema,
       patches,
     );
-    return { engine, patchSets };
+    return { system, patchSets };
   }, [client, mockData, moduleFilePath, serializedSchema, patches]);
   return (
-    <StoryProviders syncEngine={engine}>
+    <StoryProviders system={system}>
       <ComparePatchSets
         patchSets={patchSets}
         profilesByAuthorIds={mockProfiles}

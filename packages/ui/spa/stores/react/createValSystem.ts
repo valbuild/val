@@ -2,6 +2,8 @@ import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
+import type { SchemaValidationBridge } from "../bridges";
+import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
 
 /**
@@ -16,12 +18,14 @@ import type { PatchRecord } from "../types";
  *
  * `savePatches` and `uploadFile` are omitted unless `writes` is set. A system
  * with no write seam records edits and reports them `pending` forever, which is
- * the honest behaviour for a SHADOW mount running beside the engine: two systems
- * both writing to one linear patch chain would conflict with each other on every
- * keystroke, and each would "resolve" it by re-sending. The engine owns writes
- * until it owns nothing.
+ * the honest behaviour for one that cannot write — a benchmark, a test of the
+ * read path, a preview. It is deliberately not a silent success: an edit that
+ * reports itself saved when nothing was written is the worst outcome available.
  *
- * Passing `writes: true` is for when the engine is gone, not before.
+ * The Studio passes `writes: true`. There is exactly one writer, which is what
+ * the server's single linear patch chain requires: it checks every `parentRef`,
+ * so two systems both writing would 409 on every keystroke and each would
+ * "resolve" it by re-sending.
  */
 /**
  * Where a patch's file bytes are POSTed, and with what credentials.
@@ -48,13 +52,31 @@ export function createValSystem(
   client: ValClient,
   options?: {
     writes?: boolean;
-    mirror?: boolean;
     uploadSettings?: UploadSettings;
     /** Whether a publish leaves the patches on the server. See `SystemOptions`. */
     mode?: "fs" | "http";
+    /**
+     * Where schema validation runs. Defaults to a real worker.
+     *
+     * Overridable so a test can validate in-process: `new Worker(new
+     * URL(..., import.meta.url))` is a Vite construct with no meaning under
+     * jest, and a test that had to stub `Worker` would be testing the stub.
+     */
+    schemaValidation?: SchemaValidationBridge;
   },
 ): System {
   return createSystem({
+    /**
+     * Schema validation, on a thread.
+     *
+     * Not the in-process default `createSystem` falls back to: validating a
+     * module walks its whole source against its whole schema, and the Studio
+     * validates the module the user is typing into. On the main thread that is
+     * exactly the blocking this architecture exists to remove — measured at
+     * 43.7ms of never-yielding main thread for one reindex-sized walk.
+     */
+    schemaValidation:
+      options?.schemaValidation ?? createSchemaValidationBridge(),
     ...(options?.uploadSettings !== undefined
       ? {
           /**
@@ -150,29 +172,7 @@ export function createValSystem(
             });
           },
         }
-      : options?.mirror === true
-        ? {
-            /**
-             * The MIRROR upload seam: accept the patch, upload nothing.
-             *
-             * Only for a shadow system being fed the engine's patches. Without a
-             * upload seam at all, `PatchStore.createPatch` REFUSES any patch
-             * carrying file ops — correctly, because silently dropping bytes is the
-             * failure that seam exists to prevent. But in a mirror that refusal is
-             * the wrong outcome: the engine has already uploaded these exact bytes
-             * to this exact path, so the file genuinely is on the server, and
-             * refusing the patch would leave the shadow's source diverging from the
-             * engine's for every image edit — which is precisely what a shadow
-             * exists to detect, so it must not manufacture it.
-             *
-             * Uploading again would be worse: the same bytes POSTed twice per edit.
-             *
-             * So it reports ok and does nothing, and the comment is the whole
-             * justification: the upload happened, just not by this system.
-             */
-            uploadFile: async () => ({ status: "ok" }),
-          }
-        : {}),
+      : {}),
     fetchPatches: async (patchIds) => {
       const res = await client("/patches", "GET", {
         query: {

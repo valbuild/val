@@ -6,7 +6,7 @@ import { Internal } from "@valbuild/core";
 /**
  * One field, rendered through the new hooks, inside the real Studio.
  *
- * Mounted by `ValStoreShadow` and invisible. It exists because "the stores run in
+ * Mounted by `ValStoreProvider` and invisible. It exists because "the stores run in
  * the app" and "the hooks render in the app" are different claims, and only the
  * second one is what a component would depend on: the shadow mount proves the
  * system takes real modules in, and this proves a React component can get a value

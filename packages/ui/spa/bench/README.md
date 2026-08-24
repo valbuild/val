@@ -1,4 +1,4 @@
-# Browser benchmark: stores vs `ValSyncEngine`
+# Browser benchmark: the store system
 
 ```bash
 node packages/ui/spa/bench/run.mjs                        # screen, 5 reps
@@ -13,6 +13,50 @@ and a real `Worker` — both are set up by the runner, same as everything else.
 No setup: the runner bundles with the esbuild binary out of the pnpm store,
 launches the preinstalled Chromium, and drives it over CDP with node's built-in
 `fetch` and `WebSocket`. Playwright is not needed and not used.
+
+## The engine is gone; these are the numbers it left behind
+
+This benchmark existed to answer one question — should `ValSyncEngine` be
+replaced — and the answer was yes. The engine is deleted, so there is no longer a
+second driver to take a ratio against, and what the runner prints now is a
+**baseline**: absolute numbers for the system that shipped, which is what catches
+a regression.
+
+The engine's last measured numbers are recorded here, because a baseline with no
+history is a number nobody can judge. Chromium 141, 4 cores, `screen`, 11 reps,
+median of 11 with the first discarded:
+
+| scenario         | engine  | stores      | ratio | engine `select` | stores `select` |
+| ---------------- | ------- | ----------- | ----: | --------------- | --------------- |
+| `intake`         | 51.7 ms | **6.20 ms** |  8.3x | 0               | 0               |
+| `mount`          | 10.3 ms | **0.30 ms** | 34.3x | 0               | 0               |
+| `keystroke`      | 10.6 ms | **0.40 ms** | 26.5x | 0               | 0               |
+| `keystroke-list` | 10.3 ms | **0.30 ms** | 34.3x | 60              | 60              |
+| `burst-40`       | 13.9 ms | **1.30 ms** | 10.7x | 0               | 0               |
+| `list-view`      | 11.8 ms | **2.50 ms** |  4.7x | 1200            | 1200            |
+| `nested-row`     | 12.6 ms | **0.60 ms** | 21.0x | **650**         | **2**           |
+
+`nested-row` is the one to read twice. It is the `handboka` worst case — one
+section of one chapter, with `select` at two nested array levels — and the
+duration is not the interesting column. The engine ran 650 `select` closures to
+put one row on screen because its finest render is per module; the stores ran 2,
+because a render is scoped to the paths that have listeners on them. The 21x is a
+consequence of that, not a separate fact.
+
+Two more, from the same run:
+
+- **React re-renders per keystroke, at 16 mounted fields: engine 16, stores 0.**
+  The engine's finest source subscription was per MODULE, so every mounted field
+  in the edited module re-rendered on every character. Per-path notification
+  wakes the fields whose own value moved — and per-instance suppression leaves
+  the field being typed into alone, which is why the answer is 0 rather than 1.
+- **Retained heap after two forced collections: 3717 KB against 2263 KB** (1.6x),
+  or 232 KB vs 141 KB per mounted field. The engine deep-cloned a whole module on
+  every source read; the stores hand out the object they own.
+
+Nothing here says the store system is fast in absolute terms — it says it costs a
+fraction of what the thing it replaced cost, on the same hardware, measuring the
+same unit. Absolute numbers on real hardware will differ.
 
 ## Why this exists
 
@@ -59,9 +103,11 @@ Three supporting rules:
   faster because it is better or because it did less. Only the count separates
   those, and "did less" is legitimate only if the field still got what it needed
   — which the rule above enforces.
-- **`fieldsReady` is printed.** If the two drivers disagree on it, the row is not
-  a comparison and the runner exits non-zero. That is the guard against the
-  classic benchmark lie: fast because it silently did nothing.
+- **`fieldsReady` is printed.** With two drivers, a disagreement meant the row
+  was not a comparison and the runner exited non-zero. With one it is still the
+  guard against the classic benchmark lie — fast because it silently did nothing
+  — and a scenario whose `fieldsReady` drops to 0 is reporting the cost of doing
+  nothing, however good the millisecond column looks.
 
 ### The mounted-field count decides the answer
 
@@ -207,19 +253,18 @@ move to a worker.
 
 ## What is deliberately not measured
 
-- **`PUT /patches`.** Wired now (`PatchSync`), but deliberately not configured
-  here: the drivers pass no `savePatches`, so the stores record edits and send
-  nothing, and the engine's sync loop is never run either. Neither side is charged
-  for the write, which keeps the comparison about the read and apply paths. This
-  bullet used to say the write was "unwired in the stores" — it was, and is not
-  any more, so the reason it is absent from these numbers has changed even though
-  the numbers have not.
-- **A real field component.** There IS a React harness now
-  (`reactHarness.tsx`), and it produced the clearest result in the exercise: at
-  `screen`, one keystroke re-renders **16 components in the engine and 0 in the
-  stores**, because the engine's finest source subscription is per module. But its
-  field is a `<span>`, so its millisecond column is a floor — a real Val field is
-  a rich-text editor. Read the render COUNT, not the time.
+- **`PUT /patches`.** Wired (`PatchSync`), but deliberately not configured here:
+  the driver passes no `savePatches`, so the stores record edits and send
+  nothing. That keeps these numbers about the read and apply paths. The write
+  path is covered against a real server by `e2e/studio.spec.ts`, which is the
+  right place for it — a benchmark that included a network round trip would be
+  measuring the network.
+- **A real field component.** There IS a React harness (`reactHarness.tsx`), and
+  it produced the clearest result in the exercise: at `screen`, one keystroke
+  re-rendered **16 components in the engine and 0 in the stores**, because the
+  engine's finest source subscription was per module. But its field is a
+  `<span>`, so its millisecond column is a floor — a real Val field is a
+  rich-text editor. Read the render COUNT, not the time.
 
   Mount renders were 32 against the engine's 16 until the harness stopped kicking
   an async `get` from `subscribe` and started peeking synchronously from
@@ -233,11 +278,12 @@ move to a worker.
 
 ## Reading the output
 
-`ratio` is engine ÷ stores, so above 1 means the stores are faster. A `?` after
-it means the two sample ranges **overlap**, and the ratio is therefore not
-established by that run — an unmarked 1.4x on overlapping ranges is the single
-most misleading thing a benchmark can print. Increase `--reps` before believing
-a marked row either way.
+`ratio` compared two drivers and is empty now that there is one. It is kept in
+the output because the worker-seam table still prints one, and there the
+convention matters: a `?` after a ratio means the two sample ranges **overlap**,
+so the ratio is not established by that run. An unmarked 1.4x on overlapping
+ranges is the single most misleading thing a benchmark can print. Increase
+`--reps` before believing a marked row either way.
 
 `blocking` is the part that runs synchronously inside the keydown handler. It
 matters separately from total time: total time can be paid after the character

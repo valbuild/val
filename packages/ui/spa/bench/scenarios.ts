@@ -4,7 +4,7 @@ import {
   type GeneratedProject,
   type ProjectSize,
 } from "./generateProject";
-import { engineDriver, storesDriver, type Driver } from "./drivers";
+import { storesDriver, type Driver } from "./drivers";
 
 /**
  * One measurement: how long, how many closure invocations, and how many fields
@@ -263,8 +263,20 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
+/**
+ * One driver now.
+ *
+ * There were two — the store system and `ValSyncEngine` — and the whole point of
+ * the table was the ratio between them. The engine is gone, so what is left is a
+ * baseline: absolute numbers for the system that shipped, which is what catches a
+ * regression. The engine's last measured numbers are recorded in `README.md`, in
+ * the one place they are still useful, which is as history.
+ *
+ * The shape stays an array so a second driver — a future alternative, or a
+ * deliberately naive implementation to check a claim against — drops back in
+ * without the runner changing.
+ */
 export const DRIVERS: { name: string; make: () => Driver }[] = [
-  { name: "ValSyncEngine", make: engineDriver },
   { name: "stores", make: storesDriver },
 ];
 

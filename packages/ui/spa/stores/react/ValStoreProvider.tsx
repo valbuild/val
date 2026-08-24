@@ -63,8 +63,9 @@ export function ValStoreProvider({
     let cancelled = false;
     void (async () => {
       // The defs are async thunks (`() => import("./x.val")`), so intake has to
-      // await them — the same reason `ValSyncEngine.setValModules` is async. One
-      // failed module must not lose the rest, so each is settled separately.
+      // await them. One failed module must not lose the rest, so each is
+      // settled separately — and `HostStore.receive` records the ones that fail
+      // to serialize rather than throwing, for the same reason.
       const settled = await Promise.allSettled(
         valModules.modules.map((entry) => entry.def()),
       );

@@ -57,25 +57,6 @@ const ALLOWED_CONSOLE_ERRORS: { match: RegExp; why: string }[] = [
     match: /Could not read personal access token file/,
     why: "the same missing token, reported by the server",
   },
-  {
-    // THE ENGINE'S OWN BUG, and the clearest single argument for removing it.
-    //
-    //   ValSyncEngine.setValModules
-    //     -> requestAllModuleValidation
-    //       -> ValidationWorkerClient.validate
-    //         -> worker.postMessage(valModules)
-    //
-    // `valModules` carries the app's `.val.json` lazy loaders — `() => import(...)`
-    // — and a function cannot be structured-cloned, so validation of every module
-    // that has jsonValues dies at the seam with a `DataCloneError`. This is the
-    // two-realm rule the store system is built around: closures stay in the host
-    // realm, and only data crosses. The stores never post a schema or a module.
-    //
-    // DELETE THIS ENTRY when `ValSyncEngine` is deleted. If the test then fails,
-    // the store system has inherited the same bug and that is worth knowing.
-    match: /could not be cloned/,
-    why: "ValSyncEngine posts valModules (with its import thunks) to the validation worker",
-  },
 ];
 
 /**

@@ -960,40 +960,6 @@ export type JsonEntriesProgress = {
   percentage: number;
 };
 
-/**
- * Walks `modulePath` against `sourceData` and returns the record key at which
- * the path descends into a `.jsonValues()` entry whose content has NOT been
- * loaded yet (the value is still a lazy json marker), or `null` otherwise.
- *
- * The sync engine substitutes loaded entry content in place of the marker, so a
- * marker still present here means the entry isn't loaded — the caller should
- * trigger `requestJsonEntry` and render a loading state until it resolves.
- */
-function findUnloadedJsonEntryKey(
-  modulePath: ModulePath,
-  sourceData: Json | undefined,
-): string | null {
-  if (sourceData === undefined) {
-    return null;
-  }
-  let current: Json = sourceData;
-  for (const part of Internal.splitModulePath(modulePath)) {
-    if (
-      current === null ||
-      typeof current !== "object" ||
-      isJsonArray(current)
-    ) {
-      return null;
-    }
-    const next: Json = current[part];
-    if (Internal.isJson(next)) {
-      return part;
-    }
-    current = next;
-  }
-  return null;
-}
-
 function walkSourcePath(
   modulePath: ModulePath,
   sources?: Json,

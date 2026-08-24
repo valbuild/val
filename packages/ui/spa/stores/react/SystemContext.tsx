@@ -8,23 +8,22 @@ import type { System } from "../createSystem";
  * `stores/` is measured and tested, and none of it reaches a screen until a
  * component can read it.
  *
- * ## Why this is a parallel layer, not an edit to `ValFieldProvider`
+ * ## Why these exist alongside `ValFieldProvider`
  *
- * `ValFieldProvider.tsx` is 1448 lines and ~25 hooks over `ValSyncEngine`.
- * Rewriting it in place would mean one commit in which nothing can be compared
- * against anything: the engine's behaviour is the only specification these hooks
- * have, and it stops existing the moment it is replaced. So this layer mirrors
- * the engine's hook CONTRACTS — `{ status: "success" | "error" | "not-found" |
- * "loading" }` — and can therefore be swapped in one hook at a time, with the
- * engine still there to disagree with.
+ * These were written as a parallel layer while `ValSyncEngine` still existed, so
+ * that `ValFieldProvider`'s ~25 hooks could be moved across one at a time with
+ * the engine still there to disagree with. The engine is gone and
+ * `ValFieldProvider` is now built on the stores directly, so what is left here is
+ * the SMALL, DIRECTLY TESTED surface: `hooks.test.tsx` drives these, and what it
+ * pins — that a mounting field paints once, that a field is not woken by its own
+ * keystroke — is true of `ValFieldProvider`'s hooks for the same reasons.
  *
- * ## What is different, and it is the whole point
+ * ## What was different, and it is the whole point
  *
- * The engine's finest source subscription is per MODULE
- * (`subscribe("source", moduleFilePath)`), and `useSourceAtPath` then walks the
+ * The engine's finest source subscription was per MODULE
+ * (`subscribe("source", moduleFilePath)`), and its `useSourceAtPath` walked the
  * module path inside the hook. So every mounted field in an edited module
- * re-renders on every keystroke — measured at 16 of 16 fields, against 0 for
- * these hooks.
+ * re-rendered on every keystroke — measured at 16 of 16 fields, against 0 here.
  *
  * These subscribe per PATH and the walk happens in the store. A field is woken
  * only when its own path moved, and the field that made the edit is not woken at
@@ -60,8 +59,8 @@ export type ValSystem = {
  *   effect re-runs; `getSnapshot` is re-read every render.
  *
  * All three are re-derivable by hand, and doing so is most of what
- * `useSyncExternalStore` is. It also matches `ValFieldProvider`, which has twenty
- * of these, so a component ports without changing how it consumes.
+ * `useSyncExternalStore` is. It is also what `ValFieldProvider` uses, so the two
+ * behave the same way for the same reasons.
  *
  * The real cost of the choice is that `getSnapshot` must be reference-stable — and
  * that contract is what produced two of the four store bugs this layer found. The
@@ -96,8 +95,8 @@ export function ValSystemProvider({
  * Nullable rather than throwing, because the same components render in contexts
  * with no Val at all (a preview, a story, the host app's own tree) and a hook
  * that throws there would make every one of them a special case. Each hook maps
- * the null case to its own `loading`/`not-found`, which is what the engine's
- * hooks already do.
+ * the null case to its own `loading`/`not-found`, which is what
+ * `ValFieldProvider`'s hooks do too.
  */
 export function useValSystem(): ValSystem | null {
   return useContext(ValSystemContext);

@@ -7,11 +7,7 @@ import {
   type SelectorSource,
   type SourcePath,
   type ValModule,
-  type ValModules,
-  initVal,
 } from "@valbuild/core";
-import type { ValClient } from "@valbuild/shared/internal";
-import { ValSyncEngine } from "../ValSyncEngine";
 import { createSystem, type System } from "../stores/createSystem";
 
 /**
@@ -120,75 +116,6 @@ function describe(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "";
   return "ok";
-}
-
-// --------------------------------------------------------------------------
-// engine adapter
-// --------------------------------------------------------------------------
-
-const refusingClient: ValClient = async (route, method) => {
-  throw new Error(
-    `The React benchmark took a network path it should not have: ` +
-      `${String(method)} ${String(route)}.`,
-  );
-};
-
-function engineAdapter(modules: ValModule<SelectorSource>[]): {
-  adapter: FieldAdapter;
-  ready: Promise<void>;
-} {
-  const { config } = initVal();
-  const engine = new ValSyncEngine(refusingClient, undefined, undefined);
-  const valModules: ValModules = {
-    config,
-    modules: modules.map((module) => ({
-      def: () => Promise.resolve({ default: module }),
-    })),
-  };
-  const ready = engine.setValModules(valModules);
-  let now = 0;
-  // Memoised per module, because `subscribe` is called on every render and
-  // `useSyncExternalStore` resubscribes when the function identity changes. The
-  // real `ValFieldProvider` has the same requirement.
-  const subscribers = new Map<
-    ModuleFilePath,
-    (onChange: () => void) => () => void
-  >();
-  return {
-    ready,
-    adapter: {
-      name: "ValSyncEngine",
-      subscribe(path) {
-        const [moduleFilePath] =
-          Internal.splitModuleFilePathAndModulePath(path);
-        let subscriber = subscribers.get(moduleFilePath);
-        if (subscriber === undefined) {
-          subscriber = engine.subscribe("source", moduleFilePath);
-          subscribers.set(moduleFilePath, subscriber);
-        }
-        return subscriber;
-      },
-      getSnapshot(path) {
-        const [moduleFilePath] =
-          Internal.splitModuleFilePathAndModulePath(path);
-        // Per module and cached, exactly as `ValFieldProvider` reads it. The
-        // cache is what keeps the reference stable between invalidations.
-        return engine.getSourceSnapshot(moduleFilePath);
-      },
-      async type(_module, path, value) {
-        engine.addPatch(
-          path as SourcePath,
-          "string",
-          [{ op: "replace", path: patchPathOf(path), value }],
-          ++now,
-        );
-      },
-      async settle() {
-        await Promise.resolve();
-      },
-      dispose() {},
-    },
-  };
 }
 
 // --------------------------------------------------------------------------
@@ -335,10 +262,12 @@ export async function runReactScenario(
   typedModule: string,
   typedPath: string,
 ): Promise<ReactSample> {
-  const built =
-    driverName === "ValSyncEngine"
-      ? engineAdapter(modules)
-      : storesAdapter(modules);
+  // One adapter now that the engine is gone. `driverName` stays in the signature
+  // because the runner iterates a driver list, and a second adapter — a future
+  // alternative, or a deliberately naive one to check a claim against — should
+  // drop back in here without the runner changing.
+  void driverName;
+  const built = storesAdapter(modules);
   await built.ready;
   const adapter = built.adapter;
 
