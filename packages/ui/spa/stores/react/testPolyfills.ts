@@ -15,6 +15,11 @@
  * than not polyfilling at all.
  */
 import { webcrypto } from "node:crypto";
+import {
+  ReadableStream,
+  TransformStream,
+  WritableStream,
+} from "node:stream/web";
 import { deserialize, serialize } from "node:v8";
 import { TextDecoder, TextEncoder } from "node:util";
 
@@ -35,4 +40,25 @@ if (globals.structuredClone === undefined) {
 }
 if (globals.crypto === undefined) {
   globals.crypto = webcrypto;
+} else {
+  // jsdom ships a PARTIAL `crypto` — present, so a whole-object guard never
+  // fires, but missing `randomUUID`, which `ValSyncEngine.createPatchId` calls.
+  // Filled in per member rather than replaced, so jsdom's own implementations of
+  // everything else stay in place.
+  const existing = globals.crypto as { randomUUID?: unknown };
+  if (typeof existing.randomUUID !== "function") {
+    existing.randomUUID = webcrypto.randomUUID.bind(webcrypto);
+  }
+}
+// The streams. jsdom has none of them, and the Studio's dependency graph reaches
+// code that builds one at module scope — so, like `TextEncoder`, a polyfill
+// applied later is already too late.
+if (globals.ReadableStream === undefined) {
+  globals.ReadableStream = ReadableStream;
+}
+if (globals.WritableStream === undefined) {
+  globals.WritableStream = WritableStream;
+}
+if (globals.TransformStream === undefined) {
+  globals.TransformStream = TransformStream;
 }

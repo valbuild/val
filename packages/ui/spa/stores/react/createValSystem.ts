@@ -24,9 +24,32 @@ import type { PatchRecord } from "../types";
  */
 export function createValSystem(
   client: ValClient,
-  options?: { writes?: boolean },
+  options?: { writes?: boolean; mirror?: boolean },
 ): System {
   return createSystem({
+    ...(options?.mirror === true
+      ? {
+          /**
+           * The MIRROR upload seam: accept the patch, upload nothing.
+           *
+           * Only for a shadow system being fed the engine's patches. Without a
+           * upload seam at all, `PatchStore.createPatch` REFUSES any patch
+           * carrying file ops — correctly, because silently dropping bytes is the
+           * failure that seam exists to prevent. But in a mirror that refusal is
+           * the wrong outcome: the engine has already uploaded these exact bytes
+           * to this exact path, so the file genuinely is on the server, and
+           * refusing the patch would leave the shadow's source diverging from the
+           * engine's for every image edit — which is precisely what a shadow
+           * exists to detect, so it must not manufacture it.
+           *
+           * Uploading again would be worse: the same bytes POSTed twice per edit.
+           *
+           * So it reports ok and does nothing, and the comment is the whole
+           * justification: the upload happened, just not by this system.
+           */
+          uploadFile: async () => ({ status: "ok" }),
+        }
+      : {}),
     fetchPatches: async (patchIds) => {
       const res = await client("/patches", "GET", {
         query: {

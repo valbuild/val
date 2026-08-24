@@ -22,12 +22,23 @@ import { ValStoreProbe } from "./ValStoreProbe";
  * modules in and can be read alongside, so its answers can be compared with the
  * engine's on real content.
  *
- * ## Read-only, on purpose
+ * ## A mirror, not a second writer
  *
- * `createValSystem` is called without `writes`, so this system records edits and
- * never sends them. Two systems writing to one linear patch chain would conflict
- * with each other on every keystroke, and each would "resolve" it by re-sending.
- * The engine owns writes until it owns everything.
+ * `createValSystem` is called without `writes`, so this system never sends a patch
+ * to the server. Two systems writing to one linear patch chain would conflict with
+ * each other on every keystroke, and each would "resolve" it by re-sending. The
+ * engine owns writes until it owns everything.
+ *
+ * But it does have to SEE the engine's edits, or its source drifts from what the
+ * screen shows the moment anyone types — and then a component ported to read from
+ * it would show a stale value. So `useAddPatch` mirrors every field write into
+ * this system's patch store (see `ValFieldProvider`), and `mirror: true` gives it
+ * an upload seam that accepts file patches without re-uploading bytes the engine
+ * has already sent.
+ *
+ * What is NOT mirrored, and therefore where the shadow can legitimately diverge:
+ * the AI write paths in `hooks/useAI.ts`, which call the engine directly rather
+ * than through `useAddPatch`. Named here rather than discovered later.
  *
  * ## Off unless asked for
  *
@@ -47,7 +58,7 @@ export function ValStoreShadow({
 }) {
   const enabled = useMemo(() => shadowEnabled(), []);
   const system = useMemo<System | null>(
-    () => (enabled ? createValSystem(client) : null),
+    () => (enabled ? createValSystem(client, { mirror: true }) : null),
     [enabled, client],
   );
   const [received, setReceived] = useState(false);

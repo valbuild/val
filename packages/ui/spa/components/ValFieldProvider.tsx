@@ -21,6 +21,7 @@ import {
   SourcePath,
   ValConfig,
 } from "@valbuild/core";
+import { useValSystem } from "../stores/react/SystemContext";
 import { Patch, FileOperation } from "@valbuild/core/patch";
 import { ParentRef } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
@@ -172,11 +173,52 @@ export function useAddPatch(
   const patchPath = useMemo(() => {
     return Internal.createPatchPath(modulePath);
   }, [modulePath]);
+  /**
+   * Mirror every field write into the shadow store system, when one is mounted.
+   *
+   * This is the single choke point for field writes — `addPatch`,
+   * `addPatchAwaitable` and `addModuleFilePatch` all end here or beside it — which
+   * is why the mirror lives in one place rather than at every call site.
+   *
+   * Why it has to exist at all: the shadow system never writes to the server (see
+   * `ValStoreShadow`), but it must SEE local edits or its source drifts from what
+   * the screen shows the instant anyone types. A component ported to read from it
+   * would then show a stale value, and the whole point of a shadow — comparing its
+   * answers with the engine's — would compare against something that had stopped
+   * tracking.
+   *
+   * `creatorId` is passed through unchanged, so the store's per-instance
+   * suppression is fed the same id the engine was given.
+   *
+   * Failures are swallowed to a console warning on purpose: this is a mirror, and
+   * a mirror that can break the write it is mirroring is worse than no mirror.
+   */
+  const valSystem = useValSystem();
+  const mirrorPatch = useCallback(
+    (target: ModuleFilePath, patch: Patch) => {
+      if (valSystem === null) {
+        return;
+      }
+      void valSystem.system.patchStore
+        .createPatch(target, patch, undefined, creatorId)
+        .then((res) => {
+          if (res.status !== "created") {
+            console.warn("Val: store mirror refused a patch", res);
+          }
+        })
+        .catch((error) => {
+          console.warn("Val: store mirror threw", error);
+        });
+    },
+    [valSystem, creatorId],
+  );
+
   const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
       syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
+      mirrorPatch(moduleFilePath, patch);
     },
-    [syncEngine, moduleFilePath, creatorId],
+    [syncEngine, moduleFilePath, creatorId, mirrorPatch],
   );
   const addPatchAwaitable = useCallback(
     (
@@ -185,6 +227,7 @@ export function useAddPatch(
       patchId: PatchId,
       parentRefOverride?: ParentRef,
     ) => {
+      mirrorPatch(moduleFilePath, patch);
       return syncEngine.addPatchAwaitable(
         moduleFilePath,
         type,
@@ -196,7 +239,7 @@ export function useAddPatch(
         parentRefOverride,
       );
     },
-    [syncEngine, moduleFilePath, creatorId],
+    [syncEngine, moduleFilePath, creatorId, mirrorPatch],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -205,8 +248,9 @@ export function useAddPatch(
       type: SerializedSchema["type"],
     ) => {
       syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
+      mirrorPatch(moduleFilePath, patch);
     },
-    [syncEngine, creatorId],
+    [syncEngine, creatorId, mirrorPatch],
   );
 
   const uploadPatchFile = useCallback(
