@@ -112,6 +112,19 @@ export class PatchStore {
    */
   private creatorByPatchId = new Map<PatchId, string>();
   /**
+   * Which editing SESSION made each patch, where one said.
+   *
+   * Client-side like {@link creatorByPatchId}, but for a different reason: this one
+   * is sent to the server, which stores it per patch. It is kept here rather than
+   * on the record because `GET /patches` does not return it, so a record fetched
+   * back would lose it and a record made here would appear to differ.
+   *
+   * It constrains BATCHING, which is the only reason the store has to know: the
+   * `PUT` carries one `sessionId` for the whole request, so patches from different
+   * sessions cannot share one. See `PatchSync.drain`.
+   */
+  private sessionByPatchId = new Map<PatchId, string>();
+  /**
    * Locally created patches the server has not acknowledged yet.
    *
    * A THIRD axis, deliberately not folded into {@link Head}. The head already
@@ -298,6 +311,13 @@ export class PatchStore {
      * patch the caller believes it has already made.
      */
     withPatchId?: PatchId,
+    /**
+     * The editing session this patch belongs to — an AI session, today.
+     *
+     * Per patch rather than per system, because a session starts and ends inside
+     * the life of one system, and the server records it per patch.
+     */
+    sessionId?: string,
   ): Promise<CreatePatchResult> {
     const patchId = withPatchId ?? this.newPatchId();
     const { patchOps, fileOps } = splitPatchFileOps(patch);
@@ -393,6 +413,9 @@ export class PatchStore {
     if (fieldId !== undefined) {
       this.creatorByPatchId.set(patchId, fieldId);
     }
+    if (sessionId !== undefined) {
+      this.sessionByPatchId.set(patchId, sessionId);
+    }
     this.ordered = [...this.ordered, patchId];
     this.version++;
     this.activity.work("patch:create", patchId);
@@ -444,6 +467,11 @@ export class PatchStore {
    */
   mintPatchId(): PatchId {
     return this.newPatchId();
+  }
+
+  /** Which editing session made this patch, if one said. */
+  sessionOf(patchId: PatchId): string | undefined {
+    return this.sessionByPatchId.get(patchId);
   }
 
   /** Does this patch exist only here? */
@@ -502,6 +530,7 @@ export class PatchStore {
       this.appliedIds.delete(patchId);
       this.failedById.delete(patchId);
       this.creatorByPatchId.delete(patchId);
+      this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
       dropped.push(patchId);
     }

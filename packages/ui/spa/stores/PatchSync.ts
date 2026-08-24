@@ -1,7 +1,7 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
-import type { SystemEvent } from "./types";
+import type { PatchRecord, SystemEvent } from "./types";
 import type { PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
 
@@ -143,6 +143,27 @@ export type SaveRejection = {
  * are built fresh at every decision point — the alternative is announcing a
  * change on every drain and making a UI flicker between two identical states.
  */
+/**
+ * The leading records whose session matches `session`.
+ *
+ * Stops at the first that differs rather than filtering, because the chain is
+ * linear — see the call site.
+ */
+function takeWhileSameSession(
+  records: PatchRecord[],
+  session: string | undefined,
+  sessionOf: (patchId: PatchId) => string | undefined,
+): PatchRecord[] {
+  const batch: PatchRecord[] = [];
+  for (const record of records) {
+    if (sessionOf(record.patchId) !== session) {
+      break;
+    }
+    batch.push(record);
+  }
+  return batch;
+}
+
 function sameState(a: SyncState, b: SyncState): boolean {
   if (a.status !== b.status) {
     return false;
@@ -337,7 +358,24 @@ export class PatchSync {
         return;
       }
       const parentRef = this.currentParentRef();
-      const patchIds = records.map((record) => record.patchId);
+      /**
+       * The longest LEADING run of unsaved patches sharing one session.
+       *
+       * The `PUT` carries a single `sessionId` for the whole request and the
+       * server records it against every patch in it, so a batch spanning two
+       * sessions would mislabel one of them. And it has to be a leading run
+       * rather than a filter: the chain is linear and the server checks the
+       * parent, so patches can only be sent in order — skipping one to group by
+       * session would name a parent the server has not accepted.
+       *
+       * Patches from the other session go in the next round trip, which the loop
+       * takes because `unsavedRecords()` will still be non-empty.
+       */
+      const session = this.patchStore.sessionOf(records[0].patchId);
+      const batch = takeWhileSameSession(records, session, (patchId) =>
+        this.patchStore.sessionOf(patchId),
+      );
+      const patchIds = batch.map((record) => record.patchId);
       if (parentRef === null) {
         // No stat yet, so there is no honest parent. Reported as retrying
         // rather than as an error: the edits are safe locally and the very next
@@ -353,16 +391,18 @@ export class PatchSync {
         return;
       }
       this.setState({ status: "saving", patches: patchIds });
-      this.activity.work("patch:save", undefined, records.length);
+      this.activity.work("patch:save", undefined, batch.length);
       this.events.emit({ type: "patch:save", patches: patchIds, parentRef });
       const result = await save({
-        patches: records.map((record) => ({
+        patches: batch.map((record) => ({
           path: record.moduleFilePath,
           patchId: record.patchId,
           patch: record.patch,
         })),
         parentRef,
-        sessionId: this.sessionId,
+        // The batch's session, not the system's: a session belongs to the patches
+        // that were made in it.
+        sessionId: session ?? this.sessionId,
       });
       if (this.stopped) {
         return;

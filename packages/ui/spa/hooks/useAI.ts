@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { PatchId } from "@valbuild/core";
+import { useValSystem } from "../stores/react/SystemContext";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
@@ -602,6 +604,64 @@ export function useAI(
     aiSessionImagesToPatchFile,
   } = useAIContext();
   const syncEngine = useSyncEngine();
+  const valSystem = useValSystem();
+  /**
+   * An AI write, through the store.
+   *
+   * These four call sites used to call `syncEngine.addPatchAwaitable` directly,
+   * bypassing `useAddPatch` — which is why they were the one place the write flip
+   * left behind. With the engine's `PUT` disabled they applied locally and were
+   * never saved: an AI edit that appeared on screen and reached no server, with
+   * the tool reporting success.
+   *
+   * Same shape as `useAddPatch`'s `writePatch`: the store mints the id and issues
+   * the write, then the engine applies it locally so every un-ported component
+   * sees it. The session id is passed per patch, because the server records it per
+   * patch and `PatchSync` batches only patches that share one.
+   *
+   * The return shape keeps `patch-synced` so the four sites — which report the
+   * patch id back over the websocket — do not each need rewriting.
+   */
+  const writeAIPatch = useCallback(
+    async (
+      moduleFilePath: ModuleFilePath,
+      patch: Patch,
+      sessionId: string | null,
+    ): Promise<
+      | { status: "patch-synced"; patchId: PatchId }
+      | { status: "patch-error"; message: string }
+    > => {
+      if (valSystem === null) {
+        return {
+          status: "patch-error",
+          message: "Cannot write: no store system is mounted.",
+        };
+      }
+      const res = await valSystem.system.patchStore.createPatch(
+        moduleFilePath,
+        patch,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sessionId ?? undefined,
+      );
+      if (res.status !== "created") {
+        return { status: "patch-error", message: res.message };
+      }
+      const applied = syncEngine.applyPatchLocally(
+        moduleFilePath,
+        patch,
+        res.record.patchId,
+        Date.now(),
+      );
+      if (applied.status !== "applied") {
+        return { status: "patch-error", message: applied.message };
+      }
+      return { status: "patch-synced", patchId: res.record.patchId };
+    },
+    [valSystem, syncEngine],
+  );
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
   const { navigate, currentSourcePath } = useNavigation();
@@ -921,13 +981,10 @@ export function useAI(
                 return;
               }
             }
-            const res = await syncEngine.addPatchAwaitable(
+            const res = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -1147,13 +1204,10 @@ export function useAI(
               }
             }
 
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1287,14 +1341,10 @@ export function useAI(
               }
             }
 
-            const patchId = syncEngine.createPatchId();
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1650,14 +1700,10 @@ export function useAI(
                 return;
               }
             }
-            const patchId = syncEngine.createPatchId();
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({

@@ -330,6 +330,19 @@ export type TestPatchStore = {
    */
   drop(patchIds: readonly PatchId[]): void;
   /**
+   * Create a patch belonging to an editing session.
+   *
+   * Separate from {@link TestPatchStore.createPatch} rather than a sixth
+   * positional argument: the session is the subject of only a few tests, and
+   * threading `undefined` through four parameters to reach it at every other call
+   * site is how a rig becomes unreadable.
+   */
+  createPatchInSession(
+    moduleFilePath: string,
+    patch: Patch,
+    sessionId: string,
+  ): Promise<PatchRecord>;
+  /**
    * Create a patch and assume it worked.
    *
    * Throws if it did not, which is a TEST convenience and not a shortcut in the
@@ -403,8 +416,26 @@ export type TestJsonEntries = {
 export type TestServer = {
   /** The server's chain, in order. What `/stat` would return. */
   patchIds(): PatchId[];
-  /** Every `PUT` the client made, in order, with the parent it named. */
-  writes(): { patchIds: PatchId[]; parentRef: ParentRef }[];
+  /**
+   * Every `PUT` the client made, in order, with the parent and session it named.
+   *
+   * `sessionId` is here because the server records it per patch while the request
+   * carries one for the whole batch — so which patches shared a request is the
+   * thing worth asserting.
+   */
+  writes(): {
+    patchIds: PatchId[];
+    parentRef: ParentRef;
+    sessionId: string | null;
+  }[];
+  /**
+   * Make the next write wait on `gate` before answering.
+   *
+   * The only way to observe batching: the store sends what is unsaved the moment
+   * it is asked, so a test has to hold a request open to have anything arrive
+   * while one is in flight.
+   */
+  holdNextWrite(gate: Promise<void>): void;
   /**
    * Another session writes. The head moves and this client is NOT told, so its
    * next write names a stale parent and is answered 409.
@@ -505,8 +536,20 @@ export function initTestSystem(): TestSystem {
    * server that could not exist.
    */
   const baseSha = "test-base-sha";
-  const writes: { patchIds: PatchId[]; parentRef: ParentRef }[] = [];
+  const writes: {
+    patchIds: PatchId[];
+    parentRef: ParentRef;
+    sessionId: string | null;
+  }[] = [];
   const queuedWriteFailures: SaveResult[] = [];
+  /**
+   * A gate the next write waits on.
+   *
+   * So a test can hold a request open and create more patches while it is in
+   * flight — which is the only way to observe BATCHING, since the store sends
+   * whatever is unsaved the moment it is asked.
+   */
+  let heldWrite: Promise<void> | null = null;
 
   /** Stands in for the server's file store. */
   const serverFiles = new Map<string, string>();
@@ -579,13 +622,19 @@ export function initTestSystem(): TestSystem {
       }
       return { patches, errors };
     },
-    savePatches: async ({ patches, parentRef }) => {
+    savePatches: async ({ patches, parentRef, sessionId }) => {
       // Genuinely async, like every seam in this rig.
       await new Promise((resolve) => setTimeout(resolve, 0));
       writes.push({
         patchIds: patches.map((entry) => entry.patchId),
         parentRef,
+        sessionId: sessionId ?? null,
       });
+      const held = heldWrite;
+      if (held !== null) {
+        heldWrite = null;
+        await held;
+      }
       const queued = queuedWriteFailures.shift();
       if (queued !== undefined) {
         return queued;
@@ -872,6 +921,23 @@ export function initTestSystem(): TestSystem {
       isPending: (patchId) => system.patchStore.isPending(patchId as PatchId),
       pendingPatchIds: () => system.patchStore.pendingPatchIds(),
       drop: (patchIds) => system.patchStore.drop(patchIds),
+      async createPatchInSession(moduleFilePath, patch, sessionId) {
+        const res = await system.patchStore.createPatch(
+          moduleFilePath as ModuleFilePath,
+          patch,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          sessionId,
+        );
+        if (res.status !== "created") {
+          throw new Error(`createPatchInSession failed: ${res.message}`);
+        }
+        serverPatches.set(res.record.patchId, res.record);
+        await settle();
+        return res.record;
+      },
       async tryCreatePatch(moduleFilePath, patch, meta, fieldId) {
         const res = await system.patchStore.createPatch(
           moduleFilePath as ModuleFilePath,
@@ -936,6 +1002,9 @@ export function initTestSystem(): TestSystem {
           serverPatches.set(record.patchId, record);
           announced.push(record.patchId);
         }
+      },
+      holdNextWrite(gate) {
+        heldWrite = gate;
       },
       failNextWrites(result, times = 1) {
         for (let index = 0; index < times; index++) {

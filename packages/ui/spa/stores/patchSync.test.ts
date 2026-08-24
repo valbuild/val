@@ -461,3 +461,110 @@ describe("a retryable failure is retried", () => {
     dispose();
   });
 });
+
+describe("a session is carried per patch, and constrains the batch", () => {
+  /**
+   * The server records `sessionId` against each patch, but the `PUT` carries ONE
+   * for the whole request — so a batch spanning two sessions would label some of
+   * its patches with the wrong one.
+   *
+   * This exists because the AI write paths are the ones that set a session, and
+   * they are also the paths the write flip left behind: they called the engine
+   * directly, so with the engine's `PUT` disabled an AI edit appeared on screen,
+   * reached no server, and reported success. Routing them through the store fixed
+   * that and made per-patch sessions load-bearing.
+   */
+  it("sends a patch's own session, not the system's", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    await patchStore.createPatchInSession(
+      "/t.val.ts",
+      [{ op: "replace", path: ["title"], value: "by the ai" }],
+      "ai-session-1",
+    );
+    await patchSync.flush();
+
+    expect(server.writes()).toHaveLength(1);
+    expect(server.writes()[0].sessionId).toBe("ai-session-1");
+    dispose();
+  });
+
+  /**
+   * Two sessions cannot share a request, and the split has to be a LEADING run
+   * rather than a filter: the chain is linear and the server checks the parent, so
+   * skipping a patch to group by session would name a parent the server has not
+   * accepted.
+   */
+  it("splits a batch at a session boundary, in order", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    const first = await patchStore.createPatchInSession(
+      "/t.val.ts",
+      [{ op: "replace", path: ["title"], value: "one" }],
+      "session-a",
+    );
+    const second = await patchStore.createPatchInSession(
+      "/t.val.ts",
+      [{ op: "replace", path: ["title"], value: "two" }],
+      "session-b",
+    );
+    await patchSync.flush();
+
+    const writes = server.writes();
+    // Two requests, one per session, in chain order.
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toMatchObject({
+      patchIds: [first.patchId],
+      sessionId: "session-a",
+    });
+    expect(writes[1]).toMatchObject({
+      patchIds: [second.patchId],
+      sessionId: "session-b",
+    });
+    expect(patchStore.pendingPatchIds()).toEqual([]);
+    dispose();
+  });
+
+  /**
+   * And patches with no session still batch together, which is the ordinary
+   * typing case: a session boundary must not turn every field edit into its own
+   * request.
+   */
+  it("still batches patches that share no session", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.holdNextWrite(gate);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "a" },
+    ]);
+    const inFlight = patchSync.flush();
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["body"], value: "b" },
+    ]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "c" },
+    ]);
+    release();
+    await inFlight;
+    await patchSync.flush();
+
+    const sizes = server.writes().map((write) => write.patchIds.length);
+    // Fewer requests than patches: the three sessionless patches were not split.
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(server.writes().length).toBeLessThan(3);
+    dispose();
+  });
+});
