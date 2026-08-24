@@ -1,12 +1,14 @@
 # Open questions — close these, or delete this file
 
-> **Rule:** this file must be empty (and deleted) before the store prototype
-> becomes anything more than an experiment. Every item below is a decision or a
-> measurement that is currently missing, not a task that is merely unfinished —
-> the unfinished-work list lives at the bottom of `architecture.md`.
+> **The go/no-go is answered and the stores have shipped** — `ValSyncEngine` is
+> deleted and the Studio renders through these. So the original rule ("this file
+> must be empty before the prototype becomes anything more than an experiment")
+> has been overtaken: what is left below is not a gate on shipping, it is the
+> honest list of what is still undecided in something that is now in use.
 >
 > Items are ordered by how much other work they invalidate if answered the other
-> way.
+> way. The closed ones are kept because the reasoning is the record of why the
+> design is shaped the way it is.
 
 ---
 
@@ -801,13 +803,26 @@ would read as though rebase worked.
 
 ---
 
-## 8. `stat` has no input at all. 🟡
+## 8. `stat` is wired; its SHAs are not. 🟡
 
-No polling, no websocket. It also ignores `baseSha` / `schemaSha` / `sourcesSha`,
-which is how the real client learns it must refetch schemas or sources.
+**Half closed.** `ValStoreProvider` feeds `/stat` in — `useStatus` polls it, and
+`StatStore.receiveStat` gets the ordered patch ids and `baseSha`. That is how a
+second editor's work reaches this one, and `baseSha` is what makes a write have an
+honest `parentRef`.
 
-- [ ] Confirm those shas are inputs to `SchemaStore.receive` / `SourceStore.receive`
-      and not new events, then wire one real input so the pipeline has a source.
+What is still ignored is `schemaSha` / `sourcesSha` / `jsonEntriesSha`. Two of the
+three no longer mean what they did: schema and committed source are DERIVED from
+the host app's `ValModules`, which arrive as a React prop, so there is nothing to
+refetch and nothing to compare a sha against — a schema that changes on the server
+is a redeploy, which `StatusStore`'s one-way `out-of-date` gate already handles.
+
+`jsonEntriesSha` is the one that still matters: it is how a client learns that a
+`.jsonValues()` entry it has cached is stale, which happens after someone else
+publishes an edit to one.
+
+- [ ] Compare `jsonEntriesSha` on each stat and call
+      `SourceStore.markJsonEntriesStale` for the modules it moved for. Today a
+      published change to an entry is only picked up by a reload.
 
 ---
 

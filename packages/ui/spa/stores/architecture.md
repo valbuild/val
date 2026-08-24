@@ -1,14 +1,16 @@
 # Event-driven stores — architecture
 
-> **Status: experiment.** This is a prototype living alongside `ValSyncEngine`,
-> not a replacement for it. Nothing in the app imports it yet. `system.test.ts`
-> is the only consumer.
+> **Status: shipped.** This IS the Studio. `ValSyncEngine` — the engine this
+> document spends its comparisons on — has been deleted, and every hook a field
+> renders through is built on these stores.
 >
-> **Read [`openquestions.md`](./openquestions.md) first.** It holds the decisions
-> and measurements that are still missing, including the go/no-go: nothing here
-> has been profiled in a browser. Those questions must be closed — or that file
-> deleted — before this becomes more than an experiment. The list at the bottom of
-> THIS file is different: unfinished work, not undecided questions.
+> The comparisons are kept because they are the argument for the design and the
+> baseline for noticing a regression, not because the engine is still there. Where
+> this file says "the engine", read it in the past tense.
+>
+> [`openquestions.md`](./openquestions.md) holds what was undecided, and the
+> go/no-go it names has been answered: the browser measurements are in
+> [`../bench/README.md`](../bench/README.md), and the answer was yes.
 
 ## The idea
 
@@ -748,17 +750,17 @@ finished work.
   base + the surviving chain, since an applied patch cannot be un-applied. See
   `openquestions.md` item 6 for the four bugs this found, three of them in the
   design.
-  Still a SEAM, like `FetchPatches` and `UploadFile`: nothing in the app calls
-  `createSystem` yet, so the app-side implementation lands with the hooks.
-- ~~**No hooks.**~~ **Done, as a parallel layer.** `stores/react/` mirrors
-  `ValFieldProvider`'s hook contracts (`useSourceAtPath`, `useModuleSchema`,
-  `useModuleValidation`, `useRenderAtPath`, `useAddPatch`, `useSyncStatus`, and
-  `useValField`), so a component moves across one at a time with the engine still
-  present to disagree with — rewriting 1448 lines in place would delete the only
-  specification these hooks have. Every read follows one rule: **peek to render,
-  get to demand.** Measured with React in the loop: a mounting field paints once
-  with the value in it, and a keystroke re-renders 0 of 16 fields against the
-  engine's 16 of 16.
+  Implemented against the real server in `stores/react/createValSystem.ts`, and
+  exercised end to end by `e2e/studio.spec.ts`.
+- ~~**No hooks.**~~ **Done, and then done again.** `stores/react/` was written as
+  a parallel layer mirroring `ValFieldProvider`'s hook contracts, so a component
+  could move across one at a time with the engine still present to disagree with —
+  rewriting 1448 lines in place would have deleted the only specification those
+  hooks had. `ValFieldProvider` is now itself built on the stores and
+  `stores/react/` is the small directly-tested surface underneath. Every read
+  follows one rule: **peek to render, get to demand.** Measured with React in the
+  loop: a mounting field paints once with the value in it, and a keystroke
+  re-renders 0 of 16 fields against the engine's 16 of 16.
 
   Writing them found four bugs no store-level test could see, because all four are
   about what a SUBSCRIBER is told rather than what a reader is returned:
@@ -771,16 +773,20 @@ finished work.
   announcing it, so a system with no write seam called every unsaved edit
   in-sync. All fixed, all with tests.
 
-  What remains is the SWAP: nothing in the app renders through these yet, and the
-  engine's remaining ~18 hooks (file upload settings, nav paths, AI, diff views)
-  have no equivalent.
+  The swap is done. `ValFieldProvider`'s ~20 exports kept their signatures — so no
+  component changed — and every body was rewritten over the stores, including the
+  ones with no equivalent here (file upload settings, nav paths, AI, diff views).
+  `e2e/studio-ui.spec.ts` drives the result by clicking and typing, which is the
+  only thing that can check hooks whose signatures did not change.
 
 - ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
   search and patch sets are now covered: `systemFlow` (one session-order flow),
   `systemInvariants` (one claim per test), `activityCost` (how many times each
   expensive thing runs), `demandDriven` (render and search only run for what is
   being looked at).
-- **Unmeasured in a browser.** Work COUNTS are now asserted in node via the
-  activity channel — see `activity.ts` — which is what caught render being put
-  back on the keystroke path. Durations, and the absolute claim, still need a
-  real profile.
+- ~~**Unmeasured in a browser.**~~ **Done.** Work COUNTS are asserted in node via
+  the activity channel — see `activity.ts` — which is what caught render being put
+  back on the keystroke path. Durations are measured in a real Chromium by
+  [`../bench/`](../bench/README.md), which is also where the engine's last numbers
+  are recorded: keystroke 10.6 ms → 0.40 ms, `select` on the nested-row case 650 →
+  2, retained heap 3717 KB → 2263 KB.
