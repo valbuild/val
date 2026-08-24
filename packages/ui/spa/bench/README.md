@@ -207,14 +207,25 @@ move to a worker.
 
 ## What is deliberately not measured
 
-- **`PUT /patches`.** Unwired in the stores. The engine does that work and the
-  stores do not, so every scenario stops before the sync and the engine is not
-  charged for it.
+- **`PUT /patches`.** Wired now (`PatchSync`), but deliberately not configured
+  here: the drivers pass no `savePatches`, so the stores record edits and send
+  nothing, and the engine's sync loop is never run either. Neither side is charged
+  for the write, which keeps the comparison about the read and apply paths. This
+  bullet used to say the write was "unwired in the stores" — it was, and is not
+  any more, so the reason it is absent from these numbers has changed even though
+  the numbers have not.
 - **A real field component.** There IS a React harness now
-  (`reactHarness.tsx`), and it produced the clearest result in the exercise: one
-  keystroke re-renders 60 components in the engine and 0 in the stores. But its
+  (`reactHarness.tsx`), and it produced the clearest result in the exercise: at
+  `screen`, one keystroke re-renders **16 components in the engine and 0 in the
+  stores**, because the engine's finest source subscription is per module. But its
   field is a `<span>`, so its millisecond column is a floor — a real Val field is
   a rich-text editor. Read the render COUNT, not the time.
+
+  Mount renders were 32 against the engine's 16 until the harness stopped kicking
+  an async `get` from `subscribe` and started peeking synchronously from
+  `getSnapshot`. That was a real finding about the stores, not about the harness:
+  see `openquestions.md` item 1. They are 16 each now.
+
 - **HTTP.** Same server for both; it would only add noise.
 - **The `examples/next` modules themselves.** The handbook fixture there has the
   right shape, but the benchmark still generates its own modules rather than

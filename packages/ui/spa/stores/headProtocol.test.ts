@@ -1,6 +1,7 @@
 import { initVal } from "@valbuild/core";
 import { externalPatch, initTestSystem } from "./testSystem";
 import { isNewerRevision, type Revision, type SourceRead } from "./types";
+import type { SourcePeek } from "./SourceStore";
 
 /**
  * The read protocol, and why it cannot cycle.
@@ -30,11 +31,19 @@ function valueOf(read: SourceRead): unknown {
   return read.data;
 }
 
-function revisionOf(read: SourceRead): Revision {
+/**
+ * The revision out of either read.
+ *
+ * Takes a `SourcePeek` as well as a `SourceRead` because the two must agree: a
+ * caller is allowed to hold a revision from `peek` and hand it to `get`, and
+ * vice versa. A helper that only accepted one would let them drift.
+ */
+function revisionOf(read: SourceRead | SourcePeek): Revision {
   if (
     read.status !== "resolved-head" &&
     read.status !== "unchanged" &&
-    read.status !== "absent"
+    read.status !== "absent" &&
+    read.status !== "ready"
   ) {
     throw new Error(`expected a revision, got ${read.status}`);
   }
@@ -452,3 +461,94 @@ describe("the comparator must see everything that changes source", () => {
     dispose();
   });
 });
+
+/**
+ * `peek` is the synchronous read, and that is what lets a mounting field paint
+ * once.
+ *
+ * `openquestions.md` item 1 asked whether the host realm needed a synchronous
+ * read: `get` is async, so a `useSyncExternalStore` hook cannot call it from
+ * `getSnapshot`, and a field therefore rendered once with nothing and again a
+ * microtask later — 32 mount renders against the engine's 16 in `bench/`. The
+ * answer was that the synchronous read already existed and was discarding its
+ * own answer.
+ *
+ * The rule these tests pin: **`peek` to render, `get` to demand.**
+ */
+describe("peek: the synchronous read", () => {
+  it("carries the value, not just a status", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+
+    const seen = sourceStore.peek(TITLE);
+    expect(seen).toMatchObject({ status: "ready", data: "Hello" });
+    // And the same revision `get` would report, so a caller can hold one from
+    // either and compare them.
+    expect(revisionOf(seen)).toEqual(
+      revisionOf(await sourceStore.get(TITLE, null)),
+    );
+    dispose();
+  });
+
+  it("sees a patch with no await in between", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "Changed" },
+    ]);
+
+    // No `await` between the patch landing and this read. That is the property a
+    // synchronous `getSnapshot` depends on: source is applied before the event
+    // that announces it, so a woken field can read immediately and cannot get a
+    // pre-patch value.
+    const seen = sourceStore.peek(TITLE);
+    if (seen.status !== "ready") {
+      throw new Error(`expected a value, got ${seen.status}`);
+    }
+    expect(seen.data).toBe("Changed");
+    dispose();
+  });
+
+  /**
+   * The reference-stability contract `useSyncExternalStore` requires: an
+   * unchanged object-valued path must peek to the SAME object, or React tears on
+   * every call. It holds because `peek` returns a reference into the store's own
+   * source rather than a copy — which is also why the host realm keeps source.
+   */
+  it("returns the same object for an unchanged object-valued path", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+
+    const first = sourceStore.peek("/t.val.ts");
+    const again = sourceStore.peek("/t.val.ts");
+    if (first.status !== "ready" || again.status !== "ready") {
+      throw new Error("expected a value both times");
+    }
+    expect(again.data).toBe(first.data);
+    dispose();
+  });
+
+  /**
+   * And it must NOT be the same object once the value moved, or a field that
+   * compares references would never repaint.
+   */
+  it("returns a different object after a patch", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+
+    const before = sourceStore.peek("/t.val.ts");
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "Changed" },
+    ]);
+    const after = sourceStore.peek("/t.val.ts");
+    if (before.status !== "ready" || after.status !== "ready") {
+      throw new Error("expected a value both times");
+    }
+    expect(after.data).not.toBe(before.data);
+    dispose();
+  });
+});
+
+// The one case peek cannot answer — a `.jsonValues()` entry behind a network
+// round trip, which is why `get` still exists and is still async — is asserted in
+// `jsonValues.test.ts`, next to the module factory that can produce it.

@@ -13,7 +13,6 @@ import {
 import type { ValClient } from "@valbuild/shared/internal";
 import { ValSyncEngine } from "../ValSyncEngine";
 import { createSystem, type System } from "../stores/createSystem";
-import type { Revision } from "../stores/types";
 
 /**
  * The same measurement, with React in the loop.
@@ -32,11 +31,19 @@ import type { Revision } from "../stores/types";
  * than inventing a finer subscription the engine does not have.
  *
  * The stores are given the honest equivalent of the hook someone would write:
- * `get` is async, so `useSyncExternalStore` cannot call it. The adapter keeps a
- * per-path cache, `subscribe` registers the real per-path listener and kicks an
- * async read that updates the cache and notifies React, and `getSnapshot`
- * returns the cached object. That is the shape the hook has to take; it is not a
- * shortcut.
+ * `getSnapshot` calls `sourceStore.peek(path)`, which is SYNCHRONOUS and returns
+ * the value, so a mounting field renders once. `subscribe` registers the real
+ * per-path listener; a wake re-peeks. `get` is called only when peek reports the
+ * path is inside a `.jsonValues()` entry that has not been fetched, which is the
+ * one case that genuinely needs a round trip.
+ *
+ * An earlier version of this adapter kept a per-path cache and kicked an ASYNC
+ * `get` from `subscribe`, because `useSyncExternalStore` cannot call an async
+ * function. It measured 32 mount renders against the engine's 16 — every field
+ * rendering once with nothing and again a microtask later — and that number is
+ * what made `openquestions.md` item 1 ask whether the host realm needed a
+ * synchronous read. It did, and it already had one: `peek` resolved the value all
+ * the way and threw it away. The rule is `peek` to render, `get` to demand.
  *
  * Both sides count renders the same way: the component bumps a shared counter in
  * its body. Both commit through `flushSync`, so "committed" is a point in time
@@ -203,11 +210,15 @@ function storesAdapter(modules: ValModule<SelectorSource>[]): {
   });
   system.host.receive(modules);
 
-  /** Cached read results, one per path — what `getSnapshot` hands React. */
-  const cache = new Map<
-    SourcePath,
-    { revision: Revision | null; value: unknown }
-  >();
+  /**
+   * Last value handed to React, per path.
+   *
+   * Not a read cache — `peek` is the read and it is cheap. This exists only
+   * because `useSyncExternalStore` requires `getSnapshot` to return a STABLE
+   * reference until the value actually changes, and it would otherwise tear on
+   * every call for an object-valued path.
+   */
+  const held = new Map<SourcePath, unknown>();
   const subscribers = new Map<
     SourcePath,
     (onChange: () => void) => () => void
@@ -215,28 +226,30 @@ function storesAdapter(modules: ValModule<SelectorSource>[]): {
   const inFlight = new Set<Promise<void>>();
   let fieldIds = 0;
 
-  const read = (path: SourcePath, notify: () => void): void => {
-    const held = cache.get(path);
-    const request = (async () => {
-      const result = await system.sourceStore.get(path, held?.revision ?? null);
-      if (result.status === "resolved-head") {
-        cache.set(path, { revision: result.revision, value: result.data });
-        notify();
-      } else if (result.status === "unchanged") {
-        // Nothing to tell React: the cached object is still right, and calling
-        // `notify` here would make the cheap path cost a render — which is the
-        // whole thing the protocol exists to avoid.
-        cache.set(path, {
-          revision: result.revision,
-          value: held?.value ?? null,
-        });
-      } else if (held === undefined) {
-        cache.set(path, { revision: null, value: null });
-        notify();
-      }
-    })();
-    inFlight.add(request);
-    void request.finally(() => inFlight.delete(request));
+  const snapshot = (path: SourcePath): unknown => {
+    const seen = system.sourceStore.peek(path);
+    if (seen.status === "entry-missing") {
+      // The one case peek cannot answer: the path is inside a `.jsonValues()`
+      // entry whose content has not been fetched. THIS is what `get` is for, and
+      // it is the demand signal that starts the fetch. Kicked once — `peek` will
+      // report `entry-loading` while it is in flight, so this cannot storm.
+      const request = system.sourceStore.get(path, null).then(() => undefined);
+      inFlight.add(request);
+      void request.finally(() => inFlight.delete(request));
+      return held.get(path) ?? null;
+    }
+    if (seen.status !== "ready") {
+      return held.get(path) ?? null;
+    }
+    const previous = held.get(path);
+    // Reference-stable while the value is unchanged. `peek` returns a reference
+    // into the store's own source, so an unchanged value IS the same object and
+    // this comparison is exact rather than a heuristic.
+    if (previous === seen.data) {
+      return previous;
+    }
+    held.set(path, seen.data);
+    return seen.data;
   };
 
   return {
@@ -249,14 +262,13 @@ function storesAdapter(modules: ValModule<SelectorSource>[]): {
           const fieldId = `react-field-${++fieldIds}`;
           subscriber = (onChange: () => void) => {
             const off = system.sourceStore.addListener(path, fieldId, () => {
-              // A foreign change: re-read, then tell React. The read is what
-              // learns the new value; the event only says one exists.
-              read(path, onChange);
+              // The event says a value moved; `getSnapshot` is what learns what
+              // it moved to. Nothing is read here — telling React and then
+              // letting React ask is what keeps one wake to one render.
+              onChange();
             });
-            // The mount read. Async, so the first paint may show nothing and the
-            // value arrives a microtask later — which is the real cost of an
-            // async protocol and is deliberately not hidden here.
-            read(path, onChange);
+            // No mount read. `getSnapshot` already answered synchronously before
+            // this ran, which is the whole point: the first paint has the value.
             return off;
           };
           subscribers.set(path, subscriber);
@@ -264,7 +276,7 @@ function storesAdapter(modules: ValModule<SelectorSource>[]): {
         return subscriber;
       },
       getSnapshot(path) {
-        return cache.get(path)?.value ?? null;
+        return snapshot(path);
       },
       async type(module, path, value) {
         await system.patchStore.createPatch(

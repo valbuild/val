@@ -147,11 +147,33 @@ here came from the fixture, not the code.**
       generated handbook (`pnpm handbook generate`) with `select` at two nested
       array levels, which is the `handboka` shape in an app that really builds and
       really validates.
-- [ ] **Decide: should the host realm get a synchronous read?** The double mount
-      render is the async protocol's cost, and in the host realm source is right
-      there. A `readSync(path, revision)` alongside `get` would remove the wasted
-      renders, at the price of a second read API and a rule about which one a
-      field may use.
+- [x] **Decide: should the host realm get a synchronous read?** **Yes, and it
+      already had one.** The double mount render was the async protocol's cost —
+      32 component renders against the engine's 16, the one place the measurement
+      showed the stores doing more work. The question priced the fix at "a second
+      read API and a rule about which one a field may use"; neither was needed,
+      because both already existed.
+
+      `peek` resolved the path all the way to the value and then discarded it,
+      returning only a status. It now carries the value, which costs nothing:
+      source is host-realm precisely so a read needs no clone. The rule is the one
+      `peek` was created with — **`peek` to render, `get` to demand.** A field's
+      `getSnapshot` peeks (synchronous, so one render); a field told
+      `entry-missing` calls `get`, which fetches.
+
+      Measured after the change: **mount renders 32 → 16**, equal to the engine,
+      with the keystroke still 16 for the engine and 0 for the stores. So the
+      stores no longer do more work than the engine anywhere in the benchmark.
+
+      Deliberately NOT added: an `unchanged` fast path on `peek`. Passing the
+      revision you hold buys nothing in-realm — the point of `unchanged` is to
+      avoid marshalling across a seam — and it would be a second way to ask one
+      question, which is the cost this decision was trying to avoid.
+
+      `get` stays async. Not for a future worker (source is host-realm by design)
+      but because a `.jsonValues()` entry fetch is a real round trip and no
+      signature can pretend otherwise.
+
 - [ ] Drive the bench from the `examples/next` modules themselves, not only from
       generated ones of the same shape.
 

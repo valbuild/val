@@ -51,9 +51,46 @@ export type FetchJsonEntry = (
  * counting entries, a badge, a progress indicator — becomes a fetch storm. So the
  * two are a pair: `get` asks for content and accepts the cost, `peek` observes
  * and cannot cost anything.
+ *
+ * ## `ready` carries the value, and that settles an open question
+ *
+ * `openquestions.md` item 1 asked whether the host realm should get a synchronous
+ * read. The async `get` makes a mounting field render TWICE — once with nothing,
+ * then again a microtask later when the value lands — which is the one place the
+ * browser measurement showed the stores doing more work than the engine (32
+ * component renders on mount against 16). The question priced the fix at "a
+ * second read API and a rule about which one a field may use".
+ *
+ * Neither is needed, because both already exist. This IS the synchronous read:
+ * `peek` already resolves the path all the way to the value and then discards it,
+ * so carrying it costs nothing — source is in the host realm precisely so a read
+ * needs no clone. And the rule is the one `peek` was created with: **`peek` to
+ * render, `get` to demand.** A field's `getSnapshot` peeks, which is synchronous
+ * and therefore renders once; a field that peeks and is told `entry-missing` calls
+ * `get`, which fetches.
+ *
+ * What is NOT offered is an `unchanged` fast path. Passing the revision you hold
+ * buys nothing here: the point of `unchanged` is to avoid marshalling a value
+ * across a seam, and nothing is marshalled in-realm. Adding it would be a second
+ * way to ask one question, which is exactly the cost the open question was worried
+ * about.
+ *
+ * `get` stays async regardless. Not for a future worker — source is host-realm by
+ * design — but because a `.jsonValues()` entry fetch is a real network round trip
+ * and no signature can pretend otherwise.
  */
 export type SourcePeek =
-  | { status: "ready"; revision: Revision }
+  | {
+      status: "ready";
+      revision: Revision;
+      /**
+       * The value at the path. A reference into the store's own source, not a
+       * copy: cloning here would reintroduce the per-read cost the host realm
+       * exists to avoid. Callers must not mutate it — the same contract every
+       * other in-realm read in this system has.
+       */
+      data: Json;
+    }
   | { status: "absent"; revision: Revision }
   /** The module itself has not arrived. Nothing a read could do about it. */
   | { status: "module-loading" }
@@ -290,7 +327,9 @@ export class SourceStore {
         : { status: "entry-missing", key: resolved.key };
     }
     const revision = this.revisionOf(moduleFilePath);
-    if (resolved.status === "found") return { status: "ready", revision };
+    if (resolved.status === "found") {
+      return { status: "ready", revision, data: resolved.value };
+    }
     if (resolved.status === "absent") return { status: "absent", revision };
     return { status: "module-loading" };
   }

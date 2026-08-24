@@ -666,10 +666,17 @@ keeping the harness rather than treating it as a one-off:
   SLOWER than the engine. Now scoped to the changed modules' registered paths,
   equivalent by construction because `touchesPath` only matches within a module.
 
-One cost remains, and only React could see it: **the stores render every field
-twice on mount**, because `get` is async and the first commit paints nothing. In
-the host realm that buys nothing, and whether to add a synchronous read is an open
-question in `openquestions.md`.
+One cost that only React could see — **the stores rendered every field twice on
+mount**, because `get` is async and the first commit painted nothing — is now
+fixed, and the fix is worth recording because the diagnosis was wrong twice over.
+It looked like the price of an async protocol, and the open question priced the
+remedy at a second read API plus a rule about which one a field may use. In fact
+the synchronous read already existed and was throwing its own answer away: `peek`
+resolved the path to the value and returned only a status. It carries the value
+now, at no cost, because source is host-realm exactly so a read needs no clone.
+The rule is `peek`'s own: **peek to render, get to demand.** Measured: 32 mount
+renders → 16, equal to the engine, so the stores no longer do more work than the
+engine anywhere in the benchmark.
 
 ## Known gaps
 
