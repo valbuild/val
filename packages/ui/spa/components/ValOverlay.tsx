@@ -68,7 +68,16 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
-import { OverlayMenuBar, OverlayMenuDivider } from "./shell/OverlayMenu";
+import {
+  OverlayDock,
+  OverlayMenuDivider,
+  OverlayMenuLauncher,
+} from "./shell/OverlayMenu";
+import { ValLogo } from "./shell/ValLogo";
+import {
+  useLockBodyScroll,
+  useVisualViewport,
+} from "./shell/useVisualViewport";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
@@ -511,6 +520,10 @@ function Window({
   const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && editMode !== null);
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
 
   useEffect(() => {
@@ -712,26 +725,26 @@ function Window({
       ></div>
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
-          "shadow-xl",
-          {
-            "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
-              isMobile,
-          },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
-        style={{
-          top: windowPos.y,
-          left: windowPos.x,
-          ...(!isMobile && windowSize.width > 0
-            ? {
-                width: windowSize.width,
-                height: windowSize.height,
+        style={
+          isMobile
+            ? // Pinned to the visual viewport, not the layout viewport: with
+              // the keyboard up those are different rectangles and only this
+              // one is the part of the screen the user can see.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
+            : {
+                top: windowPos.y,
+                left: windowPos.x,
+                ...(windowSize.width > 0
+                  ? { width: windowSize.width, height: windowSize.height }
+                  : { maxWidth: "640px" }),
               }
-            : !isMobile
-              ? { maxWidth: "640px" }
-              : {}),
-        }}
+        }
       >
         {/* Header bar - for dragging on desktop, shows close button on mobile */}
         <div
@@ -930,6 +943,10 @@ function ChatWindow({
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && isOpen);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1029,14 +1046,17 @@ function ChatWindow({
     >
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
-          "shadow-xl",
-          { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
         style={
           isMobile
-            ? { top: 16, left: 16 }
+            ? // See the edit window: with the keyboard open the chat input has
+              // to sit above it, which only the visual viewport can tell us.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
             : {
                 top: windowPos.y,
                 left: windowPos.x,
@@ -1356,6 +1376,16 @@ function ValMenu({
                   : dropZone === "val-menu-left-top"
                     ? "bottom"
                     : "top";
+  // The launcher grows from the edge it is docked to, and it needs the dock
+  // without the drop-zone prefix.
+  const launcherDock = dropZone.replace("val-menu-", "") as OverlayDock;
+  // Collapsed, the circle still has to say whether there is work outstanding.
+  const launcherStatus: "none" | "changes" | "errors" =
+    validationErrorCount > 0
+      ? "errors"
+      : patchIds.length > 0
+        ? "changes"
+        : "none";
   const allDropZones: DropZones[] = [
     "val-menu-left-top",
     "val-menu-left-center",
@@ -1397,7 +1427,13 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <OverlayMenuBar orientation={dir} ghost={ghost}>
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
+        >
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
               <MenuButton
@@ -1598,7 +1634,7 @@ function ValMenu({
               </div>
             </PopoverContent>
           </Popover>
-        </OverlayMenuBar>
+        </OverlayMenuLauncher>
       </AnimateHeight>
       <AnimateHeight
         isOpen={
@@ -1607,7 +1643,13 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <OverlayMenuBar orientation={dir} ghost={ghost}>
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
+        >
           <MenuButton
             label="Enable preview mode"
             disabled={draftModeLoading}
@@ -1641,10 +1683,15 @@ function ValMenu({
             icon={<X size={16} />}
             onClick={() => disableOverlay()}
           />
-        </OverlayMenuBar>
+        </OverlayMenuLauncher>
       </AnimateHeight>
     </div>
   );
+}
+
+/** The Val mark, sized for the collapsed launcher. */
+function ValMark() {
+  return <ValLogo className="w-[18px] h-[18px]" />;
 }
 
 function useValRouterSourcePathFromCurrentPathname() {

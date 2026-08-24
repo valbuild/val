@@ -5,6 +5,11 @@ export { TopBar, PublishButton } from "./TopBar";
 export { StatusBar } from "./StatusBar";
 export { FloatingPanel } from "./FloatingPanel";
 export {
+  OverlayMenuLauncher,
+  OverlayWindow,
+  OverlayCard,
+  OverlaySelectionBox,
+  OverlayTooltip,
   OverlayMenuBar,
   OverlayMenuButton,
   OverlayMenuDivider,
