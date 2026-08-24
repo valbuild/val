@@ -10,3 +10,9 @@ tsconfig.tsbuildinfo
 !/debug/README.md
 # Git worktrees checked out inside the repo (see jest.config.js)
 .claude/worktrees/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

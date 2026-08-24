@@ -12,4 +12,13 @@ module.exports = {
    * it a genuinely confusing few minutes.
    */
   modulePathIgnorePatterns: ["<rootDir>/\\.claude/worktrees/"],
+  /**
+   * `e2e/` belongs to Playwright, not jest.
+   *
+   * Both runners claim `*.spec.ts`, and jest picking up a Playwright spec does
+   * not fail in an obvious way — `test.describe`/`page` resolve to nothing jest
+   * understands, so the suite dies on an import rather than on an assertion.
+   * Run those with `pnpm run test:e2e`.
+   */
+  testPathIgnorePatterns: ["<rootDir>/e2e/", "/node_modules/"],
 };
