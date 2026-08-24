@@ -750,7 +750,31 @@ finished work.
   design.
   Still a SEAM, like `FetchPatches` and `UploadFile`: nothing in the app calls
   `createSystem` yet, so the app-side implementation lands with the hooks.
-- **No hooks.** Nothing consumes any of this from React yet.
+- ~~**No hooks.**~~ **Done, as a parallel layer.** `stores/react/` mirrors
+  `ValFieldProvider`'s hook contracts (`useSourceAtPath`, `useModuleSchema`,
+  `useModuleValidation`, `useRenderAtPath`, `useAddPatch`, `useSyncStatus`, and
+  `useValField`), so a component moves across one at a time with the engine still
+  present to disagree with — rewriting 1448 lines in place would delete the only
+  specification these hooks have. Every read follows one rule: **peek to render,
+  get to demand.** Measured with React in the loop: a mounting field paints once
+  with the value in it, and a keystroke re-renders 0 of 16 fields against the
+  engine's 16 of 16.
+
+  Writing them found four bugs no store-level test could see, because all four are
+  about what a SUBSCRIBER is told rather than what a reader is returned:
+  `ValidationStore.peek` and `RenderStore.peek` built fresh result objects per
+  call and so looped `useSyncExternalStore` to React's abort; `RenderStore.peek`
+  answered `no-render` for three different situations, so a caller could not tell
+  whether asking would help; `SourceStore.receive` bumped every revision and told
+  no listener, so a field mounted before its module arrived rendered `loading`
+  forever — the normal startup order; and `PatchSync` changed its state without
+  announcing it, so a system with no write seam called every unsaved edit
+  in-sync. All fixed, all with tests.
+
+  What remains is the SWAP: nothing in the app renders through these yet, and the
+  engine's remaining ~18 hooks (file upload settings, nav paths, AI, diff views)
+  have no equivalent.
+
 - ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
   search and patch sets are now covered: `systemFlow` (one session-order flow),
   `systemInvariants` (one claim per test), `activityCost` (how many times each
