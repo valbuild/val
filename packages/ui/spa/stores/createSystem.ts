@@ -24,7 +24,7 @@ import { HostStore } from "./HostStore";
 import { RenderStore } from "./RenderStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
 import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
-import type { PatchRecord } from "./types";
+import type { PatchErrorEntry, PatchRecord } from "./types";
 import { ValidationStore } from "./ValidationStore";
 import {
   SearchStore,
@@ -159,7 +159,7 @@ export type System = HostRealm &
      * On the system rather than read off the patch store by the caller only so
      * that "everything a publish gate needs" is reachable from one place.
      */
-    patchErrors(): Record<PatchId, string[] | null>;
+    patchErrors(): Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>;
     dispose(): void;
   };
 

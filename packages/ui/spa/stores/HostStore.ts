@@ -203,6 +203,39 @@ export class HostStore implements HostBridge {
   }
 
   /**
+   * Would this module still be valid if it looked like THIS?
+   *
+   * Speculative: the source is supplied rather than read, so nothing is applied
+   * to the store and nothing has to be undone if the answer is "no". That is
+   * what the AI flow needs — it proposes a patch, and a proposal that would
+   * break the module has to be rejected before it becomes an edit the user has
+   * to notice and discard.
+   *
+   * Uses the real instance, so the user's own `validate` closures run. A patch
+   * that only violates a custom rule is caught here and nowhere else: the
+   * serialized schema the worker validates against has no user functions in it.
+   */
+  validateSpeculative(
+    moduleFilePath: ModuleFilePath,
+    source: Json,
+  ):
+    | { status: "validated"; errors: ValidationErrors }
+    | { status: "unknown-module" } {
+    const instance = this.instances[moduleFilePath];
+    if (!instance) {
+      return { status: "unknown-module" };
+    }
+    this.activity.work("host:execute-validate", moduleFilePath);
+    return {
+      status: "validated",
+      errors: instance["executeValidate"](
+        moduleFilePath as string as SourcePath,
+        source as SelectorSource,
+      ),
+    };
+  }
+
+  /**
    * Run the module's custom validators.
    *
    * `paths` comes from the validation store, which walked the SERIALIZED schema

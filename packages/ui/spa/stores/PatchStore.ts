@@ -2,7 +2,13 @@ import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
-import type { Head, PatchOrigin, PatchRecord, SystemEvent } from "./types";
+import type {
+  Head,
+  PatchErrorEntry,
+  PatchOrigin,
+  PatchRecord,
+  SystemEvent,
+} from "./types";
 import type { StatStore } from "./StatStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
@@ -639,6 +645,12 @@ export class PatchStore {
    */
   private publishErrorById = new Map<PatchId, string>();
 
+  /** The last {@link publishErrors} answer, reused when a fresh one is equal. */
+  private publishErrorsAt: {
+    n: number;
+    byModule: Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>;
+  } | null = null;
+
   recordPublishErrors(errors: Readonly<Record<PatchId, string>>): void {
     for (const [patchId, message] of Object.entries(errors)) {
       this.publishErrorById.set(patchId as PatchId, message);
@@ -647,19 +659,37 @@ export class PatchStore {
   }
 
   /**
-   * Per patch in the chain: the refusals, or `null` for a patch with none.
+   * The refusals, grouped by module and then by patch.
    *
-   * `null` rather than absent for the clean ones, because the caller's question
-   * is "does anything in the chain block a publish" and a map with only the bad
-   * entries cannot answer "how many did I check".
+   * Grouped this way because that is how they are SHOWN: the review UI lists
+   * patch sets, a patch set belongs to a module, and the card for it wants every
+   * refusal in that module. A flat map keyed by patch id would make every card
+   * walk the whole map.
+   *
+   * `source: "server"` on every entry, and it is not decoration. The client
+   * applies patches to evaluated JSON with JSONOps while `/save` applies them to
+   * the `.val.ts` AST, so the two can disagree — and a UI showing a refusal has
+   * to be able to say which side refused, because only one of them is something
+   * the user can act on locally.
    */
-  publishErrors(): Record<PatchId, string[] | null> {
-    const errors: Record<PatchId, string[] | null> = {};
-    for (const patchId of this.ordered) {
-      const message = this.publishErrorById.get(patchId);
-      errors[patchId] = message === undefined ? null : [message];
+  publishErrors(): Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>> {
+    const cached = this.publishErrorsAt;
+    if (cached !== null && cached.n === this.version) {
+      return cached.byModule;
     }
-    return errors;
+    const byModule: Record<
+      ModuleFilePath,
+      Record<PatchId, PatchErrorEntry>
+    > = {};
+    for (const [patchId, message] of this.publishErrorById) {
+      const record = this.dataById.get(patchId);
+      if (record === undefined) continue;
+      const forModule = byModule[record.moduleFilePath] ?? {};
+      forModule[patchId] = { message, source: "server" };
+      byModule[record.moduleFilePath] = forModule;
+    }
+    this.publishErrorsAt = { n: this.version, byModule };
+    return byModule;
   }
 
   /**

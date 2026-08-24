@@ -176,6 +176,22 @@ export type FieldEvent = {
  * Names are `<store>:<event>`, so the ledger can be read and filtered by which
  * store spoke.
  */
+/**
+ * A patch that could not be applied, and who found it.
+ *
+ * `source` matters because the two sides cannot see the same things: the client
+ * applies patches to the evaluated JSON with JSONOps, while `/save` applies them
+ * to the `.val.ts` AST. A patch can apply here and still be rejected there — a
+ * `c.image` metadata key that is not literally present, a non-literal
+ * initializer, an array shorter in the source than in the evaluated JSON — so a
+ * client that treated a server refusal as its own would conclude it had resolved
+ * itself the next time it applied cleanly.
+ */
+export type PatchErrorEntry = {
+  message: string;
+  source: "client" | "server";
+};
+
 export type SystemEvent =
   /** The host app handed over modules (intake, or an HMR re-run). */
   | { type: "host:receive"; modules: ModuleFilePath[] }

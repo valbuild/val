@@ -43,8 +43,7 @@ import {
 import { TooltipProvider } from "./designSystem/tooltip";
 import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
-import { useSchemas, useSyncEngine } from "./ValFieldProvider";
-export { useSyncEngine } from "./ValFieldProvider";
+import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -52,7 +51,7 @@ import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
 import { useValSystem } from "../stores/react/SystemContext";
 import type { StatusSnapshot } from "../stores/StatusStore";
-import type { PatchRecord } from "../stores/types";
+import type { PatchErrorEntry, PatchRecord } from "../stores/types";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -1261,8 +1260,11 @@ export function usePublishSummary() {
   const { patchErrors } = useAllPatchErrors();
   const hasPatchErrors = useMemo(() => {
     if (patchErrors) {
-      return Object.values(patchErrors).some((errors) => errors !== null);
+      return Object.values(patchErrors).some(
+        (forModule) => Object.keys(forModule).length > 0,
+      );
     }
+    return false;
   }, [patchErrors]);
   const [canGenerate, setCanGenerate] = useState(false);
   useEffect(() => {
@@ -1570,7 +1572,9 @@ export function useAutoPublish() {
   const { patchErrors } = useAllPatchErrors();
   const hasPatchErrors =
     patchErrors !== undefined &&
-    Object.values(patchErrors).some((errors) => errors !== null);
+    Object.values(patchErrors).some(
+      (forModule) => Object.keys(forModule).length > 0,
+    );
 
   /**
    * Publish when there is something to publish.
@@ -1692,7 +1696,9 @@ export function useGlobalError():
  * Recorded by `system.publish` when `/save` names them.
  */
 export function useAllPatchErrors(): {
-  patchErrors: Record<PatchId, string[] | null> | undefined;
+  patchErrors:
+    | Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>
+    | undefined;
 } {
   const val = useValSystem();
   const status = useValStatus();
