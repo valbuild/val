@@ -68,7 +68,11 @@ window.valBench = {
   async runReact(repetitions = 5, sizes = Object.keys(SIZES)) {
     const rows: { driver: string; size: string; samples: ReactSample[] }[] = [];
     for (const sizeName of sizes) {
-      for (const driver of ["ValSyncEngine", "stores"]) {
+      // One driver. It used to be two, and leaving the second name here would
+      // not merely be stale: `runReactScenario` falls through to the stores
+      // adapter for any name, so the whole React scenario would run twice and
+      // one result would be discarded by the reporter.
+      for (const driver of ["stores"]) {
         const samples: ReactSample[] = [];
         for (let rep = 0; rep <= repetitions; rep++) {
           // A fresh project and a fresh React root per repetition, for the same
