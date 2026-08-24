@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { CanvasView } from "../CanvasView";
 import { mockCanvasChat, mockCanvasPage } from "../mockCanvasPage";
+import { CanvasMode } from "../CanvasView";
 import { CanvasDevice, CanvasPane } from "../types";
 
 /**
@@ -36,6 +37,11 @@ const meta: Meta<typeof CanvasHarness> = {
       options: ["desktop", "tablet", "mobile"],
     },
     pane: { control: "inline-radio", options: ["chat", "canvas"] },
+    mode: {
+      control: "inline-radio",
+      options: ["fields", "canvas"],
+      description: "Which arrangement to start in",
+    },
     selectedFieldId: {
       control: "select",
       options: [null, "headline", "intro", "cat1Image", "storyTitle"],
@@ -53,6 +59,7 @@ type HarnessProps = {
   /** Width the page is rendered at inside the canvas. */
   device: CanvasDevice;
   pane: CanvasPane;
+  mode: CanvasMode;
   selectedFieldId: string | null;
   attached: string[];
   animate: boolean;
@@ -63,6 +70,7 @@ function CanvasHarness({
   theme,
   device,
   pane,
+  mode,
   selectedFieldId,
   attached,
   animate,
@@ -86,11 +94,12 @@ function CanvasHarness({
         </div>
       ) : (
         <CanvasView
-          key={`${device}-${pane}-${selectedFieldId}`}
+          key={`${device}-${pane}-${mode}-${selectedFieldId}`}
           page={mockCanvasPage}
           initialChat={mockCanvasChat}
           initialDevice={device}
           initialPane={pane}
+          initialMode={mode}
           initialSelectedFieldId={selectedFieldId}
           initialAttachedFieldIds={attached}
           skipTransition={!animate}
@@ -108,6 +117,7 @@ const base: HarnessProps = {
   theme: "dark",
   device: "desktop",
   pane: "canvas",
+  mode: "canvas",
   selectedFieldId: null,
   attached: [],
   animate: false,
@@ -167,3 +177,74 @@ export const PhoneChatPane: Story = {
  * reads as stepping back from the page rather than as a new screen arriving.
  */
 export const Entering: Story = { args: { ...base, animate: true } };
+
+/**
+ * Fields mode: the list you were reading, as a comfortable centred column.
+ *
+ * This is where the round trip starts. Switching to Canvas keeps this list on
+ * screen and moves it to the right rail — nothing is swapped out, so there is
+ * no moment where you lose your place.
+ */
+export const FieldsMode: Story = { args: { ...base, mode: "fields" } };
+
+/** Fields mode, part-way down the list with a field open. */
+export const FieldsModeEditing: Story = {
+  args: { ...base, mode: "fields", selectedFieldId: "storyTitle" },
+};
+
+/** Fields mode in light. */
+export const FieldsModeLight: Story = {
+  args: { ...base, mode: "fields", theme: "light" },
+};
+
+/** Fields mode with source paths shown. */
+export const FieldsModeDev: Story = {
+  args: { ...base, mode: "fields", isDevMode: true },
+};
+
+/** An image field selected — the canvas outlines the picture, not the label. */
+export const ImageFieldSelected: Story = {
+  args: { ...base, selectedFieldId: "cat1Image" },
+};
+
+/** A rich text field: the side panel gives it room, the canvas shows it set. */
+export const RichTextSelected: Story = {
+  args: { ...base, selectedFieldId: "storyBody" },
+};
+
+/** One element attached, before anything has been asked about it. */
+export const OneAttachment: Story = {
+  args: { ...base, attached: ["headline"] },
+};
+
+/** Four attached — the chip row wraps rather than scrolling out of reach. */
+export const ManyAttachments: Story = {
+  args: {
+    ...base,
+    attached: ["eyebrow", "headline", "intro", "cat1Image"],
+    selectedFieldId: "intro",
+  },
+};
+
+/** Tablet width in light mode. */
+export const TabletLight: Story = {
+  args: { ...base, device: "tablet", theme: "light" },
+};
+
+/** Phone width with a field selected, so the outline is visible when small. */
+export const MobileWidthSelected: Story = {
+  args: { ...base, device: "mobile", selectedFieldId: "headline" },
+};
+
+/** Phone, chat pane, nothing attached yet — the suggestions show instead. */
+export const PhoneChatEmpty: Story = { args: { ...base, pane: "chat" } };
+
+/** Phone, canvas at phone width — the pairing you would actually use there. */
+export const PhoneCanvasMobileWidth: Story = {
+  args: { ...base, pane: "canvas", device: "mobile" },
+};
+
+/** Phone in light mode. */
+export const PhoneCanvasLight: Story = {
+  args: { ...base, pane: "canvas", device: "mobile", theme: "light" },
+};

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Layers, MessageSquare } from "lucide-react";
+import { ArrowLeft, Layers, ListTree, MessageSquare } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { useShellBreakpoint } from "../useShellBreakpoint";
+import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 import { CanvasChat } from "./CanvasChat";
 import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -17,8 +18,13 @@ import {
   CanvasTransform,
 } from "./types";
 
+/** Which arrangement the workspace is in. */
+export type CanvasMode = "fields" | "canvas";
+
 export type CanvasViewProps = {
   page: CanvasPageData;
+  /** Arrangement to start in. */
+  initialMode?: CanvasMode;
   initialChat?: CanvasChatMessage[];
   onExit?: () => void;
   /** Skips the entrance transition — for screenshots and for tests. */
@@ -33,6 +39,14 @@ export type CanvasViewProps = {
 
 /** How far the canvas starts scaled down when it animates in. */
 const ENTER_SCALE = 0.96;
+/** Width of the assistant, and of the fields rail beside the canvas. */
+const CHAT_WIDTH = 320;
+const RAIL_WIDTH = 300;
+/** Width the fields list settles at when it is the whole workspace. */
+const FIELDS_COLUMN_WIDTH = 760;
+/** Long enough to follow the fields list across, short enough not to wait. */
+const MODE_MS = 320;
+const MODE_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
  * The canvas view: the page on a pan/zoom canvas, its fields at the side, and
@@ -48,6 +62,7 @@ const ENTER_SCALE = 0.96;
  */
 export function CanvasView({
   page: initialPage,
+  initialMode = "canvas",
   initialChat = [],
   onExit,
   skipTransition,
@@ -59,6 +74,12 @@ export function CanvasView({
 }: CanvasViewProps) {
   const breakpoint = useShellBreakpoint();
   const isPhone = breakpoint === "mobile";
+  const reducedMotion = usePrefersReducedMotion();
+  /** Transition for the named properties, or none if motion is unwelcome. */
+  const ease = (properties: string[]) =>
+    reducedMotion
+      ? undefined
+      : properties.map((p) => `${p} ${MODE_MS}ms ${MODE_EASE}`).join(", ");
 
   const [page, setPage] = useState(initialPage);
   const [device, setDevice] = useState<CanvasDevice>(initialDevice);
@@ -76,6 +97,7 @@ export function CanvasView({
   const [isSelectMode, setIsSelectMode] = useState(true);
   const [chat, setChat] = useState<CanvasChatMessage[]>(initialChat);
   const [pane, setPane] = useState<CanvasPane>(initialPane);
+  const [mode, setMode] = useState<CanvasMode>(initialMode);
   const [entered, setEntered] = useState(skipTransition === true);
 
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -124,8 +146,9 @@ export function CanvasView({
     return () => observer.disconnect();
   }, [needsFit, fit]);
 
-  // A device switch changes the layout under the zoom, so it re-fits.
-  useEffect(() => setNeedsFit(true), [device]);
+  // A device switch changes the layout under the zoom, so it re-fits. So does
+  // arriving on the canvas, which has no width to fit into until it opens.
+  useEffect(() => setNeedsFit(true), [device, mode]);
 
   // The moment the user pans or zooms, the view is theirs and refitting would
   // yank it back.
@@ -292,6 +315,9 @@ export function CanvasView({
         <span className="font-mono text-[0.6875rem] text-fg-secondary-alt">
           {page.urlPath}
         </span>
+        {!isPhone && (
+          <ModeToggle mode={mode} onChange={setMode} className="ml-auto" />
+        )}
         {isPhone && (
           <PaneToggle pane={pane} onChange={setPane} className="ml-auto" />
         )}
@@ -306,16 +332,128 @@ export function CanvasView({
           <div className="h-full w-full shrink-0 snap-start">{canvas}</div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="w-[320px] shrink-0 border-r border-border-float">
-            {assistant}
+        /*
+         * Both arrangements are the same three regions; only their geometry
+         * changes. Absolutely positioned with px and percentage edges,
+         * because those interpolate — `grid-template-columns` will not
+         * animate between tracks that mix `fr` and `px`, it snaps.
+         *
+         * The point of animating at all: the fields list travels from the
+         * middle of the screen to the right rail rather than one screen being
+         * swapped for another, so the list you were reading is still the list
+         * you are reading when it arrives.
+         */
+        <div data-canvas-mode={mode} className="relative min-h-0 flex-1">
+          <div
+            style={{
+              width: CHAT_WIDTH,
+              transition: ease(["transform", "opacity"]),
+            }}
+            className={cn(
+              "absolute inset-y-0 left-0 overflow-hidden border-r border-border-float",
+              mode === "canvas"
+                ? "translate-x-0 opacity-100"
+                : "-translate-x-full opacity-0",
+            )}
+          >
+            <div className="h-full" style={{ width: CHAT_WIDTH }}>
+              {assistant}
+            </div>
           </div>
-          <div className="min-w-0 flex-1">{canvas}</div>
-          <div className="w-[300px] shrink-0 border-l border-border-float">
+
+          {/* Scales up as it arrives, so it reads as the page being placed
+              behind the fields rather than sliding in from somewhere. */}
+          <div
+            style={{
+              left: mode === "canvas" ? CHAT_WIDTH : 0,
+              right: mode === "canvas" ? RAIL_WIDTH : 0,
+              transition: ease(["left", "right", "opacity", "transform"]),
+            }}
+            className={cn(
+              "absolute inset-y-0",
+              mode === "canvas"
+                ? "scale-100 opacity-100"
+                : "pointer-events-none scale-[0.97] opacity-0",
+            )}
+          >
+            {canvas}
+          </div>
+
+          {/* The constant. A rail on the canvas, a centred column without it —
+              same component, same scroll position, same selection. */}
+          <div
+            style={{
+              ...(mode === "canvas"
+                ? { left: `calc(100% - ${RAIL_WIDTH}px)`, width: RAIL_WIDTH }
+                : {
+                    left: `max(0px, calc(50% - ${FIELDS_COLUMN_WIDTH / 2}px))`,
+                    width: `min(${FIELDS_COLUMN_WIDTH}px, 100%)`,
+                  }),
+              transition: ease(["left", "width"]),
+            }}
+            className={cn(
+              "absolute inset-y-0",
+              mode === "canvas"
+                ? "border-l border-border-float"
+                : "border-l border-transparent",
+            )}
+          >
             {fields}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The way in and out of the canvas.
+ *
+ * Two labelled states rather than one button that toggles, so the control
+ * says where you are as well as where you can go — you can tell at a glance
+ * which arrangement you are in without having to remember what you pressed.
+ */
+function ModeToggle({
+  mode,
+  onChange,
+  className,
+}: {
+  mode: CanvasMode;
+  onChange: (mode: CanvasMode) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Workspace"
+      className={cn(
+        "flex gap-0.5 rounded-md bg-bg-float-raised p-0.5",
+        className,
+      )}
+    >
+      {(
+        [
+          ["fields", "Fields", ListTree],
+          ["canvas", "Canvas", Layers],
+        ] as const
+      ).map(([value, label, Icon]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={mode === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
+            mode === value
+              ? "bg-bg-float font-medium text-fg-primary shadow-sm"
+              : "text-fg-secondary hover:text-fg-primary",
+          )}
+        >
+          <Icon size={12} />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
