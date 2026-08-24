@@ -50,6 +50,7 @@ import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
+import { ValStoreShadow } from "../stores/react/ValStoreShadow";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
 import {
@@ -695,9 +696,22 @@ export function ValProvider({
                       getDirectFileUploadSettings={getDirectFileUploadSettings}
                       config={runtimeConfig}
                     >
-                      <LocalModulesErrorBanner syncEngine={syncEngine} />
-                      {children}
-                      <SchemaOutOfDateGate syncEngine={syncEngine} />
+                      {/*
+                        The store system, mounted BESIDE the engine and off unless
+                        asked for. See `ValStoreShadow`: the engine drives every
+                        pixel, and this exists so the new layer can be read
+                        alongside it on real content — which is the one thing
+                        neither the benchmark nor any test can produce, since both
+                        build their own modules.
+                      */}
+                      <ValStoreShadow
+                        client={client}
+                        valModules={valModules ?? null}
+                      >
+                        <LocalModulesErrorBanner syncEngine={syncEngine} />
+                        {children}
+                        <SchemaOutOfDateGate syncEngine={syncEngine} />
+                      </ValStoreShadow>
                     </ValFieldProvider>
                   </ValRemoteProvider>
                 </ValPortalProvider>
