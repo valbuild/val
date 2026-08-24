@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { SelectorSource, ValModule, ValModules } from "@valbuild/core";
+import type {
+  PatchId,
+  SelectorSource,
+  ValModule,
+  ValModules,
+} from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import type { System } from "../createSystem";
-import { createValSystem } from "./createValSystem";
+import { createValSystem, type UploadSettings } from "./createValSystem";
 import { ValSystemProvider } from "./SystemContext";
 import { ValStoreProbe } from "./ValStoreProbe";
 
@@ -22,23 +27,35 @@ import { ValStoreProbe } from "./ValStoreProbe";
  * modules in and can be read alongside, so its answers can be compared with the
  * engine's on real content.
  *
- * ## A mirror, not a second writer
+ * ## This system owns writes now
  *
- * `createValSystem` is called without `writes`, so this system never sends a patch
- * to the server. Two systems writing to one linear patch chain would conflict with
- * each other on every keystroke, and each would "resolve" it by re-sending. The
- * engine owns writes until it owns everything.
+ * It began as a mirror: the engine wrote, and every patch was copied in here so
+ * reads stayed correct. That stopped being tenable the moment `/stat` was wired
+ * in, and the reason is worth recording because it is the argument for flipping
+ * rather than a consequence of having flipped.
  *
- * But it does have to SEE the engine's edits, or its source drifts from what the
- * screen shows the moment anyone types — and then a component ported to read from
- * it would show a stale value. So `useAddPatch` mirrors every field write into
- * this system's patch store (see `ValFieldProvider`), and `mirror: true` gives it
- * an upload seam that accepts file patches without re-uploading bytes the engine
- * has already sent.
+ * With both systems holding the same edit, the two chains have to agree on patch
+ * IDENTITY, and they cannot. The engine MERGES consecutive keystrokes into one
+ * patch (`canMerge` / `mergePatches`); this system creates one per edit. So the
+ * engine's chain has one id where this one has six, and when stat announces the
+ * engine's id this system does not recognise it, fetches it, and applies the same
+ * edit a second time — harmless for a `replace`, wrong for an array `add`.
  *
- * What is NOT mirrored, and therefore where the shadow can legitimately diverge:
- * the AI write paths in `hooks/useAI.ts`, which call the engine directly rather
- * than through `useAddPatch`. Named here rather than discovered later.
+ * So: this system writes. `useAddPatch` creates the patch here, which mints the id
+ * and issues the `PUT`, and then hands that same id to the engine so the engine
+ * applies it LOCALLY for every component still reading from it. One id per edit,
+ * one writer, and stat announces ids this system already has.
+ *
+ * The engine's own `PUT` is disabled — see `ValSyncEngine`'s `writesDisabled`.
+ *
+ * One behaviour change that follows and is not a bug: a typing session now
+ * produces one patch per edit rather than one merged patch, so there are more
+ * patches on the server. Patch SETS still group them for review, which is what
+ * the review UI shows.
+ *
+ * Still not routed through here, and therefore still the engine's: the four AI
+ * write paths in `hooks/useAI.ts`, which call the engine directly rather than
+ * through `useAddPatch`. Named rather than left to be discovered.
  *
  * ## Always on
  *
@@ -58,15 +75,25 @@ import { ValStoreProbe } from "./ValStoreProbe";
 export function ValStoreShadow({
   client,
   valModules,
+  stat,
+  uploadSettings,
   children,
 }: {
   client: ValClient;
   valModules: ValModules | null;
+  /**
+   * What `/stat` last said. The store system needs two things out of it and
+   * cannot work without either: the ordered patch ids (so it learns about work
+   * done in another session) and `baseSha` (so a write has an honest `parentRef`
+   * — without it `PatchSync` reports every edit unsaveable).
+   */
+  stat: { baseSha: string; patches: PatchId[] } | null;
+  uploadSettings: UploadSettings;
   children: ReactNode;
 }) {
   const system = useMemo<System>(
-    () => createValSystem(client, { mirror: true }),
-    [client],
+    () => createValSystem(client, { writes: true, uploadSettings }),
+    [client, uploadSettings],
   );
   const [received, setReceived] = useState(false);
 
@@ -101,11 +128,49 @@ export function ValStoreShadow({
     };
   }, [system, valModules]);
 
+  /**
+   * Feed `/stat` in, once the modules are here.
+   *
+   * After intake, deliberately: `receiveStat` announces patch ids, and the patch
+   * store fetches and applies the ones it does not have. Applying them before the
+   * modules exist is not wrong — the chain is kept and replayed by `receive` — but
+   * doing it in the natural order means the common case does not depend on that.
+   *
+   * `baseSha` is the part that unblocks writing. Everything else the store needs
+   * from stat it already gets: `schemaSha` / `sourcesSha` / `jsonEntriesSha` are
+   * inputs to a refetch this system does not do yet, and are the remaining half of
+   * openquestions item 8.
+   */
   useEffect(() => {
-    return () => {
-      system.dispose();
-    };
-  }, [system]);
+    if (stat === null || !received) {
+      return;
+    }
+    system.stat.receiveStat({ patches: stat.patches, baseSha: stat.baseSha });
+  }, [system, stat, received]);
+
+  /*
+   * There is deliberately NO dispose effect, and this is the most expensive thing
+   * learned from running the system in the real Studio.
+   *
+   * There was one — `useEffect(() => () => system.dispose(), [system])` — and it
+   * broke the system completely, silently, in dev. `React.StrictMode` (see
+   * `main.jsx`) mounts effects twice: mount, cleanup, mount. The cleanup ran
+   * `dispose()`, which runs every unsubscribe in `createSystem` — and those
+   * listeners are attached at CONSTRUCTION, not in the effect, so nothing
+   * re-attached them on the second mount. The result was a system that took
+   * modules in and then ignored everything: stat announced and nothing heard it,
+   * a patch created and never applied to source. Both symptoms, one cause.
+   *
+   * Nothing needs disposing here. The system is memoised on `client`, so there is
+   * exactly one and it lives as long as the provider; and when it does become
+   * unreachable, its stores' listeners point only at each other, so the whole
+   * graph is collected together. `dispose()` exists for tests, which create and
+   * discard systems in one process.
+   *
+   * The general shape of the mistake is worth keeping: a cleanup that tears down
+   * something built outside the effect is not symmetric, and React is allowed to
+   * run cleanups on a component that stays mounted.
+   */
 
   // Exposed so a browser test can wait for intake rather than sleeping, and can
   // reach the system directly to compare it with the engine's answers.

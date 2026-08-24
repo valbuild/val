@@ -44,7 +44,25 @@ export type UploadFile = (request: {
   type: "file" | "image";
   remote: boolean;
   metadata?: Json;
+  /**
+   * Bytes sent so far, for THIS file.
+   *
+   * On the seam rather than nowhere, because an image upload is the one operation
+   * here slow enough that a user needs to see it moving. The store cannot report
+   * it — it does not do the sending — so the implementation reports and the store
+   * forwards, adding which file of how many. Optional: an implementation that
+   * cannot measure progress simply never calls it.
+   */
+  onProgress?: (bytesUploaded: number, totalBytes: number) => void;
 }) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
+
+/** How far a patch's uploads have got. See {@link PatchStore.createPatch}. */
+export type UploadProgress = (
+  bytesUploaded: number,
+  totalBytes: number,
+  currentFile: number,
+  totalFiles: number,
+) => void;
 
 /**
  * The result of creating a patch, which can fail before the patch exists.
@@ -256,8 +274,32 @@ export class PatchStore {
      * outside this session.
      */
     fieldId?: string,
+    /**
+     * Where upload progress goes, if the caller is showing it.
+     *
+     * Threaded through rather than left to the caller to reconstruct: the store is
+     * the only thing that knows how many files this patch carries and which one is
+     * in flight, and a caller that had to work that out would be re-deriving the
+     * split this store already did.
+     */
+    onProgress?: UploadProgress,
+    /**
+     * Use THIS id rather than minting one.
+     *
+     * For a caller that has already committed to an id — it has told something
+     * else about it, or applied the patch optimistically somewhere that needs the
+     * same identity. Without it, such a caller has to await this call before it
+     * can act, and awaiting is exactly what it cannot do: a keystroke that waits
+     * for a network-shaped operation before the character appears is a keystroke
+     * the user feels.
+     *
+     * The caller owns uniqueness when it passes one. Reusing an existing id is
+     * not checked for, because the only honest response would be to refuse a
+     * patch the caller believes it has already made.
+     */
+    withPatchId?: PatchId,
   ): Promise<CreatePatchResult> {
-    const patchId = this.newPatchId();
+    const patchId = withPatchId ?? this.newPatchId();
     const { patchOps, fileOps } = splitPatchFileOps(patch);
     const toUpload = fileOps.filter(
       (op): op is typeof op & { value: string } => typeof op.value === "string",
@@ -278,6 +320,7 @@ export class PatchStore {
     if (upload) {
       for (const op of toUpload) {
         this.activity.work("patch:upload-file", op.filePath);
+        const fileIndex = uploaded.length;
         const res = await upload({
           patchId,
           filePath: op.filePath,
@@ -285,6 +328,16 @@ export class PatchStore {
           type: op.remote ? "file" : "image",
           remote: op.remote,
           metadata: op.metadata,
+          onProgress:
+            onProgress === undefined
+              ? undefined
+              : (bytesUploaded, totalBytes) =>
+                  onProgress(
+                    bytesUploaded,
+                    totalBytes,
+                    fileIndex,
+                    toUpload.length,
+                  ),
         });
         if (res.status === "error") {
           // Roll back what did land, then refuse. No patch is created, so
@@ -380,6 +433,17 @@ export class PatchStore {
       if (record) records.push(record);
     }
     return records;
+  }
+
+  /**
+   * An id for a patch that does not exist yet.
+   *
+   * So a caller can commit to an identity before the async work of creating the
+   * patch — see `withPatchId` on {@link createPatch}. Minting one and never using
+   * it costs nothing: ids are not registered until a patch is.
+   */
+  mintPatchId(): PatchId {
+    return this.newPatchId();
   }
 
   /** Does this patch exist only here? */

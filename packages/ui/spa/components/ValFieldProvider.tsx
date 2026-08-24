@@ -22,13 +22,11 @@ import {
   ValConfig,
 } from "@valbuild/core";
 import { useValSystem } from "../stores/react/SystemContext";
-import { Patch, FileOperation } from "@valbuild/core/patch";
-import { ParentRef } from "@valbuild/shared/internal";
+import type { UploadProgress } from "../stores/PatchStore";
+import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
-import { splitPatchFileOps } from "../hooks/splitPatchFileOps";
 import { JsonEntriesProgress, ValSyncEngine } from "../ValSyncEngine";
 import { getNavPathFromAll } from "./getNavPath";
-import { z } from "zod";
 
 // --- Source override context ---
 // When rendering the "before" side of a diff, the parent `Field` component
@@ -146,12 +144,6 @@ export function useLoadingStatus(): LoadingStatus {
   return "success";
 }
 
-const textEncoder = new TextEncoder();
-const SavePatchFileResponse = z.object({
-  patchId: z.string().refine((v): v is PatchId => v.length > 0),
-  filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
-});
-
 // Module-scoped monotonic counter; useRef captures the value once per mount,
 // so each component instance gets a unique stable id for its lifetime.
 let creatorIdCounter = 0;
@@ -167,79 +159,144 @@ export function useAddPatch(
   sourcePath: SourcePath | ModuleFilePath,
   creatorId?: string,
 ) {
-  const { syncEngine, getDirectFileUploadSettings } = useValFieldContext();
+  const { syncEngine } = useValFieldContext();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
     return Internal.createPatchPath(modulePath);
   }, [modulePath]);
   /**
-   * Mirror every field write into the shadow store system, when one is mounted.
+   * Write through the STORE, then apply the same patch locally in the engine.
    *
    * This is the single choke point for field writes — `addPatch`,
-   * `addPatchAwaitable` and `addModuleFilePatch` all end here or beside it — which
-   * is why the mirror lives in one place rather than at every call site.
+   * `addPatchAwaitable` and `addModuleFilePatch` all come here — which is why the
+   * flip is one function rather than twenty call sites.
    *
-   * Why it has to exist at all: the shadow system never writes to the server (see
-   * `ValStoreShadow`), but it must SEE local edits or its source drifts from what
-   * the screen shows the instant anyone types. A component ported to read from it
-   * would then show a stale value, and the whole point of a shadow — comparing its
-   * answers with the engine's — would compare against something that had stopped
-   * tracking.
+   * ## Why this direction
    *
-   * `creatorId` is passed through unchanged, so the store's per-instance
-   * suppression is fed the same id the engine was given.
+   * It used to be the other way: the engine wrote and the store mirrored. That
+   * stopped working the moment `/stat` was wired into the store system, and the
+   * reason is about patch IDENTITY. The engine MERGES consecutive keystrokes into
+   * one patch; the store creates one per edit. So the engine's chain held one id
+   * where the store's held six, and when stat announced the engine's id the store
+   * did not recognise it, fetched it, and applied the same edit twice — harmless
+   * for a `replace`, wrong for an array `add`.
    *
-   * Failures are swallowed to a console warning on purpose: this is a mirror, and
-   * a mirror that can break the write it is mirroring is worse than no mirror.
+   * Only one system can mint ids, and it has to be the one that writes. So: the
+   * store creates the patch, which mints the id and issues the `PUT`, and the id
+   * is then handed to the engine so every component still reading from the engine
+   * sees the edit. One id per edit, one writer, and stat announces ids the store
+   * already has.
+   *
+   * ## What a caller sees when it fails
+   *
+   * The store's `createPatch` can genuinely fail before a patch exists — an upload
+   * can fail — and that is now the real outcome of a write rather than something
+   * happening in a mirror. So a failure is NOT swallowed: nothing is applied
+   * locally either, because applying an edit the server will never have is how a
+   * user comes to trust a value that does not exist.
    */
   const valSystem = useValSystem();
-  const mirrorPatch = useCallback(
-    (target: ModuleFilePath, patch: Patch) => {
+  const writePatch = useCallback(
+    async (
+      target: ModuleFilePath,
+      patch: Patch,
+      onProgress?: UploadProgress,
+    ): Promise<
+      { status: "ok"; patchId: PatchId } | { status: "error"; message: string }
+    > => {
       if (valSystem === null) {
-        return;
+        // No store system: nothing can be written. Said out loud rather than
+        // dropped silently — this path exists only for a Studio rendered outside
+        // `ValStoreShadow`, which will not exist once the engine is removed.
+        return {
+          status: "error",
+          message:
+            "Cannot write: no store system is mounted. The edit was dropped.",
+        };
       }
-      void valSystem.system.patchStore
-        .createPatch(target, patch, undefined, creatorId)
-        .then((res) => {
-          if (res.status !== "created") {
-            console.warn("Val: store mirror refused a patch", res);
-          }
-        })
-        .catch((error) => {
-          console.warn("Val: store mirror threw", error);
-        });
+      // The id is minted FIRST, so both systems use one identity and neither has
+      // to wait for the other.
+      const patchId = valSystem.system.patchStore.mintPatchId();
+      // Does this patch carry bytes? It decides the ORDER, and the order matters
+      // for exactly one reason.
+      const carriesFiles = patch.some((op) => op.op === "file");
+
+      if (!carriesFiles) {
+        // Apply locally NOW, synchronously, before the write. A plain patch has
+        // nothing to upload, so the only way the store can fail is a bug — and
+        // making the character wait for a promise before it appears is a lag the
+        // user feels. The engine's source moves in the same tick as the keystroke,
+        // exactly as it did before writes moved.
+        const applied = syncEngine.applyPatchLocally(
+          target,
+          patch,
+          patchId,
+          Date.now(),
+          creatorId,
+        );
+        if (applied.status !== "applied") {
+          return { status: "error", message: applied.message };
+        }
+        const res = await valSystem.system.patchStore.createPatch(
+          target,
+          patch,
+          undefined,
+          creatorId,
+          onProgress,
+          patchId,
+        );
+        if (res.status !== "created") {
+          return { status: "error", message: res.message };
+        }
+        return { status: "ok", patchId };
+      }
+
+      // With bytes, the store goes first and is awaited. Applying before the
+      // upload lands would show a value pointing at a file that does not exist —
+      // which is the failure `PatchStore.createPatch`'s upload-then-record
+      // ordering exists to prevent, and it would be reintroduced here for the
+      // sake of a responsiveness nobody needs: an image upload is not a keystroke.
+      const res = await valSystem.system.patchStore.createPatch(
+        target,
+        patch,
+        undefined,
+        creatorId,
+        onProgress,
+        patchId,
+      );
+      if (res.status !== "created") {
+        return { status: "error", message: res.message };
+      }
+      const applied = syncEngine.applyPatchLocally(
+        target,
+        patch,
+        patchId,
+        Date.now(),
+        creatorId,
+      );
+      if (applied.status !== "applied") {
+        return { status: "error", message: applied.message };
+      }
+      return { status: "ok", patchId };
     },
-    [valSystem, creatorId],
+    [valSystem, syncEngine, creatorId],
   );
 
   const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
-      mirrorPatch(moduleFilePath, patch);
+      // `type` existed so the engine could decide whether two consecutive patches
+      // were mergeable. Nothing merges any more — the store creates one patch per
+      // edit — so it is unused. Kept in the signature because ~30 call sites pass
+      // it, and changing them all is noise in a diff about who writes.
+      void type;
+      void writePatch(moduleFilePath, patch).then((res) => {
+        if (res.status === "error") {
+          console.error("Val: could not write patch", res.message);
+        }
+      });
     },
-    [syncEngine, moduleFilePath, creatorId, mirrorPatch],
-  );
-  const addPatchAwaitable = useCallback(
-    (
-      patch: Patch,
-      type: SerializedSchema["type"],
-      patchId: PatchId,
-      parentRefOverride?: ParentRef,
-    ) => {
-      mirrorPatch(moduleFilePath, patch);
-      return syncEngine.addPatchAwaitable(
-        moduleFilePath,
-        type,
-        patch,
-        patchId,
-        null,
-        Date.now(),
-        creatorId,
-        parentRefOverride,
-      );
-    },
-    [syncEngine, moduleFilePath, creatorId, mirrorPatch],
+    [moduleFilePath, writePatch],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -247,159 +304,24 @@ export function useAddPatch(
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
-      mirrorPatch(moduleFilePath, patch);
+      void type;
+      void writePatch(moduleFilePath, patch);
     },
-    [syncEngine, creatorId, mirrorPatch],
+    [writePatch],
   );
 
-  const uploadPatchFile = useCallback(
-    async (
-      baseUrl: string,
-      nonce: string | null,
-      parentRef: ParentRef,
-      patchId: PatchId,
-      type: "file" | "image",
-      op: FileOperation,
-      onProgress: (bytesUploaded: number, totalBytes: number) => void,
-    ): Promise<
-      | { status: "done"; patchId: PatchId; filePath: string }
-      | {
-          status: "error";
-          error: {
-            message: string;
-          };
-        }
-    > => {
-      const authHeaders = nonce
-        ? {
-            "x-val-auth-nonce": nonce,
-          }
-        : {};
-      const { filePath: filePathOrRef, value: data, metadata, remote } = op;
-
-      let filePath: string;
-      if (remote) {
-        const splitRemoteRefDataRes =
-          Internal.remote.splitRemoteRef(filePathOrRef);
-        if (splitRemoteRefDataRes.status === "error") {
-          return Promise.reject({
-            status: "error",
-            error: {
-              message: `Could not create correct file path of remote file (${splitRemoteRefDataRes.error}). This is most likely a Val bug.`,
-            },
-          });
-        }
-        filePath = "/" + splitRemoteRefDataRes.filePath;
-      } else {
-        filePath = filePathOrRef;
-      }
-      const payload = JSON.stringify({
-        filePath,
-        parentRef,
-        data,
-        type,
-        metadata,
-        remote,
-      });
-
-      const totalBytes = textEncoder.encode(payload).length;
-
-      onProgress(0, totalBytes);
-
-      return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            onProgress(event.loaded, event.total);
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const responseText = xhr.responseText;
-              const responseData = JSON.parse(responseText);
-              const parsed = SavePatchFileResponse.safeParse(responseData);
-
-              if (parsed.success) {
-                resolve({
-                  status: "done",
-                  patchId: parsed.data.patchId,
-                  filePath: parsed.data.filePath,
-                });
-              } else {
-                resolve({
-                  status: "error",
-                  error: {
-                    message: `While saving a file we got an unexpected response (${responseText?.slice(
-                      0,
-                      100,
-                    )}...)`,
-                  },
-                });
-              }
-            } catch (e) {
-              resolve({
-                status: "error",
-                error: {
-                  message: `Got an exception while saving a file. Error: ${
-                    e instanceof Error ? e.message : String(e)
-                  }`,
-                },
-              });
-            }
-          } else {
-            resolve({
-              status: "error",
-              error: {
-                message:
-                  "Could not save patch file. HTTP error: " +
-                  xhr.status +
-                  " " +
-                  xhr.statusText,
-              },
-            });
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: `Could save source file (network error?)`,
-            },
-          });
-        });
-
-        xhr.addEventListener("abort", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: "Upload was aborted",
-            },
-          });
-        });
-
-        xhr.responseType = "text";
-        xhr.open("POST", `${baseUrl}/patches/${patchId}/files`);
-
-        xhr.setRequestHeader("Content-Type", "application/json");
-        for (const [key, value] of Object.entries(authHeaders)) {
-          xhr.setRequestHeader(key, value);
-        }
-
-        xhr.send(payload);
-      });
-    },
-    [],
-  );
-  const parentRef = useSyncExternalStore(
-    syncEngine.subscribe("parent-ref"),
-    () => syncEngine.getParentRefSnapshot(),
-    () => syncEngine.getParentRefSnapshot(),
-  );
+  /**
+   * The direct file upload used to live here: split the patch, POST each file's
+   * bytes under an id this hook minted, then send the hashed ops.
+   *
+   * It is gone because the store system owns writes, and therefore owns patch
+   * ids: bytes uploaded under an id chosen here would be attached to a patch that
+   * never exists. The same protocol now lives in `createValSystem`'s `uploadFile`
+   * seam, still on `XMLHttpRequest` so upload progress is still reported, and
+   * `PatchStore.createPatch` does the ordering — upload, then record, and roll the
+   * uploads back if any of them fails so nothing references a file that is not
+   * there.
+   */
   const addAndUploadPatchWithFileOps = useCallback(
     async (
       patch: Patch,
@@ -412,58 +334,27 @@ export function useAddPatch(
         totalFiles: number,
       ) => void,
     ) => {
-      if (parentRef === null) {
-        onError("Cannot upload files yet. Not initialized.");
-        return;
-      }
-      const directFileUploadSettings = await getDirectFileUploadSettings();
-      if (directFileUploadSettings.status !== "success") {
-        onError(directFileUploadSettings.error);
-        return;
-      }
-      const { baseUrl, nonce } = directFileUploadSettings.data;
-      // Extracted so the rule it enforces — a patch never carries binary data —
-      // is testable without a DOM. See `splitPatchFileOps.ts` for why the server
-      // silently produces no file if it is broken.
-      const { patchOps, fileOps } = splitPatchFileOps(patch);
-      const patchId = syncEngine.createPatchId();
-      let currentFile = 0;
-      for (const fileOp of fileOps) {
-        const res = await uploadPatchFile(
-          baseUrl,
-          nonce,
-          parentRef,
-          patchId,
-          type,
-          fileOp,
-          (bytesUploaded, totalBytes) => {
-            onProgress(bytesUploaded, totalBytes, currentFile, fileOps.length);
-          },
-        );
-        if (res.status === "error") {
-          onError(res.error.message);
-          return;
-        }
-        currentFile++;
-      }
-      const addPatchRes = await addPatchAwaitable(
-        patchOps,
-        type,
-        patchId,
-        parentRef,
-      );
-      if (addPatchRes.status !== "patch-synced") {
-        onError(addPatchRes.message);
+      // Handed to the store WHOLE, file ops included.
+      //
+      // This function used to split the patch itself, upload each file under an
+      // id it minted, and then send the hashed ops. It cannot any more, and the
+      // reason is the flip: the store mints patch ids now, because the store is
+      // what writes. Files uploaded under an id chosen here would be attached to
+      // a patch that never exists.
+      //
+      // Handing the whole patch over is also strictly better ordering than what
+      // this did. `PatchStore.createPatch` uploads the bytes, then records the
+      // patch, then runs deletes — and if an upload fails it rolls back the ones
+      // that landed and creates no patch at all, so nothing ever references a
+      // file that is not there. `splitPatchFileOps` still does the splitting; it
+      // just does it inside the store, where the ordering rule lives.
+      const res = await writePatch(moduleFilePath, patch, onProgress);
+      if (res.status === "error") {
+        onError(res.message);
         return;
       }
     },
-    [
-      getDirectFileUploadSettings,
-      addPatchAwaitable,
-      uploadPatchFile,
-      parentRef,
-      syncEngine,
-    ],
+    [moduleFilePath, writePatch],
   );
   return {
     patchPath,

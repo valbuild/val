@@ -1,4 +1,5 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
 import type { PatchRecord } from "../types";
@@ -22,34 +23,154 @@ import type { PatchRecord } from "../types";
  *
  * Passing `writes: true` is for when the engine is gone, not before.
  */
+/**
+ * Where a patch's file bytes are POSTed, and with what credentials.
+ *
+ * Fetched per upload rather than once, because the nonce is short-lived and the
+ * base URL differs between FS mode (`/api/val/upload`) and a content host. The
+ * app already has this as `getDirectFileUploadSettings`; it is passed in rather
+ * than re-derived so there is one implementation of "where do files go".
+ */
+export type UploadSettings = () => Promise<
+  | {
+      status: "success";
+      data: {
+        nonce: string | null;
+        baseUrl: string;
+        contentBaseUrl: string | null;
+        contentAuthNonce: string | null;
+      };
+    }
+  | { status: "error"; error: string }
+>;
+
 export function createValSystem(
   client: ValClient,
-  options?: { writes?: boolean; mirror?: boolean },
+  options?: {
+    writes?: boolean;
+    mirror?: boolean;
+    uploadSettings?: UploadSettings;
+  },
 ): System {
   return createSystem({
-    ...(options?.mirror === true
+    ...(options?.uploadSettings !== undefined
       ? {
           /**
-           * The MIRROR upload seam: accept the patch, upload nothing.
+           * The real thing: POST one file's bytes to wherever files live.
            *
-           * Only for a shadow system being fed the engine's patches. Without a
-           * upload seam at all, `PatchStore.createPatch` REFUSES any patch
-           * carrying file ops — correctly, because silently dropping bytes is the
-           * failure that seam exists to prevent. But in a mirror that refusal is
-           * the wrong outcome: the engine has already uploaded these exact bytes
-           * to this exact path, so the file genuinely is on the server, and
-           * refusing the patch would leave the shadow's source diverging from the
-           * engine's for every image edit — which is precisely what a shadow
-           * exists to detect, so it must not manufacture it.
+           * `POST {baseUrl}/patches/{patchId}/files` with a JSON body, which is
+           * the protocol `ValFieldProvider.uploadPatchFile` already speaks — the
+           * bytes travel as a base64 data URL in `data`, not as multipart.
            *
-           * Uploading again would be worse: the same bytes POSTed twice per edit.
+           * `XMLHttpRequest`, not `fetch`, and only for one reason: `fetch` cannot
+           * report upload progress. An image is the one thing here slow enough
+           * that a user needs to see it moving, so the seam carries an
+           * `onProgress` and this is what fills it.
            *
-           * So it reports ok and does nothing, and the comment is the whole
-           * justification: the upload happened, just not by this system.
+           * A remote ref is split back to its file path, because the server keys
+           * files by path and a remote ref is a URL that encodes one.
            */
-          uploadFile: async () => ({ status: "ok" }),
+          uploadFile: async ({
+            patchId,
+            filePath,
+            data,
+            type,
+            remote,
+            metadata,
+            onProgress,
+          }) => {
+            const settings = await options.uploadSettings!();
+            if (settings.status === "error") {
+              return {
+                status: "error",
+                message: `Could not find where to upload files: ${settings.error}`,
+              };
+            }
+            let target = filePath;
+            if (remote) {
+              const split = Internal.remote.splitRemoteRef(filePath);
+              if (split.status === "error") {
+                return {
+                  status: "error",
+                  message: `Could not read the file path out of a remote ref (${split.error}). This is most likely a Val bug.`,
+                };
+              }
+              target = "/" + split.filePath;
+            }
+            const body = JSON.stringify({
+              filePath: target,
+              // Required by the endpoint, and about the PATCH — which does not
+              // exist yet, because the bytes go first by design so a patch can
+              // never reference a file that is not there. The server uses it for
+              // authorisation rather than ordering, and the patch that follows
+              // carries the real one.
+              parentRef: { type: "head", headBaseSha: "" },
+              data,
+              type,
+              metadata,
+              remote,
+            });
+            return new Promise((resolve) => {
+              const xhr = new XMLHttpRequest();
+              if (onProgress !== undefined) {
+                xhr.upload.addEventListener("progress", (event) => {
+                  if (event.lengthComputable) {
+                    onProgress(event.loaded, event.total);
+                  }
+                });
+              }
+              xhr.addEventListener("load", () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve({ status: "ok" });
+                  return;
+                }
+                resolve({
+                  status: "error",
+                  message: `Could not upload ${target}: HTTP ${xhr.status} ${xhr.statusText}`,
+                });
+              });
+              xhr.addEventListener("error", () => {
+                resolve({
+                  status: "error",
+                  message: `Could not upload ${target} (network error?)`,
+                });
+              });
+              xhr.responseType = "text";
+              xhr.open(
+                "POST",
+                `${settings.data.baseUrl}/patches/${patchId}/files`,
+              );
+              xhr.setRequestHeader("Content-Type", "application/json");
+              if (settings.data.nonce !== null) {
+                xhr.setRequestHeader("x-val-auth-nonce", settings.data.nonce);
+              }
+              xhr.send(body);
+            });
+          },
         }
-      : {}),
+      : options?.mirror === true
+        ? {
+            /**
+             * The MIRROR upload seam: accept the patch, upload nothing.
+             *
+             * Only for a shadow system being fed the engine's patches. Without a
+             * upload seam at all, `PatchStore.createPatch` REFUSES any patch
+             * carrying file ops — correctly, because silently dropping bytes is the
+             * failure that seam exists to prevent. But in a mirror that refusal is
+             * the wrong outcome: the engine has already uploaded these exact bytes
+             * to this exact path, so the file genuinely is on the server, and
+             * refusing the patch would leave the shadow's source diverging from the
+             * engine's for every image edit — which is precisely what a shadow
+             * exists to detect, so it must not manufacture it.
+             *
+             * Uploading again would be worse: the same bytes POSTed twice per edit.
+             *
+             * So it reports ok and does nothing, and the comment is the whole
+             * justification: the upload happened, just not by this system.
+             */
+            uploadFile: async () => ({ status: "ok" }),
+          }
+        : {}),
     fetchPatches: async (patchIds) => {
       const res = await client("/patches", "GET", {
         query: {

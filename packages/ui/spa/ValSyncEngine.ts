@@ -347,6 +347,22 @@ export class ValSyncEngine {
     private readonly createValidationWorker:
       | ValidationWorkerFactory
       | undefined = undefined,
+    /**
+     * Never `PUT /patches`.
+     *
+     * The transition seam, and the reason it has to exist: the store system owns
+     * writes now, and the server keeps ONE linear patch chain and checks the
+     * `parentRef` of every write. Two writers is therefore a 409 on every
+     * keystroke, each "resolving" it by re-sending. So exactly one may write, and
+     * this engine is not it.
+     *
+     * It still applies patches locally — see `applyPatchLocally` — because every
+     * component not yet ported reads through this engine and would otherwise show
+     * the value from before the last keystroke.
+     *
+     * Goes away with the engine.
+     */
+    private readonly writesDisabled: boolean = false,
   ) {
     this.initializedAt = null;
     this.initialPatchSyncCompletedAt = null;
@@ -3464,6 +3480,77 @@ export class ValSyncEngine {
     }
   }
 
+  /**
+   * Apply a patch locally, under an id someone else minted, without queueing a
+   * write.
+   *
+   * The transition seam. The store system owns writes now: it mints the patch id
+   * and issues the `PUT`. But every component still reading through this engine
+   * needs the edit applied here too, or the Studio shows the value from before the
+   * last keystroke.
+   *
+   * Deliberately NOT `addPatch` with the write suppressed. `addPatch`'s queueing
+   * and its MERGING are the same code — it merges consecutive keystrokes into the
+   * last queued op — and merging is exactly what must not happen here: the store
+   * creates one patch per edit, so a merge would leave this engine holding one id
+   * where the store holds six, and the two would disagree about what `/stat`
+   * announces. So this registers one patch per call and touches `pendingOps` not
+   * at all.
+   *
+   * The patch IS added to `pendingClientPatchIds`, and it has to be:
+   * `orderedPatchIdsForModule` builds the apply list from the three id lists —
+   * global, saved-not-yet-global, and pending-client — so a patch in none of them
+   * is registered and never applied. Which is exactly what the first version of
+   * this did, and the symptom was a patch present in both systems' tables with the
+   * engine's source unchanged.
+   *
+   * `pendingClientPatchIds` is also the honest one at this moment: the store has
+   * the patch and has not yet had it acknowledged. It clears itself — the stat
+   * path calls `deletePendingPatchId` for every id `/stat` announces, so the id
+   * moves to `globalServerSidePatchIds` as soon as the server confirms it.
+   *
+   * Returns nothing to sync and nothing to wait for. Goes away with the engine.
+   */
+  applyPatchLocally(
+    sourcePath: SourcePath | ModuleFilePath,
+    patch: Patch,
+    patchId: PatchId,
+    now: number,
+    creatorId?: string,
+  ):
+    | { status: "applied"; moduleFilePath: ModuleFilePath }
+    | {
+        status: "patch-error";
+        message: string;
+        moduleFilePath: ModuleFilePath;
+      } {
+    const res = this.addPatchOnClientOnly(sourcePath, patch, now);
+    if (res.status !== "patch-applies") {
+      return res;
+    }
+    const moduleFilePath = res.moduleFilePath;
+    this.pendingClientPatchIds.push(patchId);
+    this.invalidatePendingClientSidePatchIds();
+    this.patchDataByPatchId[patchId] = {
+      moduleFilePath,
+      patch,
+      isPending: true,
+      createdAt: new Date(now).toISOString(),
+      authorId: this.authorId,
+    };
+    this.invalidateAllPatches();
+    this.addToPatchIdsByModule(moduleFilePath, patchId);
+    this.patchSetInsert(moduleFilePath, patchId, patch, now);
+    if (creatorId) {
+      this.addToCreatorId(creatorId, patchId);
+    }
+    this.invalidateSource(moduleFilePath);
+    // Optimistically re-validate, as `addPatch` does: per-field errors should
+    // surface within a worker round trip rather than on the next sync tick.
+    this.requestModuleValidation(moduleFilePath, { custom: true });
+    return { status: "applied", moduleFilePath };
+  }
+
   createPatchId() {
     const patchId = crypto.randomUUID() as PatchId;
     return patchId;
@@ -3813,6 +3900,12 @@ export class ValSyncEngine {
         status: "retry",
         reason: "not-initialized",
       };
+    }
+    if (this.writesDisabled) {
+      // Nothing to send, and nothing failed. Reported `done` rather than as an
+      // error so the queue drains and no retry loop spins: the patches in it were
+      // already written by the store system, under the same ids.
+      return { status: "done", parentRef };
     }
     const addPatchesRes = await this.client("/patches", "PUT", {
       body: {

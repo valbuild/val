@@ -325,6 +325,12 @@ export function ValProvider({
           }
         },
         createValidationWorker,
+        // Writes are the store system's now. See `ValSyncEngine`'s
+        // `writesDisabled` and `ValStoreShadow`: the server keeps one linear
+        // patch chain and checks every parentRef, so two writers conflict on
+        // every keystroke. This engine still applies patches locally for every
+        // component not yet ported.
+        true,
       ),
     // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
@@ -362,6 +368,27 @@ export function ValProvider({
   }, [serviceUnavailable, showServiceUnavailable]);
 
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
+  /**
+   * What the store system needs out of `/stat`, memoised on the values.
+   *
+   * Memoised because it is handed to an effect: a fresh object per render would
+   * re-announce the same stat on every render, and `receiveStat` fetches the
+   * patch ops it does not have.
+   *
+   * Two fields only. The store system needs the ordered patch ids to learn about
+   * another session's work, and `baseSha` so a write has an honest `parentRef` —
+   * without it `PatchSync` reports every edit unsaveable. `schemaSha` /
+   * `sourcesSha` / `jsonEntriesSha` are inputs to a refetch it does not do yet.
+   */
+  const statPatches =
+    "data" in stat && stat.data ? stat.data.patches : undefined;
+  const storeStat = useMemo(
+    () =>
+      baseSha !== undefined && statPatches !== undefined
+        ? { baseSha, patches: statPatches }
+        : null,
+    [baseSha, statPatches],
+  );
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
@@ -707,6 +734,8 @@ export function ValProvider({
                       <ValStoreShadow
                         client={client}
                         valModules={valModules ?? null}
+                        stat={storeStat}
+                        uploadSettings={getDirectFileUploadSettings}
                       >
                         <LocalModulesErrorBanner syncEngine={syncEngine} />
                         {children}
