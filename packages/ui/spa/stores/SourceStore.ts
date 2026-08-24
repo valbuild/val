@@ -447,6 +447,58 @@ export class SourceStore {
       : { status: "error", message: failure };
   }
 
+  /**
+   * Make the patched value the BASE value, for modules whose patches just landed.
+   *
+   * For the moment after a publish. The patches are now in the repository, so the
+   * chain that produced this value is about to be dropped — and dropping it while
+   * the base is still the pre-publish text would revert every published field on
+   * screen until the next source fetch arrives. The engine calls this "baking",
+   * and needs ~20 lines for it; here it is an assignment, because the store
+   * already keeps base and patched apart.
+   *
+   * No `bump`: the VALUE does not change. That is the entire point — the base
+   * swaps out from under the patched view atomically and nothing repaints. A
+   * revision bump would wake every field to tell it nothing happened.
+   *
+   * The next real `receive()` overwrites this with the authoritative text, so if
+   * the server's version differs from what was on screen, that read is what heals
+   * it.
+   */
+  promoteToBase(modules: readonly ModuleFilePath[]): void {
+    for (const moduleFilePath of modules) {
+      const patched = this.sources[moduleFilePath];
+      if (patched === undefined) continue;
+      this.activity.work("source:promote-to-base", moduleFilePath);
+      this.baseSources[moduleFilePath] = deepClone(patched as JSONValue);
+    }
+  }
+
+  /**
+   * Forget these patches WITHOUT rebuilding source.
+   *
+   * The counterpart to the drop that `patch:drop` triggers, and the difference is
+   * the whole reason both exist. A dropped patch was refused: its effect must
+   * disappear, so source is rebuilt from base plus what survives. A PUBLISHED
+   * patch's effect must stay: it is in the base now, so rebuilding would be
+   * correct only if the base had already been refetched, and until then it would
+   * revert the value on screen.
+   *
+   * So: take them out of the chain and leave `sources` alone. Pair it with
+   * {@link promoteToBase} and the displayed value never moves.
+   */
+  forgetPublished(patchIds: readonly PatchId[]): void {
+    const published = new Set(patchIds);
+    for (const [moduleFilePath, chain] of this.chains) {
+      const surviving = chain.filter(
+        (entry) => !published.has(entry.record.patchId),
+      );
+      if (surviving.length !== chain.length) {
+        this.chains.set(moduleFilePath, surviving);
+      }
+    }
+  }
+
   /** Where this module's source has got to. */
   revisionOf(moduleFilePath: ModuleFilePath): Revision {
     return {

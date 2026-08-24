@@ -50,6 +50,8 @@ export function createValSystem(
     writes?: boolean;
     mirror?: boolean;
     uploadSettings?: UploadSettings;
+    /** Whether a publish leaves the patches on the server. See `SystemOptions`. */
+    mode?: "fs" | "http";
   },
 ): System {
   return createSystem({
@@ -252,6 +254,77 @@ export function createValSystem(
         };
       }
       return { status: "ok", content: entry.content ?? null };
+    },
+
+    mode: options?.mode,
+
+    /**
+     * `POST /save`.
+     *
+     * The three failure shapes are kept apart because they demand different
+     * things. A 409 is someone else committing first — retry once caught up. A
+     * 400 names the patches that cannot be applied, and carrying them per id is
+     * the only way a TS-AST-only failure ever reaches an editor: the client
+     * applies patches to evaluated JSON and cannot see those at all.
+     */
+    publishPatches: async ({ patchIds, message }) => {
+      const res = await client("/save", "POST", {
+        body: { message, patchIds },
+      });
+      if (res.status === null) {
+        return {
+          status: "network-error",
+          message: "message" in res.json ? res.json.message : "Network error",
+        };
+      }
+      if (res.status === 200) {
+        return { status: "published" };
+      }
+      if (res.status === 409) {
+        return { status: "not-fast-forward", message: res.json.message };
+      }
+      if (res.status === 400) {
+        const errors: Record<PatchId, string> = {};
+        const details = "details" in res.json ? res.json.details : undefined;
+        if (Array.isArray(details)) {
+          for (const detail of details) {
+            if (
+              typeof detail === "object" &&
+              detail !== null &&
+              "patchId" in detail &&
+              "message" in detail
+            ) {
+              errors[detail.patchId as PatchId] = String(detail.message);
+            }
+          }
+        }
+        return { status: "patch-errors", message: res.json.message, errors };
+      }
+      return {
+        status: "error",
+        message:
+          "message" in res.json
+            ? res.json.message
+            : `POST /save failed with status ${res.status}`,
+      };
+    },
+
+    discardPatches: async (patchIds) => {
+      const res = await client("/patches", "DELETE", {
+        query: { id: patchIds },
+      });
+      if (res.status !== 200) {
+        return {
+          status: "error",
+          message:
+            res.status !== null && "message" in res.json
+              ? res.json.message
+              : `DELETE /patches failed with status ${res.status ?? "network"}`,
+        };
+      }
+      // The ids the server says it deleted. A partial delete must not make the
+      // client forget a patch that still exists.
+      return { status: "discarded", patchIds: res.json };
     },
 
     ...(options?.writes === true

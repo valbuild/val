@@ -70,6 +70,14 @@ export type WorkKind =
    * the patch — which is why it is not counted as an apply.
    */
   | "source:rebuild-module"
+  /**
+   * One module's patched value became its base value, after a publish.
+   *
+   * Counted because it is the one operation that changes base source WITHOUT
+   * changing the value or bumping a revision, which is exactly the kind of thing
+   * that is easy to do twice and impossible to see.
+   */
+  | "source:promote-to-base"
   // --- patch chain ----------------------------------------------------------
   /** One `fetchPatches` round trip. `count` is how many ids it asked for. */
   | "patch:fetch"
@@ -98,6 +106,8 @@ export type WorkKind =
   | "patch:save-retry"
   /** Patches removed from the chain. `count` is how many. */
   | "patch:drop"
+  /** Published patches taken out of the chain, source left alone. */
+  | "patch:forget-published"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------

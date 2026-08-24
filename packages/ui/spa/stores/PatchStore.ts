@@ -504,6 +504,38 @@ export class PatchStore {
   }
 
   /**
+   * Forget published patches: out of the chain, source untouched.
+   *
+   * Not {@link drop}. A dropped patch was refused and its effect must disappear;
+   * a published patch's effect is now in the base and must stay. So this emits no
+   * `patch:drop` — the source store is told separately, in the order that keeps
+   * the displayed value still (see `SourceStore.forgetPublished`).
+   */
+  forgetPublished(patchIds: readonly PatchId[]): void {
+    const forgotten: PatchId[] = [];
+    for (const patchId of patchIds) {
+      if (!this.dataById.has(patchId) && !this.ordered.includes(patchId)) {
+        continue;
+      }
+      this.dataById.delete(patchId);
+      this.originById.delete(patchId);
+      this.pendingIds.delete(patchId);
+      this.appliedIds.delete(patchId);
+      this.failedById.delete(patchId);
+      this.creatorByPatchId.delete(patchId);
+      this.sessionByPatchId.delete(patchId);
+      this.fetching.delete(patchId);
+      forgotten.push(patchId);
+    }
+    if (forgotten.length === 0) return;
+    const gone = new Set(forgotten);
+    this.ordered = this.ordered.filter((patchId) => !gone.has(patchId));
+    this.version++;
+    this.activity.work("patch:forget-published", undefined, forgotten.length);
+    this.events.emit({ type: "patch:head", head: this.currentHead() });
+  }
+
+  /**
    * Remove patches from the chain entirely.
    *
    * For a patch the server refused PERMANENTLY (400): it cannot be retried and

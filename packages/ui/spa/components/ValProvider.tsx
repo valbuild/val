@@ -382,6 +382,7 @@ export function ValProvider({
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
+  const statMode = "data" in stat && stat.data ? stat.data.mode : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -735,6 +736,7 @@ export function ValProvider({
                         client={client}
                         valModules={valModules ?? null}
                         stat={storeStat}
+                        mode={statMode}
                         uploadSettings={getDirectFileUploadSettings}
                       >
                         <LocalModulesErrorBanner syncEngine={syncEngine} />

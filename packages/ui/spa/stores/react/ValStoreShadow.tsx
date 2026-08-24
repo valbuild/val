@@ -76,6 +76,7 @@ export function ValStoreShadow({
   client,
   valModules,
   stat,
+  mode,
   uploadSettings,
   children,
 }: {
@@ -88,12 +89,20 @@ export function ValStoreShadow({
    * — without it `PatchSync` reports every edit unsaveable).
    */
   stat: { baseSha: string; patches: PatchId[] } | null;
+  /**
+   * Whether a publish leaves the patches on the server. From `/stat`.
+   *
+   * It changes what the client must do after a successful publish, so guessing is
+   * not an option: in `fs` the patches are applied to the files and deleted, in
+   * `http` they persist and are re-applied. See `SystemOptions.mode`.
+   */
+  mode: "fs" | "http" | undefined;
   uploadSettings: UploadSettings;
   children: ReactNode;
 }) {
   const system = useMemo<System>(
-    () => createValSystem(client, { writes: true, uploadSettings }),
-    [client, uploadSettings],
+    () => createValSystem(client, { writes: true, uploadSettings, mode }),
+    [client, uploadSettings, mode],
   );
   const [received, setReceived] = useState(false);
 

@@ -1,5 +1,6 @@
 import type {
   ModuleFilePath,
+  PatchId,
   SelectorSource,
   SerializedSchema,
   Source,
@@ -40,6 +41,11 @@ import type { SerializedPatchSet } from "../utils/PatchSets";
 import type { SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
 import { StaleModules } from "./StaleModules";
+import type {
+  DiscardPatches,
+  PublishPatches,
+  PublishResult,
+} from "./PublishSeam";
 import type {
   PatchSetBridge,
   ReferenceBridge,
@@ -123,6 +129,24 @@ export type System = HostRealm &
     findReferences(query: ReferenceQuery): Promise<ReferenceScan>;
     /** What the field at one path points at. Scans first if a pass is owed. */
     referenceAt(path: SourcePath): Promise<Reference | null>;
+    /**
+     * Commit patches, if they are publishable.
+     *
+     * On the system because it is the one operation that needs three stores at
+     * once: validation decides whether it may happen, patches say what is being
+     * published, and source has to be left showing the right thing afterwards.
+     */
+    publish(patchIds: PatchId[], message?: string): Promise<PublishResult>;
+    /**
+     * Throw patches away.
+     *
+     * The opposite of publish in the one way that matters here: a discarded
+     * patch's effect must DISAPPEAR, so source is rebuilt without it, whereas a
+     * published patch's effect stays because it is in the base now.
+     */
+    discard(
+      patchIds: PatchId[],
+    ): Promise<{ status: "discarded" } | { status: "failed"; message: string }>;
     dispose(): void;
   };
 
@@ -175,6 +199,20 @@ export type SystemOptions = {
    * parent and can only fail again.
    */
   resyncChain?: ResyncChain;
+  /** `POST /save`. Omitting it means this system cannot publish. */
+  publishPatches?: PublishPatches;
+  /** `DELETE /patches`. Omitting it means this system cannot discard. */
+  discardPatches?: DiscardPatches;
+  /**
+   * Does a publish leave the patches on the server?
+   *
+   * `fs` applies the patches to the `.val` files and deletes them, so the client
+   * must take them out of its chain and keep showing the value. `http` keeps them
+   * server-side and re-applies them, so the chain must stay or the value would be
+   * counted twice. Defaults to `fs`, which is dev — the mode a wrong guess is
+   * cheapest in.
+   */
+  mode?: "fs" | "http";
   /** Attributes writes to this editing session. Metadata; nothing branches on it. */
   sessionId?: string | null;
   /** Retry backoff, injected so a test does not wait real seconds. */
@@ -295,6 +333,8 @@ export function createSystem(options: SystemOptions): System {
   // side for the same reason `StaleModules` is: the host saw the change. See
   // `PatchSetChain` for why it is a prefix test rather than a list of moments.
   const patchSetChain = new PatchSetChain();
+  /** One publish at a time. See `publish`. */
+  let publishing = false;
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -512,6 +552,112 @@ export function createSystem(options: SystemOptions): System {
       const result = await searchStore.buildIndex(gatherSnapshot(loaded));
       searchStale.covers(result.all);
       return result;
+    },
+    async publish(patchIds, message) {
+      if (options.publishPatches === undefined) {
+        return {
+          status: "failed",
+          message: "This system has no publish seam configured.",
+          retryable: false,
+        };
+      }
+      if (patchIds.length === 0) {
+        return { status: "nothing-to-publish" };
+      }
+      if (publishing) {
+        // Two publishes of overlapping patches is a race whose loser publishes
+        // ids the winner has already consumed. Refused rather than queued: a
+        // second publish is a second click, and the honest answer is "one is
+        // already running".
+        return { status: "refused", reason: "already-publishing" };
+      }
+      publishing = true;
+      try {
+        // Validate the affected modules FIRST, and validate them rather than
+        // reading what is cached. The engine's own comment explains why: custom
+        // validators run on their own module's change, so a module edited before
+        // a validator existed — or edited in another session — has never had them
+        // run. Reading a cached result would make the gate recent rather than
+        // complete.
+        const affected = new Set<ModuleFilePath>();
+        for (const record of patchStore.recordsFor(patchIds)) {
+          affected.add(record.moduleFilePath);
+        }
+        const invalid: ModuleFilePath[] = [];
+        for (const moduleFilePath of affected) {
+          const result = await validationStore.validate(moduleFilePath);
+          if (
+            result.status === "validated" &&
+            result.errors !== false &&
+            Object.keys(result.errors).length > 0
+          ) {
+            invalid.push(moduleFilePath);
+          }
+        }
+        if (invalid.length > 0) {
+          return {
+            status: "refused",
+            reason: "validation-errors",
+            modules: invalid,
+          };
+        }
+
+        const outcome = await options.publishPatches({ patchIds, message });
+        if (outcome.status === "patch-errors") {
+          return {
+            status: "failed",
+            message: outcome.message,
+            patchErrors: outcome.errors,
+            retryable: false,
+          };
+        }
+        if (outcome.status !== "published") {
+          return {
+            status: "failed",
+            message: outcome.message,
+            // A 409 means someone else committed first, which is retryable once
+            // this client has caught up. A network error says nothing about
+            // whether the publish happened, which is also retryable — and is why
+            // `/save` has to be idempotent in the patch ids it is given.
+            retryable:
+              outcome.status === "not-fast-forward" ||
+              outcome.status === "network-error",
+          };
+        }
+
+        if ((options.mode ?? "fs") === "fs") {
+          // ORDER MATTERS, and this is the whole reason both methods exist.
+          // Promote first: the patched value becomes the base, so when the chain
+          // goes the displayed value does not move. Reversed, every published
+          // field would flash back to its pre-publish text until the next source
+          // fetch landed.
+          sourceStore.promoteToBase([...affected]);
+          sourceStore.forgetPublished(patchIds);
+          patchStore.forgetPublished(patchIds);
+        }
+        // In `http` mode the patches stay server-side and are re-applied, so the
+        // chain stays too — removing it would show the value without them until
+        // the next fetch, and promoting the base would then double-apply.
+        return { status: "published", patchIds };
+      } finally {
+        publishing = false;
+      }
+    },
+    async discard(patchIds) {
+      if (options.discardPatches === undefined) {
+        return {
+          status: "failed",
+          message: "This system has no discard seam configured.",
+        };
+      }
+      const res = await options.discardPatches(patchIds);
+      if (res.status === "error") {
+        return { status: "failed", message: res.message };
+      }
+      // The ids the SERVER says it deleted, not the ids we asked about: a partial
+      // delete must not make the client forget a patch that still exists.
+      patchStore.drop(res.patchIds);
+      return { status: "discarded" };
     },
     dispose() {
       for (const off of unsubscribe) off();
