@@ -1067,35 +1067,6 @@ type ShallowSource = {
   richtext: unknown[];
 };
 
-function getShallowSourceAtSourcePath<
-  SchemaType extends SerializedSchema["type"],
->(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  type: SchemaType,
-  sources: Json,
-  clientSideOnly: boolean,
-): ShallowSourceOf<SchemaType> {
-  const source = walkSourcePath(modulePath, sources);
-  if ("data" in source && source.data !== undefined) {
-    const mappedSource = mapSource(
-      moduleFilePath,
-      modulePath,
-      type,
-      source.data,
-    );
-    if (mappedSource.status === "success") {
-      return {
-        status: "success",
-        data: mappedSource.data,
-        clientSideOnly,
-      };
-    }
-    return mappedSource;
-  }
-  return source as ShallowSourceOf<SchemaType>;
-}
-
 function mapSource<SchemaType extends SerializedSchema["type"]>(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
@@ -1340,7 +1311,7 @@ export function useShallowSourceAtPath<
       sourceOverride.moduleFilePath === moduleFilePath &&
       type !== undefined
     ) {
-      return getShallowSourceAtSourcePath(
+      return walkShallowSource(
         moduleFilePath,
         modulePath,
         type,
@@ -1400,11 +1371,10 @@ export function useShallowSourceAtPath<
 }
 
 /**
- * The peek's value, mapped to the shallow shape a field renders.
+ * A value already AT the path, mapped to the shallow shape a field renders.
  *
- * Split out from {@link getShallowSourceAtSourcePath} because the walk has
- * already happened: `peek` resolved the path in the store, so the value here is
- * the value AT the path and there is nothing left to walk.
+ * The common case: `peek` resolved the path in the store, so there is nothing
+ * left to walk. {@link walkShallowSource} is the other one.
  */
 function mapShallowSource<SchemaType extends SerializedSchema["type"]>(
   moduleFilePath: ModuleFilePath,
@@ -1418,6 +1388,33 @@ function mapShallowSource<SchemaType extends SerializedSchema["type"]>(
     return { status: "success", data: mapped.data, clientSideOnly };
   }
   return mapped;
+}
+
+/**
+ * The same, for a whole MODULE source that still has to be walked.
+ *
+ * Only the compare view needs this: it supplies the committed module through
+ * `FieldSourceOverrideContext`, so no store resolved the path and the walk has
+ * to happen here.
+ */
+function walkShallowSource<SchemaType extends SerializedSchema["type"]>(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath,
+  type: SchemaType,
+  moduleSource: Json,
+  clientSideOnly: boolean,
+): ShallowSourceOf<SchemaType> {
+  const walked = walkSourcePath(modulePath, moduleSource);
+  if (walked.status !== "success") {
+    return walked;
+  }
+  return mapShallowSource(
+    moduleFilePath,
+    modulePath,
+    type,
+    walked.data,
+    clientSideOnly,
+  );
 }
 
 const NOT_FOUND: { status: "not-found" } = { status: "not-found" };

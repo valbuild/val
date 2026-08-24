@@ -308,6 +308,11 @@ describe("a permanently rejected patch is dropped, not retried", () => {
       message: "that patch is nonsense",
     });
 
+    let rejected: { message: string; patches: string[] } | null = null;
+    patchSync.events.on("patch:save-rejected", (event) => {
+      rejected = { message: event.message, patches: [...event.patches] };
+    });
+
     const doomed = await patchStore.createPatch("/t.val.ts", [
       { op: "replace", path: ["title"], value: "will not survive" },
     ]);
@@ -328,11 +333,13 @@ describe("a permanently rejected patch is dropped, not retried", () => {
     });
     expect(server.patchIds()).toEqual([]);
     expect(patchStore.isPending(doomed.patchId)).toBe(false);
-    // Reported as a REJECTION, not as a queue state. The queue after a drop is
-    // genuinely in-sync — nothing is pending — so a `rejected` status would be
-    // overwritten by the truth on the very next drain, which is how the one
-    // outcome that destroys an edit became the one a UI could not see.
-    expect(patchSync.lastRejection()).toMatchObject({
+    // Announced, not left as a queue state. The queue after a drop is genuinely
+    // in-sync — nothing is pending — so a `rejected` STATUS would be overwritten
+    // by the truth on the very next drain, which is how the one outcome that
+    // destroys an edit became the one a UI could not see. It is an event, and
+    // `createSystem` turns it into a sticky error the user is shown; see
+    // "tells the user their edit was reverted" below.
+    expect(rejected).toMatchObject({
       message: "that patch is nonsense",
       patches: [doomed.patchId],
     });
@@ -406,6 +413,52 @@ describe("a permanently rejected patch is dropped, not retried", () => {
       data: "Hello",
     });
     dispose();
+  });
+});
+
+/**
+ * The half a store-level test cannot see: that a rejection reaches a person.
+ *
+ * `patchSync` announces it; `createSystem` is what turns the announcement into a
+ * sticky error the Studio shows (`useGlobalTransientErrors` ->
+ * `TransientErrorsDisplay`). Wired there rather than inside `PatchSync` because
+ * the store must not know what a UI is — and because that wiring is exactly the
+ * kind that is written once and believed forever.
+ */
+describe("a rejected patch is reported to the user", () => {
+  it("tells them their edit was reverted, and does not un-tell them", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `rejected-${++next}` as PatchId;
+      })(),
+      savePatches: async () => ({
+        status: "rejected",
+        message: "that patch is nonsense",
+      }),
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "will not survive" },
+    ]);
+    await system.patchSync.flush();
+
+    expect(system.status.current().errors).toHaveLength(1);
+    expect(system.status.current().errors[0]).toMatchObject({
+      message: "An edit could not be saved and has been reverted.",
+      details: "that patch is nonsense",
+    });
+    // Sticky. The queue is in-sync now — there is nothing left to be pending —
+    // so anything derived from the queue state would have erased this by the
+    // time a user looked at it.
+    expect(system.patchSync.currentState()).toMatchObject({
+      status: "in-sync",
+    });
+    expect(system.status.current().errors).toHaveLength(1);
+    system.dispose();
   });
 });
 

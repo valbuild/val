@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import type { SourcePath } from "@valbuild/core";
-import { useModuleValidation, useSourceAtPath } from ".";
+import { useModuleValidation } from "./useValidationErrors";
+import { useSourceAtPath } from "../../components/ValFieldProvider";
 import { Internal } from "@valbuild/core";
 
 /**
  * One field, rendered through the new hooks, inside the real Studio.
  *
- * Mounted by `ValStoreProvider` and invisible. It exists because "the stores run in
- * the app" and "the hooks render in the app" are different claims, and only the
- * second one is what a component would depend on: the shadow mount proves the
- * system takes real modules in, and this proves a React component can get a value
- * out of it through the same path a real field would take.
+ * Mounted by `ValStoreProvider` and invisible. `e2e/studio-ui.spec.ts` covers
+ * real fields showing real values, so what this still adds is narrower and worth
+ * naming: it reads a path chosen at RUNTIME and reports the module's validation
+ * status alongside the value, which is the only assertion anywhere that schema
+ * validation completed in a real browser — through a real worker, since
+ * `schemaValidationBridge.ts`. A field that renders proves the value arrived; it
+ * does not prove validation did.
+ *
+ * The hooks are `ValFieldProvider`'s, deliberately: the claim is about the path a
+ * real field takes, so testing a different one would be testing nothing.
  *
  * The path comes from outside — `window.__VAL_STORE_PROBE__(path)` — because a
  * component cannot be handed a path by a test any other way: hooks cannot be

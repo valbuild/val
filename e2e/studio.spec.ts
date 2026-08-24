@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clearPatchChain, openStudio } from "./studio";
 
 /**
  * The Studio, driven the way an editor drives it.
@@ -91,28 +92,6 @@ function unexplained(errors: readonly ConsoleError[]): ConsoleError[] {
   );
 }
 
-async function waitForStudio(page: Page): Promise<void> {
-  await page.goto("/val");
-  // Intake, not a load event: the SPA bundle has to run, fetch its schema and
-  // sources, and take the project in. `__VAL_STORES__` is set by the provider
-  // once that is done.
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: 60_000,
-        message: "the store system never took the project in",
-      },
-    )
-    .toBe(true);
-}
-
 async function probe(page: Page): Promise<StoreProbe> {
   return page.evaluate(() => {
     const bag = window as unknown as {
@@ -139,32 +118,14 @@ async function probe(page: Page): Promise<StoreProbe> {
 }
 
 test.describe("the Studio runs on the store system", () => {
-  /**
-   * Start from a clean chain.
-   *
-   * `examples/next/.val` is a fixture directory, gitignored and owned by whoever
-   * is running the example app — which, for the length of this suite, is this
-   * suite. Without the reset the patch chain grows by four on every run, `/stat`
-   * gets slower, and eventually a test fails for a reason that has nothing to do
-   * with the code under test.
-   *
-   * It is a `beforeAll`, not a `beforeEach`: the tests are written to be relative
-   * to whatever they find (see the discard test, which compares against the value
-   * it read rather than against the committed source), so they compose, and
-   * resetting between them would only hide an ordering bug.
-   */
+  // Start from a clean chain. See `clearPatchChain`.
+  //
+  // A `beforeAll`, not a `beforeEach`: these tests are written to be relative to
+  // whatever they find (see the discard test, which compares against the value it
+  // read rather than against the committed source), so they compose, and
+  // resetting between them would only hide an ordering bug.
   test.beforeAll(async ({ request }) => {
-    const listed = await request.get("/api/val/patches");
-    expect(listed.ok()).toBe(true);
-    const body = (await listed.json()) as { patches: { patchId: string }[] };
-    if (body.patches.length === 0) return;
-    const query = body.patches
-      .map((patch) => `id=${encodeURIComponent(patch.patchId)}`)
-      .join("&");
-    const deleted = await request.delete(`/api/val/patches?${query}`);
-    expect(deleted.ok(), "could not clear the example app's patch chain").toBe(
-      true,
-    );
+    await clearPatchChain(request);
   });
 
   test("takes the real project in and can name a write parent", async ({
@@ -172,7 +133,7 @@ test.describe("the Studio runs on the store system", () => {
   }) => {
     const errors = collectConsoleErrors(page);
 
-    await waitForStudio(page);
+    await openStudio(page);
     const seen = await probe(page);
 
     // A real project, not a fixture.
@@ -195,7 +156,7 @@ test.describe("the Studio runs on the store system", () => {
     page,
     request,
   }) => {
-    await waitForStudio(page);
+    await openStudio(page);
 
     const patchId = await page.evaluate(async () => {
       const bag = window as unknown as {
@@ -219,7 +180,12 @@ test.describe("the Studio runs on the store system", () => {
         "/content/authors.val.ts",
         [{ op: "replace", path: ["teddy", "name"], value: "Edited by e2e" }],
       );
-      if (res.status !== "created") {
+      // `in`, not a status check: the failure branch's `status` is a plain
+      // `string` here, so it overlaps `"created"` and TypeScript cannot narrow
+      // on it. Nothing in CI typechecks `e2e/` — `pnpm run -r typecheck` is
+      // per-package and this is at the root — so a cast would have hidden it
+      // until the suite failed at runtime with something unrelated-looking.
+      if (!("record" in res)) {
         throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
       }
       await system.patchSync.flush();
@@ -251,7 +217,7 @@ test.describe("the Studio runs on the store system", () => {
    * applied to source rather than the field happening to re-render.
    */
   test("shows the written value through the hooks", async ({ page }) => {
-    await waitForStudio(page);
+    await openStudio(page);
 
     await page.evaluate(async () => {
       const bag = window as unknown as {
@@ -315,7 +281,7 @@ test.describe("the Studio runs on the store system", () => {
    * place `DELETE /patches` exists.
    */
   test("discards a patch and the value returns", async ({ page }) => {
-    await waitForStudio(page);
+    await openStudio(page);
 
     const before = await page.evaluate(() => {
       const bag = window as unknown as {

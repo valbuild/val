@@ -77,25 +77,6 @@ export type SyncState =
     };
 
 /**
- * A permanent refusal, kept until someone acknowledges it.
- *
- * NOT a {@link SyncState}, which is where it started and which was wrong. The
- * queue state after a rejection is genuinely `in-sync` — the patches were
- * dropped, so nothing is pending — and the very next drain therefore overwrote
- * `rejected` with the truth, which meant the one outcome that destroys a user's
- * edit was also the one a UI could not reliably see. So the queue reports the
- * queue and this reports the failure, and neither can erase the other.
- *
- * Sticky on purpose: cleared by {@link PatchSync.clearRejection} and by nothing
- * else. A rejection that expires on its own is a rejection someone misses.
- */
-export type SaveRejection = {
-  patches: PatchId[];
-  message: string;
-  errors?: Record<ModuleFilePath, string[]>;
-};
-
-/**
  * The write-back loop.
  *
  * ## Why this is a store and not a method on `PatchStore`
@@ -210,7 +191,6 @@ export class PatchSync {
   private inFlight: Promise<void> | null = null;
   private attempt = 0;
   private state: SyncState = { status: "in-sync" };
-  private rejection: SaveRejection | null = null;
   private stopped = false;
 
   constructor(
@@ -274,16 +254,6 @@ export class PatchSync {
 
   currentState(): SyncState {
     return this.state;
-  }
-
-  /** The last permanent refusal, until it is acknowledged. */
-  lastRejection(): SaveRejection | null {
-    return this.rejection;
-  }
-
-  /** The caller has shown the user. Forget it. */
-  clearRejection(): void {
-    this.rejection = null;
   }
 
   /**
@@ -437,11 +407,6 @@ export class PatchSync {
       // alternative is a user staring at an edit that will never exist.
       this.attempt = 0;
       this.patchStore.drop(sent);
-      this.rejection = {
-        patches: sent,
-        message: result.message,
-        errors: result.errors,
-      };
       this.events.emit({
         type: "patch:save-rejected",
         patches: sent,

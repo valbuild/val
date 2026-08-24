@@ -3,7 +3,7 @@
  * Generates `content/handbook.val.ts` — the example app's stand-in for a large
  * real handbook.
  *
- *   pnpm handbook generate [chapters] [sections]   default 24 x 10
+ *   pnpm handbook generate [chapters] [sections]   default 4 x 3
  *   pnpm handbook status
  *
  * ## Why this fixture exists
@@ -33,8 +33,23 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptDir, "..");
 const MODULE = path.join(appDir, "content", "handbook.val.ts");
 
-const DEFAULT_CHAPTERS = 24;
-const DEFAULT_SECTIONS = 10;
+/**
+ * Small by default, and deliberately.
+ *
+ * What this fixture is FOR is the SHAPE — `select` at two nested array levels —
+ * and four chapters of three sections has it exactly as much as twenty-four of
+ * ten does. The large version was committed once and was 9414 lines of generated
+ * content in every diff that touched this app, for a property the first two
+ * chapters already demonstrate.
+ *
+ * Scale belongs in the benchmark, which generates its own project and can size it
+ * per run (`packages/ui/spa/bench/generateProject.ts`). If you want a big one here
+ * for manual poking, ask for it — `pnpm handbook generate 24 10` — but do not
+ * commit it: the default has to match what is checked in, or `pnpm handbook` with
+ * no arguments leaves a 9000-line diff behind.
+ */
+const DEFAULT_CHAPTERS = 4;
+const DEFAULT_SECTIONS = 3;
 
 /**
  * Deterministic pseudo-random, seeded per call site.

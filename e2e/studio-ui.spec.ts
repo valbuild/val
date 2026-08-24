@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
 
 /**
  * The Studio, driven through its own UI.
@@ -20,26 +21,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * through `.shadowRoot` explicitly.
  */
 
-/** Long enough for `next dev` to compile the route on the first test. */
-const INTAKE_TIMEOUT = 60_000;
-
-async function openStudio(page: Page): Promise<Locator> {
-  await page.goto("/val");
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      {
-        timeout: INTAKE_TIMEOUT,
-        message: "the Studio never took the project in",
-      },
-    )
-    .toBe(true);
+/** Open the Studio, and hand back the shadow root everything lives inside. */
+async function studioRoot(page: Page): Promise<Locator> {
+  await openStudio(page);
   return page.locator("#val-shadow-root");
 }
 
@@ -54,28 +38,8 @@ async function fieldValues(page: Page): Promise<string[]> {
   });
 }
 
-/** Patch ids the store currently holds, straight from the system. */
-async function chainLength(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const bag = window as unknown as {
-      __VAL_STORES__?: {
-        system: { patchStore: { allRecords(): unknown[] } };
-      };
-    };
-    return bag.__VAL_STORES__?.system.patchStore.allRecords().length ?? 0;
-  });
-}
-
-/** Clear the chain, so each run starts from the same place. See `studio.spec.ts`. */
 test.beforeAll(async ({ request }) => {
-  const listed = await request.get("/api/val/patches");
-  expect(listed.ok()).toBe(true);
-  const body = (await listed.json()) as { patches: { patchId: string }[] };
-  if (body.patches.length === 0) return;
-  const query = body.patches
-    .map((patch) => `id=${encodeURIComponent(patch.patchId)}`)
-    .join("&");
-  expect((await request.delete(`/api/val/patches?${query}`)).ok()).toBe(true);
+  await clearPatchChain(request);
 });
 
 test.describe("the Studio, through its own UI", () => {
@@ -89,7 +53,7 @@ test.describe("the Studio, through its own UI", () => {
   test("renders the project's navigation from real content", async ({
     page,
   }) => {
-    const studio = await openStudio(page);
+    const studio = await studioRoot(page);
     await expect(studio.getByRole("button", { name: "Pages" })).toBeVisible();
     // Routes discovered from the app's own route modules...
     await expect(
@@ -111,7 +75,7 @@ test.describe("the Studio, through its own UI", () => {
    * `useShallowSourceAtPath` reads the value -> the field renders it.
    */
   test("opens a module and shows its values", async ({ page }) => {
-    const studio = await openStudio(page);
+    const studio = await studioRoot(page);
     await studio.getByRole("button", { name: "generic", exact: true }).click();
     await studio.getByRole("button", { name: "test", exact: true }).click();
 
@@ -134,7 +98,7 @@ test.describe("the Studio, through its own UI", () => {
    * that wrote nothing.
    */
   test("types into a field and writes exactly one patch", async ({ page }) => {
-    const studio = await openStudio(page);
+    const studio = await studioRoot(page);
     await studio.getByRole("button", { name: "generic", exact: true }).click();
     await studio.getByRole("button", { name: "test", exact: true }).click();
     await expect.poll(() => fieldValues(page)).toContain("Generic");
@@ -179,7 +143,7 @@ test.describe("the Studio, through its own UI", () => {
    * on screen would be the reversed-order bug `system.publish` documents.
    */
   test("saves the pending change and keeps showing it", async ({ page }) => {
-    const studio = await openStudio(page);
+    const studio = await studioRoot(page);
     // Start from the committed state, whatever the tests before this one left.
     await discardAll(page);
 
@@ -235,27 +199,6 @@ test.describe("the Studio, through its own UI", () => {
     await expect(title).toHaveValue(committed as string);
   });
 });
-
-/** Throw away every patch in the chain, so the next test starts where this did. */
-async function discardAll(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const bag = window as unknown as {
-      __VAL_STORES__: {
-        system: {
-          discard(ids: string[]): Promise<{ status: string; message?: string }>;
-          patchStore: { allRecords(): { patchId: string }[] };
-        };
-      };
-    };
-    const system = bag.__VAL_STORES__.system;
-    const ids = system.patchStore.allRecords().map((record) => record.patchId);
-    if (ids.length === 0) return;
-    const res = await system.discard(ids);
-    if (res.status !== "discarded") {
-      throw new Error(`could not discard: ${res.message ?? res.status}`);
-    }
-  });
-}
 
 /** Type a value into a field, publish it, and wait for the chain to empty. */
 async function typeAndSave(

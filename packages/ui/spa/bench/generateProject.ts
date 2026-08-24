@@ -104,7 +104,7 @@ export const SIZES: Record<string, ProjectSize> = {
    *
    * - `/~/app/page.val.ts`, the richest real module (object, array, keyOf, route,
    *   richtext, file): a content area of 63 elements showing ~15 field rows.
-   * - `/~/content/handbook.val.ts`, the 24-chapter list: 507 elements, 74
+   * - `/~/content/handbook.val.ts`, a 24-chapter list: 507 elements, 74
    *   buttons, ~24 rows.
    *
    * The Studio renders a compact PREVIEW row per field rather than a form full of

@@ -383,6 +383,37 @@ export function createSystem(options: SystemOptions): System {
     // reach the server whether or not anything reads it again. So the sync
     // subscribes to `patch:create` and drives itself.
     patchSync.listenTo(),
+    /**
+     * A permanently refused patch has to reach the USER.
+     *
+     * This is the one outcome in the whole system that destroys local state
+     * without being asked to: the server said 400, so the patch is dropped and
+     * source is rebuilt without it — the alternative being a user staring at an
+     * edit that will never exist anywhere. But then their edit is simply gone
+     * from the screen, and nothing says why. Silently reverting what someone
+     * typed is the worst thing this system can do, so it is reported.
+     *
+     * A transient error rather than a state, because the queue after the drop is
+     * genuinely in-sync: there is nothing left to say about it, and a status that
+     * meant "in sync, but something was thrown away" would be read as neither.
+     * `StatusStore` errors are sticky until dismissed, which is the property a
+     * rejection needs.
+     */
+    patchSync.events.on("patch:save-rejected", (event) => {
+      status.reportError(
+        event.patches.length === 1
+          ? "An edit could not be saved and has been reverted."
+          : `${event.patches.length} edits could not be saved and have been reverted.`,
+        event.errors
+          ? Object.entries(event.errors)
+              .map(
+                ([moduleFilePath, messages]) =>
+                  `${moduleFilePath}: ${messages.join(", ")}`,
+              )
+              .join("\n")
+          : event.message,
+      );
+    }),
     // The parent ref is computed from stat, so the sync has to see every stat.
     // Read from the store rather than carried on the event, so the event stays
     // an announcement rather than becoming the API — see `currentBaseSha`.

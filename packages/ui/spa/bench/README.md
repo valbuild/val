@@ -129,7 +129,7 @@ to stop guessing:
 `examples/next` was run for real — Next dev server plus the UI's Vite dev server
 — and the Studio driven over CDP to count what a screen mounts.
 `/~/app/page.val.ts`, the richest real module, renders a content area of 63
-elements: **~15 field rows**. The 24-chapter handbook list renders ~24 rows. The
+elements: **~15 field rows**. A 24-chapter handbook list renders ~24 rows. The
 Studio shows a compact PREVIEW row per field, not a form full of inputs.
 
 So `screen` is 16 mounted fields, and at that count there is no loss anywhere.
