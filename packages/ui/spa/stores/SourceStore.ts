@@ -254,12 +254,100 @@ export class SourceStore {
     private readonly fetchJsonEntry?: FetchJsonEntry,
   ) {}
 
+  /**
+   * A counter over EVERY module, moved by every `bump`.
+   *
+   * For a whole-project reader — "all sources", the nav tree, search — whose
+   * snapshot has to be a stable value that changes when anything could have.
+   * A number, so it is stable by construction; the same reasoning as
+   * `SchemaStore.version`.
+   */
+  private globalRevision = 0;
+
   private bump(moduleFilePath: ModuleFilePath): void {
     this.revisions.set(
       moduleFilePath,
       (this.revisions.get(moduleFilePath) ?? 0) + 1,
     );
+    this.globalRevision++;
     this.substituted.delete(moduleFilePath);
+    this.allSourcesAt = null;
+    // The one place a revision moves is the one place this is announced. See
+    // `source:change` in `types.ts` for why it is not the union of the five
+    // specific events.
+    this.events.emit({ type: "source:change", moduleFilePath });
+  }
+
+  /**
+   * Where `globalRevision` stood when {@link allSources} was last built, or
+   * `null` if it must be rebuilt. Cleared by `bump`, which is what makes the
+   * memo safe: it is invalidated from the same single place that invalidates
+   * everything else about a module's source.
+   */
+  private allSourcesAt: {
+    n: number;
+    sources: Record<ModuleFilePath, Json>;
+  } | null = null;
+
+  /** Moved by every source change, anywhere. See {@link globalRevision}. */
+  sourcesVersion(): number {
+    return this.globalRevision;
+  }
+
+  /**
+   * Every loaded module's source, as a read would see it.
+   *
+   * Substituted, so `.jsonValues()` content that has been fetched is present —
+   * a whole-project consumer must see the same values a field does, or the nav
+   * tree and the field disagree about what exists.
+   *
+   * Reference-stable across an unchanged `globalRevision`, because this is a
+   * `useSyncExternalStore` snapshot too. Memoised rather than recomputed-and-
+   * compared, unlike `peek`: this walk is O(project), and comparing two
+   * whole-project records is no cheaper than building one.
+   *
+   * The engine's `getAllSourcesSnapshot` deep-cloned every module on every
+   * rebuild. This does not: the store owns these objects and nothing downstream
+   * writes to them, so a clone bought only the cost of copying the project.
+   */
+  allSources(): Record<ModuleFilePath, Json> {
+    const cached = this.allSourcesAt;
+    if (cached !== null && cached.n === this.globalRevision) {
+      return cached.sources;
+    }
+    const sources: Record<ModuleFilePath, Json> = {};
+    for (const moduleFilePath of Object.keys(
+      this.sources,
+    ) as ModuleFilePath[]) {
+      const source = this.moduleSource(moduleFilePath);
+      if (source !== undefined) {
+        sources[moduleFilePath] = source;
+      }
+    }
+    this.allSourcesAt = { n: this.globalRevision, sources };
+    return sources;
+  }
+
+  /**
+   * `.jsonValues()` entries across the whole project: how many there are, how
+   * many are here, how many failed.
+   *
+   * Summed from {@link entriesProgress}, so a progress indicator cannot
+   * disagree with what a read of any single module would find.
+   */
+  allEntriesProgress(): { total: number; loaded: number; failed: number } {
+    let total = 0;
+    let loaded = 0;
+    let failed = 0;
+    for (const moduleFilePath of Object.keys(
+      this.sources,
+    ) as ModuleFilePath[]) {
+      const at = this.entriesProgress(moduleFilePath);
+      total += at.total;
+      loaded += at.loaded;
+      failed += at.failed;
+    }
+    return { total, loaded, failed };
   }
 
   /**
@@ -311,6 +399,122 @@ export class SourceStore {
     if (!this.jsonEntries.has(moduleFilePath)) return;
     this.jsonEntries.delete(moduleFilePath);
     this.bump(moduleFilePath);
+  }
+
+  /**
+   * Load these `.jsonValues()` entries, and only the ones not already here.
+   *
+   * For a caller that knows WHICH entries it is about to need — a virtualized
+   * record list scrolling a window of rows into view. Reading each one through
+   * `get` would work, and is what a field does; this exists because the list
+   * knows the whole window at once and issuing them together lets
+   * {@link loadEntry} share the in-flight fetches rather than serialise them.
+   *
+   * Silent on failure by design: a failed entry is recorded in `entryFailures`
+   * and reported by `peek` as `entry-failed`, which is where a row shows it. A
+   * rejected promise here would make a prefetch of twenty rows fail because one
+   * of them did.
+   */
+  async loadEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+  ): Promise<void> {
+    const here = this.jsonEntries.get(moduleFilePath);
+    const wanted = keys.filter((key) => here?.has(key) !== true);
+    if (wanted.length === 0) return;
+    await Promise.all(wanted.map((key) => this.loadEntry(moduleFilePath, key)));
+  }
+
+  /**
+   * Every `.jsonValues()` entry this module has, loaded.
+   *
+   * The deliberate exception to demand-driven reading, and the callers are the
+   * ones that genuinely need the whole module: search over a project, a
+   * validation pass, a compare view that has to diff every entry. All of them
+   * would otherwise walk the module and find markers, and report a partial
+   * answer as if it were complete.
+   */
+  async loadAllEntries(moduleFilePath: ModuleFilePath): Promise<void> {
+    const source = this.sources[moduleFilePath];
+    if (source === undefined || !isJsonObject(source)) return;
+    const keys: string[] = [];
+    for (const [key, value] of Object.entries(source)) {
+      if (Internal.isJson(value)) keys.push(key);
+    }
+    await this.loadEntries(moduleFilePath, keys);
+  }
+
+  /**
+   * Are every one of these modules' `.jsonValues()` entries here?
+   *
+   * For a guard that must not act on a partial view of the project: a reference
+   * scan that reports "no referrers" because it never saw half the content is
+   * worse than one that says it is still loading.
+   *
+   * Three answers, and the middle one matters: `incomplete` means keep waiting,
+   * `error` names the entries that will never arrive without a retry. A caller
+   * that could not tell them apart would either wait forever or act on a gap.
+   *
+   * Computed from source and the loaded map on every call rather than tracked,
+   * for the same reason {@link entriesProgress} is: these numbers come from
+   * where a read gets its answer, so "complete" cannot be true while a read
+   * would still find a marker. The engine kept a stale-entry set and an
+   * in-flight set alongside the content and had to consult all three in the
+   * right order; here a re-fetched entry is simply deleted, so it reads as not
+   * loaded, which it is.
+   */
+  entriesStatus(moduleFilePaths: readonly ModuleFilePath[]): {
+    status: "complete" | "incomplete" | "error";
+    errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+  } {
+    const errors: {
+      moduleFilePath: ModuleFilePath;
+      key: string;
+      message: string;
+    }[] = [];
+    let incomplete = false;
+    for (const moduleFilePath of moduleFilePaths) {
+      const source = this.sources[moduleFilePath];
+      if (source === undefined) {
+        // The module's source has not arrived, so its key set is unknown and
+        // nothing here can be claimed loaded. Transient: intake loads every
+        // module.
+        incomplete = true;
+        continue;
+      }
+      if (!isJsonObject(source)) {
+        // Here, but not a record to enumerate — a nullable jsonValues record
+        // whose value is null. It has no entries, so it contributes nothing;
+        // reporting `incomplete` would freeze a guard at "checking" forever.
+        continue;
+      }
+      const here = this.jsonEntries.get(moduleFilePath);
+      for (const [key, value] of Object.entries(source)) {
+        if (!Internal.isJson(value)) continue;
+        if (here?.has(key) === true) continue;
+        const message = this.entryFailures.get(entryKey(moduleFilePath, key));
+        if (message !== undefined) {
+          errors.push({ moduleFilePath, key, message });
+          continue;
+        }
+        incomplete = true;
+      }
+    }
+    if (errors.length > 0) {
+      return { status: "error", errors };
+    }
+    return { status: incomplete ? "incomplete" : "complete", errors };
+  }
+
+  /**
+   * Why this entry's last fetch failed, if it did.
+   *
+   * `peek` already reports it for a path INSIDE the entry. This answers for the
+   * entry itself, which is what a record row needs: the row knows its key and has
+   * no path to peek at until the content it is waiting for arrives.
+   */
+  entryError(moduleFilePath: ModuleFilePath, key: string): string | undefined {
+    return this.entryFailures.get(entryKey(moduleFilePath, key));
   }
 
   /**

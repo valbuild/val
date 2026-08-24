@@ -31,6 +31,15 @@ export type PatchRecord = {
    */
   createdAt?: string;
   authorId?: string | null;
+  /**
+   * The commit this patch was applied in, if it has been published.
+   *
+   * From the server's `appliedAt`. A published patch stays in the chain in
+   * `http` mode — the server re-applies it — so "is it in the chain" and "has it
+   * shipped" are different questions, and the review UI shows the difference.
+   * `undefined` for a patch created locally, which by definition has not.
+   */
+  appliedAt?: { commitSha: string } | null;
 };
 
 /**
@@ -173,6 +182,21 @@ export type SystemEvent =
   | { type: "schema:init"; modules: ModuleFilePath[] }
   | { type: "source:init"; sources: ModuleFilePath[] }
   /**
+   * This module's source revision moved. Whatever the reason.
+   *
+   * Emitted from `SourceStore.bump` and nowhere else, which is the whole value
+   * of it: `bump` is the single place a revision changes, so a consumer that
+   * only wants to know "could a read of this module answer differently now"
+   * cannot miss a case. The alternative is to listen to the union of
+   * `source:init`, `source:patch-apply`, `source:patch-drop`, entry receipt and
+   * base promotion — five events today, and a sixth way to change source silently
+   * breaks every consumer that enumerated the first five.
+   *
+   * The specific events are still there and are still the right thing for a
+   * consumer that cares WHY. This is for the ones that only care THAT.
+   */
+  | { type: "source:change"; moduleFilePath: ModuleFilePath }
+  /**
    * A reader registered interest in a path, or dropped it.
    *
    * This IS coordination rather than observation, which is why it is a
@@ -195,6 +219,20 @@ export type SystemEvent =
   | { type: "patch:receive"; patches: PatchId[] }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
+  /**
+   * The chain moved. Whatever the reason.
+   *
+   * Emitted from `PatchStore`'s `bump` and nowhere else, so a consumer that only
+   * wants to know "could a read of the chain answer differently now" cannot miss
+   * a case — the same reasoning as `source:change`, and it was not hypothetical
+   * here: `markSaved` moved the chain version and emitted nothing at all, so a
+   * reader of what is still PENDING was never told that an edit had been saved.
+   *
+   * The specific events (`patch:create`, `patch:saved`, `patch:drop`, ...) are
+   * still the right thing for a consumer that cares WHY. This is for the ones
+   * that only care THAT.
+   */
+  | { type: "patch:chain"; version: number }
   /**
    * These locally-created patches are on their way to the server.
    *

@@ -5,7 +5,6 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useSyncEngine,
 } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
@@ -25,6 +24,7 @@ import { RouteForm } from "./RouteForm";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
 import { ReferencesResult } from "./useJsonValuesLoad";
+import { useValSystem } from "../stores/react/SystemContext";
 
 export function ChangeRecordPopover({
   defaultValue,
@@ -89,7 +89,7 @@ export function ChangeRecordPopover({
     }
     return [];
   }, [parentSource]);
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   // A `.jsonValues()` entry's content is lazily loaded. If we move an entry that
   // is still an opaque marker, the marker (not the content) lands on the new key
   // and opening it would fetch `/json?key=<newKey>` — which 404s, since the base
@@ -111,7 +111,9 @@ export function ChangeRecordPopover({
         return;
       }
       if (isJsonValuesRecord) {
-        await syncEngine.ensureJsonEntry(moduleFilePath, defaultValue);
+        await val?.system.sourceStore.loadEntries(moduleFilePath, [
+          defaultValue,
+        ]);
       }
       const patchOps: Patch = [
         {
@@ -157,7 +159,7 @@ export function ChangeRecordPopover({
       parentPatchPath,
       navigate,
       onComplete,
-      syncEngine,
+      val,
       isJsonValuesRecord,
       defaultValue,
       references,

@@ -1,7 +1,7 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, ReactNode, useEffect, useMemo, useRef } from "react";
-import { useSyncEngine } from "../ValFieldProvider";
+import { useValSystem } from "../../stores/react/SystemContext";
 import { Button } from "../designSystem/button";
 
 /**
@@ -44,7 +44,7 @@ export function VirtualizedRecordList({
   className?: string;
   renderRow: (key: string) => ReactNode;
 }) {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const parentRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = keys.length > VIRTUALIZE_THRESHOLD;
 
@@ -85,10 +85,14 @@ export function VirtualizedRecordList({
     if (!jsonValues || windowKeysRef.current.length === 0) {
       return;
     }
-    // Coalesced by the engine into one request per module per tick, so a fast
-    // scroll that crosses several windows does not fan out.
-    syncEngine.requestJsonEntries(moduleFilePath, windowKeysRef.current);
-  }, [syncEngine, moduleFilePath, jsonValues, windowKeysId]);
+    // Entries already here are skipped, and concurrent requests for one entry
+    // share a single fetch (`SourceStore.loadEntry`), so a fast scroll that
+    // crosses several windows does not fan out into duplicate requests.
+    void val?.system.sourceStore.loadEntries(
+      moduleFilePath,
+      windowKeysRef.current,
+    );
+  }, [val, moduleFilePath, jsonValues, windowKeysId]);
 
   if (!shouldVirtualize) {
     return (

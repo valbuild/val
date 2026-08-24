@@ -209,6 +209,7 @@ export function createValSystem(
           patch: patch.patch,
           createdAt: patch.createdAt,
           authorId: patch.authorId ?? undefined,
+          appliedAt: patch.appliedAt ?? null,
         });
       }
       return { patches, errors };

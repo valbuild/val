@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { Internal, type ModuleFilePath, type SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  type ModuleFilePath,
+  type SourcePath,
+  type ValidationError,
+} from "@valbuild/core";
 import type { ValidationResult } from "../ValidationStore";
 import { useValSystem } from "./SystemContext";
 
@@ -92,11 +97,11 @@ export function useModuleValidation(
  * A stable empty array for "no errors", because returning a fresh `[]` would make
  * every field with nothing wrong re-render whenever any module revalidated.
  */
-const NO_ERRORS: readonly { message: string; fixes?: readonly string[] }[] = [];
+const NO_ERRORS: ValidationError[] = [];
 
 export function useValidationErrorsAtPath(
   sourcePath: SourcePath,
-): readonly { message: string; fixes?: readonly string[] }[] {
+): ValidationError[] {
   const [moduleFilePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const result = useModuleValidation(moduleFilePath);

@@ -77,34 +77,75 @@ export class HostStore implements HostBridge {
 
   private receivedAt: number | null = null;
 
+  /**
+   * Modules this intake could not read, and why.
+   *
+   * Replaced on every `receive`, not accumulated: intake is the whole truth
+   * about what the host has, so a module that failed last time and works now
+   * must stop being reported. Read by the dev banner — see
+   * `LocalModulesErrorBanner`.
+   */
+  private moduleFailures: { moduleFilePath: string | null; message: string }[] =
+    [];
+
+  failures(): readonly { moduleFilePath: string | null; message: string }[] {
+    return this.moduleFailures;
+  }
+
   receive(modules: ValModule<SelectorSource>[]): void {
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
     const adopted: ModuleFilePath[] = [];
+    const failures: { moduleFilePath: string | null; message: string }[] = [];
 
     for (const module of modules) {
-      const path = Internal.getValPath(module);
-      if (path === undefined) {
-        throw new Error("Module has no path");
+      /**
+       * One bad module must not take the rest of the project down.
+       *
+       * This used to throw, which meant a single module with a schema that
+       * cannot serialize — a real thing during an HMR edit — lost every module
+       * AFTER it in the list as well, and the Studio came up with a partial
+       * project and no explanation. Recording and continuing is what makes the
+       * dev banner able to name the module instead.
+       */
+      try {
+        const path = Internal.getValPath(module);
+        if (path === undefined) {
+          failures.push({
+            moduleFilePath: null,
+            message: "Module has no path",
+          });
+          continue;
+        }
+        const moduleFilePath = path as string as ModuleFilePath;
+        const schema = Internal.getSchema(module);
+        if (schema === undefined) {
+          failures.push({
+            moduleFilePath,
+            message: "Module has no schema",
+          });
+          continue;
+        }
+        // Bracket access, never `instanceof Schema`: this object came from the
+        // HOST's copy of @valbuild/core, so the class identity differs from ours.
+        // See the bundle-seam note in `bridges.ts`.
+        this.activity.work("host:serialize-schema", moduleFilePath);
+        serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
+        // JSON round-trip so what crosses is provably clone-safe — no instance
+        // can leak downstream by being reachable from a source value.
+        sources[moduleFilePath] = JSON.parse(
+          JSON.stringify(Internal.getSource(module)),
+        ) as Json;
+        this.instances[moduleFilePath] = schema;
+        adopted.push(moduleFilePath);
+      } catch (error) {
+        failures.push({
+          moduleFilePath: (Internal.getValPath(module) as string) ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
-      const moduleFilePath = path as string as ModuleFilePath;
-      const schema = Internal.getSchema(module);
-      if (schema === undefined) {
-        throw new Error(`Module '${moduleFilePath}' has no schema`);
-      }
-      // Bracket access, never `instanceof Schema`: this object came from the
-      // HOST's copy of @valbuild/core, so the class identity differs from ours.
-      // See the bundle-seam note in `bridges.ts`.
-      this.activity.work("host:serialize-schema", moduleFilePath);
-      serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
-      // JSON round-trip so what crosses is provably clone-safe — no instance
-      // can leak downstream by being reachable from a source value.
-      sources[moduleFilePath] = JSON.parse(
-        JSON.stringify(Internal.getSource(module)),
-      ) as Json;
-      this.instances[moduleFilePath] = schema;
-      adopted.push(moduleFilePath);
     }
+    this.moduleFailures = failures;
 
     // BEFORE the announcement. Dispatch is synchronous, so a consumer woken by
     // `host:receive` reads this in the same turn — and it has to see the intake it

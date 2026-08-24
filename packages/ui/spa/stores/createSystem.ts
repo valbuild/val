@@ -39,7 +39,7 @@ import {
   type ReferenceSnapshot,
 } from "./ReferenceStore";
 import type { SerializedPatchSet } from "../utils/PatchSets";
-import type { SchemaValidationBridge } from "./bridges";
+import type { HostBridge, SchemaValidationBridge } from "./bridges";
 import { noopActivity, type ActivitySink } from "./activity";
 import { StaleModules } from "./StaleModules";
 import type {
@@ -153,6 +153,13 @@ export type System = HostRealm &
     discard(
       patchIds: PatchId[],
     ): Promise<{ status: "discarded" } | { status: "failed"; message: string }>;
+    /**
+     * Per patch in the chain: what `/save` refused it for, or `null`.
+     *
+     * On the system rather than read off the patch store by the caller only so
+     * that "everything a publish gate needs" is reachable from one place.
+     */
+    patchErrors(): Record<PatchId, string[] | null>;
     dispose(): void;
   };
 
@@ -225,6 +232,25 @@ export type SystemOptions = {
   saveBackoffMs?: (attempt: number) => number;
   /** How the retry waits, injected for the same reason. */
   saveSleep?: (ms: number) => Promise<void>;
+  /**
+   * Where renders and custom `validate` closures are RUN.
+   *
+   * Defaults to the `HostStore` this function creates, which is what the Studio
+   * uses: the host app hands its `ValModules` over and the real `select` and
+   * `validate` closures run against live source.
+   *
+   * Supply one to answer from somewhere else. A Storybook story is the case that
+   * exists: it has static renders and no `ValModules`, and without this its
+   * fields would render with every render node missing — which is not what the
+   * story is showing. Same shape of injection as `schemaValidation` and
+   * `workerRealm`, and for the same reason: `HostBridge` is a seam, and
+   * `HostStore` is one implementation of it.
+   *
+   * `system.host` is still the `HostStore` either way, because `host.receive` is
+   * how modules get in and a bridge cannot take them. A caller that supplies a
+   * bridge simply never calls it.
+   */
+  hostBridge?: HostBridge;
   /**
    * The worker realm. Defaults to the in-process stores.
    *
@@ -314,12 +340,18 @@ export function createSystem(options: SystemOptions): System {
     options.saveSleep,
   );
   const host = new HostStore(schemaStore, sourceStore, activity);
-  const renderStore = new RenderStore(host, sourceStore, schemaStore, activity);
+  const hostBridge = options.hostBridge ?? host;
+  const renderStore = new RenderStore(
+    hostBridge,
+    sourceStore,
+    schemaStore,
+    activity,
+  );
   const validationStore = new ValidationStore(
     schemaStore,
     sourceStore,
     options.schemaValidation ?? new InProcessSchemaValidation(),
-    host,
+    hostBridge,
     activity,
   );
 
@@ -612,6 +644,10 @@ export function createSystem(options: SystemOptions): System {
 
         const outcome = await options.publishPatches({ patchIds, message });
         if (outcome.status === "patch-errors") {
+          // Recorded, not just returned. A server refusal never resolves itself,
+          // so the publish gate has to keep seeing it after the caller that made
+          // this call has gone — see `PatchStore.publishErrors`.
+          patchStore.recordPublishErrors(outcome.errors);
           return {
             status: "failed",
             message: outcome.message,
@@ -666,6 +702,9 @@ export function createSystem(options: SystemOptions): System {
       // delete must not make the client forget a patch that still exists.
       patchStore.drop(res.patchIds);
       return { status: "discarded" };
+    },
+    patchErrors() {
+      return patchStore.publishErrors();
     },
     dispose() {
       for (const off of unsubscribe) off();

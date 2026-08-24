@@ -33,7 +33,6 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
-import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
 import { createValidationWorker } from "../validation/createValidationWorker";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
@@ -50,7 +49,12 @@ import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
-import { ValStoreShadow } from "../stores/react/ValStoreShadow";
+import { ValStoreProvider } from "../stores/react/ValStoreProvider";
+import { useValSystem } from "../stores/react/SystemContext";
+import type { StatusSnapshot } from "../stores/StatusStore";
+import type { PatchRecord } from "../stores/types";
+import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
+import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
 import {
@@ -109,7 +113,6 @@ export type AIMessagesResponse = {
 };
 
 type ValContextValue = {
-  syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
   profileId: string | null;
   profileAuthError: string | null;
@@ -315,33 +318,6 @@ export function ValProvider({
     [client],
   );
 
-  const syncEngine = useMemo(
-    () =>
-      new ValSyncEngine(
-        client,
-        (moduleFilePath, newSource) => {
-          if (dispatchValEvents) {
-            defaultOverlayEmitter(moduleFilePath, newSource);
-          }
-        },
-        createValidationWorker,
-        // Writes are the store system's now. See `ValSyncEngine`'s
-        // `writesDisabled` and `ValStoreShadow`: the server keeps one linear
-        // patch chain and checks every parentRef, so two writers conflict on
-        // every keystroke. This engine still applies patches locally for every
-        // component not yet ported.
-        true,
-      ),
-    // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
-    [dispatchValEvents],
-  );
-
-  // Push client-side valModules into the engine. Re-runs on HMR-driven
-  // reference changes, which causes the engine to re-extract schemas/sources
-  // and re-invalidate subscribers without a server round-trip.
-  useEffect(() => {
-    syncEngine.setValModules(valModules ?? null);
-  }, [valModules, syncEngine]);
   const runtimeConfig =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
 
@@ -389,6 +365,64 @@ export function ValProvider({
         ? { baseSha, patches: statPatches }
         : null,
     [baseSha, statPatches],
+  );
+
+  const getDirectFileUploadSettings = useCallback(async (): Promise<
+    | {
+        status: "success";
+        data: {
+          nonce: string | null;
+          baseUrl: string;
+          contentBaseUrl: string | null;
+          contentAuthNonce: string | null;
+        };
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+  > => {
+    let res = await client("/direct-file-upload-settings", "POST", {});
+    let retries = 0;
+    while (res.status === null && retries < 5) {
+      console.warn(
+        "Failed to get direct file upload settings, retrying...",
+        res,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
+      res = await client("/direct-file-upload-settings", "POST", {});
+      retries++;
+    }
+    if (res.status === 200) {
+      return { status: "success", data: res.json };
+    }
+    return {
+      status: "error",
+      error: "Could not get direct file upload settings",
+    };
+  }, [client]);
+
+  /**
+   * The store system. One per Studio, built here.
+   *
+   * Here rather than inside `ValStoreProvider` because this component's own body
+   * reads it — the unsaved-edit count below, publish and discard, the error
+   * surfaces — and a system created in a child is created below the component
+   * that has to use it. `ValStoreProvider` puts it in context and feeds it.
+   *
+   * Memoised on what actually configures it. `mode` is in the list and has to be:
+   * it changes what a successful publish means (`fs` deletes the patches and the
+   * client must keep showing the value; `http` keeps them and re-applies them),
+   * and it arrives from `/stat` after the first render.
+   */
+  const system = useMemo(
+    () =>
+      createValSystem(client, {
+        writes: true,
+        uploadSettings: getDirectFileUploadSettings,
+        mode: statMode,
+      }),
+    [client, getDirectFileUploadSettings, statMode],
   );
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
@@ -444,10 +478,16 @@ export function ValProvider({
     status: "not-asked",
   });
   const [requiresRemoteFiles, setRequiresRemoteFiles] = useState(false);
+  // Read from the local `system` rather than through `useSchemas()`: the context
+  // that hook reads is provided by this component's own return value.
   const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
+    useCallback(
+      (onChange: () => void) =>
+        system.schemaStore.events.on("schema:init", onChange),
+      [system],
+    ),
+    useCallback(() => system.schemaStore.all(), [system]),
+    useCallback(() => system.schemaStore.all(), [system]),
   );
   useEffect(() => {
     if (schemas) {
@@ -512,119 +552,45 @@ export function ValProvider({
     }
   }, [requiresRemoteFiles]);
 
-  const syncEngineInitStatus = useRef<
-    "not-initialized" | "done" | "in-progress" | "retry"
-  >("not-initialized");
-  const [startSyncPoll, setStartSyncPoll] = useState(false);
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-
-  useEffect(() => {
-    if (initializedAt === null && syncEngineInitStatus.current === "done") {
-      syncEngineInitStatus.current = "not-initialized";
-    }
-    if (
-      "data" in stat &&
-      stat.data &&
-      syncEngineInitStatus.current === "not-initialized"
-    ) {
-      syncEngineInitStatus.current = "in-progress";
-      let timeout: NodeJS.Timeout | null = null;
-      const exec = async () => {
-        if ("data" in stat && stat.data) {
-          console.debug("ValSyncEngine init started...", stat.data.profileId);
-          const res = await syncEngine.init(
-            stat.data.mode,
-            stat.data.baseSha,
-            stat.data.schemaSha,
-            stat.data.sourcesSha,
-            stat.data.patches,
-            stat.data.profileId,
-            stat.data.commitSha ?? null,
-            Date.now(),
-          );
-          console.debug("ValSyncEngine init result", res);
-          if (res.status === "retry") {
-            syncEngineInitStatus.current = "retry";
-            timeout = setTimeout(exec, 4000);
-          } else {
-            console.debug("Val is initialized!", res);
-            syncEngineInitStatus.current = "done";
-            if (timeout) {
-              clearTimeout(timeout);
-            }
-            setStartSyncPoll(true);
-          }
-        } else {
-          syncEngineInitStatus.current = "not-initialized";
-          throw Error(
-            "Unexpected state: init was started with stat.data but now it is not there",
-          );
-        }
-      };
-      exec();
-      return () => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      };
-    } else if (
-      "data" in stat &&
-      stat.data &&
-      syncEngineInitStatus.current === "done"
-    ) {
-      syncEngine.syncWithUpdatedStat(
-        stat.data.mode,
-        stat.data.baseSha,
-        stat.data.schemaSha,
-        stat.data.sourcesSha,
-        stat.data.patches,
-        stat.data.profileId,
-        stat.data.commitSha ?? null,
-        Date.now(),
-        stat.data.jsonEntriesSha,
-      );
-    }
-  }, [stat, syncEngine, initializedAt]);
-
-  useEffect(() => {
-    if (!startSyncPoll) {
-      return;
-    }
-    let timeout: NodeJS.Timeout | null = null;
-    const sync = async () => {
-      // We got a reset, so we must re-initialize
-      if (initializedAt === null) {
-        setStartSyncPoll(false);
-        syncEngineInitStatus.current = "not-initialized";
-        return;
-      }
-      await syncEngine.sync(Date.now());
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      timeout = setTimeout(sync, 1000);
-    };
-    sync();
-    return () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    };
-  }, [syncEngine, initializedAt, startSyncPoll]);
-
+  /**
+   * Intake and `/stat` are `ValStoreProvider`'s, below.
+   *
+   * There used to be ~100 lines here: an init state machine, a retry timer and a
+   * 1s poll that re-issued `/schema`, `/sources` and `/patches` on every tick.
+   * None of it is needed any more, and the reason is where the data comes from.
+   *
+   * The Studio is handed the host app's `ValModules` as a prop, so schema and
+   * committed source are already in this process — `host.receive` derives both,
+   * with no round trip and nothing to retry. What is genuinely remote is the
+   * patch chain, and `/stat` already announces it: `StatStore` names the ordered
+   * ids and `PatchStore` fetches only the ones it does not have. `useStat` still
+   * polls, because that is how a second editor's work arrives; nothing else does.
+   */
   const [publishSummaryState, setPublishSummaryState] =
     useState<PublishSummaryState>({
       type: "not-asked",
     });
 
-  const pendingOpsCount = useSyncExternalStore(
-    syncEngine.subscribe("pending-ops-count"),
-    () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+  /**
+   * Warn before leaving with edits that have not reached the server.
+   *
+   * The engine counted queued OPERATIONS here, most of which were reads it had
+   * issued itself — so a slow `/sources` fetch was enough to make the browser ask
+   * "are you sure you want to leave". This counts unsaved PATCHES, which is the
+   * only thing a user can actually lose by closing the tab.
+   */
+  const unsavedCount = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
+    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
   );
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (pendingOpsCount > 0) {
+      if (unsavedCount > 0) {
         event.preventDefault();
         event.returnValue = ""; // Required for Chrome and some other browsers
       }
@@ -633,7 +599,7 @@ export function ValProvider({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [pendingOpsCount]);
+  }, [unsavedCount]);
   const profilesData = useProfilesData(
     client,
     authenticationState,
@@ -642,48 +608,12 @@ export function ValProvider({
     runtimeConfig?.project,
   );
 
-  const getDirectFileUploadSettings = useCallback(async (): Promise<
-    | {
-        status: "success";
-        data: {
-          nonce: string | null;
-          baseUrl: string;
-          contentBaseUrl: string | null;
-          contentAuthNonce: string | null;
-        };
-      }
-    | {
-        status: "error";
-        error: string;
-      }
-  > => {
-    let res = await client("/direct-file-upload-settings", "POST", {});
-    let retries = 0;
-    while (res.status === null && retries < 5) {
-      console.warn(
-        "Failed to get direct file upload settings, retrying...",
-        res,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
-      res = await client("/direct-file-upload-settings", "POST", {});
-      retries++;
-    }
-    if (res.status === 200) {
-      return { status: "success", data: res.json };
-    }
-    return {
-      status: "error",
-      error: "Could not get direct file upload settings",
-    };
-  }, [client]);
-
   return (
     <ValContext.Provider
       value={{
         client,
         publishSummaryState,
         setPublishSummaryState,
-        syncEngine,
         profileId: "data" in stat && stat.data ? stat.data.profileId : null,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         profileAuthError:
@@ -716,37 +646,34 @@ export function ValProvider({
               setTheme={setTheme}
               config={runtimeConfig}
             >
-              <ValErrorProvider syncEngine={syncEngine}>
-                <ValPortalProvider>
-                  <ValRemoteProvider remoteFiles={remoteFiles}>
-                    <ValFieldProvider
-                      syncEngine={syncEngine}
-                      getDirectFileUploadSettings={getDirectFileUploadSettings}
-                      config={runtimeConfig}
-                    >
-                      {/*
-                        The store system, mounted BESIDE the engine and off unless
-                        asked for. See `ValStoreShadow`: the engine drives every
-                        pixel, and this exists so the new layer can be read
-                        alongside it on real content — which is the one thing
-                        neither the benchmark nor any test can produce, since both
-                        build their own modules.
-                      */}
-                      <ValStoreShadow
-                        client={client}
-                        valModules={valModules ?? null}
-                        stat={storeStat}
-                        mode={statMode}
-                        uploadSettings={getDirectFileUploadSettings}
+              <ValStoreProvider
+                system={system}
+                valModules={valModules ?? null}
+                stat={storeStat}
+              >
+                <ValErrorProvider>
+                  <ValPortalProvider>
+                    <ValRemoteProvider remoteFiles={remoteFiles}>
+                      <ValFieldProvider
+                        getDirectFileUploadSettings={
+                          getDirectFileUploadSettings
+                        }
+                        config={runtimeConfig}
                       >
-                        <LocalModulesErrorBanner syncEngine={syncEngine} />
+                        {/*
+                          Tell the host page when a module's source moves, so the
+                          customer's own components behind the Studio show the
+                          edit rather than the committed value.
+                        */}
+                        <ValOverlayEmitter enabled={dispatchValEvents} />
+                        <LocalModulesErrorBanner />
                         {children}
-                        <SchemaOutOfDateGate syncEngine={syncEngine} />
-                      </ValStoreShadow>
-                    </ValFieldProvider>
-                  </ValRemoteProvider>
-                </ValPortalProvider>
-              </ValErrorProvider>
+                        <SchemaOutOfDateGate />
+                      </ValFieldProvider>
+                    </ValRemoteProvider>
+                  </ValPortalProvider>
+                </ValErrorProvider>
+              </ValStoreProvider>
             </ValThemeProvider>
           ) : (
             children
@@ -757,23 +684,49 @@ export function ValProvider({
   );
 }
 
-function SchemaOutOfDateGate({ syncEngine }: { syncEngine: ValSyncEngine }) {
-  const subscribe = useMemo(
-    () => syncEngine.subscribe("schema-out-of-date"),
-    [syncEngine],
-  );
-  const getSnapshot = useCallback(
-    () => syncEngine.getSchemaOutOfDateSnapshot(),
-    [syncEngine],
-  );
-  const schemaOutOfDate = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getSnapshot,
-  );
-  if (!schemaOutOfDate) return null;
+/**
+ * The schema on the server no longer matches the one this Studio holds.
+ *
+ * Once true it stays true — see `SchemaFreshness` in `StatusStore`. There is no
+ * way back without a reload, because every open field was resolved against a
+ * schema that has been replaced, and a gate that could flicker off would let the
+ * user keep editing against one that is gone.
+ */
+function SchemaOutOfDateGate() {
+  const status = useValStatus();
+  if (status.schema !== "out-of-date") return null;
   return <SchemaOutOfDateDialog />;
 }
+
+/**
+ * Everything the editor is TOLD: errors, the network, the schema's freshness.
+ *
+ * One subscription for all of them, because `StatusStore` emits one event for
+ * all of them — a UI shows them together, and splitting them into four
+ * subscriptions would be four re-renders for one piece of news.
+ */
+function useValStatus(): StatusSnapshot {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.status.events.on("status:change", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? EMPTY_STATUS : val.system.status.current()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+const EMPTY_STATUS: StatusSnapshot = {
+  errors: [],
+  networkErrorSince: null,
+  schemaError: null,
+  schema: "current",
+};
 
 function useProfilesData(
   client: ValClient,
@@ -892,35 +845,64 @@ export function useConnectionStatus() {
  * Hook to add a patch to any module file path.
  * Use this when you need to add a patch dynamically to different modules.
  */
+/**
+ * Add a patch to any module, from outside a field.
+ *
+ * `useAddPatch` is the hook a field uses and is bound to that field's path and
+ * instance; this is for the callers that are not fields — the AI writer, a bulk
+ * action. No `creatorId`, so nothing is suppressed and every reader of the paths
+ * it touches is woken, which is right: an edit that did not come from a field on
+ * screen has no instance to leave asleep.
+ */
 export function useAddModuleFilePatch() {
-  const { syncEngine } = useContext(ValContext);
+  const val = useValSystem();
   const addModuleFilePatch = useCallback(
     (
       moduleFilePath: ModuleFilePath,
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+      // `type` existed so the engine could decide whether two consecutive
+      // patches were mergeable. Nothing merges any more — one patch per edit —
+      // so it is unused. Kept in the signature because the call sites pass it.
+      void type;
+      if (val === null) {
+        console.error("Val: cannot write patch: no store system is mounted");
+        return;
+      }
+      void val.system.patchStore
+        .createPatch(moduleFilePath, patch)
+        .then((res) => {
+          if (res.status !== "created") {
+            console.error("Val: could not write patch", res.message);
+          }
+        });
     },
-    [syncEngine],
+    [val],
   );
   return { addModuleFilePatch };
 }
 
 export function useDeletePatches() {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
-      // Delete in batches of 100 patch ids (since it is added to request url as query param)
-      const batches = [];
-      for (let i = 0; i < patchIds.length; i += 100) {
-        batches.push(patchIds.slice(i, i + 100));
+      if (val === null) {
+        console.error("Val: cannot discard: no store system is mounted");
+        return;
       }
-      for (const batch of batches) {
-        syncEngine.deletePatches(batch, Date.now());
+      // In batches of 100: the ids go into the request URL as query params, and
+      // a chain long enough to matter is long enough to exceed a URL limit.
+      for (let i = 0; i < patchIds.length; i += 100) {
+        const batch = patchIds.slice(i, i + 100);
+        void val.system.discard(batch).then((res) => {
+          if (res.status === "failed") {
+            console.error("Val: could not discard patches", res.message);
+          }
+        });
       }
     },
-    [syncEngine],
+    [val],
   );
   return { deletePatches };
 }
@@ -954,6 +936,19 @@ export function useDeployments() {
   return { deployments, dismissDeployment, observedCommitShas };
 }
 
+/**
+ * The patch-set grouping, for the review UI.
+ *
+ * ON DEMAND, and that is the difference from the engine. The engine maintained
+ * the grouping incrementally on every keystroke, so typing paid for a structure
+ * only the review screen ever looked at. `system.getPatchSets()` builds it when
+ * asked and appends to it when the chain has only grown — see `PatchSetChain`,
+ * which decides append against rebuild with a prefix test rather than by
+ * remembering which moments require a reset.
+ *
+ * Asynchronous for the same reason: the grouping is in the worker realm, so
+ * there is no synchronous answer to give.
+ */
 export function usePatchSets():
   | {
       status: "success";
@@ -966,24 +961,57 @@ export function usePatchSets():
   | {
       status: "not-asked";
     } {
-  const { syncEngine } = useContext(ValContext);
-  const serializedPatchSets = useSyncExternalStore(
-    syncEngine.subscribe("patch-sets"),
-    () => syncEngine.getSerializedPatchSetsSnapshot(),
-    () => syncEngine.getSerializedPatchSetsSnapshot(),
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const [state, setState] = useState<
+    | { status: "success"; data: SerializedPatchSet }
+    | { status: "error"; error: string }
+    | { status: "not-asked" }
+  >({ status: "not-asked" });
+
+  useEffect(() => {
+    if (val === null) {
+      return;
+    }
+    let cancelled = false;
+    void val.system
+      .getPatchSets()
+      .then((data) => {
+        if (!cancelled) setState({ status: "success", data });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `chainVersion` is the dependency that matters: the grouping is a function
+    // of the chain, so it is re-read exactly when the chain moves.
+  }, [val, chainVersion]);
+
+  return state;
+}
+
+/** Moved by every change to the patch chain. See `PatchStore`'s `bump`. */
+function useChainVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
   );
-  // NOT initializedAt: setValModules sets that as soon as local modules are
-  // adopted, so content can render before /stat arrives. With local modules
-  // present it is therefore non-null while the patch sets are still empty
-  // because nothing has been read yet - not because there is nothing to show -
-  // and callers would render their empty state ("No pending changes") first.
-  // hasCompletedInitialPatchSync is only true once syncPatches has run with
-  // every patch's data present; it invalidates patch-sets when it flips, which
-  // is the store this hook already subscribes to.
-  if (!syncEngine.hasCompletedInitialPatchSync()) {
-    return { status: "not-asked" };
-  }
-  return { status: "success", data: serializedPatchSets };
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.patchStore.chainVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 /**
@@ -996,92 +1024,90 @@ export function usePatchSets():
  * pre-publish result on screen.
  */
 export function usePublishCount(): number {
-  const { syncEngine } = useContext(ValContext);
-  return useSyncExternalStore(
-    syncEngine.subscribe("published"),
-    () => syncEngine.getPublishCountSnapshot(),
-    () => syncEngine.getPublishCountSnapshot(),
-  );
+  const val = useValSystem();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (val === null) return;
+    // `patch:forget-published` is the moment a publish has actually landed and
+    // the chain has been trimmed — after the source promotion, so a view that
+    // rebuilds on this key rebuilds against the new base rather than the old.
+    return val.system.patchStore.events.on("patch:head", () => {
+      setCount((previous) => previous + 1);
+    });
+  }, [val]);
+  return count;
 }
 
-export function useCommittedPatches() {
-  const { syncEngine } = useContext(ValContext);
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
-  );
-  const currentPatchIds = useCurrentPatchIds();
-  const committedPatchIds = useMemo(() => {
-    const committedPatchIds: Set<PatchId> = new Set();
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.isCommitted) {
-        committedPatchIds.add(patchId);
+/**
+ * Patches in the chain that have already shipped in a commit.
+ *
+ * Only possible in `http` mode: there a published patch stays on the server and
+ * is re-applied, so being in the chain and having shipped are different facts.
+ * In `fs` mode a published patch is deleted, so this is always empty.
+ */
+export function useCommittedPatches(): ReadonlySet<PatchId> {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    const committed = new Set<PatchId>();
+    if (val === null) return committed;
+    void chainVersion;
+    for (const record of val.system.patchStore.allRecords()) {
+      if (record.appliedAt) {
+        committed.add(record.patchId);
       }
     }
-    return committedPatchIds;
-  }, [allPatches, currentPatchIds]);
-  return committedPatchIds;
+    return committed;
+  }, [val, chainVersion]);
 }
 
+/**
+ * Patches the server has that this session did not create.
+ *
+ * Another editor's work, or this editor's from a previous session. Named
+ * "server-side" by the engine, which kept three separate id lists and had a hook
+ * for each; the store keeps ONE ordered chain and marks which entries are still
+ * unsaved, so the three lists are three filters of one list.
+ */
 export function usePendingServerSidePatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const globalServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("global-server-side-patch-ids"),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-  );
-  return globalServerSidePatchIds;
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    const store = val.system.patchStore;
+    return store
+      .allRecords()
+      .map((record) => record.patchId)
+      .filter((patchId) => !store.isPending(patchId));
+  }, [val, chainVersion]);
 }
 
+/** Patches created here that have not reached the server yet. */
 export function usePendingClientSidePatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const pendingClientSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("pending-client-side-patch-ids"),
-    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
-    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
-  );
-  return pendingClientSidePatchIds;
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    return val.system.patchStore.pendingPatchIds();
+  }, [val, chainVersion]);
 }
 
+/**
+ * Every patch in the chain, in order.
+ *
+ * The engine assembled this from three id lists and de-duplicated the overlap;
+ * the store has one ordered chain, so this is that chain.
+ */
 export function useCurrentPatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const globalServerSidePatchIds = usePendingServerSidePatchIds();
-  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
-  const savedServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("saved-server-side-patch-ids"),
-    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
-    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
-  );
-  const currentPatchIds = useMemo(() => {
-    const added: Set<PatchId> = new Set();
-    const currentPatchIds: PatchId[] = [];
-    for (const patchId of globalServerSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
-    for (const patchId of savedServerSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
-    for (const patchId of pendingClientSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
-    return currentPatchIds;
-  }, [
-    globalServerSidePatchIds,
-    pendingClientSidePatchIds,
-    savedServerSidePatchIds,
-  ]);
-  return currentPatchIds;
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    return val.system.patchStore.allRecords().map((record) => record.patchId);
+  }, [val, chainVersion]);
 }
 
 export type PendingPatch = {
@@ -1097,77 +1123,64 @@ export type PendingPatch = {
 export function usePendingPatches(
   sourcePath: SourcePath | ModuleFilePath,
 ): PendingPatch[] | null {
-  const { syncEngine } = useContext(ValContext);
-
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
-  );
-  const currentPatchIds = useCurrentPatchIds();
-  const cachedSourcePathsByPatchId = useRef<
-    Record<PatchId, Set<SourcePath | ModuleFilePath>>
-  >({});
-  const patchesMetadata = useMemo((): PendingPatch[] | null => {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo((): PendingPatch[] | null => {
+    if (val === null) return null;
+    void chainVersion;
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const store = val.system.patchStore;
     const patches: PendingPatch[] = [];
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.moduleFilePath !== moduleFilePath) {
-        continue;
-      }
-      const cachedSourcePaths = cachedSourcePathsByPatchId.current[patchId];
-      if (cachedSourcePathsByPatchId.current[patchId]) {
-        if (cachedSourcePaths.has(sourcePath)) {
-          const patchData = allPatches[patchId];
-          if (patchData) {
-            patches.push(patchData);
-          }
-          continue;
-        }
-      }
-      const ops = patchData.patch;
-      for (const op of ops) {
-        const opModulePath = Internal.patchPathToModulePath(op.path);
-        if (modulePath && opModulePath === modulePath) {
-          if (!cachedSourcePathsByPatchId.current[patchId]) {
-            cachedSourcePathsByPatchId.current[patchId] = new Set();
-          }
-          cachedSourcePathsByPatchId.current[patchId].add(sourcePath);
-          const patchData = allPatches[patchId];
-          if (patchData) {
-            patches.push(patchData);
-          }
-          break;
-        }
+    for (const record of store.allRecords()) {
+      if (record.moduleFilePath !== moduleFilePath) continue;
+      // A module-level path matches every patch in the module; a deeper one
+      // matches only the ops that touch it.
+      const matches =
+        !modulePath ||
+        record.patch.some(
+          (op) => Internal.patchPathToModulePath(op.path) === modulePath,
+        );
+      if (matches) {
+        patches.push(toPendingPatch(record, store.isPending(record.patchId)));
       }
     }
     return patches;
-  }, [allPatches, currentPatchIds, sourcePath]);
-  return patchesMetadata;
+  }, [val, chainVersion, sourcePath]);
 }
 
 export function usePendingPatchesForModule(
   moduleFilePath: ModuleFilePath,
 ): PendingPatch[] {
-  const { syncEngine } = useContext(ValContext);
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
-  );
-  const currentPatchIds = useCurrentPatchIds();
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
   return useMemo((): PendingPatch[] => {
-    const patches: PendingPatch[] = [];
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.moduleFilePath === moduleFilePath) {
-        patches.push(patchData);
-      }
-    }
-    return patches;
-  }, [allPatches, currentPatchIds, moduleFilePath]);
+    if (val === null) return [];
+    void chainVersion;
+    const store = val.system.patchStore;
+    return store
+      .allRecords()
+      .filter((record) => record.moduleFilePath === moduleFilePath)
+      .map((record) => toPendingPatch(record, store.isPending(record.patchId)));
+  }, [val, chainVersion, moduleFilePath]);
+}
+
+/**
+ * A chain record in the shape the review UI reads.
+ *
+ * `createdAt` and `authorId` are optional on a `PatchRecord` — the chain does
+ * not need them to apply a patch — but a review row has to show something, so
+ * the defaults are here rather than at every call site.
+ */
+function toPendingPatch(record: PatchRecord, isPending: boolean): PendingPatch {
+  return {
+    moduleFilePath: record.moduleFilePath,
+    patch: record.patch,
+    isPending,
+    createdAt: record.createdAt ?? "",
+    authorId: record.authorId ?? null,
+    isCommitted: record.appliedAt ?? undefined,
+  };
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
@@ -1175,18 +1188,49 @@ export function useValMode(): "http" | "fs" | "unknown" {
   return mode;
 }
 
-export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
-export function useLoadingStatus(): LoadingStatus {
-  const { syncEngine } = useContext(ValContext);
-  const pendingOpsCount = useSyncExternalStore(
-    syncEngine.subscribe("pending-ops-count"),
-    () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+/**
+ * Re-exported from `ValFieldProvider`, which is where the store-backed one
+ * lives. Two copies of this existed — an identical body in each file — and both
+ * were imported around the app.
+ */
+export { useLoadingStatus, type LoadingStatus } from "./ValFieldProvider";
+
+/**
+ * Has the project been taken in? Re-derived here rather than imported, because
+ * `ValFieldProvider` keeps its copy private and this file's callers are outside
+ * a field.
+ */
+function useInitialized(): number | null {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.host.events.on("host:receive", onChange);
+    },
+    [val],
   );
-  if (pendingOpsCount > 0) {
-    return "loading";
-  }
-  return "success";
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.host.initializedAt()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** Moved by every source change anywhere in the project. */
+function useSourcesVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.sourceStore.sourcesVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 const PublishSummaryState = z.union([
@@ -1207,18 +1251,13 @@ type PublishSummaryState = z.infer<typeof PublishSummaryState>;
  */
 export function usePublishSummary() {
   const {
-    syncEngine,
     client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
   } = useContext(ValContext);
+  const val = useValSystem();
   const globalServerSidePatchIds = useCurrentPatchIds();
-  const publishDisabled = useSyncExternalStore(
-    syncEngine.subscribe("publish-disabled"),
-    () => syncEngine.getPublishDisabledSnapshot(),
-    () => syncEngine.getPublishDisabledSnapshot(),
-  );
   const { patchErrors } = useAllPatchErrors();
   const hasPatchErrors = useMemo(() => {
     if (patchErrors) {
@@ -1317,16 +1356,40 @@ export function usePublishSummary() {
           message: "Already publishing",
         };
       }
+      if (val === null) {
+        return { status: "error", message: "No store system is mounted" };
+      }
       setIsPublishing(true);
-      return syncEngine
-        .publish(globalServerSidePatchIds, summary, Date.now())
+      return val.system
+        .publish(globalServerSidePatchIds, summary)
         .then((res) => {
-          if (res.status === "done") {
+          if (res.status === "published") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
               type: "not-asked",
               isGenerating: prev.isGenerating,
             }));
+          } else if (res.status === "refused") {
+            // Said out loud rather than swallowed: a publish button that does
+            // nothing and reports nothing is how a user comes to believe their
+            // work has shipped.
+            val.system.status.reportError(
+              res.reason === "validation-errors"
+                ? "Cannot publish: some modules have validation errors."
+                : "A publish is already in progress.",
+              res.reason === "validation-errors"
+                ? res.modules.join("\n")
+                : undefined,
+            );
+          } else if (res.status === "failed") {
+            val.system.status.reportError(
+              "Could not publish",
+              res.patchErrors
+                ? Object.entries(res.patchErrors)
+                    .map(([patchId, message]) => `${patchId}: ${message}`)
+                    .join("\n")
+                : res.message,
+            );
           }
           return res;
         })
@@ -1335,10 +1398,11 @@ export function usePublishSummary() {
         });
     },
     [
+      val,
       globalServerSidePatchIds,
       isPublishing,
       runtimeConfig?.project,
-      syncEngine,
+      setPublishSummaryState,
     ],
   );
   const setSummary = useCallback(
@@ -1372,7 +1436,13 @@ export function usePublishSummary() {
   );
   return {
     publish,
-    publishDisabled: publishDisabled || hasPatchErrors,
+    /**
+     * The engine kept a `publishDisabled` flag that it set on entering publish
+     * and cleared on the way out, and a caller could not tell why it was set.
+     * There are only two reasons: a publish is running, or something in the
+     * chain cannot be published. Both are already known here.
+     */
+    publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
     generateSummary,
     canGenerate,
@@ -1478,41 +1548,81 @@ export function useCurrentProfile() {
   return null;
 }
 
-export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
-  const initializedAt = useSyncExternalStore(
-    syncEngine.subscribe("initialized-at"),
-    () => syncEngine.getInitializedAtSnapshot(),
-    () => syncEngine.getInitializedAtSnapshot(),
-  );
-  return initializedAt.data;
-};
-
+/**
+ * Publish every pending change automatically, without a summary.
+ *
+ * `fs` mode only — it is the dev-server workflow, where "publish" means writing
+ * the `.val.ts` files on disk and there is nothing to write a commit message
+ * for. Kept in `localStorage` because it is a preference of the person editing,
+ * not of the project.
+ */
 export function useAutoPublish() {
-  const { syncEngine } = useContext(ValContext);
-  const autoPublish = useSyncExternalStore(
-    syncEngine.subscribe("auto-publish"),
-    () => syncEngine.getAutoPublishSnapshot(),
-    () => syncEngine.getAutoPublishSnapshot(),
-  );
+  const val = useValSystem();
+  const mode = useValMode();
+  const [autoPublish, setAutoPublishState] = useState(() => {
+    try {
+      return localStorage.getItem("val-auto-publish") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const patchIds = useCurrentPatchIds();
+  const { patchErrors } = useAllPatchErrors();
+  const hasPatchErrors =
+    patchErrors !== undefined &&
+    Object.values(patchErrors).some((errors) => errors !== null);
+
+  /**
+   * Publish when there is something to publish.
+   *
+   * On the CHAIN rather than on a poll tick, which is the difference from the
+   * engine: it checked this once per second inside `sync`, so an edit waited up
+   * to a second before it was written and a session with nothing pending still
+   * ran the check 3600 times an hour. Here it runs when the chain moves.
+   *
+   * `system.publish` refuses on validation errors itself, so this does not
+   * re-check them — one gate, in the place that has the errors.
+   */
+  useEffect(() => {
+    if (!autoPublish || mode !== "fs" || val === null) {
+      return;
+    }
+    if (patchIds.length === 0 || hasPatchErrors) {
+      return;
+    }
+    let cancelled = false;
+    void val.system.publish(patchIds).then((res) => {
+      if (cancelled) return;
+      if (res.status === "failed") {
+        val.system.status.reportError("Auto-publish failed", res.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoPublish, mode, val, patchIds, hasPatchErrors]);
+
   return {
     autoPublish,
-    setAutoPublish: (autoPublish: boolean) => {
-      syncEngine.setAutoPublish(Date.now(), autoPublish);
+    setAutoPublish: (next: boolean) => {
+      setAutoPublishState(next);
+      try {
+        localStorage.setItem("val-auto-publish", next.toString());
+      } catch {
+        // A browser with storage disabled still gets the setting, just not
+        // across reloads.
+      }
     },
   };
 }
 
 export function useGlobalTransientErrors() {
-  const { syncEngine } = useContext(ValContext);
-  const globalTransientErrors = useSyncExternalStore(
-    syncEngine.subscribe("global-transient-errors"),
-    () => syncEngine.getGlobalTransientErrorsSnapshot(),
-    () => syncEngine.getGlobalTransientErrorsSnapshot(),
-  );
+  const val = useValSystem();
+  const status = useValStatus();
   return {
-    globalTransientErrors,
+    globalTransientErrors: status.errors,
     removeGlobalTransientErrors: (ids: string[]) => {
-      syncEngine.removeGlobalTransientErrors(ids);
+      val?.system.status.dismissErrors(ids);
     },
   };
 }
@@ -1535,27 +1645,23 @@ export function useGlobalError():
         | "unauthorized";
     }
   | null {
-  const { syncEngine, remoteFiles, profileAuthError } = useContext(ValContext);
-  const networkError = useSyncExternalStore(
-    syncEngine.subscribe("network-error"),
-    () => syncEngine.getNetworkErrorSnapshot(),
-    () => syncEngine.getNetworkErrorSnapshot(),
-  );
-  const schemaError = useSyncExternalStore(
-    syncEngine.subscribe("schema-error"),
-    () => syncEngine.getSchemaErrorSnapshot(),
-    () => syncEngine.getSchemaErrorSnapshot(),
-  );
-  if (networkError !== null) {
+  const { remoteFiles, profileAuthError } = useContext(ValContext);
+  const status = useValStatus();
+  if (status.networkErrorSince !== null) {
     return {
       type: "network-error" as const,
-      networkError,
+      // The timestamp the network started failing, not a count: the banner
+      // shows how long it has been down, and a number that only goes up would
+      // reset that every time another request failed.
+      networkError: status.networkErrorSince,
     };
   }
-  if (schemaError !== null) {
+  if (status.schemaError !== null) {
     return {
       type: "schema-error" as const,
-      schemaError,
+      // Rendered as a reload key rather than read: the caller only needs it to
+      // change when the error does.
+      schemaError: status.schemaError.length,
     };
   }
   if (profileAuthError !== null) {
@@ -1574,26 +1680,27 @@ export function useGlobalError():
   return null;
 }
 
-export function useAllPatchErrors() {
-  const { syncEngine } = useContext(ValContext);
-  const [allModuleFilePaths, setAllModuleFilePaths] = useState<
-    ModuleFilePath[]
-  >([]);
-  const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
-  );
-  useEffect(() => {
-    setAllModuleFilePaths(Object.keys(schemas) as ModuleFilePath[]);
-  }, [schemas]);
-
-  const patchErrors = useSyncExternalStore(
-    syncEngine.subscribe("patch-errors", allModuleFilePaths),
-    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
-    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
-  );
-  return { patchErrors };
+/**
+ * Patches the server refused, per patch id.
+ *
+ * A patch can apply here and still be rejected by `/save`: the client applies to
+ * evaluated JSON with JSONOps, the server applies to the `.val.ts` AST, and the
+ * two can genuinely disagree (a `c.image` metadata key that is not literally
+ * present, a non-literal initializer). So a server-reported failure never
+ * resolves itself and the publish gate has to read it.
+ *
+ * Recorded by `system.publish` when `/save` names them.
+ */
+export function useAllPatchErrors(): {
+  patchErrors: Record<PatchId, string[] | null> | undefined;
+} {
+  const val = useValSystem();
+  const status = useValStatus();
+  return useMemo(() => {
+    if (val === null) return { patchErrors: undefined };
+    void status;
+    return { patchErrors: val.system.patchErrors() };
+  }, [val, status]);
 }
 
 export function useErrors() {
@@ -1688,13 +1795,20 @@ export function useShallowModulesAtPaths<
   moduleFilePaths: ModuleFilePath[],
   type: SchemaType,
 ): ShallowSourcesOf<SchemaType> {
-  const { syncEngine } = useContext(ValContext);
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("sources", moduleFilePaths || []),
-    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
-    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const val = useValSystem();
+  const initializedAt = useInitialized();
+  const sourcesVersion = useSourcesVersion();
+  const sourcesRes = useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    // Read out of the store rather than subscribed to per module: the callers
+    // are whole-list views (a nav tree, a route list) that already re-render on
+    // any source change, and one subscription per module would be one wake per
+    // module for a single keystroke.
+    return (moduleFilePaths ?? []).map((moduleFilePath) =>
+      val.system.sourceStore.moduleSource(moduleFilePath),
+    );
+  }, [val, sourcesVersion, moduleFilePaths]);
   return useMemo((): ShallowSourcesOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
@@ -1721,8 +1835,15 @@ export function useShallowModulesAtPaths<
         );
       }
       const source = sourcesRes?.[i];
-      if (!source) {
+      if (source === undefined) {
+        // Recorded and skipped. The engine skipped it too, but by leaving a HOLE
+        // in the array it was building — so every module after a missing one was
+        // read at the wrong index and mapped to the wrong path. Reading is
+        // positional here, so an absent module can simply be left out; callers
+        // only walk `data` when the status is `success`, which a missing module
+        // rules out.
         notFoundPaths.push(moduleFilePath);
+        continue;
       }
       const mappedSource = mapSource(
         moduleFilePath,

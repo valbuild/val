@@ -1,86 +1,49 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   PatchId,
   SelectorSource,
   ValModule,
   ValModules,
 } from "@valbuild/core";
-import type { ValClient } from "@valbuild/shared/internal";
 import type { System } from "../createSystem";
-import { createValSystem, type UploadSettings } from "./createValSystem";
 import { ValSystemProvider } from "./SystemContext";
 import { ValStoreProbe } from "./ValStoreProbe";
 
 /**
- * Mount the store system inside the real app, beside the engine.
+ * Put the store system in context, take the project in, and feed it `/stat`.
  *
- * ## Why a shadow mount rather than a replacement
+ * ## What it does NOT do: build the system
  *
- * The store layer is measured and tested, and until now it had never run against
- * a real project in a real browser — the benchmark generates its own modules and
- * every test builds its own. That is a gap no amount of green tests closes: the
- * one thing neither can produce is a project someone actually wrote.
+ * The system is created by `ValProvider` and passed in. It reads as an
+ * indirection and is not: `ValProvider`'s own body needs to read the stores —
+ * for the unsaved-edit count, for publish and discard, for the error surfaces —
+ * and a system created HERE is created below the component that has to use it.
+ * Everything long-lived in the Studio is built in `ValProvider`; this is not the
+ * exception.
  *
- * Replacing the engine to find out would mean the whole Studio depends on the new
- * layer before anything has checked it against a single real module. So this
- * mounts BOTH. The engine keeps driving every pixel; the system takes the same
- * modules in and can be read alongside, so its answers can be compared with the
- * engine's on real content.
+ * ## Where the data comes from
  *
- * ## This system owns writes now
+ * Two inputs, and they arrive by very different routes.
  *
- * It began as a mirror: the engine wrote, and every patch was copied in here so
- * reads stayed correct. That stopped being tenable the moment `/stat` was wired
- * in, and the reason is worth recording because it is the argument for flipping
- * rather than a consequence of having flipped.
+ * **Modules** come from the host app as a React prop. The app imports its own
+ * `val.modules`, so schema and committed source are already in this process and
+ * `host.receive` derives both — no round trip, and nothing to retry. This is why
+ * the ~100 lines of init state machine that used to live in `ValProvider` are
+ * gone rather than moved.
  *
- * With both systems holding the same edit, the two chains have to agree on patch
- * IDENTITY, and they cannot. The engine MERGES consecutive keystrokes into one
- * patch (`canMerge` / `mergePatches`); this system creates one per edit. So the
- * engine's chain has one id where this one has six, and when stat announces the
- * engine's id this system does not recognise it, fetches it, and applies the same
- * edit a second time — harmless for a `replace`, wrong for an array `add`.
- *
- * So: this system writes. `useAddPatch` creates the patch here, which mints the id
- * and issues the `PUT`, and then hands that same id to the engine so the engine
- * applies it LOCALLY for every component still reading from it. One id per edit,
- * one writer, and stat announces ids this system already has.
- *
- * The engine's own `PUT` is disabled — see `ValSyncEngine`'s `writesDisabled`.
- *
- * One behaviour change that follows and is not a bug: a typing session now
- * produces one patch per edit rather than one merged patch, so there are more
- * patches on the server. Patch SETS still group them for review, which is what
- * the review UI shows.
- *
- * Still not routed through here, and therefore still the engine's: the four AI
- * write paths in `hooks/useAI.ts`, which call the engine directly rather than
- * through `useAddPatch`. Named rather than left to be discovered.
- *
- * ## Always on
- *
- * It was behind a flag while it was an experiment. It is not one any more: the
- * engine is being removed when this lands, so a switch to turn the replacement
- * off is a switch nobody would ever want. Always creating it also means the port
- * is exercised by every session rather than by whoever remembered the flag.
- *
- * The cost of always-on is currently close to nothing, which is worth knowing
- * rather than assuming: the second system's `fetchPatches` is driven by
- * `stat:receive`, and nothing in the app calls `receiveStat` yet (openquestions
- * item 8), so no duplicate `GET /patches` happens. `GET /json` is per entry and
- * only on a read that descends into an unfetched one. That changes the day stat
- * gets a real input — at which point the engine's own polling should be the thing
- * that goes, not this.
+ * **The patch chain** is genuinely remote, and `/stat` is how it arrives:
+ * `StatStore` is told the ordered ids and `PatchStore` fetches only the ones it
+ * does not already have. That is also how a second editor's work reaches this
+ * one.
  */
-export function ValStoreShadow({
-  client,
+export function ValStoreProvider({
+  system,
   valModules,
   stat,
-  mode,
-  uploadSettings,
   children,
 }: {
-  client: ValClient;
+  /** Built by `ValProvider`. See the note above on why it is not built here. */
+  system: System;
   valModules: ValModules | null;
   /**
    * What `/stat` last said. The store system needs two things out of it and
@@ -89,21 +52,8 @@ export function ValStoreShadow({
    * — without it `PatchSync` reports every edit unsaveable).
    */
   stat: { baseSha: string; patches: PatchId[] } | null;
-  /**
-   * Whether a publish leaves the patches on the server. From `/stat`.
-   *
-   * It changes what the client must do after a successful publish, so guessing is
-   * not an option: in `fs` the patches are applied to the files and deleted, in
-   * `http` they persist and are re-applied. See `SystemOptions.mode`.
-   */
-  mode: "fs" | "http" | undefined;
-  uploadSettings: UploadSettings;
   children: ReactNode;
 }) {
-  const system = useMemo<System>(
-    () => createValSystem(client, { writes: true, uploadSettings, mode }),
-    [client, uploadSettings, mode],
-  );
   const [received, setReceived] = useState(false);
 
   useEffect(() => {
@@ -182,7 +132,7 @@ export function ValStoreShadow({
    */
 
   // Exposed so a browser test can wait for intake rather than sleeping, and can
-  // reach the system directly to compare it with the engine's answers.
+  // drive the system directly. See `e2e/studio.spec.ts`.
   useEffect(() => {
     const bag = window as unknown as {
       __VAL_STORES__?: { system: System; received: boolean };

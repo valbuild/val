@@ -206,7 +206,7 @@ export class PatchStore {
         !announced.has(patchId) && this.originById.get(patchId) === "internal",
     );
     this.ordered = [...patchIds, ...localTail];
-    this.version++;
+    this.bump();
 
     const missing = patchIds.filter(
       (patchId) => !this.dataById.has(patchId) && !this.fetching.has(patchId),
@@ -228,7 +228,7 @@ export class PatchStore {
       this.fetching.delete(record.patchId);
       this.dataById.set(record.patchId, record);
       received.push(record.patchId);
-      this.version++;
+      this.bump();
     }
     for (const [patchId, message] of Object.entries(res.errors ?? {})) {
       this.fetching.delete(patchId as PatchId);
@@ -417,7 +417,7 @@ export class PatchStore {
       this.sessionByPatchId.set(patchId, sessionId);
     }
     this.ordered = [...this.ordered, patchId];
-    this.version++;
+    this.bump();
     this.activity.work("patch:create", patchId);
     this.events.emit({ type: "patch:create", patches: [patchId] });
 
@@ -499,7 +499,7 @@ export class PatchStore {
       saved.push(patchId);
     }
     if (saved.length === 0) return;
-    this.version++;
+    this.bump();
     this.activity.work("patch:mark-saved", undefined, saved.length);
   }
 
@@ -525,12 +525,13 @@ export class PatchStore {
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
+      this.publishErrorById.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
     const gone = new Set(forgotten);
     this.ordered = this.ordered.filter((patchId) => !gone.has(patchId));
-    this.version++;
+    this.bump();
     this.activity.work("patch:forget-published", undefined, forgotten.length);
     this.events.emit({ type: "patch:head", head: this.currentHead() });
   }
@@ -564,12 +565,13 @@ export class PatchStore {
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
+      this.publishErrorById.delete(patchId);
       dropped.push(patchId);
     }
     if (dropped.length === 0) return;
     const droppedSet = new Set(dropped);
     this.ordered = this.ordered.filter((patchId) => !droppedSet.has(patchId));
-    this.version++;
+    this.bump();
     this.activity.work("patch:drop", undefined, dropped.length);
     this.events.emit({
       type: "patch:drop",
@@ -620,6 +622,56 @@ export class PatchStore {
     return this.version;
   }
 
+  /**
+   * Patches `/save` refused, and why.
+   *
+   * Kept because a refusal never resolves itself. The client applies patches to
+   * evaluated JSON with JSONOps; the server applies them to the `.val.ts` AST,
+   * and the two can genuinely disagree — a `c.image` metadata key that is not
+   * literally present, a non-literal initializer, an array shorter in the source
+   * than in the evaluated JSON. So a patch that applies perfectly here can be
+   * rejected there, and the publish gate has to be able to say so rather than
+   * letting the user click again forever.
+   *
+   * Cleared for a patch that leaves the chain, and only then: a failed patch is
+   * still in the chain and still shown, so forgetting the reason would leave the
+   * publish button disabled with nothing explaining it.
+   */
+  private publishErrorById = new Map<PatchId, string>();
+
+  recordPublishErrors(errors: Readonly<Record<PatchId, string>>): void {
+    for (const [patchId, message] of Object.entries(errors)) {
+      this.publishErrorById.set(patchId as PatchId, message);
+    }
+    this.bump();
+  }
+
+  /**
+   * Per patch in the chain: the refusals, or `null` for a patch with none.
+   *
+   * `null` rather than absent for the clean ones, because the caller's question
+   * is "does anything in the chain block a publish" and a map with only the bad
+   * entries cannot answer "how many did I check".
+   */
+  publishErrors(): Record<PatchId, string[] | null> {
+    const errors: Record<PatchId, string[] | null> = {};
+    for (const patchId of this.ordered) {
+      const message = this.publishErrorById.get(patchId);
+      errors[patchId] = message === undefined ? null : [message];
+    }
+    return errors;
+  }
+
+  /**
+   * The chain changed. THE single place the version moves, and the only place
+   * `patch:chain` is emitted — see that event in `types.ts` for why it is not
+   * the union of the five specific ones.
+   */
+  private bump(): void {
+    this.version++;
+    this.events.emit({ type: "patch:chain", version: this.version });
+  }
+
   originOf(patchId: PatchId): PatchOrigin {
     return this.originById.get(patchId) ?? "external";
   }
@@ -663,4 +715,78 @@ export class PatchStore {
   creatorOf(patchId: PatchId): string | undefined {
     return this.creatorByPatchId.get(patchId);
   }
+
+  /**
+   * File path -> the id of the pending patch that carries its bytes.
+   *
+   * What a component needs to build a URL for an image the server does not have
+   * yet: `/api/val/files{path}?patch_id=...` serves the bytes out of the patch
+   * directory, so without this map a just-uploaded image renders as a broken
+   * link until the patch is published.
+   *
+   * PENDING only. Once a patch is saved the file is fetchable by its committed
+   * path and the `patch_id` query is not just unnecessary but wrong — it points
+   * at a patch that may already have been collected.
+   *
+   * Reference-stable across an unchanged chain, because this is a
+   * `useSyncExternalStore` snapshot. Memoised on {@link chainVersion} rather
+   * than recomputed-and-compared: unlike the render map, two of these are not
+   * comparable more cheaply than one is built.
+   */
+  filePatchIds(): ReadonlyMap<string, PatchId> {
+    const cached = this.filePatchIdsAt;
+    if (cached !== null && cached.n === this.version) {
+      return cached.map;
+    }
+    const map = new Map<string, PatchId>();
+    for (const patchId of this.ordered) {
+      if (!this.pendingIds.has(patchId)) continue;
+      const record = this.dataById.get(patchId);
+      if (record === undefined) continue;
+      for (const op of record.patch) {
+        if (op.op === "file") {
+          // Later wins: if two pending patches touch one file, the newest is
+          // the one whose bytes a read should serve.
+          map.set(op.filePath, patchId);
+        }
+      }
+    }
+    this.filePatchIdsAt = { n: this.version, map };
+    return map;
+  }
+
+  /**
+   * Does this module have an unsaved patch that THIS field instance made?
+   *
+   * The store-side answer to the engine's `isOptimisticFor`, and it is worth
+   * being precise about what it is for. A controlled input holds its own draft
+   * state and resets it from source; it must not do that while showing an edit
+   * of its own that the server has not acknowledged, or the caret jumps and a
+   * fast typist loses characters.
+   *
+   * Narrower than the engine's version in one way that matters. The engine asked
+   * "is the LAST patch in the chain yours", which is false as soon as anyone —
+   * another field, another tab — writes after you, even though your edit is
+   * still unsaved. This asks whether you have an unsaved patch at all, which is
+   * the question the input is really asking.
+   *
+   * Wider in one way that does not: it is per module rather than per path.
+   * Two instances of one field cannot exist, and a field's own patches only ever
+   * touch its own path, so per module and per path differ only for a component
+   * that writes to several paths — where the answer is the same either way.
+   */
+  hasUnsavedFrom(moduleFilePath: ModuleFilePath, fieldId: string): boolean {
+    for (const patchId of this.pendingIds) {
+      if (this.creatorByPatchId.get(patchId) !== fieldId) continue;
+      if (this.dataById.get(patchId)?.moduleFilePath === moduleFilePath) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private filePatchIdsAt: {
+    n: number;
+    map: ReadonlyMap<string, PatchId>;
+  } | null = null;
 }

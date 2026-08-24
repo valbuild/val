@@ -1,10 +1,10 @@
+import { useValSystem } from "../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef } from "react";
 import {
   useAllSources,
   useJsonEntriesProgress,
   useSchemas,
-  useSyncEngine,
 } from "./ValFieldProvider";
 import {
   JsonValuesLoadQuery,
@@ -141,10 +141,10 @@ export function useAllJsonValuesLoad(enabled: boolean): JsonValuesLoadStatus {
 function useJsonValuesLoad(
   moduleFilePaths: ModuleFilePath[] | null,
 ): JsonValuesLoadStatus {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const progress = useJsonEntriesProgress();
-  // Subscribing to sources is what re-renders this hook as batches land: every
-  // load pass ends in an invalidateSource, which emits "all-sources".
+  // Subscribing to sources is what re-renders this hook as batches land: an
+  // entry arriving bumps its module, which is a `source:change`.
   useAllSources();
 
   // The module list as a primitive, so effects key on its CONTENT: the schema
@@ -158,7 +158,7 @@ function useJsonValuesLoad(
   const loadStatus =
     moduleFilePaths === null || moduleFilePaths.length === 0
       ? null
-      : syncEngine.getJsonEntriesLoadStatus(moduleFilePaths);
+      : (val?.system.sourceStore.entriesStatus(moduleFilePaths) ?? null);
   const needsLoad = loadStatus?.status === "incomplete";
 
   useEffect(() => {
@@ -166,8 +166,10 @@ function useJsonValuesLoad(
     if (!needsLoad || modules === null) {
       return;
     }
-    void syncEngine.ensureJsonEntries(modules);
-  }, [syncEngine, requiredKey, needsLoad]);
+    for (const moduleFilePath of modules) {
+      void val?.system.sourceStore.loadAllEntries(moduleFilePath);
+    }
+  }, [val, requiredKey, needsLoad]);
 
   if (moduleFilePaths === null) {
     return { status: "loading", percentage: 0 };
@@ -187,7 +189,10 @@ function useJsonValuesLoad(
       retry: () => {
         const modules = requiredRef.current;
         if (modules !== null) {
-          void syncEngine.retryJsonEntries(modules);
+          for (const { moduleFilePath, key } of errors) {
+            void val?.system.sourceStore.retryEntry(moduleFilePath, key);
+          }
+          void modules;
         }
       },
     };

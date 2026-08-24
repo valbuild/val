@@ -35,6 +35,29 @@ export type RenderRead =
   | { status: "error"; message: string };
 
 /**
+ * Are these the same whole-project render maps?
+ *
+ * Identity per module, for the same reason {@link sameRead} uses it: a render
+ * that has not been recomputed is the same object out of the same cache entry,
+ * so `===` is exact here rather than an approximation of equality.
+ */
+function sameRenders(
+  a: Record<ModuleFilePath, ReifiedRender | null>,
+  b: Record<ModuleFilePath, ReifiedRender | null>,
+): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) {
+    return false;
+  }
+  for (const key of keys) {
+    const moduleFilePath = key as ModuleFilePath;
+    if (!(moduleFilePath in b)) return false;
+    if (a[moduleFilePath] !== b[moduleFilePath]) return false;
+  }
+  return true;
+}
+
+/**
  * Is this the same render answer? Identity on the render, since an unchanged one
  * is the same object out of the same cache entry.
  */
@@ -148,6 +171,10 @@ export class RenderStore {
    * already-unmounted caller can also do.
    */
   private listenersByModule = new Map<ModuleFilePath, number>();
+
+  /** The last {@link all} answer, reused when a fresh one is equal. */
+  private allRenders: Record<ModuleFilePath, ReifiedRender | null> | null =
+    null;
 
   constructor(
     private readonly host: HostBridge,
@@ -442,6 +469,48 @@ export class RenderStore {
       return previous;
     }
     this.peeked.set(path, next);
+    return next;
+  }
+
+  /**
+   * Every module's cached render, in the shape the engine's
+   * `getAllRendersSnapshot` returned: `null` where there is nothing rendered.
+   *
+   * PEEKED, not computed. That is the whole difference from the engine, which
+   * ran `computeRender` for every module the project has a schema for — so a
+   * consumer reading "all renders" paid for the entire project's `select`
+   * closures whether or not anything was on screen. Here a module that nobody
+   * has asked about is simply absent, and the render arrives when demand does:
+   * a field mounting on a path emits `source:listen`, which is what makes this
+   * store compute.
+   *
+   * A consumer that needs a render it cannot see should read it through
+   * `useRenderOverrideAtPath` — asking IS the demand signal. Two consumers do
+   * genuinely want the whole map (`useRichTextEditorConfig`, `RouteField`), and
+   * for them "what has been rendered so far" is the honest answer: both are
+   * reading configuration that the module they render in has already caused.
+   *
+   * Reference-stable, like every other snapshot here, and by recomputing and
+   * comparing rather than by maintaining a version. Five places mutate the
+   * render map — a listener count reaching zero, an invalidation, and the three
+   * outcomes of a render — and a counter bumped at each is a list that has to
+   * stay complete forever and fails silently when it does not. The rebuild walks
+   * only modules that HAVE a cached render, which is modules with a mounted
+   * field, so it is bounded by what is on screen rather than by the project.
+   * Same reasoning as `peek`, and as `SourceStore.peek` before it.
+   */
+  all(): Record<ModuleFilePath, ReifiedRender | null> {
+    const next: Record<ModuleFilePath, ReifiedRender | null> = {};
+    for (const [moduleFilePath, entry] of this.renders) {
+      next[moduleFilePath] = this.stale.has(moduleFilePath)
+        ? null
+        : entry.render;
+    }
+    const previous = this.allRenders;
+    if (previous !== null && sameRenders(previous, next)) {
+      return previous;
+    }
+    this.allRenders = next;
     return next;
   }
 
