@@ -75,7 +75,14 @@ export function CanvasView({
   const breakpoint = useShellBreakpoint();
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
-  /** Transition for the named properties, or none if motion is unwelcome. */
+  /**
+   * Transition for the named properties, or none if motion is unwelcome.
+   *
+   * Declared inline rather than with `transition-[…] duration-[…]` because a
+   * `duration-[320ms]` utility was measured losing to the duration that
+   * `transition-[…]` sets for itself, leaving the move at Tailwind's default
+   * 150ms. Inline, the timing is unambiguous.
+   */
   const ease = (properties: string[]) =>
     reducedMotion
       ? undefined
@@ -334,14 +341,15 @@ export function CanvasView({
       ) : (
         /*
          * Both arrangements are the same three regions; only their geometry
-         * changes. Absolutely positioned with px and percentage edges,
-         * because those interpolate — `grid-template-columns` will not
-         * animate between tracks that mix `fr` and `px`, it snaps.
+         * changes. The fields list travels from the middle of the screen to
+         * the right rail rather than one screen being swapped for another, so
+         * the list you were reading is still the list you are reading when it
+         * arrives.
          *
-         * The point of animating at all: the fields list travels from the
-         * middle of the screen to the right rail rather than one screen being
-         * swapped for another, so the list you were reading is still the list
-         * you are reading when it arrives.
+         * Absolutely positioned rather than a grid whose columns animate.
+         * Both work — `grid-template-columns` does interpolate across `fr`
+         * and `px` in Chromium, measured — but explicit edges keep the
+         * geometry readable next to the transition that drives it.
          */
         <div data-canvas-mode={mode} className="relative min-h-0 flex-1">
           <div
