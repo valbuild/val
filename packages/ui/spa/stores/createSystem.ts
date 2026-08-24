@@ -18,6 +18,7 @@ import {
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
+import { StatusStore } from "./StatusStore";
 import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
 import { HostStore } from "./HostStore";
 import { RenderStore } from "./RenderStore";
@@ -62,6 +63,11 @@ export type HostRealm = {
   schemaStore: SchemaStore;
   sourceStore: SourceStore;
   patchStore: PatchStore;
+  /**
+   * Everything the editor is TOLD — errors, the network, whether the schema it
+   * holds is still the server's. Host realm: it is announcements, not content.
+   */
+  status: StatusStore;
   /**
    * The write-back loop. In the host realm because it drives the patch store,
    * and because a retry timer has to live where the chain does.
@@ -293,6 +299,7 @@ export function createSystem(options: SystemOptions): System {
     options.fetchJsonEntry,
   );
   const stat = new StatStore();
+  const status = new StatusStore(activity);
   const patchSync = new PatchSync(
     patchStore,
     // Passed through as-is, including `undefined`: no write seam is a real
@@ -496,6 +503,7 @@ export function createSystem(options: SystemOptions): System {
   return {
     host,
     stat,
+    status,
     schemaStore,
     sourceStore,
     patchStore,

@@ -108,6 +108,16 @@ export type WorkKind =
   | "patch:drop"
   /** Published patches taken out of the chain, source left alone. */
   | "patch:forget-published"
+  // --- status: what the editor is told --------------------------------------
+  | "status:report-error"
+  /**
+   * The client's schema went stale against the server's.
+   *
+   * Counted because it GATES writes, so a run where it happens is a run where
+   * saving stopped — which is worth being able to see in a ledger rather than
+   * inferring from an absence of saves.
+   */
+  | "status:schema-out-of-date"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------

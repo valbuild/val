@@ -190,6 +190,8 @@ export class SourceStore {
    * of callers peek without listening.
    */
   private peeked = new Map<SourcePath, SourcePeek>();
+  /** The same, for {@link peekBase}. Separate map: different question, same path. */
+  private peekedBase = new Map<SourcePath, SourcePeek>();
 
   /**
    * Loaded `.jsonValues()` entry content, keyed by module then entry key.
@@ -358,7 +360,7 @@ export class SourceStore {
    * break it. The same reasoning as `PatchSetChain`'s prefix test.
    */
   peek(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path);
+    const next = this.computePeek(path, this.sources);
     const previous = this.peeked.get(path);
     if (previous !== undefined && samePeek(previous, next)) {
       return previous;
@@ -367,10 +369,13 @@ export class SourceStore {
     return next;
   }
 
-  private computePeek(path: SourcePath): SourcePeek {
+  private computePeek(
+    path: SourcePath,
+    from: Record<ModuleFilePath, Json>,
+  ): SourcePeek {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
-    const source = this.sources[moduleFilePath];
+    const source = from[moduleFilePath];
     if (
       source === undefined ||
       this.schemaStore.get(moduleFilePath) === undefined
@@ -445,6 +450,75 @@ export class SourceStore {
     return failure === undefined
       ? { status: "ok" }
       : { status: "error", message: failure };
+  }
+
+  /**
+   * The COMMITTED value at a path — what the server has, before local patches.
+   *
+   * For a diff or compare view: "what did this look like before I touched it".
+   * Reads `baseSources` rather than `sources`, and is otherwise the same walk, so
+   * the two answers are comparable by construction.
+   *
+   * Reference-stable like {@link peek}, and it has to be for the same reason: a
+   * compare view is a `useSyncExternalStore` consumer too.
+   */
+  peekBase(path: SourcePath): SourcePeek {
+    const next = this.computePeek(path, this.baseSources);
+    const previous = this.peekedBase.get(path);
+    if (previous !== undefined && samePeek(previous, next)) {
+      return previous;
+    }
+    this.peekedBase.set(path, next);
+    return next;
+  }
+
+  /**
+   * How many `.jsonValues()` entries a module has, and how many are here.
+   *
+   * For a progress indicator. Counted rather than tracked incrementally: the two
+   * numbers come from the source and the loaded map, so they cannot disagree with
+   * what a read would find — which an incremental counter could, and would then be
+   * a progress bar that finishes before the content arrives.
+   */
+  entriesProgress(moduleFilePath: ModuleFilePath): {
+    total: number;
+    loaded: number;
+    failed: number;
+  } {
+    const source = this.sources[moduleFilePath];
+    if (source === undefined || !isJsonObject(source)) {
+      return { total: 0, loaded: 0, failed: 0 };
+    }
+    const here = this.jsonEntries.get(moduleFilePath);
+    let total = 0;
+    let loaded = 0;
+    let failed = 0;
+    for (const [key, value] of Object.entries(source)) {
+      if (!Internal.isJson(value)) continue;
+      total++;
+      if (here?.has(key) === true) {
+        loaded++;
+      } else if (this.entryFailures.has(entryKey(moduleFilePath, key))) {
+        failed++;
+      }
+    }
+    return { total, loaded, failed };
+  }
+
+  /**
+   * Ask again for an entry whose fetch failed.
+   *
+   * The only way out of `entry-failed`: `peek` reports it and every reader stops
+   * asking, deliberately, so that a permanent failure is not a retry loop. Someone
+   * has to be able to say "try again", and it has to clear the failure first or
+   * `loadEntry` would return the recorded error without attempting anything.
+   */
+  async retryEntry(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
+    this.entryFailures.delete(entryKey(moduleFilePath, key));
+    return this.loadEntry(moduleFilePath, key);
   }
 
   /**

@@ -63,6 +63,20 @@ export class HostStore implements HostBridge {
    * NOT yet handled is rebase — swapping base source under existing patches —
    * which is listed as a known gap in `architecture.md`.
    */
+  /**
+   * When intake last completed, or `null` before it ever has.
+   *
+   * A timestamp rather than a boolean, so a consumer can tell a re-intake (HMR,
+   * a schema redeploy) from the first one — the difference matters to anything
+   * that caches against it. `null` is the only value that means "not ready", and
+   * every hook that gates on readiness gates on that.
+   */
+  initializedAt(): number | null {
+    return this.receivedAt;
+  }
+
+  private receivedAt: number | null = null;
+
   receive(modules: ValModule<SelectorSource>[]): void {
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
@@ -92,6 +106,12 @@ export class HostStore implements HostBridge {
       adopted.push(moduleFilePath);
     }
 
+    // BEFORE the announcement. Dispatch is synchronous, so a consumer woken by
+    // `host:receive` reads this in the same turn — and it has to see the intake it
+    // was just told about, not the one before it. Setting it after would make the
+    // first `host:receive` of a session arrive with `initializedAt` still null,
+    // which is exactly the state every readiness gate treats as "not ready".
+    this.receivedAt = Date.now();
     this.events.emit({ type: "host:receive", modules: adopted });
     // Schemas before source: `SourceStore.get` refuses to answer `absent` for a
     // module whose schema is unknown, so the other order would make the first

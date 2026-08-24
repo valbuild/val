@@ -228,6 +228,12 @@ export type SystemEvent =
       message: string;
       errors?: Record<ModuleFilePath, string[]>;
     }
+  /**
+   * Something the editor should be told changed: an error, the network, the
+   * schema's freshness. One event for all of them because a UI shows them
+   * together — see `StatusStore`.
+   */
+  | { type: "status:change" }
   /** Patches were removed from the chain, and source rebuilt without them. */
   | { type: "patch:drop"; patches: PatchId[]; modules: ModuleFilePath[] }
   /**
