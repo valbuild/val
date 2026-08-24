@@ -7,6 +7,7 @@ import type {
   ValidationErrors,
 } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
+import type { SyncState } from "./PatchSync";
 
 /**
  * A patch as it exists once its data is known: the ops plus the module they
@@ -229,6 +230,19 @@ export type SystemEvent =
     }
   /** Patches were removed from the chain, and source rebuilt without them. */
   | { type: "patch:drop"; patches: PatchId[]; modules: ModuleFilePath[] }
+  /**
+   * The write queue moved: in-sync, pending, saving, retrying.
+   *
+   * Separate from the four events above because those announce OUTCOMES and this
+   * announces the state in between. A UI showing "saving..." needs the state, and
+   * without this event it could not see it: a system with no write seam sets
+   * `pending` and emits nothing else at all, so a consumer polling only the
+   * outcome events would report every unsaved edit as in-sync.
+   *
+   * Emitted only when the state actually changes — a drain that concludes
+   * `in-sync` twice is not news.
+   */
+  | { type: "patch:sync-state"; state: SyncState }
   /**
    * Source was rebuilt from base + the surviving chain.
    *

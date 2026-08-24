@@ -10,6 +10,21 @@ import { noopActivity, type ActivitySink } from "./activity";
 export type RenderRead =
   | { status: "rendered"; render: NonNullable<ReifiedRender[SourcePath]> }
   /**
+   * Nothing is computed for this module, and computing it might help.
+   *
+   * `peek` only. It exists because a caller that peeks has to know whether ASKING
+   * would change the answer, and the first version of `peek` could not say: it
+   * returned `no-render` both for a module that declares no render and for one
+   * that simply has not been computed yet. A React hook reading that cannot
+   * distinguish "there is nothing to show" from "ask and there will be", so it
+   * either never renders anything or asks forever. Exactly the same defect, and
+   * the same fix, as `entry-missing` vs `entry-failed` in `SourceStore.peek`.
+   *
+   * `get` never returns it — `get` computes, so by the time it answers the
+   * question is settled.
+   */
+  | { status: "needs-render" }
+  /**
    * The module rendered, but this path has no render of its own. Normal and
    * common — most paths are not list/record/textarea/code nodes. Distinct from
    * `no-render`, which is about the whole module.
@@ -72,6 +87,31 @@ export class RenderStore {
     { render: ReifiedRender; scope: Set<SourcePath> | null }
   >();
   private stale = new Set<ModuleFilePath>();
+  /**
+   * Memoised {@link peek} answers, so repeated peeks of one path are `===`.
+   *
+   * Cleared per MODULE, because everything that can change a render — an
+   * invalidation, a recompute, an error — is a module-level event. Keyed by path
+   * because that is what a caller asks about.
+   */
+  private peeked = new Map<SourcePath, RenderRead>();
+
+  /**
+   * Drop memoised peek answers for one module.
+   *
+   * Called from every place that changes what a render read would say. Doing it
+   * per module rather than clearing the whole map matters at the sizes this
+   * system is built for: a 141-module project with one module recomputed must not
+   * make every other module's fields re-read.
+   */
+  private forgetPeeked(moduleFilePath: ModuleFilePath): void {
+    for (const path of this.peeked.keys()) {
+      const [owner] = Internal.splitModuleFilePathAndModulePath(path);
+      if (owner === moduleFilePath) {
+        this.peeked.delete(path);
+      }
+    }
+  }
   /**
    * In-flight requests, so N fields asking at once produce ONE host call — WITH
    * the scope each was issued at.
@@ -157,6 +197,7 @@ export class RenderStore {
         this.listenersByModule.delete(event.moduleFilePath);
         this.renders.delete(event.moduleFilePath);
         this.stale.delete(event.moduleFilePath);
+        this.forgetPeeked(event.moduleFilePath);
         this.pendingReads.delete(event.moduleFilePath);
       },
     );
@@ -188,6 +229,7 @@ export class RenderStore {
     );
     for (const moduleFilePath of modules) {
       this.stale.add(moduleFilePath);
+      this.forgetPeeked(moduleFilePath);
     }
     // Only when something cached actually went stale. A keystroke in a module
     // nobody has rendered is not news, and 40 keystrokes in one that has are
@@ -344,6 +386,7 @@ export class RenderStore {
       if (result.status === "rendered") {
         // An empty scope is not a scope: with nothing listened and nobody
         // asking, the host rendered the whole module, so that is what is cached.
+        this.forgetPeeked(moduleFilePath);
         this.renders.set(moduleFilePath, {
           render: result.render,
           scope: scope.size === 0 ? null : scope,
@@ -355,9 +398,11 @@ export class RenderStore {
         // the absence so every field in it does not re-ask the host.
         this.renders.delete(moduleFilePath);
         this.stale.delete(moduleFilePath);
+        this.forgetPeeked(moduleFilePath);
       } else {
         this.renders.delete(moduleFilePath);
         this.stale.delete(moduleFilePath);
+        this.forgetPeeked(moduleFilePath);
         this.events.emit({
           type: "render:error",
           moduleFilePath,
@@ -379,15 +424,41 @@ export class RenderStore {
     return request;
   }
 
-  /** Cached only: safe on a render path, never triggers a host call. */
+  /**
+   * Cached only: safe on a render path, never triggers a host call.
+   *
+   * And reference-stable, which is the other half of "safe on a render path". An
+   * earlier version built its result fresh per call, so a `useSyncExternalStore`
+   * consumer saw a new snapshot on every render and re-rendered forever — the
+   * same defect `ValidationStore.peek` had, found the same way. The answers are
+   * memoised per path and dropped whenever the module's render is invalidated or
+   * recomputed, which are the only two things that can change them.
+   */
   peek(path: SourcePath): RenderRead {
+    const memo = this.peeked.get(path);
+    if (memo !== undefined) {
+      return memo;
+    }
+    const answer = this.computePeek(path);
+    this.peeked.set(path, answer);
+    return answer;
+  }
+
+  private computePeek(path: SourcePath): RenderRead {
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-    if (this.stale.has(moduleFilePath)) {
+    // Asked FIRST, because it is the one case where asking cannot help: the
+    // module's schema declares no render at all, so there is nothing to compute
+    // however many times a caller asks. Distinguishing it from the two below is
+    // the whole reason `needs-render` exists.
+    if (!this.schemaStore.declaresRender(moduleFilePath)) {
       return { status: "no-render" };
+    }
+    if (this.stale.has(moduleFilePath)) {
+      return { status: "needs-render" };
     }
     const entry = this.renders.get(moduleFilePath);
     if (entry === undefined) {
-      return { status: "no-render" };
+      return { status: "needs-render" };
     }
     // Deliberately NOT the `covers` check `get` makes. `peek` reports what is
     // cached; a path outside the scope simply has nothing at it, which is

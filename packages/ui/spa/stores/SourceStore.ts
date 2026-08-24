@@ -14,7 +14,7 @@ import {
   type JSONValue,
 } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
-import { touchesPath } from "./pathMatch";
+import { touchesPath, type ChangedPath } from "./pathMatch";
 import type {
   FieldEvent,
   PatchOrigin,
@@ -97,7 +97,16 @@ export type SourcePeek =
   /** Inside a `.jsonValues()` entry whose content has not been fetched. */
   | { status: "entry-missing"; key: string }
   /** Inside an entry whose fetch is in flight. */
-  | { status: "entry-loading"; key: string };
+  | { status: "entry-loading"; key: string }
+  /**
+   * Inside an entry whose last fetch FAILED.
+   *
+   * Distinct from `entry-missing` because the two demand opposite things of a
+   * caller: missing means "ask for it", failed means "stop asking and say so".
+   * Collapsing them is how a failed entry becomes a spinner that never resolves —
+   * the caller retries, the retry fails, and nothing ever changes.
+   */
+  | { status: "entry-failed"; key: string; message: string };
 
 type Resolved =
   | { status: "found"; value: Json }
@@ -185,6 +194,19 @@ export class SourceStore {
   private jsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
+  /**
+   * Entries whose last fetch FAILED, and why.
+   *
+   * Kept because `peek` has to be able to say so. Without it a hook that peeks
+   * cannot tell "not fetched yet" from "fetch failed" — both look like
+   * `entry-missing` — so a failed entry renders a spinner forever while the
+   * effect that would retry sees nothing new to do. The failure was already
+   * known here and was being returned to one caller and then dropped.
+   *
+   * Cleared on a successful fetch and on a fresh attempt, so a retry that works
+   * stops reporting the old failure.
+   */
+  private entryFailures = new Map<string, string>();
   /** Substituted source, cached against the revision it was computed at. */
   private substituted = new Map<ModuleFilePath, { n: number; source: Json }>();
 
@@ -319,12 +341,17 @@ export class SourceStore {
       this.jsonEntries.get(moduleFilePath),
     );
     if (resolved.status === "needs-entry") {
-      const inFlight = this.loadingEntries.has(
-        entryKey(moduleFilePath, resolved.key),
-      );
-      return inFlight
-        ? { status: "entry-loading", key: resolved.key }
-        : { status: "entry-missing", key: resolved.key };
+      const cacheKey = entryKey(moduleFilePath, resolved.key);
+      if (this.loadingEntries.has(cacheKey)) {
+        return { status: "entry-loading", key: resolved.key };
+      }
+      const failed = this.entryFailures.get(cacheKey);
+      if (failed !== undefined) {
+        // Checked BEFORE reporting `entry-missing`, so a caller that retries on
+        // missing does not loop on a fetch that is never going to work.
+        return { status: "entry-failed", key: resolved.key, message: failed };
+      }
+      return { status: "entry-missing", key: resolved.key };
     }
     const revision = this.revisionOf(moduleFilePath);
     if (resolved.status === "found") {
@@ -353,11 +380,16 @@ export class SourceStore {
       return { status: "ok" };
     }
     let failure: string | undefined;
+    // Cleared before the attempt, so a retry is not reported as failed while it
+    // is in flight — `peek` would otherwise answer `entry-failed` for a fetch
+    // that is currently working.
+    this.entryFailures.delete(cacheKey);
     const request = (async () => {
       this.activity.work("source:load-json-entry", moduleFilePath);
       const res = await this.fetchJsonEntry!(moduleFilePath, key);
       if (res.status === "error") {
         failure = res.message;
+        this.entryFailures.set(cacheKey, res.message);
         return;
       }
       this.receiveJsonEntry(moduleFilePath, key, res.content);
@@ -539,6 +571,29 @@ export class SourceStore {
       const chain = this.chains.get(moduleFilePath);
       if (chain === undefined || chain.length === 0) continue;
       this.applyEntries(chain);
+    }
+    // And wake everyone reading these modules.
+    //
+    // Intake replaces the value at EVERY path in the module, and `bump` above has
+    // already moved the revision — but nothing had told the listeners, so a field
+    // that mounted before its module arrived was never woken and rendered
+    // `loading` forever. That is the normal startup order, and it stayed invisible
+    // until a React hook subscribed per path: every existing test either received
+    // before listening, or read on demand rather than waiting to be told.
+    //
+    // The module file path is the touched path, which matches everything
+    // registered inside that module — `touchesPath` is prefix-wise within a
+    // module — and the whole module genuinely did change.
+    //
+    // Origin `external` with no creator: intake is nobody's own edit, so there is
+    // no instance to leave asleep.
+    const loaded = (Object.keys(sources) as ModuleFilePath[]).filter(
+      (moduleFilePath) => this.sources[moduleFilePath] !== undefined,
+    );
+    if (loaded.length > 0) {
+      this.wakeListeners(new Set(loaded), [
+        { origin: "external", creatorFieldId: undefined, paths: loaded },
+      ]);
     }
   }
 
@@ -918,7 +973,12 @@ export class SourceStore {
     wokenBy: {
       origin: PatchOrigin;
       creatorFieldId?: string;
-      paths: SourcePath[];
+      /**
+       * What changed, at either granularity — see `ChangedPath`. A patch names
+       * exact paths; intake can only name modules, and a module matches
+       * everything registered inside it.
+       */
+      paths: ChangedPath[];
     }[],
   ): void {
     // Scoped to the modules that actually changed, not the whole registry.

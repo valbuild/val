@@ -1,4 +1,19 @@
-import { ModuleFilePathSep, type SourcePath } from "@valbuild/core";
+import {
+  ModuleFilePathSep,
+  type ModuleFilePath,
+  type SourcePath,
+} from "@valbuild/core";
+
+/**
+ * Either granularity a change can be announced at.
+ *
+ * A patch names the exact source path it touched; intake and a base-source
+ * replacement change everything in a module and can only name the module. Both
+ * are compared the same way — `isSelfOrUnder` already treats the `?p=` separator
+ * as a boundary, which is what makes a bare module file path match everything
+ * inside it — so widening the type is the whole of the difference.
+ */
+export type ChangedPath = SourcePath | ModuleFilePath;
 
 /**
  * Is `path` the same as `other`, or nested under it?
@@ -9,7 +24,7 @@ import { ModuleFilePathSep, type SourcePath } from "@valbuild/core";
  * (`?p=`) separates the module file path from the module path — so a listener
  * registered on the bare module file path is matched by anything inside it.
  */
-function isSelfOrUnder(path: SourcePath, other: SourcePath): boolean {
+function isSelfOrUnder(path: ChangedPath, other: ChangedPath): boolean {
   return (
     path === other ||
     path.startsWith(other + ".") ||
@@ -27,7 +42,7 @@ function isSelfOrUnder(path: SourcePath, other: SourcePath): boolean {
  *   showing, so my rendered subtree is out of date.
  */
 export function touchesPath(
-  changed: readonly SourcePath[],
+  changed: readonly ChangedPath[],
   path: SourcePath,
 ): boolean {
   for (const c of changed) {

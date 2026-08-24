@@ -67,18 +67,25 @@ export type ValidationResult =
  * Typing 40 characters costs 40 set-inserts and zero validations; the one
  * validation happens when the errors are next read.
  */
+/** One object, so repeated stale peeks are `===`. See `ValidationStore.peek`. */
+const STALE: ValidationResult = { status: "stale" };
+
 export class ValidationStore {
   readonly events = new StoreBus<SystemEvent>();
 
-  private results = new Map<
-    ModuleFilePath,
-    {
-      errors: ValidationErrors;
-      customValidatePaths: SourcePath[];
-      customValidateStatus: CustomValidateStatus;
-      jsonEntriesLoaded: boolean;
-    }
-  >();
+  /**
+   * The last result per module, stored as the {@link ValidationResult} callers
+   * get back rather than as its parts.
+   *
+   * Stored pre-wrapped so `peek` can return the SAME OBJECT every time. That is
+   * not a micro-optimisation: `peek` is documented as safe to call on a render
+   * path, and the previous version built `{ status: "validated", ...cached }`
+   * fresh per call — so a `useSyncExternalStore` consumer saw a new snapshot on
+   * every render and re-rendered forever. React's own words for it were "maximum
+   * update depth exceeded". An unstable reference is precisely what is not safe
+   * on a render path, so the store owes stability, not the caller.
+   */
+  private results = new Map<ModuleFilePath, ValidationResult>();
   private stale = new Set<ModuleFilePath>();
   /** Concurrent readers of one module share a single validation. */
   private inFlight = new Map<ModuleFilePath, Promise<ValidationResult>>();
@@ -140,9 +147,12 @@ export class ValidationStore {
 
   async validate(moduleFilePath: ModuleFilePath): Promise<ValidationResult> {
     const cached = this.results.get(moduleFilePath);
-    if (cached && !this.stale.has(moduleFilePath)) {
+    if (cached !== undefined && !this.stale.has(moduleFilePath)) {
       this.activity.work("validation:cache-hit", moduleFilePath);
-      return { status: "validated", ...cached };
+      // The stored object, so a cache hit through `validate` and one through
+      // `peek` are the same reference — a consumer holding one from either must
+      // be able to compare them.
+      return cached;
     }
     const existing = this.inFlight.get(moduleFilePath);
     if (existing) {
@@ -208,7 +218,8 @@ export class ValidationStore {
     // Asked AFTER both halves have run: the custom half can trigger entry loads,
     // so asking first could report a module incomplete that is complete by the
     // time the result is handed back.
-    const result = {
+    const result: ValidationResult = {
+      status: "validated",
       errors,
       customValidatePaths,
       customValidateStatus,
@@ -219,18 +230,26 @@ export class ValidationStore {
     this.events.emit({
       type: "validation:result",
       moduleFilePath,
-      ...result,
+      errors,
+      customValidatePaths,
+      customValidateStatus,
     });
-    return { status: "validated", ...result };
+    return result;
   }
 
-  /** Cached only: never triggers work, so a render path may call it freely. */
+  /**
+   * Cached only: never triggers work, so a render path may call it freely.
+   *
+   * Returns the STORED object, so repeated peeks of an unchanged result are
+   * `===`. See {@link results} for why that is part of the contract rather than
+   * an implementation detail.
+   */
   peek(moduleFilePath: ModuleFilePath): ValidationResult {
     const cached = this.results.get(moduleFilePath);
-    if (cached && !this.stale.has(moduleFilePath)) {
-      return { status: "validated", ...cached };
+    if (cached !== undefined && !this.stale.has(moduleFilePath)) {
+      return cached;
     }
-    return { status: "stale" };
+    return STALE;
   }
 }
 

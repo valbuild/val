@@ -136,6 +136,32 @@ export type SaveRejection = {
  * to. A stat can be older than our own write, so using it alone would walk the
  * parent backwards and conflict with ourselves.
  */
+/**
+ * Is this the same queue state?
+ *
+ * Compared by content rather than by reference because {@link SyncState} values
+ * are built fresh at every decision point — the alternative is announcing a
+ * change on every drain and making a UI flicker between two identical states.
+ */
+function sameState(a: SyncState, b: SyncState): boolean {
+  if (a.status !== b.status) {
+    return false;
+  }
+  if (a.status === "in-sync" || b.status === "in-sync") {
+    return true;
+  }
+  const same =
+    a.patches.length === b.patches.length &&
+    a.patches.every((patchId, index) => patchId === b.patches[index]);
+  if (!same) {
+    return false;
+  }
+  if (a.status === "retrying" && b.status === "retrying") {
+    return a.attempt === b.attempt && a.reason === b.reason;
+  }
+  return true;
+}
+
 export class PatchSync {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -430,7 +456,14 @@ export class PatchSync {
   }
 
   private setState(state: SyncState): void {
+    if (sameState(this.state, state)) {
+      // Not news. A drain that concludes `in-sync` on every pass would otherwise
+      // announce a change that did not happen, and a `useSyncExternalStore`
+      // consumer would re-render for each one.
+      return;
+    }
     this.state = state;
+    this.events.emit({ type: "patch:sync-state", state });
   }
 
   /**
