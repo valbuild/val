@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint } from "./types";
+import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
 
 export type FloatingPanelProps = {
   /** Which edge the panel floats against on desktop/tablet. */
@@ -53,6 +54,13 @@ export function FloatingPanel({
 }: FloatingPanelProps) {
   const isMobile = breakpoint === "mobile";
   const panelRef = useRef<HTMLDivElement>(null);
+  // A mobile sheet is measured against the part of the screen the user can
+  // actually see. With the keyboard up that is not the layout viewport, and
+  // a panel with a text field in its footer — the assistant's input, a
+  // filter — would otherwise put it underneath the keyboard. See
+  // `useVisualViewport`.
+  const viewport = useVisualViewport(isMobile);
+  useLockBodyScroll(isMobile);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -77,14 +85,26 @@ export function FloatingPanel({
         ref={panelRef}
         role="dialog"
         aria-label={title}
-        style={isMobile ? undefined : { width }}
+        style={
+          isMobile
+            ? mobileVariant === "sheet"
+              ? // Full height of the visible area, not of the layout viewport.
+                { top: viewport.offsetTop, height: viewport.height }
+              : // Sitting on top of the keyboard rather than behind it, and
+                // never taller than what is left above it.
+                {
+                  bottom: viewport.keyboardInset,
+                  maxHeight: viewport.height * 0.85,
+                }
+            : { width }
+        }
         className={cn(
           "absolute z-full flex flex-col",
           "bg-bg-float border border-border-float shadow-lg",
           isMobile
             ? mobileVariant === "sheet"
-              ? "inset-y-0 left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
-              : "inset-x-0 bottom-0 max-h-[85svh] rounded-t-xl border-b-0"
+              ? "fixed left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
+              : "fixed inset-x-0 rounded-t-xl border-b-0"
             : cn(
                 // Inset to clear the floating bars: below the top bar, above
                 // the status bar, and — for left panels on desktop — to the

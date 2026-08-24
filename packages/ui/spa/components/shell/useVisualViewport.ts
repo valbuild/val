@@ -5,6 +5,14 @@ export type VisualViewport = {
   height: number;
   /** How far the visual viewport has been pushed down the layout viewport. */
   offsetTop: number;
+  /**
+   * Height taken off the bottom of the layout viewport by the keyboard.
+   *
+   * `position: fixed` is resolved against the layout viewport, so a sheet
+   * anchored to the bottom needs this as its offset to land on top of the
+   * keyboard rather than underneath it.
+   */
+  keyboardInset: number;
   /** True once the visible area is meaningfully shorter than the window. */
   isKeyboardOpen: boolean;
 };
@@ -51,23 +59,48 @@ export function useVisualViewport(enabled: boolean): VisualViewport {
 }
 
 /** Ratio below which the missing height is taken to be a keyboard. */
-const KEYBOARD_RATIO = 0.75;
+export const KEYBOARD_RATIO = 0.75;
 
-function read(): VisualViewport {
-  if (typeof window === "undefined") {
-    return { height: 0, offsetTop: 0, isKeyboardOpen: false };
-  }
-  const viewport = window.visualViewport;
-  const height = viewport?.height ?? window.innerHeight;
-  const offsetTop = viewport?.offsetTop ?? 0;
+/**
+ * The geometry, as a pure function of what the browser reports.
+ *
+ * Split out from the hook so the arithmetic that decides whether the
+ * assistant's input lands above the keyboard or under it can be tested
+ * directly. A real iOS keyboard cannot be raised in CI; this can.
+ */
+export function computeVisualViewport(reported: {
+  /** `visualViewport.height`, or undefined where the API is missing. */
+  viewportHeight?: number;
+  /** `visualViewport.offsetTop`, or undefined. */
+  viewportOffsetTop?: number;
+  /** `window.innerHeight` — the layout viewport. */
+  windowHeight: number;
+}): VisualViewport {
+  const { viewportHeight, viewportOffsetTop, windowHeight } = reported;
+  // Falling back to the layout viewport gives the same answer `100svh` did,
+  // which is the behaviour this replaced.
+  const height = viewportHeight ?? windowHeight;
+  const offsetTop = viewportOffsetTop ?? 0;
   return {
     height,
     offsetTop,
+    keyboardInset: Math.max(0, windowHeight - (offsetTop + height)),
     // Browser chrome collapsing on scroll also changes the height, so this
     // needs a threshold rather than any difference at all. A keyboard takes
     // far more than a URL bar does.
-    isKeyboardOpen: height < window.innerHeight * KEYBOARD_RATIO,
+    isKeyboardOpen: height < windowHeight * KEYBOARD_RATIO,
   };
+}
+
+function read(): VisualViewport {
+  if (typeof window === "undefined") {
+    return { height: 0, offsetTop: 0, keyboardInset: 0, isKeyboardOpen: false };
+  }
+  return computeVisualViewport({
+    viewportHeight: window.visualViewport?.height,
+    viewportOffsetTop: window.visualViewport?.offsetTop,
+    windowHeight: window.innerHeight,
+  });
 }
 
 /**

@@ -421,10 +421,17 @@ export type OverlayMenuLauncherProps = {
  * The overlay menu at rest: a circle, expanding to the full pill.
  *
  * At rest this is the smallest mark Val can leave on someone else's page.
- * Hover expands it on a mouse; tap expands it on touch, where there is no
- * hover to use. It grows from the edge it is docked to, so it opens into the
- * page rather than off the side of it, and it closes on mouse-leave, on a tap
- * outside, and on Escape.
+ *
+ * Hover gives a peek and a click pins it: hovering expands the pill, moving
+ * away collapses it again, but once it has been clicked or tapped it stays
+ * open until it is dismissed. Hover alone cannot pin it, or crossing the
+ * corner of the page on the way to something else would leave a bar open
+ * over the user's site indefinitely — and hover does not exist on touch,
+ * which is why the click is what makes it stick.
+ *
+ * It grows from the edge it is docked to, so it opens into the page rather
+ * than off the side of it. Dismissal is the circle itself, a tap outside, or
+ * Escape.
  *
  * Collapsed it still has one thing to say — whether there is unpublished work
  * or a validation error — so that shows as a dot on the circle rather than
@@ -442,14 +449,23 @@ export function OverlayMenuLauncher({
   onExpandedChange,
   defaultExpanded = false,
 }: OverlayMenuLauncherProps) {
-  const [uncontrolled, setUncontrolled] = useState(defaultExpanded);
+  // Two reasons to be open, and they expire differently: a hover lasts as
+  // long as the pointer is over the menu, a click lasts until dismissed.
+  const [pinned, setPinned] = useState(defaultExpanded);
+  const [hovered, setHovered] = useState(false);
+  const uncontrolled = pinned || hovered;
   const expanded = ghost === true || (controlledExpanded ?? uncontrolled);
   // Controlled only when a callback comes with the value: a controlled prop
   // with no setter is a menu that cannot be opened, which is worse than either.
-  const setExpanded =
-    controlledExpanded !== undefined && onExpandedChange
-      ? onExpandedChange
-      : setUncontrolled;
+  const isControlled = controlledExpanded !== undefined && !!onExpandedChange;
+  const setExpanded = (next: boolean) => {
+    if (isControlled) {
+      onExpandedChange?.(next);
+      return;
+    }
+    setPinned(next);
+    if (!next) setHovered(false);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -478,9 +494,11 @@ export function OverlayMenuLauncher({
     <div
       ref={rootRef}
       // Hover is an enhancement, not the mechanism: touch has none, so the
-      // circle is a real button that toggles.
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
+      // circle is a real button that pins.
+      onMouseEnter={() => (isControlled ? setExpanded(true) : setHovered(true))}
+      onMouseLeave={() =>
+        isControlled ? setExpanded(false) : setHovered(false)
+      }
       className={cn("inline-flex", isVertical ? "flex-col" : "flex-row")}
     >
       <OverlayMenuBar
@@ -512,7 +530,7 @@ export function OverlayMenuLauncher({
             type="button"
             aria-expanded={expanded}
             aria-label={expanded ? "Close Val menu" : "Open Val menu"}
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => setExpanded(isControlled ? !expanded : !pinned)}
             className={cn(
               "relative grid place-items-center shrink-0 rounded-full transition-colors",
               // Collapsed, this is the only thing to tap, so it keeps the full
@@ -527,10 +545,15 @@ export function OverlayMenuLauncher({
               <span
                 aria-hidden
                 className={cn(
-                  "absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full ring-2 ring-bg-float",
+                  // Top right, clear of the mark's own dot at its foot — two
+                  // dots on one 46px circle need to be told apart. Grey for
+                  // pending work, like every other draft marker; green is
+                  // reserved for controls that commit something, and the mark
+                  // already spends it.
+                  "absolute -right-0.5 -top-0.5 w-2 h-2 rounded-full ring-2 ring-bg-float",
                   status === "errors"
                     ? "bg-bg-error-primary"
-                    : "bg-bg-brand-secondary",
+                    : "bg-fg-secondary",
                 )}
               />
             )}
