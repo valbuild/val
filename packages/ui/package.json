@@ -12,7 +12,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "dev": "vite",
-    "device-lab": "node scripts/device-lab.mjs"
+    "device-lab": "node scripts/device-lab.mjs",
+    "storybook:host": "storybook dev -p 6006 --host 0.0.0.0 --no-open"
   },
   "devDependencies": {
     "@codemirror/lang-angular": "^0.1.4",

@@ -705,11 +705,15 @@ function Window({
 
   return (
     <div
-      className={classNames("fixed top-0 left-0 z-[8998]", {
-        hidden: editMode === null,
-        "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
-        "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
-      })}
+      className={classNames(
+        "fixed top-0 left-0",
+        isMobile ? "z-[9001]" : "z-[8998]",
+        {
+          hidden: editMode === null,
+          "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
+          "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
+        },
+      )}
     >
       <div
         className={classNames("fixed top-0 left-0", {
@@ -1041,7 +1045,7 @@ function ChatWindow({
 
   return (
     <div
-      className="fixed top-0 left-0 z-[8999]"
+      className={cn("fixed top-0 left-0", isMobile ? "z-[9001]" : "z-[8999]")}
       style={!isOpen ? { display: "none" } : undefined}
     >
       <div
