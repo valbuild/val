@@ -1,10 +1,6 @@
-import type {
-  ModuleFilePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { SerializedPatchSet } from "../utils/PatchSets";
-import type { PatchRecord } from "./types";
+import type { PatchSetRequest } from "./PatchSetStore";
 import type { SourceSnapshot, WorkerSearchResult } from "./SearchStore";
 import type {
   Reference,
@@ -69,13 +65,18 @@ export interface SearchBridge {
   forget(moduleFilePath: ModuleFilePath): Promise<void>;
 }
 
-/** Patch sets, across the seam. Satisfied as-is by `PatchSetStore`. */
+/**
+ * Patch sets, across the seam. Satisfied as-is by `PatchSetStore`.
+ *
+ * One argument, and it is a union whose smallest member is empty. That shape is
+ * load-bearing here rather than cosmetic: this call used to take the whole patch
+ * chain plus every serialized schema in the project, which measured at 1.1 MB
+ * cloned per call to do 0.1 ms of work — the worst row in `bench/`'s worker-seam
+ * table by two orders of magnitude. `PatchSetRequest` carries only the delta, and
+ * nothing at all when there is no delta.
+ */
 export interface PatchSetBridge {
-  getPatchSets(
-    records: PatchRecord[],
-    schemas: Record<ModuleFilePath, SerializedSchema>,
-    chainVersion: number,
-  ): Promise<SerializedPatchSet>;
+  getPatchSets(request: PatchSetRequest): Promise<SerializedPatchSet>;
 }
 
 /** References, across the seam. Satisfied as-is by `ReferenceStore`. */

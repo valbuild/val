@@ -30,6 +30,26 @@ import { noopActivity, type ActivitySink } from "./activity";
  * the structured clone in the signature rather than hiding it behind a store
  * reference that would silently stop working once this really moved.
  */
+/**
+ * What one read of the grouping is asked to do.
+ *
+ * A union rather than a flag plus optional fields, so the payload is exactly the
+ * work: `current` carries NOTHING (the common case — a screen re-reading a
+ * grouping nothing has changed), `append` carries only the new records and the
+ * schemas of the modules they touch, and only `rebuild` carries the chain.
+ *
+ * `schemas` is scoped to the records in the request, and that is a fix in its own
+ * right: the caller used to pass `schemaStore.all()`, every module in the
+ * project, in order to group patches that usually touch one.
+ */
+export type PatchSetRequest =
+  | { mode: "current" }
+  | {
+      mode: "append" | "rebuild";
+      records: PatchRecord[];
+      schemas: Record<ModuleFilePath, SerializedSchema>;
+    };
+
 export class PatchSetStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -37,34 +57,41 @@ export class PatchSetStore {
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
 
-  /** The chain version this grouping was built from; -1 until first built. */
-  private builtVersion = -1;
-
   /**
-   * Build the grouping from the whole chain, if it is not already current.
+   * Insert these records, optionally throwing away what was there first.
    *
-   * Lazy, and that is the correction this store's own doc asked for: it said
-   * patch sets are wanted "only when someone opens the review or publish UI",
-   * and that folding them in "would put patch-set bookkeeping on the keystroke
-   * path to serve a screen that is usually not open". The store did not fold
-   * them in — but the wiring did, calling `insert` on every `patch:create`. So
-   * every keystroke paid for a screen that was usually shut.
+   * Lazy, which was the correction this store's own doc asked for: patch sets
+   * are wanted "only when someone opens the review or publish UI", and folding
+   * them in "would put patch-set bookkeeping on the keystroke path to serve a
+   * screen that is usually not open". The store never folded them in — but the
+   * wiring did, calling `insert` on every `patch:create`, so every keystroke paid
+   * for a screen that was usually shut.
    *
-   * Rebuilding from the whole chain rather than appending is what makes it
-   * possible to be lazy at all: the patch store is already the authority on
-   * order and already holds every record, so nothing is lost by not keeping a
-   * second incremental copy. `chainVersion` is the one `===` that decides
-   * whether the rebuild is needed.
+   * Lazy AND incremental, which is the correction after that. Being lazy was
+   * first implemented as "rebuild the whole chain whenever the chain version
+   * moved", on the reasoning that the patch store is already the authority on
+   * order so no second incremental copy was needed. True, and it made one
+   * keystroke cost a re-insert of every patch in the session — and across the
+   * worker seam it made the ARGUMENTS the whole chain plus every schema in the
+   * project, measured at 1.1 MB cloned per call to do 0.1 ms of work. `PatchSets`
+   * was built for incremental insert all along: it keeps `insertedPatches` and
+   * exposes `isInserted`.
+   *
+   * So the caller now says which of the two this is — see `PatchSetChain`, on the
+   * host, which is the side that knows whether the chain grew at the end.
    *
    * Driven by patches EXISTING, not by them applying: a patch that failed to
    * apply to source is still a patch the user made and still belongs in the
    * review UI — showing it is how they find out it failed.
    */
-  private rebuild(
+  private insertRecords(
     records: PatchRecord[],
     schemas: Record<ModuleFilePath, SerializedSchema>,
+    discardFirst: boolean,
   ): void {
-    this.patchSets.reset();
+    if (discardFirst) {
+      this.patchSets.reset();
+    }
     const touchedPatchSetPaths = new Set<string>();
     for (const record of records) {
       const schema = schemas[record.moduleFilePath];
@@ -104,20 +131,24 @@ export class PatchSetStore {
   }
 
   /**
-   * The grouping, built now if the chain has moved since it last was.
+   * The grouping, brought up to date as the request says and serialized.
    *
    * Takes its data as arguments, like {@link SearchStore.buildIndex}: this store
    * is in the worker realm, so it could not read a store even if it wanted to,
    * and putting the records in the signature keeps that visible.
+   *
+   * It does NOT decide what to do — the request already says. That is the point:
+   * deciding would mean being handed the whole chain to compare against, which is
+   * the payload this split exists to avoid. `PatchSetChain` on the host decides,
+   * because the host is the side that saw the change.
    */
-  async getPatchSets(
-    records: PatchRecord[],
-    schemas: Record<ModuleFilePath, SerializedSchema>,
-    chainVersion: number,
-  ): Promise<SerializedPatchSet> {
-    if (chainVersion !== this.builtVersion) {
-      this.rebuild(records, schemas);
-      this.builtVersion = chainVersion;
+  async getPatchSets(request: PatchSetRequest): Promise<SerializedPatchSet> {
+    if (request.mode !== "current") {
+      this.insertRecords(
+        request.records,
+        request.schemas,
+        request.mode === "rebuild",
+      );
     }
     this.activity.work("patch-set:serialize");
     return this.patchSets.serialize();
@@ -137,7 +168,6 @@ export class PatchSetStore {
       );
     }
     this.patchSets.reset();
-    this.builtVersion = -1;
     this.events.emit({ type: "patch-set:update", patchSetPaths: [] });
   }
 }

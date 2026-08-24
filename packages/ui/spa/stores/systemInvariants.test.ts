@@ -248,6 +248,188 @@ describe("patch set store: ordering in the review list", () => {
   });
 });
 
+describe("patch set store: an incremental grouping is the same grouping", () => {
+  const project = () => {
+    const { c, s } = initVal();
+    return [
+      c.define("/a.val.ts", s.object({ title: s.string(), body: s.string() }), {
+        title: "a title",
+        body: "a body",
+      }),
+      c.define("/b.val.ts", s.object({ title: s.string() }), {
+        title: "b title",
+      }),
+    ];
+  };
+
+  /** Comparable across two systems: patch ids differ, the shape must not. */
+  const shapeOf = (
+    sets: Awaited<
+      ReturnType<ReturnType<typeof initTestSystem>["getPatchSets"]>
+    >,
+  ) =>
+    sets.map((set) => ({
+      moduleFilePath: set.moduleFilePath,
+      patchPath: set.patchPath,
+      patches: set.patches.length,
+      opTypes: [...set.opTypes].sort(),
+      schemaTypes: [...set.schemaTypes].sort(),
+    }));
+
+  /**
+   * THE invariant. `PatchSets.insert` merges and re-orders patch sets based on
+   * the order things arrive in, so "insert the delta" is only sound if it lands
+   * in the same place a full insert would have. Everything else in this file is
+   * about when to rebuild; this is about whether appending is allowed to exist.
+   *
+   * Built two ways from the same edits: one system reading the grouping after
+   * every patch (so every read after the first is an append), one reading it only
+   * at the end (one rebuild). The groupings must agree.
+   */
+  it("matches a from-scratch build of the same chain", async () => {
+    const edits: [string, string[], string][] = [
+      ["/a.val.ts", ["title"], "one"],
+      ["/b.val.ts", ["title"], "two"],
+      ["/a.val.ts", ["body"], "three"],
+      ["/a.val.ts", ["title"], "four"],
+      ["/b.val.ts", ["title"], "five"],
+    ];
+
+    const incremental = initTestSystem();
+    await incremental.sourceStore.testReceive(project());
+    for (const [module, path, value] of edits) {
+      await incremental.patchStore.createPatch(module, [
+        { op: "replace", path, value },
+      ]);
+      // Read after every edit, so all but the first read is an append.
+      await incremental.getPatchSets();
+    }
+    const appended = shapeOf(await incremental.getPatchSets());
+    incremental.dispose();
+
+    const wholesale = initTestSystem();
+    await wholesale.sourceStore.testReceive(project());
+    for (const [module, path, value] of edits) {
+      await wholesale.patchStore.createPatch(module, [
+        { op: "replace", path, value },
+      ]);
+    }
+    const rebuilt = shapeOf(await wholesale.getPatchSets());
+    wholesale.dispose();
+
+    expect(appended).toEqual(rebuilt);
+    // Guard against the assertion passing because both are empty, which would
+    // make the whole test vacuous.
+    expect(rebuilt.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The chain is not append-only. `stat` is the authority on order, so another
+   * session's patch can land BETWEEN two of ours — and `PatchSets` has no
+   * removal, so a grouping built by appending after that would be ordered
+   * differently from the chain. `PatchSetChain`'s prefix test is what catches it,
+   * and it catches it without anyone having enumerated this case.
+   */
+  it("rebuilds when a foreign patch lands inside the chain", async () => {
+    const {
+      sourceStore,
+      patchStore,
+      stat,
+      getPatchSets,
+      activity,
+      ledger,
+      dispose,
+    } = initTestSystem();
+    await sourceStore.testReceive(project());
+    const ours = await patchStore.createPatch("/a.val.ts", [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await getPatchSets();
+
+    // Stat announces a foreign patch, and `onStatPatchIds` adopts the server's
+    // order wholesale — so ours moves to the tail behind it.
+    stat.simulateExternal([
+      externalPatch("theirs-1", "/b.val.ts", [
+        { op: "replace", path: ["title"], value: "theirs" },
+      ]),
+    ]);
+    // Waited for, not assumed. The chain handed to `PatchSetChain.plan` is
+    // `allRecords()` — the patches whose OPS have arrived — so between the stat
+    // and the fetch landing, the chain still looks like ours alone and the plan
+    // is correctly `current`. It becomes a rebuild when the data lands, which is
+    // the only point at which a rebuild could carry the foreign record anyway.
+    await ledger.has({ type: "patch:receive" });
+    const before = activity.position();
+    const sets = await getPatchSets();
+
+    // Two records re-inserted, not one appended: the whole chain.
+    expect(activity.count("patch-set:insert", { since: before })).toBe(2);
+    // And both patches are in the answer, which is what the rebuild was for.
+    const ids = sets.flatMap((set) =>
+      set.patches.map((patch) => patch.patchId),
+    );
+    expect(ids).toContain(ours.patchId);
+    expect(ids).toContain(mfp("theirs-1"));
+    dispose();
+  });
+
+  /**
+   * A patch DROPPED from the chain — the server refused it permanently. The
+   * grouping cannot remove it, so it has to be built again without it. Left
+   * appending, the review list would keep offering a patch that no longer exists.
+   */
+  it("rebuilds after a patch is dropped from the chain", async () => {
+    const { sourceStore, patchStore, getPatchSets, dispose } = initTestSystem();
+    await sourceStore.testReceive(project());
+    const kept = await patchStore.createPatch("/a.val.ts", [
+      { op: "replace", path: ["title"], value: "kept" },
+    ]);
+    const doomed = await patchStore.createPatch("/b.val.ts", [
+      { op: "replace", path: ["title"], value: "doomed" },
+    ]);
+    const beforeDrop = await getPatchSets();
+    expect(
+      beforeDrop.flatMap((set) => set.patches.map((patch) => patch.patchId)),
+    ).toContain(doomed.patchId);
+
+    patchStore.drop([doomed.patchId]);
+    const afterDrop = await getPatchSets();
+
+    const ids = afterDrop.flatMap((set) =>
+      set.patches.map((patch) => patch.patchId),
+    );
+    expect(ids).toContain(kept.patchId);
+    expect(ids).not.toContain(doomed.patchId);
+    dispose();
+  });
+
+  /**
+   * A schema replaced under patches that are otherwise untouched — HMR, or
+   * `PUT /schema`. The prefix test cannot see this: the ids are identical. It
+   * matters because patch sets are grouped using the schema at the op's path, so
+   * what is already inserted was grouped against a schema that is gone.
+   */
+  it("rebuilds when a schema is replaced under existing patches", async () => {
+    const { sourceStore, patchStore, getPatchSets, activity, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive(project());
+    await patchStore.createPatch("/a.val.ts", [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await getPatchSets();
+
+    const before = activity.position();
+    // Re-intake is how a schema arrives again.
+    await sourceStore.testReceive(project());
+    await getPatchSets();
+
+    expect(
+      activity.count("patch-set:insert", { since: before }),
+    ).toBeGreaterThan(0);
+    dispose();
+  });
+});
+
 describe("validation store", () => {
   /**
    * CLAIM (`ValidationStore.listenTo`): "A module is stale when its source

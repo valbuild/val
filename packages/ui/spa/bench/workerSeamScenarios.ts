@@ -6,6 +6,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem, type System } from "../stores/createSystem";
+import type { PatchRecord } from "../stores/types";
 import { createWorkerBridges, domEndpoint } from "../stores/workerBridge";
 import { generateProject, SIZES, type ProjectSize } from "./generateProject";
 
@@ -208,11 +209,44 @@ function snapshotBytes(system: System): number {
   return JSON.stringify(snapshot).length;
 }
 
-function patchSetPayloadBytes(system: System): number {
-  return JSON.stringify({
-    records: system.patchStore.allRecords(),
-    schemas: system.schemaStore.all(),
-  }).length;
+/**
+ * What a grouping read actually sends, reconstructed.
+ *
+ * `createSystem.patchSetRequest` is private, so this mirrors it: the records the
+ * plan named, and the schemas of only the modules THOSE records touch. Mirroring
+ * rather than exporting for the same reason `snapshotBytes` does — the request
+ * builder is an implementation detail, and if the two drift this number becomes
+ * wrong rather than the benchmark becoming impossible to write.
+ *
+ * This used to be `{ records: allRecords(), schemas: schemaStore.all() }`, which
+ * is what the call really sent: every serialized schema in the project, 1.1 MB,
+ * to group a patch touching one module. That reading is what made this the worst
+ * row in the table, and it was right.
+ */
+function patchSetPayloadBytes(system: System, records: PatchRecord[]): number {
+  const allSchemas = system.schemaStore.all();
+  const schemas: Record<ModuleFilePath, SerializedSchema> = {};
+  for (const record of records) {
+    const schema = allSchemas[record.moduleFilePath];
+    if (schema !== undefined) {
+      schemas[record.moduleFilePath] = schema;
+    }
+  }
+  return JSON.stringify({ records, schemas }).length;
+}
+
+/** One keystroke into the module the generator designates for typing. */
+async function typeOnce(
+  realm: Realm,
+  project: ReturnType<typeof generateProject>,
+  value: string,
+): Promise<void> {
+  await realm.system.patchStore.createPatch(
+    project.typedModule as ModuleFilePath,
+    [{ op: "replace", path: patchPathOf(project.typedFieldPath), value }],
+    undefined,
+    "seam-field",
+  );
 }
 
 /**
@@ -304,22 +338,44 @@ export const SEAM_OPS: SeamOp[] = [
   },
   {
     name: "patchSets",
-    note: "the grouping: patch records AND every schema cross, per call",
+    note: "first grouping read: a rebuild, carrying the chain so far",
     async measure(realm, project) {
-      await realm.system.patchStore.createPatch(
-        project.typedModule as ModuleFilePath,
-        [
-          {
-            op: "replace",
-            path: patchPathOf(project.typedFieldPath),
-            value: "edited for the patch-set measurement",
-          },
-        ],
-        undefined,
-        "seam-field",
+      await typeOnce(realm, project, "edited for the patch-set measurement");
+      const bytes = patchSetPayloadBytes(
+        realm.system,
+        realm.system.patchStore.allRecords(),
       );
-      const bytes = patchSetPayloadBytes(realm.system);
       return timed(bytes, async () => {
+        const sets = await realm.system.getPatchSets();
+        return Object.keys(sets).length;
+      });
+    },
+  },
+  {
+    name: "patchSets:append",
+    note: "a review screen re-read after one keystroke: ONE record crosses",
+    async measure(realm, project) {
+      await typeOnce(realm, project, "first");
+      await realm.system.getPatchSets();
+      await typeOnce(realm, project, "second");
+      // One record — the delta — and the one schema it touches. This is the row
+      // the incremental grouping exists for: before it, a read after a keystroke
+      // re-sent the whole chain plus every schema in the project.
+      const chain = realm.system.patchStore.allRecords();
+      const bytes = patchSetPayloadBytes(realm.system, chain.slice(-1));
+      return timed(bytes, async () => {
+        const sets = await realm.system.getPatchSets();
+        return Object.keys(sets).length;
+      });
+    },
+  },
+  {
+    name: "patchSets:current",
+    note: "re-read with nothing changed: NOTHING crosses, only the answer",
+    async measure(realm, project) {
+      await typeOnce(realm, project, "first");
+      await realm.system.getPatchSets();
+      return timed(0, async () => {
         const sets = await realm.system.getPatchSets();
         return Object.keys(sets).length;
       });

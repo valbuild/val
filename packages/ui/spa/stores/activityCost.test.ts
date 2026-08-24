@@ -125,6 +125,59 @@ describe("cost of one keystroke", () => {
     dispose();
   });
 
+  /**
+   * CLAIM (`PatchSetStore`, `PatchSetChain`): the grouping is lazy AND
+   * incremental. Being lazy alone was not enough — the first implementation
+   * rebuilt from the whole chain whenever the chain version moved, so one
+   * keystroke made the next grouping read re-insert every patch in the session.
+   * Across the worker seam that made the arguments the whole chain plus every
+   * schema in the project: 1.1 MB cloned per call to do 0.1 ms of work, the worst
+   * row in `bench/`'s worker-seam table by two orders of magnitude.
+   */
+  it("inserts only the new patches when the grouping is read again", async () => {
+    const { sourceStore, patchStore, getPatchSets, activity, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([blogs(), authors()]);
+    for (let index = 0; index < 5; index++) {
+      await patchStore.createPatch("/blogs.val.ts", [
+        { op: "replace", path: ["title"], value: `typed ${index}` },
+      ]);
+    }
+    await getPatchSets();
+
+    const before = activity.position();
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["title"], value: "one more" },
+    ]);
+    await getPatchSets();
+
+    // ONE, not six. The whole point.
+    expect(activity.count("patch-set:insert", { since: before })).toBe(1);
+    // And one record crossed the seam, not the chain.
+    expect(activity.count("patch-set:gather", { since: before })).toBe(1);
+    dispose();
+  });
+
+  it("inserts nothing when the grouping is read and nothing changed", async () => {
+    const { sourceStore, patchStore, getPatchSets, activity, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([blogs()]);
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["title"], value: "Hello" },
+    ]);
+    await getPatchSets();
+
+    const before = activity.position();
+    await getPatchSets();
+
+    expect(activity.count("patch-set:insert", { since: before })).toBe(0);
+    // Not even a gather: `mode: "current"` carries nothing at all, which is the
+    // common case for a review screen re-reading a grouping nothing has moved.
+    expect(activity.count("patch-set:gather", { since: before })).toBe(0);
+    expect(activity.count("patch-set:serialize", { since: before })).toBe(1);
+    dispose();
+  });
+
   it("costs the same per keystroke over a burst of 40", async () => {
     const { sourceStore, patchStore, activity, listeners, dispose } =
       initTestSystem();

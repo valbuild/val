@@ -217,15 +217,15 @@ describe("the worker realm runs in a real thread", () => {
     const { sourceStore, schemaStore, dispose } = initTestSystem();
     await sourceStore.testReceive(project());
 
-    const sets = await bridges.patchSets.getPatchSets(
-      [
+    const sets = await bridges.patchSets.getPatchSets({
+      mode: "rebuild",
+      records: [
         externalPatch("p-1", "/blogs.val.ts", [
           { op: "replace", path: ["first", "title"], value: "Changed" },
         ]),
       ],
-      schemaStore.all(),
-      1,
-    );
+      schemas: schemaStore.all(),
+    });
     expect(Array.isArray(sets)).toBe(true);
     expect(sets.length).toBeGreaterThan(0);
     dispose();

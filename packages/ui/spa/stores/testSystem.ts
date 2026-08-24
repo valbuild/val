@@ -321,6 +321,15 @@ export type TestPatchStore = {
   /** Everything still local-only, in chain order. */
   pendingPatchIds(): PatchId[];
   /**
+   * Remove patches from the chain, as a permanent server refusal does.
+   *
+   * Exposed because a drop is the one chain change that is not an append, and
+   * several invariants are about what has to be rebuilt when it happens. Reaching
+   * it through a rejected `PUT` would work but would make those tests about the
+   * write path rather than about the chain.
+   */
+  drop(patchIds: readonly PatchId[]): void;
+  /**
    * Create a patch and assume it worked.
    *
    * Throws if it did not, which is a TEST convenience and not a shortcut in the
@@ -862,6 +871,7 @@ export function initTestSystem(): TestSystem {
       getHead: () => system.patchStore.getHead(),
       isPending: (patchId) => system.patchStore.isPending(patchId as PatchId),
       pendingPatchIds: () => system.patchStore.pendingPatchIds(),
+      drop: (patchIds) => system.patchStore.drop(patchIds),
       async tryCreatePatch(moduleFilePath, patch, meta, fieldId) {
         const res = await system.patchStore.createPatch(
           moduleFilePath as ModuleFilePath,

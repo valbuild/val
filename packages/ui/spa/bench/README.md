@@ -126,42 +126,66 @@ way. So two columns, and the decision is the pair:
 row is marked, which is a fact about the current design that no invocation count
 could have shown.
 
-Measured at `screen`, 15 reps:
+Measured at `screen`, 11 reps:
 
-| op               | payload | in-proc delay | worker delay |  total | verdict                      |
-| ---------------- | ------- | ------------- | ------------ | -----: | ---------------------------- |
-| `search:index`   | 1407 KB | **112 ms** !  | 8.9 ms       |   1.3x | **move it**                  |
-| `search:reindex` | 11 KB   | **43 ms** !   | 0.2 ms       |  0.7x? | **move it**                  |
-| `search:query`   | 0 B     | 0.6 ms !      | 0.1 ms       |   5.2x | nothing to move              |
-| `patchSets`      | 1120 KB | 0.1 ms !      | **7.6 ms**   | 198.0x | **no — makes blocking 76x**  |
-| `refs:rescan`    | 1407 KB | 2.0 ms !      | **8.6 ms**   |  14.5x | **no — makes blocking 4.3x** |
-| `refs:find`      | 0 B     | 0.1 ms !      | 0.1 ms       |     -? | nothing to move              |
-| `refs:at`        | 0 B     | 0.1 ms !      | 0.1 ms       |     -? | nothing to move              |
+| op                  | payload | in-proc delay | worker delay | total | verdict         |
+| ------------------- | ------- | ------------- | ------------ | ----: | --------------- |
+| `search:index`      | 1407 KB | **124 ms** !  | 9.1 ms       |  1.2x | **move it**     |
+| `search:reindex`    | 11 KB   | **43.7 ms** ! | 0.2 ms       | 0.7x? | **move it**     |
+| `search:query`      | 0 B     | 0.8 ms !      | 0.2 ms       |  4.6x | nothing to move |
+| `patchSets`         | 9 KB    | 0.1 ms !      | 0.3 ms       |     - | nothing to move |
+| `patchSets:append`  | 9 KB    | 0.1 ms !      | 0.2 ms       |     - | nothing to move |
+| `patchSets:current` | 0 B     | 0.1 ms !      | 0.1 ms       |    -? | nothing to move |
+| `refs:rescan`       | 1407 KB | 2.3 ms !      | **9.5 ms**   | 12.4x | **no**          |
+| `refs:find`         | 0 B     | 0.1 ms !      | 0.2 ms       |    -? | nothing to move |
+| `refs:at`           | 0 B     | 0.1 ms !      | 0.1 ms       |    -? | nothing to move |
 
 **Both halves of the standing hypothesis were wrong.** `openquestions.md` said
 the patch-set store was the likeliest win (a whole-chain rebuild) and the
-reference store the likeliest loss (small, frequent queries).
-
-Patch sets is the worst loss on the board, and not because the rebuild is big —
-it is 0.1 ms. It is because its ARGUMENTS are every serialized schema in the
-project, 1.1 MB, cloned on every single call. The clone is 76 times the work it
-was supposed to be moving. References does lose, but in `rescan` (the
-whole-project gather), not in the small frequent queries — those are 0.1 ms
-either way and there is nothing there to win or lose.
+reference store the likeliest loss (small, frequent queries). Search is the only
+one worth moving, and references loses in `rescan` — the whole-project gather —
+rather than in the small frequent queries the prediction was about, which are
+0.1 ms either way with nothing there to win or lose.
 
 The rule underneath: **a worker is paid by the size of the compute and charged by
-the size of the arguments.** Search wins because indexing 141 modules is
-genuinely expensive. Patch sets and reference rescan lose because they hand over
-the whole project to do a couple of milliseconds of work.
+the size of the arguments.** Search wins because indexing 141 modules is genuinely
+expensive relative to what it is handed. Reference rescan loses because it hands
+the whole project over to do 2 ms of work.
 
-That is a design consequence, not just a benchmark result. The reason those two
-pass the whole project is the fix that made the seam crossable at all: the stores
-were made pure, so they are handed a snapshot and a query and answer without
-interrogating anyone. In-process that is free, because passing a snapshot is
-passing a reference. Across a seam it is 1.1 MB. Moving either would need a
-STATEFUL seam — each module sent once, then deltas — which is a different API from
-the purity that fixed the synchronous-read problem. The tension is real and is
-recorded in `openquestions.md` item 5.
+### The patch-set row was measuring a defect, and it is fixed
+
+An earlier revision of this table read **1120 KB, 198x total, 76x delay** for
+`patchSets` — the worst row here by two orders of magnitude — and the conclusion
+drawn from it was "never move patch sets to a worker, it makes main-thread
+blocking 76x worse". That conclusion was wrong, because the number was not about
+the seam.
+
+`PatchSetStore.getPatchSets` rebuilt the grouping from the WHOLE chain whenever
+the chain version had moved, and the caller passed `schemaStore.all()` — every
+serialized schema in the project — to group patches that usually touch one module.
+So one keystroke made the next grouping read re-insert every patch in the session
+and clone 1.1 MB to do it. `PatchSets` had supported incremental insert all along
+(`insertedPatches`, `isInserted`); nothing was using it.
+
+It is now incremental, with the append-or-rebuild decision on the HOST
+(`PatchSetChain`) for the same reason `StaleModules` is there: the host is the side
+that saw the change. The payload is the delta and nothing else — and nothing at all
+when there is no delta. Measured: **1120 KB → 9 KB**, worker total **19.8 ms →
+0.4–1.7 ms**, delay **7.6 ms → 0.2–0.3 ms**.
+
+So the verdict for patch sets is now "nothing to move" rather than "must not
+move": at 0.1 ms in-process there is no blocking left to take off the main thread.
+That is a different and much less alarming statement, and the lesson is the part
+worth keeping — **a bad seam number can be a defect on either side of the seam**,
+and this one was on ours.
+
+### What the remaining big payload does mean
+
+`refs:rescan`'s 1407 KB is real, and it is a first pass over every loaded module —
+genuinely whole-project work. Its incremental case is already the `refs:find` row
+at 0 B. So the tension named above (a stateful seam would be needed to shrink it)
+applies to the FIRST scan only, and a first scan has to see everything by
+definition.
 
 ### An adjacent finding: 43 ms to reindex one module
 

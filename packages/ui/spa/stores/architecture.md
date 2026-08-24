@@ -490,28 +490,34 @@ _before its cause_, and a ledger reading `validation:invalidate` then
 
 ## Why each store exists
 
-| Store        | Realm  | Owns                                                | Why it is not folded into a neighbour                                                                                                                                                |
-| ------------ | ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `host`       | host   | the real `Schema` instances; intake                 | The only thing that may hold a closure. It defines the edge of what can be threaded, and it is the entry point, mirroring `setValModules`.                                           |
-| `stat`       | host   | what the server says exists (patch **ids**, no ops) | The only store with an outside input. Keeping ops out of it is what makes `external-partial` a real state rather than a fiction.                                                     |
-| `patch`      | host   | the linear chain, origins, which ids have data      | Knows a patch _exists_; the source store knows whether it _landed_. The head is where those two facts meet, so neither can compute it alone.                                         |
-| `schema`     | host   | serialized schemas                                  | Own change sources (`/schema`, HMR swapping a schema under existing source) and own consumers (validation, render, search). Today they merely happen to arrive with source.          |
-| `source`     | host   | patched source **and** the listener registry        | Invariant 1 requires them together. In the host realm because renders need it without a clone.                                                                                       |
-| `render`     | host   | reified renders, cached and lazy                    | Owns caching/staleness so the host is asked once per change, not once per field per keystroke.                                                                                       |
-| `validation` | host   | errors and their staleness                          | Coordinates the two-seam split above; neither seam can own the merge.                                                                                                                |
-| `patch sets` | worker | patches grouped into reviewable units               | Answers _"what are the units of change?"_ — coalesced across many patches, only when the review UI is open. The source store answers _"who do I wake?"_ — exact, now, per keystroke. |
-| `search`     | worker | the full-text index                                 | The most expensive walk in the system, so it must never be a side effect of an edit.                                                                                                 |
-| `references` | worker | who points at what, per module                      | Answers _"is it safe to delete this?"_ — and only something that knows what is loaded can say whether the answer is exhaustive. Three separate whole-project walks in the app today. |
+| Store        | Realm  | Owns                                                | Why it is not folded into a neighbour                                                                                                                                                                                                                                |
+| ------------ | ------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`       | host   | the real `Schema` instances; intake                 | The only thing that may hold a closure. It defines the edge of what can be threaded, and it is the entry point, mirroring `setValModules`.                                                                                                                           |
+| `stat`       | host   | what the server says exists (patch **ids**, no ops) | The only store with an outside input. Keeping ops out of it is what makes `external-partial` a real state rather than a fiction.                                                                                                                                     |
+| `patch`      | host   | the linear chain, origins, which ids have data      | Knows a patch _exists_; the source store knows whether it _landed_. The head is where those two facts meet, so neither can compute it alone.                                                                                                                         |
+| `schema`     | host   | serialized schemas                                  | Own change sources (`/schema`, HMR swapping a schema under existing source) and own consumers (validation, render, search). Today they merely happen to arrive with source.                                                                                          |
+| `source`     | host   | patched source **and** the listener registry        | Invariant 1 requires them together. In the host realm because renders need it without a clone.                                                                                                                                                                       |
+| `render`     | host   | reified renders, cached and lazy                    | Owns caching/staleness so the host is asked once per change, not once per field per keystroke.                                                                                                                                                                       |
+| `validation` | host   | errors and their staleness                          | Coordinates the two-seam split above; neither seam can own the merge.                                                                                                                                                                                                |
+| `patch sets` | worker | patches grouped into reviewable units               | Answers _"what are the units of change?"_ — coalesced across many patches, only when the review UI is open, and INCREMENTALLY: a read after one keystroke inserts one patch, not the chain. The source store answers _"who do I wake?"_ — exact, now, per keystroke. |
+| `search`     | worker | the full-text index                                 | The most expensive walk in the system, so it must never be a side effect of an edit.                                                                                                                                                                                 |
+| `references` | worker | who points at what, per module                      | Answers _"is it safe to delete this?"_ — and only something that knows what is loaded can say whether the answer is exhaustive. Three separate whole-project walks in the app today.                                                                                 |
 
 "Worker realm" in this table means **may not hold a host reference and must be
 reachable through a cloneable, asynchronous API** — a constraint on the design,
 which is what makes the split checkable. It is not a plan to put all three in a
-worker. Measured (`bench/README.md`), only search is worth the crossing: patch
-sets and reference rescan hand over the whole project to do 0.1 ms and 2 ms of
-work, so a worker makes their main-thread blocking 76x and 4.3x **worse**. The
-constraint still earns its place for all three — it is what forced the
-synchronous reads out of `createSystem` — but the placement it permits is only
-taken where the number says so.
+worker. Measured (`bench/README.md`), only search is worth the crossing: reference
+rescan hands the whole project over to do 2 ms of work, so a worker makes its
+main-thread blocking 4.3x **worse**, and patch sets has nothing to move — it is
+0.1 ms in-process. The constraint still earns its place for all three — it is what
+forced the synchronous reads out of `createSystem` — but the placement it permits
+is only taken where the number says so.
+
+Patch sets got there by being fixed rather than by being measured differently.
+That row first read 1.1 MB and 76x-worse blocking, which was a full rebuild of the
+grouping plus every schema in the project on every read — not a cost of the seam.
+See the correction in `openquestions.md` item 5; the general lesson is that a bad
+seam number can be a defect on either side of the seam.
 
 ## Testing
 
@@ -690,12 +696,11 @@ finished work.
   SYNCHRONOUSLY in eight places, which across a thread boundary is impossible
   rather than slow (see `openquestions.md` item 5).
   Then it was measured, and the answer is per OPERATION, not per store: search
-  should move (112 ms and 43 ms of never-yielding main thread, cut to 9 ms and
-  0.2 ms), patch sets must not (its arguments are every schema in the project, so
-  a worker makes blocking 76x **worse**), references must not (the walk is 2 ms
-  and cloning the project to avoid it costs 9 ms). Nothing is wired to a real
-  `postMessage` in the shipped path yet, and after the measurement only search
-  should be.
+  should move (124 ms and 43.7 ms of never-yielding main thread, cut to 9.1 ms and
+  0.2 ms), references must not (the walk is 2 ms and cloning the project to avoid
+  it costs 9.5 ms), and patch sets has nothing to move at 0.1 ms in-process.
+  Nothing is wired to a real `postMessage` in the shipped path yet, and after the
+  measurement only search should be.
 - **No per-module patch-set reset.** `PatchSets` has no per-module removal, so
   `PatchSetStore.reset(modules)` throws rather than quietly resetting everything.
 - ~~**Search rebuilds whole.**~~ **Done.** Indexing is per module. The stated

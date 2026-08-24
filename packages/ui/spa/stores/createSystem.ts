@@ -20,7 +20,9 @@ import { StatStore } from "./StatStore";
 import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
 import { HostStore } from "./HostStore";
 import { RenderStore } from "./RenderStore";
-import { PatchSetStore } from "./PatchSetStore";
+import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
+import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
+import type { PatchRecord } from "./types";
 import { ValidationStore } from "./ValidationStore";
 import {
   SearchStore,
@@ -289,6 +291,10 @@ export function createSystem(options: SystemOptions): System {
   // four messages for something already known. See `StaleModules`.
   const searchStale = new StaleModules("search:invalidate");
   const referenceStale = new StaleModules("references:invalidate");
+  // What the grouping holds, and whether the next read can append to it. Host
+  // side for the same reason `StaleModules` is: the host saw the change. See
+  // `PatchSetChain` for why it is a prefix test rather than a list of moments.
+  const patchSetChain = new PatchSetChain();
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -323,7 +329,56 @@ export function createSystem(options: SystemOptions): System {
       searchStale.mark(event.sources);
       referenceStale.mark(event.sources);
     }),
+
+    // --- patch-set invalidation -------------------------------------------
+    // A schema replaced under patches that are otherwise untouched. The prefix
+    // test cannot see this — the ids are identical — and it matters because patch
+    // sets are grouped using the schema at the op's path, so what is already
+    // inserted was grouped against a schema that no longer exists.
+    schemaStore.events.on("schema:init", () => {
+      patchSetChain.invalidate();
+    }),
+    // A drop is the other case the ids DO show — the chain shrank, so the prefix
+    // test would rebuild anyway. Invalidating explicitly costs nothing and means
+    // the guarantee does not rest on the chain happening to get shorter: a drop
+    // of the last patch followed by a new one is the same LENGTH as before.
+    patchStore.events.on("patch:drop", () => {
+      patchSetChain.invalidate();
+    }),
   ];
+
+  /**
+   * Turn a plan into the payload it needs, and nothing more.
+   *
+   * The records are filtered to the ids the plan named, and the schemas to the
+   * modules THOSE records touch. Both matter: the caller used to send the whole
+   * chain and `schemaStore.all()` on every read — every module in the project, to
+   * group patches that usually touch one — which is why this was the worst row in
+   * the worker-seam benchmark.
+   */
+  function patchSetRequest(
+    plan: PatchSetPlan,
+    chain: PatchRecord[],
+  ): PatchSetRequest {
+    if (plan.mode === "current") {
+      return { mode: "current" };
+    }
+    const wanted = new Set(plan.patchIds);
+    const records = chain.filter((record) => wanted.has(record.patchId));
+    const allSchemas = schemaStore.all();
+    const schemas: Record<ModuleFilePath, SerializedSchema> = {};
+    for (const record of records) {
+      const schema = allSchemas[record.moduleFilePath];
+      // A module with no schema is passed as absent rather than skipped:
+      // `PatchSets.insert` handles `undefined` deliberately, grouping the patch
+      // at the module root instead of dropping it.
+      if (schema !== undefined) {
+        schemas[record.moduleFilePath] = schema;
+      }
+    }
+    activity.work("patch-set:gather", undefined, records.length);
+    return { mode: plan.mode, records, schemas };
+  }
 
   /**
    * Copy source + schema for the named modules, to hand across the worker seam.
@@ -419,11 +474,20 @@ export function createSystem(options: SystemOptions): System {
       return referenceStore.at(path);
     },
     async getPatchSets() {
-      return patchSetStore.getPatchSets(
-        patchStore.allRecords(),
-        schemaStore.all(),
-        patchStore.chainVersion(),
-      );
+      // `allRecords()`, so the chain compared against is the patches whose OPS
+      // have arrived — not `ordered`, which can name an announced patch this
+      // client has never seen the contents of. Using `ordered` would ask for a
+      // rebuild carrying a record that does not exist yet; using this means a
+      // foreign patch announced mid-chain reads as `current` until its data
+      // lands, and as a rebuild the moment it does.
+      const chain = patchStore.allRecords();
+      const plan = patchSetChain.plan(chain.map((record) => record.patchId));
+      const request = patchSetRequest(plan, chain);
+      const sets = await patchSetStore.getPatchSets(request);
+      // AFTER the call, not before: a worker that threw or a message that was
+      // never answered must not leave the host believing the grouping moved.
+      patchSetChain.covers(plan);
+      return sets;
     },
     async search(query, limit, offset) {
       // Gather ONLY what the index owes a pass for. On a first query that is

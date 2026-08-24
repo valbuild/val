@@ -538,42 +538,88 @@ long a macrotask queued behind the call waited before it could run, which is the
 latency a keystroke arriving mid-operation would suffer and the only thing a
 worker can improve.
 
-`screen`, 15 reps. Full table and method in `bench/README.md`:
+`screen`, 11 reps. Full table and method in `bench/README.md`:
 
-| op               | payload | in-proc delay | worker delay |  total | verdict     |
-| ---------------- | ------- | ------------- | ------------ | -----: | ----------- |
-| `search:index`   | 1407 KB | **112 ms**    | 8.9 ms       |   1.3x | **move it** |
-| `search:reindex` | 11 KB   | **43 ms**     | 0.2 ms       |  0.7x? | **move it** |
-| `search:query`   | 0 B     | 0.6 ms        | 0.1 ms       |   5.2x | no          |
-| `patchSets`      | 1120 KB | 0.1 ms        | **7.6 ms**   | 198.0x | **no**      |
-| `refs:rescan`    | 1407 KB | 2.0 ms        | **8.6 ms**   |  14.5x | **no**      |
-| `refs:find`      | 0 B     | 0.1 ms        | 0.1 ms       |     -? | no          |
-| `refs:at`        | 0 B     | 0.1 ms        | 0.1 ms       |     -? | no          |
+| op                  | payload | in-proc delay | worker delay | total | verdict     |
+| ------------------- | ------- | ------------- | ------------ | ----: | ----------- |
+| `search:index`      | 1407 KB | **124 ms**    | 9.1 ms       |  1.2x | **move it** |
+| `search:reindex`    | 11 KB   | **43.7 ms**   | 0.2 ms       | 0.7x? | **move it** |
+| `search:query`      | 0 B     | 0.8 ms        | 0.2 ms       |  4.6x | no          |
+| `patchSets`         | 9 KB    | 0.1 ms        | 0.3 ms       |     - | no          |
+| `patchSets:append`  | 9 KB    | 0.1 ms        | 0.2 ms       |     - | no          |
+| `patchSets:current` | 0 B     | 0.1 ms        | 0.1 ms       |    -? | no          |
+| `refs:rescan`       | 1407 KB | 2.3 ms        | **9.5 ms**   | 12.4x | **no**      |
+| `refs:find`         | 0 B     | 0.1 ms        | 0.2 ms       |    -? | no          |
+| `refs:at`           | 0 B     | 0.1 ms        | 0.1 ms       |    -? | no          |
 
 This section previously predicted the patch-set store as the likeliest win and
-the reference store as the likeliest loss. **Both were wrong.**
-
-Patch sets is the worst loss on the board — and not because the rebuild is big, it
-is 0.1 ms. It is because its ARGUMENTS are every serialized schema in the project,
-1.1 MB, cloned on every call. In a worker it makes main-thread blocking 76x
-**worse** than not having a worker. References does lose, but in `rescan`, not in
-the small frequent queries the prediction was about: `find` and `at` are 0.1 ms
-either way, so there is nothing there to win or lose.
+the reference store as the likeliest loss. **Both were wrong.** Search is the only
+one worth moving, and references loses in `rescan` rather than in the small
+frequent queries the prediction was about: `find` and `at` are 0.1 ms either way,
+so there is nothing there to win or lose.
 
 The rule underneath: **a worker is paid by the size of the compute and charged by
-the size of the arguments.** Search is the only one of the three where indexing is
-expensive enough relative to its payload to pay for the crossing — and there it
-pays a lot: 112 ms and 43 ms of main thread that, as the `!` markers in the bench
-output show, never yields once.
+the size of the arguments.** Search is the one where indexing is expensive enough
+relative to its payload to pay for the crossing — and there it pays a lot: 124 ms
+and 43.7 ms of main thread that, as the `!` markers in the bench output show,
+never yields once.
 
-**The tension this exposes.** The reason patch sets and reference rescan pass the
-whole project is section 2's fix: the stores were made pure, handed a snapshot and
-a query so they interrogate nobody. In-process that is free — passing a snapshot
-is passing a reference. Across a seam it is 1.1 MB. Moving either would require a
-STATEFUL seam (each module sent once, then deltas), which is a different API from
-the purity that made the seam crossable in the first place. So the two properties
-pull against each other, and the resolution is not "make everything stateful": it
-is that only search is worth moving, and search's payload is worth its compute.
+### Correction: the patch-set row was measuring a defect
+
+An earlier revision of this table read **1120 KB, 198x total, 76x delay** for
+`patchSets`, and this section concluded "patch sets is the worst loss on the board
+— in a worker it makes main-thread blocking 76x worse". That conclusion was wrong,
+because the number was not about the seam.
+
+`PatchSetStore.getPatchSets` rebuilt the grouping from the WHOLE chain whenever the
+chain version had moved, and `createSystem` passed `schemaStore.all()` — every
+serialized schema in the project — to group patches that usually touch one module.
+One keystroke therefore made the next grouping read re-insert every patch in the
+session and clone 1.1 MB to do it. `PatchSets` had supported incremental insert all
+along (`insertedPatches`, `isInserted`); nothing used it. Being LAZY had been
+implemented as "rebuild whenever the version moves", on the reasoning that the
+patch store is already the authority on order so no second incremental copy was
+needed — true, and it made laziness cost a full rebuild per read.
+
+It is now lazy AND incremental. `PatchSetChain` (host) decides append-vs-rebuild,
+for the same reason `StaleModules` is on the host: the host is the side that saw
+the change, and asking the store would mean handing it the whole chain to compare
+against — the exact payload being avoided. The store no longer decides anything; it
+is told `current`, `append` or `rebuild`, and the payload is the delta and nothing
+else. Measured: **1120 KB → 9 KB**, worker total **19.8 ms → 0.4–1.7 ms**, delay
+**7.6 ms → 0.2–0.3 ms**.
+
+**Why a prefix test rather than a list of moments.** `PatchSets.insert` is
+order-sensitive (it merges and re-orders based on arrival order) and `PatchSets`
+has no removal, so appending is only sound if the chain grew at the END. The
+obvious implementation enumerates what breaks that — a drop, a publish, a foreign
+patch landing mid-chain, a schema swapped underneath — and that is a list which has
+to stay complete forever, failing silently when it does not. So instead the host
+keeps the inserted ids in order and asks whether they are a PREFIX of the chain as
+it now is. An append is the suffix; anything else rebuilds. The required moments
+are derived rather than remembered. `invalidate()` remains for the one change ids
+cannot show: a schema replaced under otherwise-untouched patches, which matters
+because patch sets are grouped using the schema at the op's path.
+
+One subtlety worth naming: the chain compared against is `allRecords()` — the
+patches whose OPS have arrived — not `ordered`, which can name a patch this client
+has never seen the contents of. So a foreign patch announced mid-chain reads as
+`current` until its data lands, and as a rebuild the moment it does, which is also
+the first moment a rebuild could carry it.
+
+The verdict for patch sets is now "nothing to move" rather than "must not move":
+at 0.1 ms in-process there is no blocking left to take off the main thread. The
+lesson is the part worth keeping — **a bad seam number can be a defect on either
+side of the seam**, and this one was on ours.
+
+**The tension that remains.** The reason `refs:rescan` passes the whole project is
+section 2's fix: the stores were made pure, handed a snapshot and a query so they
+interrogate nobody. In-process that is free — passing a snapshot is passing a
+reference. Across a seam it is 1.4 MB. But that row is a FIRST pass over every
+loaded module, and a first pass has to see everything by definition; its
+incremental case is the `refs:find` row at 0 B. So the tension is narrower than it
+looked: it is about first passes, not about every call, and only search's first
+pass is expensive enough to be worth the crossing anyway.
 
 An adjacent finding the measurement produced, recorded because it is the largest
 main-thread block in the system after intake: **an incremental reindex of ONE

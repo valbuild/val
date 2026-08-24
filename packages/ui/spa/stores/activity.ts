@@ -119,6 +119,15 @@ export type WorkKind =
   | "validation:collect-custom-targets"
   | "validation:merge"
   // --- worker realm --------------------------------------------------------
+  /**
+   * The host picked the records and schemas one grouping read needs.
+   *
+   * `count` is how many RECORDS crossed. The number this exists to expose is
+   * that a read after one keystroke sends one record rather than the whole
+   * chain — which for a while it did not, and which the worker-seam benchmark
+   * priced at 1.1 MB per call.
+   */
+  | "patch-set:gather"
   /** One patch record's ops were inserted into the patch sets. */
   | "patch-set:insert"
   | "patch-set:serialize"

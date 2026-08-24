@@ -173,15 +173,20 @@ describe("everything crossing the worker seam is structured-cloneable", () => {
       ]),
     ];
     const schemas = schemaStore.all();
-    const clonedRecords = assertCloneable("PatchRecord[]", records);
-    const clonedSchemas = assertCloneable("SchemaSnapshot", schemas);
-
+    // Each half on its own first, so a failure names which one: "the request
+    // cannot cross" would send a reader looking through both.
+    assertCloneable("PatchRecord[]", records);
+    assertCloneable("SchemaSnapshot", schemas);
+    // Then the value that would actually be posted, which since the grouping
+    // became incremental is one `PatchSetRequest` rather than three arguments.
+    const request = assertCloneable("PatchSetRequest", {
+      mode: "rebuild",
+      records,
+      schemas,
+    });
     const sets = await patchSetStore.getPatchSets(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      clonedRecords as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      clonedSchemas as any,
-      1,
+      request as any,
     );
     assertCloneable("SerializedPatchSet", sets);
     dispose();
