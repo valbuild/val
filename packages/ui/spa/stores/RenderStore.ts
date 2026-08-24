@@ -35,6 +35,23 @@ export type RenderRead =
   | { status: "error"; message: string };
 
 /**
+ * Is this the same render answer? Identity on the render, since an unchanged one
+ * is the same object out of the same cache entry.
+ */
+function sameRead(a: RenderRead, b: RenderRead): boolean {
+  if (a.status !== b.status) {
+    return false;
+  }
+  if (a.status === "rendered" && b.status === "rendered") {
+    return a.render === b.render;
+  }
+  if (a.status === "error" && b.status === "error") {
+    return a.message === b.message;
+  }
+  return true;
+}
+
+/**
  * REALM: host. Routes to {@link HostBridge}; computes nothing itself.
  *
  * ## Why it is a router and not a computer
@@ -96,22 +113,6 @@ export class RenderStore {
    */
   private peeked = new Map<SourcePath, RenderRead>();
 
-  /**
-   * Drop memoised peek answers for one module.
-   *
-   * Called from every place that changes what a render read would say. Doing it
-   * per module rather than clearing the whole map matters at the sizes this
-   * system is built for: a 141-module project with one module recomputed must not
-   * make every other module's fields re-read.
-   */
-  private forgetPeeked(moduleFilePath: ModuleFilePath): void {
-    for (const path of this.peeked.keys()) {
-      const [owner] = Internal.splitModuleFilePathAndModulePath(path);
-      if (owner === moduleFilePath) {
-        this.peeked.delete(path);
-      }
-    }
-  }
   /**
    * In-flight requests, so N fields asking at once produce ONE host call — WITH
    * the scope each was issued at.
@@ -197,7 +198,6 @@ export class RenderStore {
         this.listenersByModule.delete(event.moduleFilePath);
         this.renders.delete(event.moduleFilePath);
         this.stale.delete(event.moduleFilePath);
-        this.forgetPeeked(event.moduleFilePath);
         this.pendingReads.delete(event.moduleFilePath);
       },
     );
@@ -229,7 +229,6 @@ export class RenderStore {
     );
     for (const moduleFilePath of modules) {
       this.stale.add(moduleFilePath);
-      this.forgetPeeked(moduleFilePath);
     }
     // Only when something cached actually went stale. A keystroke in a module
     // nobody has rendered is not news, and 40 keystrokes in one that has are
@@ -386,7 +385,6 @@ export class RenderStore {
       if (result.status === "rendered") {
         // An empty scope is not a scope: with nothing listened and nobody
         // asking, the host rendered the whole module, so that is what is cached.
-        this.forgetPeeked(moduleFilePath);
         this.renders.set(moduleFilePath, {
           render: result.render,
           scope: scope.size === 0 ? null : scope,
@@ -398,11 +396,9 @@ export class RenderStore {
         // the absence so every field in it does not re-ask the host.
         this.renders.delete(moduleFilePath);
         this.stale.delete(moduleFilePath);
-        this.forgetPeeked(moduleFilePath);
       } else {
         this.renders.delete(moduleFilePath);
         this.stale.delete(moduleFilePath);
-        this.forgetPeeked(moduleFilePath);
         this.events.emit({
           type: "render:error",
           moduleFilePath,
@@ -430,18 +426,23 @@ export class RenderStore {
    * And reference-stable, which is the other half of "safe on a render path". An
    * earlier version built its result fresh per call, so a `useSyncExternalStore`
    * consumer saw a new snapshot on every render and re-rendered forever — the
-   * same defect `ValidationStore.peek` had, found the same way. The answers are
-   * memoised per path and dropped whenever the module's render is invalidated or
-   * recomputed, which are the only two things that can change them.
+   * same defect `ValidationStore.peek` had, found the same way.
+   *
+   * Achieved by recomputing and comparing, not by invalidating a memo. The first
+   * fix here DID keep an invalidation list — five call sites, one of them reading
+   * `declaresRender` from another store — and a list like that has to stay
+   * complete forever, failing silently when it does not. Recomputing is cheap (a
+   * map lookup and a property read) and cannot go stale. Same reasoning as
+   * `SourceStore.peek`.
    */
   peek(path: SourcePath): RenderRead {
-    const memo = this.peeked.get(path);
-    if (memo !== undefined) {
-      return memo;
+    const next = this.computePeek(path);
+    const previous = this.peeked.get(path);
+    if (previous !== undefined && sameRead(previous, next)) {
+      return previous;
     }
-    const answer = this.computePeek(path);
-    this.peeked.set(path, answer);
-    return answer;
+    this.peeked.set(path, next);
+    return next;
   }
 
   private computePeek(path: SourcePath): RenderRead {

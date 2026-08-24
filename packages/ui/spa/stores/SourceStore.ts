@@ -180,6 +180,16 @@ export class SourceStore {
    * one `bump()` next to that assignment, not remembering to notify another store.
    */
   private revisions = new Map<ModuleFilePath, number>();
+  /**
+   * The last object {@link peek} returned per path, so an unchanged answer is
+   * `===` on the next call.
+   *
+   * Grows with the number of DISTINCT paths anything has peeked, which is bounded
+   * by the project: a path that is peeked once and never again holds one small
+   * object. Not worth evicting, and evicting on unlisten would be wrong — plenty
+   * of callers peek without listening.
+   */
+  private peeked = new Map<SourcePath, SourcePeek>();
 
   /**
    * Loaded `.jsonValues()` entry content, keyed by module then entry key.
@@ -324,8 +334,40 @@ export class SourceStore {
   /**
    * Status without side effects. See {@link SourcePeek}: `get` triggers a fetch,
    * so there has to be a way to look that cannot.
+   *
+   * ## Reference-stable, and that is part of the contract
+   *
+   * Peeking the same unchanged path twice returns the SAME OBJECT. Callers rely on
+   * it: `useSyncExternalStore` requires a snapshot that only changes when the
+   * value does, and a fresh object per call makes React re-render forever. The
+   * same requirement bit `ValidationStore.peek` and `RenderStore.peek`, and all
+   * three now honour it — "safe to call on a render path" has to mean this, or it
+   * means nothing.
+   *
+   * ## Why compare rather than invalidate
+   *
+   * The tempting implementation is a memo cleared wherever the answer could
+   * change. That list is longer than it looks: the module's source (`bump`), its
+   * SCHEMA arriving (another store), entry content landing, a fetch starting, a
+   * fetch failing. Five places, one of them across a store boundary, and a missed
+   * one is a field frozen on a stale value with nothing to say so.
+   *
+   * So the answer is always recomputed — `peek` is cheap, it is a path walk — and
+   * only the OBJECT is reused, when the recomputed answer is the same answer. No
+   * invalidation list to keep complete, and a new way for source to change cannot
+   * break it. The same reasoning as `PatchSetChain`'s prefix test.
    */
   peek(path: SourcePath): SourcePeek {
+    const next = this.computePeek(path);
+    const previous = this.peeked.get(path);
+    if (previous !== undefined && samePeek(previous, next)) {
+      return previous;
+    }
+    this.peeked.set(path, next);
+    return next;
+  }
+
+  private computePeek(path: SourcePath): SourcePeek {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
     const source = this.sources[moduleFilePath];
@@ -1035,6 +1077,45 @@ export class SourceStore {
 }
 
 const FIELD_EVENT = "val:field-changed";
+
+/**
+ * Is this the same peek answer?
+ *
+ * The value is compared by IDENTITY, which is exact for the case that matters:
+ * `peek` returns a reference into the store's own source, so an unchanged value is
+ * the same object, and an unchanged primitive is `===` regardless.
+ *
+ * **The known imprecision**, recorded because it is real: `applyPatch` clones the
+ * module it patches, so after an edit to a SIBLING path, an object-valued path in
+ * the same module resolves to a new object that is structurally identical to the
+ * old one. This reports it as changed. It cannot produce a wrong value — the value
+ * is right either way — but it can cost one extra render of an object-valued field
+ * whose contents did not move. Fixing it needs structural sharing in the apply or
+ * a content hash per path, and neither is worth doing before something measures
+ * it.
+ */
+function samePeek(a: SourcePeek, b: SourcePeek): boolean {
+  if (a.status !== b.status) {
+    return false;
+  }
+  if (a.status === "ready" && b.status === "ready") {
+    return a.data === b.data && a.revision.n === b.revision.n;
+  }
+  if (a.status === "absent" && b.status === "absent") {
+    return a.revision.n === b.revision.n;
+  }
+  if (a.status === "entry-failed" && b.status === "entry-failed") {
+    return a.key === b.key && a.message === b.message;
+  }
+  if (
+    (a.status === "entry-missing" && b.status === "entry-missing") ||
+    (a.status === "entry-loading" && b.status === "entry-loading")
+  ) {
+    return a.key === b.key;
+  }
+  // `module-loading` carries nothing, so two of them are the same answer.
+  return a.status === "module-loading";
+}
 
 /**
  * Which source paths a patch may have changed.

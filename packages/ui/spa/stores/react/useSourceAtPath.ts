@@ -95,11 +95,19 @@ export function useSourceAtPath(
     [val, path, listenerId],
   );
 
+  /**
+   * Straight to `peek`, with no cache in between.
+   *
+   * `peek` is reference-stable in the store — it recomputes and returns the
+   * previous object when the answer is the same — which is what
+   * `useSyncExternalStore` needs. This layer used to hold its own snapshot cache
+   * for that; the store owed it, and now honours it.
+   */
   const getSnapshot = useCallback(() => {
     if (val === null) {
       return null;
     }
-    return val.snapshots.get(val.system.sourceStore, path);
+    return val.system.sourceStore.peek(path);
   }, [val, path]);
 
   const seen = useSyncExternalStore(

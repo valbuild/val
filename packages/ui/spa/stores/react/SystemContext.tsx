@@ -1,6 +1,5 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { System } from "../createSystem";
-import { PathSnapshots } from "./PathSnapshots";
 
 /**
  * # The React layer over the store system
@@ -41,16 +40,36 @@ import { PathSnapshots } from "./PathSnapshots";
  */
 export type ValSystem = {
   system: System;
-  /**
-   * Reference-stable `peek` results.
-   *
-   * `useSyncExternalStore` requires `getSnapshot` to return the same reference
-   * until the value actually changes, and `peek` builds a fresh object per call.
-   * Held on the context rather than per hook so two fields on one path share one
-   * held snapshot instead of each keeping their own.
-   */
-  snapshots: PathSnapshots;
 };
+
+/**
+ * ## Why `useSyncExternalStore` rather than `useState` + `useEffect`
+ *
+ * The obvious alternative is to hold the value in state and set it from a
+ * listener. It buys the same thing for the common case and it is simpler to read,
+ * so it is worth writing down what it does not cover.
+ *
+ * - **The subscribe race.** A change that lands between the first render's read
+ *   and the effect attaching the listener is missed PERMANENTLY: the field shows a
+ *   stale value with nothing to correct it. That window is not hypothetical here —
+ *   it is exactly where `host.receive` lands during startup. `useSyncExternalStore`
+ *   re-reads after subscribing and compares.
+ * - **Tearing.** Two components rendering in one pass, one before a change and one
+ *   after, showing different values for the same path.
+ * - **A changed `path` prop.** State initialised once per mount is stale until the
+ *   effect re-runs; `getSnapshot` is re-read every render.
+ *
+ * All three are re-derivable by hand, and doing so is most of what
+ * `useSyncExternalStore` is. It also matches `ValFieldProvider`, which has twenty
+ * of these, so a component ports without changing how it consumes.
+ *
+ * The real cost of the choice is that `getSnapshot` must be reference-stable — and
+ * that contract is what produced two of the four store bugs this layer found. The
+ * answer was not to abandon the hook but to put the stability where it belongs:
+ * `peek` is reference-stable in all three stores now, by recomputing and comparing
+ * rather than by keeping an invalidation list. So there is no snapshot cache in
+ * this layer at all; there used to be, and the store owed it instead.
+ */
 
 const ValSystemContext = createContext<ValSystem | null>(null);
 
@@ -61,14 +80,11 @@ export function ValSystemProvider({
   system: System;
   children: ReactNode;
 }) {
-  // Not memoised on purpose: `system` is created once by the caller and
-  // `PathSnapshots` must live exactly as long as it. A `useMemo` here would be a
-  // cache that React is allowed to throw away, and throwing away the held
-  // snapshots mid-session would make every field re-render for nothing.
+  // Memoised on `system`, so the context value is stable while the system is. A
+  // fresh object here would re-render every consumer on every provider render.
+  const value = useMemo<ValSystem>(() => ({ system }), [system]);
   return (
-    <ValSystemContext.Provider
-      value={{ system, snapshots: new PathSnapshots() }}
-    >
+    <ValSystemContext.Provider value={value}>
       {children}
     </ValSystemContext.Provider>
   );

@@ -10,7 +10,6 @@ export {
   useValSystem,
   type ValSystem,
 } from "./SystemContext";
-export { PathSnapshots } from "./PathSnapshots";
 export { useSourceAtPath, type SourceAtPath } from "./useSourceAtPath";
 export { useModuleSchema, type SchemaAtPath } from "./useSchemaAtPath";
 export {

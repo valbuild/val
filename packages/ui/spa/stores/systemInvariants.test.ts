@@ -1,5 +1,5 @@
 import { initVal } from "@valbuild/core";
-import { externalPatch, initTestSystem, mfp } from "./testSystem";
+import { externalPatch, initTestSystem, mfp, sp } from "./testSystem";
 
 /**
  * Pinpointed reproductions, one invariant per test.
@@ -651,6 +651,121 @@ describe("source store: patches that carry files", () => {
     await ledger.has({ type: "source:patch-apply", success: ["img-2"] });
     expect(await patchStore.getHead()).toMatchObject({
       type: "external-complete",
+    });
+    dispose();
+  });
+});
+
+describe("peek is reference-stable in every store", () => {
+  /**
+   * CLAIM (`SourceStore.peek`, `ValidationStore.peek`, `RenderStore.peek`): all
+   * three are "safe to call on a render path".
+   *
+   * That phrase has to mean reference-stable, or it means nothing. A
+   * `useSyncExternalStore` consumer calls `getSnapshot` on every render and
+   * compares the result with `Object.is`; a peek that builds a fresh object per
+   * call therefore reports a change on every render and React re-renders until it
+   * gives up — its own words were "maximum update depth exceeded". Two of the
+   * three did exactly that, and it was invisible until a hook subscribed.
+   *
+   * One test per store, because they achieve it differently: source and render
+   * recompute and compare, validation stores its result pre-wrapped.
+   */
+  const module = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/t.val.ts",
+      s.object({
+        title: s.string(),
+        rows: s.array(s.object({ n: s.string() })),
+      }),
+      { title: "a", rows: [{ n: "one" }] },
+    );
+  };
+
+  it("source: an unchanged path peeks to the same object", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+
+    expect(sourceStore.peek(sp("/t.val.ts"))).toBe(
+      sourceStore.peek(sp("/t.val.ts")),
+    );
+    // And for a path that is not there, and for one inside an array — the three
+    // shapes a field can be looking at.
+    expect(sourceStore.peek(sp('/t.val.ts?p="nope"'))).toBe(
+      sourceStore.peek(sp('/t.val.ts?p="nope"')),
+    );
+    expect(sourceStore.peek(sp('/t.val.ts?p="rows".0'))).toBe(
+      sourceStore.peek(sp('/t.val.ts?p="rows".0')),
+    );
+    dispose();
+  });
+
+  it("validation: an unchanged module peeks to the same object", async () => {
+    const { sourceStore, validationStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    await validationStore.validate(mfp("/t.val.ts"));
+
+    expect(validationStore.peek(mfp("/t.val.ts"))).toBe(
+      validationStore.peek(mfp("/t.val.ts")),
+    );
+    // A cache hit through `validate` must be the same object too: a consumer
+    // holding one from either has to be able to compare them.
+    expect(await validationStore.validate(mfp("/t.val.ts"))).toBe(
+      validationStore.peek(mfp("/t.val.ts")),
+    );
+    dispose();
+  });
+
+  it("render: an unchanged path peeks to the same object", async () => {
+    const { sourceStore, renderStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    await renderStore.get(sp('/t.val.ts?p="rows"'));
+
+    expect(renderStore.peek(sp('/t.val.ts?p="rows"'))).toBe(
+      renderStore.peek(sp('/t.val.ts?p="rows"')),
+    );
+    // Including the common "nothing here" answer, which is what most paths get
+    // and therefore what most fields would have churned on.
+    expect(renderStore.peek(sp('/t.val.ts?p="title"'))).toBe(
+      renderStore.peek(sp('/t.val.ts?p="title"')),
+    );
+    dispose();
+  });
+
+  /**
+   * And it must NOT be the same object once the answer changed, or a consumer
+   * comparing references never repaints. The stability is only useful if it is
+   * exact in both directions.
+   */
+  it("source: a changed path peeks to a different object", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    const before = sourceStore.peek(sp("/t.val.ts"));
+
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "b" },
+    ]);
+
+    expect(sourceStore.peek(sp("/t.val.ts"))).not.toBe(before);
+    dispose();
+  });
+
+  it("validation: a module whose source moved peeks to a different object", async () => {
+    const { sourceStore, patchStore, validationStore, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    const before = await validationStore.validate(mfp("/t.val.ts"));
+
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "b" },
+    ]);
+
+    // `stale` now, which is a different object AND a different status: the old
+    // errors are about a value that has moved.
+    expect(validationStore.peek(mfp("/t.val.ts"))).not.toBe(before);
+    expect(validationStore.peek(mfp("/t.val.ts"))).toMatchObject({
+      status: "stale",
     });
     dispose();
   });
