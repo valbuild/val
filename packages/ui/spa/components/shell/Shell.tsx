@@ -169,7 +169,9 @@ export function Shell({
         unreadNotifications={
           data.notifications === undefined ? undefined : unreadNotifications
         }
-        user={data.user}
+        // The rail owns the account wherever it is shown. Passing the user
+        // here too would put the same avatar in two corners of one screen.
+        user={breakpoint === "desktop" ? undefined : data.user}
         onPreview={() => undefined}
         onPublish={() => undefined}
         pendingChanges={pendingChanges}
