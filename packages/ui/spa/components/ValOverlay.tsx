@@ -1691,7 +1691,7 @@ function ValMenu({
 
 /** The Val mark, sized for the collapsed launcher. */
 function ValMark() {
-  return <ValLogo className="h-[18px]" />;
+  return <ValLogo className="h-6" />;
 }
 
 function useValRouterSourcePathFromCurrentPathname() {

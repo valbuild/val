@@ -53,7 +53,7 @@ export function LeftRail({
       className="absolute left-3 top-3 bottom-3 z-full w-12 flex flex-col items-center py-2 gap-1 rounded-lg bg-bg-float border border-border-float shadow-sm"
     >
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
-        <ValLogo className="h-5" />
+        <ValLogo className="h-6" />
       </div>
       {RAIL_ITEMS.map(({ panel, label, icon: Icon }) => (
         <Tooltip key={panel}>

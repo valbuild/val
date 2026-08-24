@@ -177,7 +177,7 @@ function OverlayMenuHarness({
           compact={compact}
           defaultExpanded={!collapsed}
           status={validationErrors > 0 ? "errors" : "changes"}
-          mark={<ValLogo className="h-[18px]" />}
+          mark={<ValLogo className="h-6" />}
         >
           {previewMode ? (
             <>

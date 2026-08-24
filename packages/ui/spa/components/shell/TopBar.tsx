@@ -97,7 +97,7 @@ export function TopBar({
       )}
       {!isDesktop && (
         <div className="grid place-items-center w-7 h-7 shrink-0 text-fg-primary">
-          <ValLogo className="h-[18px]" />
+          <ValLogo className="h-5" />
         </div>
       )}
       <ProjectSwitcher
