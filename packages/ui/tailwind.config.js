@@ -78,6 +78,8 @@ module.exports = {
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
         "fg-error-on-surface": "var(--fg-error-on-surface)",
+        "bg-page-selection": "var(--bg-page-selection)",
+        "bg-page-selection-fill": "var(--bg-page-selection-fill)",
         "bg-canvas": "var(--bg-canvas)",
         "bg-surface": "var(--bg-surface)",
         "bg-float": "var(--bg-float)",

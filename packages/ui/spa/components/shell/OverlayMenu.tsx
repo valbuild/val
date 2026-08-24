@@ -1,4 +1,5 @@
 import { forwardRef, ReactNode } from "react";
+import { GripHorizontal, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 
 /**
@@ -228,4 +229,143 @@ export function overlayDockClassName(dock: OverlayDock): string {
     case "right-bottom":
       return "fixed right-3 bottom-3";
   }
+}
+
+/**
+ * A floating window over the user's page — the edit window, the assistant.
+ *
+ * Same surface as the bar, one size up: hairline, shadow, rounded corners,
+ * and a title bar that is a drag handle on desktop.
+ */
+export function OverlayWindow({
+  title,
+  compact,
+  onClose,
+  footer,
+  children,
+  className,
+  style,
+}: {
+  title: string;
+  compact?: boolean;
+  onClose?: () => void;
+  footer?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label={title}
+      style={style}
+      className={cn(
+        "flex flex-col rounded-lg bg-bg-float text-fg-primary",
+        "border border-border-float shadow-xl",
+        className,
+      )}
+    >
+      <div className="grid grid-cols-3 items-center shrink-0 px-3 h-11 border-b border-border-float">
+        <div className="text-[0.8125rem] font-semibold tracking-tight truncate">
+          {title}
+        </div>
+        <div className="flex justify-center text-fg-secondary-alt">
+          {!compact && <GripHorizontal size={16} />}
+        </div>
+        <div className="flex justify-end">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={`Close ${title}`}
+              className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
+      {footer !== undefined && (
+        <div className="shrink-0 border-t border-border-float">{footer}</div>
+      )}
+    </div>
+  );
+}
+
+/** A small floating card anchored to a menu button — the settings popover. */
+export function OverlayCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg bg-bg-float text-fg-primary border border-border-float shadow-lg p-3",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The outline drawn around an editable region of the user's page.
+ *
+ * Deliberately not themed: this sits on their design, not on ours, so it uses
+ * the fixed page-selection green that reads on a light and a dark page alike.
+ */
+export function OverlaySelectionBox({
+  rect,
+  emphasis = "all",
+  className,
+}: {
+  /** Any CSS length: the real overlay measures pixels, stories use percentages. */
+  rect: {
+    top: number | string;
+    left: number | string;
+    width: number | string;
+    height: number | string;
+  };
+  /** `all` marks every editable region; `hover` is the one a click would open. */
+  emphasis?: "all" | "hover";
+  className?: string;
+}) {
+  return (
+    <div
+      aria-hidden
+      style={rect}
+      className={cn(
+        "absolute rounded-sm border-2 border-bg-page-selection pointer-events-none",
+        emphasis === "hover" ? "bg-bg-page-selection-fill" : "opacity-70",
+        className,
+      )}
+    />
+  );
+}
+
+/** The hover hint on a menu button. */
+export function OverlayTooltip({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      role="tooltip"
+      className={cn(
+        "max-w-[16rem] px-2.5 py-1.5 rounded-md text-xs",
+        "bg-bg-float text-fg-primary border border-border-float shadow-lg",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }

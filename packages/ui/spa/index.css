@@ -84,6 +84,15 @@
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
 
+    /* Drawn on top of the user's own page, not on a Val surface, so these
+       are declared once and never flip with the theme: the page underneath
+       does not follow Val's theme, and a token that inverts would go pale on
+       a light site or muddy on a dark one. green-600 is the step that clears
+       3:1 against both white and black — green-500 is only 2.76:1 on white,
+       which contrast.test.ts holds this to. */
+    --bg-page-selection: var(--colors-brand-green-600);
+    --bg-page-selection-fill: rgba(7, 148, 85, 0.12);
+
     --radius: 0.5rem;
 
     /* (Text) Selection colors */

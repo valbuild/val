@@ -151,6 +151,25 @@ describe.each<Mode>(["light", "dark"])("%s mode contrast", (mode) => {
   });
 });
 
+describe("the selection outline drawn on the user's page", () => {
+  // This one is not on a Val surface, so it cannot be checked against a Val
+  // token: the page underneath is the customer's, and could be anything. The
+  // honest test is that it holds up against both extremes.
+  test.each([
+    ["white", "#ffffff"],
+    ["black", "#000000"],
+  ])("is visible on a %s page", (_name, page) => {
+    const ratio = contrast(resolve("--bg-page-selection", "light"), page);
+    expect(Number(ratio.toFixed(2))).toBeGreaterThanOrEqual(AA_LARGE);
+  });
+
+  test("does not flip with the theme", () => {
+    expect(resolve("--bg-page-selection", "light")).toBe(
+      resolve("--bg-page-selection", "dark"),
+    );
+  });
+});
+
 describe.each<Mode>(["light", "dark"])("%s mode neutrality", (mode) => {
   // The chrome's surfaces must not carry a hue of their own: the user's brand
   // is the only colour that should register. Anything above a small

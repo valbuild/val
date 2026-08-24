@@ -400,7 +400,7 @@ export function ValOverlay(props: ValOverlayProps) {
               "cursor-pointer",
               "rounded-sm",
               "transition-all duration-150 ease-in-out",
-              "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
+              "border-2 border-bg-page-selection bg-bg-page-selection-fill",
             )}
             style={maxRect(
               {
@@ -442,9 +442,9 @@ export function ValOverlay(props: ValOverlayProps) {
               className={cn(
                 "absolute z-[8997] pointer-events-none",
                 "rounded-sm",
-                "border-2 border-bg-brand-primary",
+                "border-2 border-bg-page-selection",
                 "transition-opacity duration-200 ease-out",
-                allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
+                allBoundingBoxesVisible ? "opacity-70" : "opacity-0",
               )}
               style={maxRect(
                 {
@@ -713,7 +713,7 @@ function Window({
       <div
         className={classNames(
           "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
+          "shadow-xl",
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
               isMobile,
@@ -736,8 +736,7 @@ function Window({
         {/* Header bar - for dragging on desktop, shows close button on mobile */}
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             {
               "cursor-grab active:cursor-grabbing": !isMobile,
             },
@@ -749,8 +748,8 @@ function Window({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">
-            Edit Content
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            Edit content
           </div>
           <div className="flex justify-center">
             {!isMobile && (
@@ -761,7 +760,7 @@ function Window({
             {isMobile && (
               <button
                 onClick={handleClose}
-                className="p-1 rounded hover:bg-bg-secondary transition-colors"
+                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary transition-colors"
                 aria-label="Close"
               >
                 <X size={18} />
@@ -1031,7 +1030,7 @@ function ChatWindow({
       <div
         className={classNames(
           "absolute flex flex-col rounded-lg bg-bg-float text-fg-primary border border-border-float",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
+          "shadow-xl",
           { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
         )}
         ref={ref}
@@ -1048,8 +1047,7 @@ function ChatWindow({
       >
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             { "cursor-grab active:cursor-grabbing": !isMobile },
           )}
           onMouseDown={(ev) => {
@@ -1059,7 +1057,9 @@ function ChatWindow({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">AI Chat</div>
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            AI assistant
+          </div>
           <div className="flex justify-center">
             {!isMobile && (
               <GripHorizontal size={16} className="text-fg-secondary" />
