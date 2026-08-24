@@ -40,12 +40,20 @@ import { ValStoreProbe } from "./ValStoreProbe";
  * the AI write paths in `hooks/useAI.ts`, which call the engine directly rather
  * than through `useAddPatch`. Named here rather than discovered later.
  *
- * ## Off unless asked for
+ * ## Always on
  *
- * Enabled by `window.__VAL_STORES_SHADOW__` or `?val_stores_shadow=1`. Default
- * off, because a second system means a second `GET /patches` and a second
- * `GET /json` per entry, and no user should pay for an experiment. Off also means
- * `useValSystem()` returns null, which every hook already handles.
+ * It was behind a flag while it was an experiment. It is not one any more: the
+ * engine is being removed when this lands, so a switch to turn the replacement
+ * off is a switch nobody would ever want. Always creating it also means the port
+ * is exercised by every session rather than by whoever remembered the flag.
+ *
+ * The cost of always-on is currently close to nothing, which is worth knowing
+ * rather than assuming: the second system's `fetchPatches` is driven by
+ * `stat:receive`, and nothing in the app calls `receiveStat` yet (openquestions
+ * item 8), so no duplicate `GET /patches` happens. `GET /json` is per entry and
+ * only on a read that descends into an unfetched one. That changes the day stat
+ * gets a real input — at which point the engine's own polling should be the thing
+ * that goes, not this.
  */
 export function ValStoreShadow({
   client,
@@ -56,15 +64,14 @@ export function ValStoreShadow({
   valModules: ValModules | null;
   children: ReactNode;
 }) {
-  const enabled = useMemo(() => shadowEnabled(), []);
-  const system = useMemo<System | null>(
-    () => (enabled ? createValSystem(client, { mirror: true }) : null),
-    [enabled, client],
+  const system = useMemo<System>(
+    () => createValSystem(client, { mirror: true }),
+    [client],
   );
   const [received, setReceived] = useState(false);
 
   useEffect(() => {
-    if (system === null || valModules === null) {
+    if (valModules === null) {
       return;
     }
     let cancelled = false;
@@ -96,17 +103,13 @@ export function ValStoreShadow({
 
   useEffect(() => {
     return () => {
-      system?.dispose();
+      system.dispose();
     };
   }, [system]);
 
   // Exposed so a browser test can wait for intake rather than sleeping, and can
-  // reach the system directly to compare it with the engine. Only ever set when
-  // the shadow is explicitly enabled.
+  // reach the system directly to compare it with the engine's answers.
   useEffect(() => {
-    if (system === null) {
-      return;
-    }
     const bag = window as unknown as {
       __VAL_STORES__?: { system: System; received: boolean };
     };
@@ -116,9 +119,6 @@ export function ValStoreShadow({
     };
   }, [system, received]);
 
-  if (system === null) {
-    return <>{children}</>;
-  }
   return (
     <ValSystemProvider system={system}>
       {/*
@@ -130,24 +130,4 @@ export function ValStoreShadow({
       {children}
     </ValSystemProvider>
   );
-}
-
-function shadowEnabled(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const flagged = (window as unknown as { __VAL_STORES_SHADOW__?: unknown })
-    .__VAL_STORES_SHADOW__;
-  if (flagged === true) {
-    return true;
-  }
-  try {
-    return (
-      new URLSearchParams(window.location.search).get("val_stores_shadow") ===
-      "1"
-    );
-  } catch {
-    // A window with no parseable location is not a reason to fail the app.
-    return false;
-  }
 }
