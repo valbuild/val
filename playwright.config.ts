@@ -1,4 +1,8 @@
 import { defineConfig } from "@playwright/test";
+import { existsSync } from "node:fs";
+
+const PREINSTALLED_CHROMIUM =
+  "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 
 /**
  * End-to-end tests for the Val Studio.
@@ -42,10 +46,19 @@ export default defineConfig({
     {
       name: "chromium",
       use: {
-        // The preinstalled browser. `playwright install` is not run in this
-        // environment and must not be — see the repo's environment notes.
         launchOptions: {
-          executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+          /**
+           * The preinstalled browser, when there is one.
+           *
+           * Some sandboxes ship Chromium at a fixed path and forbid
+           * `playwright install`; CI installs its own and has nothing at that
+           * path. Pinning it unconditionally made the suite unrunnable on a
+           * runner, and leaving it out made it unrunnable in the sandbox — so it
+           * is used when it exists and Playwright resolves its own otherwise.
+           */
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
         },
       },
