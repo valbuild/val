@@ -84,6 +84,26 @@ export function useAllValidationErrors(): Record<
     };
   }, [val, bump]);
 
+  /**
+   * The last answer, returned again when a recompute produces the same one.
+   *
+   * Not an optimisation — a loop fix. This hook wakes on EVERY validation event
+   * in the project, and most of them do not change what it answers: a module
+   * being invalidated and revalidated with the same errors is the common case,
+   * and loading a `.jsonValues()` record announces one per batch. Each of those
+   * used to hand back a brand-new object.
+   *
+   * `NavMenuWrapper` memoises the whole nav tree on this value, so a new object
+   * rebuilt the entire tree — and the tree contains a Radix `ScrollArea` inside
+   * an `AccordionContent`, both of which measure and set state from a ref. Enough
+   * rebuilds in a row and that becomes "Maximum update depth exceeded", thrown
+   * from inside a ref callback that names nothing about validation. It took a
+   * React component stack to find; the JS stack is pure Radix.
+   *
+   * Same rule the stores follow for anything read on a render path: recompute and
+   * compare, never trust that a wake-up means a change.
+   */
+  const previous = useRef<Record<SourcePath, ValidationError[]> | null>(null);
   return useMemo(() => {
     if (val === null) return {};
     void version;
@@ -99,12 +119,54 @@ export function useAllValidationErrors(): Record<
         }
       }
     }
-    return filterBlockingValidationErrors(
+    const next = filterBlockingValidationErrors(
       raw,
       val.system.schemaStore.all(),
       val.system.sourceStore.allSources(),
     );
+    const held = previous.current;
+    if (held !== null && sameErrors(held, next)) {
+      return held;
+    }
+    previous.current = next;
+    return next;
   }, [val, version]);
+}
+
+/**
+ * Do two error maps say the same thing?
+ *
+ * Compared by MESSAGE rather than by object identity, because the resolving pass
+ * rebuilds error objects: `resolveSchemaSourceFixes` turns a `router:check-route`
+ * marker into a different error, so identity would report every recompute as a
+ * change and the comparison would never hold.
+ *
+ * Messages are what the UI shows and what the error badges count, so two maps
+ * with the same paths and the same messages are the same answer as far as every
+ * consumer of this hook is concerned.
+ */
+function sameErrors(
+  a: Record<SourcePath, ValidationError[]>,
+  b: Record<SourcePath, ValidationError[]>,
+): boolean {
+  const aPaths = Object.keys(a);
+  const bPaths = Object.keys(b);
+  if (aPaths.length !== bPaths.length) {
+    return false;
+  }
+  for (const path of aPaths) {
+    const left = a[path as SourcePath];
+    const right = b[path as SourcePath];
+    if (right === undefined || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index++) {
+      if (left[index].message !== right[index].message) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**

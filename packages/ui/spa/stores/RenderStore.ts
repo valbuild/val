@@ -135,6 +135,14 @@ export class RenderStore {
    * because that is what a caller asks about.
    */
   private peeked = new Map<SourcePath, RenderRead>();
+  /**
+   * Deferred cache teardowns, per module. See the `source:unlisten` handler.
+   * Cleared by {@link dispose} so a discarded system leaves no timers behind.
+   */
+  private pendingForget = new Map<
+    ModuleFilePath,
+    ReturnType<typeof setTimeout>
+  >();
 
   /**
    * In-flight requests, so N fields asking at once produce ONE host call — WITH
@@ -194,6 +202,14 @@ export class RenderStore {
     const offListen = this.sourceStore.events.on("source:listen", (event) => {
       const before = this.listenersByModule.get(event.moduleFilePath) ?? 0;
       this.listenersByModule.set(event.moduleFilePath, before + 1);
+      // Demand came back before the deferred teardown ran — see `source:unlisten`
+      // below. Keeping the cache is the point: this is the remount half of a
+      // virtualizer's row swap, and dropping it here is what looped.
+      const pending = this.pendingForget.get(event.moduleFilePath);
+      if (pending !== undefined) {
+        clearTimeout(pending);
+        this.pendingForget.delete(event.moduleFilePath);
+      }
       // The FIRST field to look at a module is what makes it render. Later
       // listeners deliberately do not trigger one, and that is the coalescing:
       // a commit mounting twenty rows would otherwise refresh twenty times at
@@ -210,9 +226,31 @@ export class RenderStore {
       }
       void this.refresh(event.moduleFilePath);
     });
-    // Demand leaving. The cache is dropped once nobody is looking, so a module
-    // nobody has on screen cannot be re-rendered by a later change to it, and
-    // does not hold a render nobody will read.
+    /**
+     * Demand leaving. The cache is dropped once nobody is looking, so a module
+     * nobody has on screen cannot be re-rendered by a later change to it, and
+     * does not hold a render nobody will read.
+     *
+     * DEFERRED BY A TICK, and that is the whole fix for a render loop.
+     *
+     * "Nobody is looking" is not the same as "the count reached zero", because
+     * React commits an unmount BEFORE the mount that replaces it. A virtualizer
+     * scrolling one row out and another in therefore passes through zero even
+     * though the module is still very much on screen. Dropping the cache there
+     * made the incoming row's read a cache MISS, which re-rendered the whole
+     * module, which produced new render objects, which re-rendered the rows,
+     * which moved the window again: 550 mount/unmount pairs on a 121-row record
+     * and then "Maximum update depth exceeded".
+     *
+     * It surfaced from inside a Radix ref callback in the NAV MENU, which is not
+     * even in this subtree — the cascade simply exhausted React's budget wherever
+     * a component measured itself. Stubbing the nav out did not help; counting
+     * `source:listen` against `source:change` is what found it (550 against 17).
+     *
+     * A tick is enough: a remount lands in the same commit, so anything still
+     * wanted has re-registered by the time the timer runs. The check is repeated
+     * inside the callback rather than trusted from outside it.
+     */
     const offUnlisten = this.sourceStore.events.on(
       "source:unlisten",
       (event) => {
@@ -223,9 +261,25 @@ export class RenderStore {
           return;
         }
         this.listenersByModule.delete(event.moduleFilePath);
-        this.renders.delete(event.moduleFilePath);
-        this.stale.delete(event.moduleFilePath);
-        this.pendingReads.delete(event.moduleFilePath);
+        const moduleFilePath = event.moduleFilePath;
+        const existing = this.pendingForget.get(moduleFilePath);
+        if (existing !== undefined) {
+          clearTimeout(existing);
+        }
+        this.pendingForget.set(
+          moduleFilePath,
+          setTimeout(() => {
+            this.pendingForget.delete(moduleFilePath);
+            // Still nobody? A remount during the commit would have re-registered
+            // and cancelled this, but check anyway: the timer is not the truth.
+            if ((this.listenersByModule.get(moduleFilePath) ?? 0) > 0) {
+              return;
+            }
+            this.renders.delete(moduleFilePath);
+            this.stale.delete(moduleFilePath);
+            this.pendingReads.delete(moduleFilePath);
+          }, 0),
+        );
       },
     );
     const offApply = this.sourceStore.events.on(
@@ -246,6 +300,12 @@ export class RenderStore {
       offApply();
       offInit();
       offSchema();
+      // Timers outlive listeners otherwise, and a test that creates and
+      // discards systems in one process would leak them into the next.
+      for (const timer of this.pendingForget.values()) {
+        clearTimeout(timer);
+      }
+      this.pendingForget.clear();
     };
   }
 
