@@ -337,6 +337,8 @@ export type TestPatchStore = {
    * difference between "saved" and "published" is invisible from anywhere else.
    */
   filePatchIds(): ReadonlyMap<string, PatchId>;
+  /** Mark patches as shipped, without going through a real publish. */
+  markPublished(patchIds: readonly PatchId[]): void;
   /**
    * Remove patches from the chain, as a permanent server refusal does.
    *
@@ -478,6 +480,15 @@ export type TestServer = {
    * what `PatchStore.reconcileVanished` is for.
    */
   simulateForeignDiscard(patchIds: PatchId[]): void;
+  /**
+   * Another session PUBLISHES patches this client holds.
+   *
+   * Indistinguishable from a discard by the patch list alone — `/save` in `fs`
+   * mode deletes the patches it committed — except that a publish makes a commit
+   * and so MOVES `baseSha`. That is the only signal telling the client whether a
+   * vanished patch's effect belongs in source or not.
+   */
+  simulateForeignPublish(patchIds: PatchId[]): void;
   /** What the chain is rooted at. */
   baseSha: string;
 };
@@ -565,6 +576,8 @@ export function initTestSystem(): TestSystem {
    * server that could not exist.
    */
   const baseSha = "test-base-sha";
+  /** Moves when a publish commits — see `simulateForeignPublish`. */
+  let publishedBaseSha = baseSha;
   const writes: {
     patchIds: PatchId[];
     parentRef: ParentRef;
@@ -983,6 +996,7 @@ export function initTestSystem(): TestSystem {
       isPending: (patchId) => system.patchStore.isPending(patchId as PatchId),
       pendingPatchIds: () => system.patchStore.pendingPatchIds(),
       filePatchIds: () => system.patchStore.filePatchIds(),
+      markPublished: (patchIds) => system.patchStore.markPublished(patchIds),
       drop: (patchIds) => system.patchStore.drop(patchIds),
       async createPatchInSession(moduleFilePath, patch, sessionId) {
         const res = await system.patchStore.createPatch(
@@ -1065,6 +1079,18 @@ export function initTestSystem(): TestSystem {
       discarded: () => [...discarded],
       failNextDiscard(message) {
         discardFailure = message;
+      },
+      simulateForeignPublish(patchIds) {
+        for (const patchId of patchIds) {
+          serverPatches.delete(patchId);
+          const at = announced.indexOf(patchId);
+          if (at !== -1) announced.splice(at, 1);
+        }
+        publishedBaseSha += "-committed";
+        system.stat.receiveStat({
+          patches: [...announced],
+          baseSha: publishedBaseSha,
+        });
       },
       simulateForeignDiscard(patchIds) {
         // Another session, the CLI, or another tab deletes patches this client

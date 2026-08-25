@@ -342,11 +342,11 @@ describe("a file's URL between saving and publishing", () => {
     );
     await patchSync.flush();
 
-    // `appliedAt` is the server saying this patch is in a commit. A published
-    // patch stays in the chain in `http` mode, so being in the chain is not the
-    // question — and a `patch_id` for a shipped file would point at a patch that
-    // may already have been collected.
-    patchStore.drop(["local-1" as PatchId]);
+    // PUBLISHED, not dropped — and the difference is the whole point. A
+    // published patch stays in the chain in `http` mode, so "is it in the chain"
+    // is not the question; dropping it would make this test pass with the gate
+    // removed entirely.
+    patchStore.markPublished(["local-1" as PatchId]);
 
     expect(patchStore.filePatchIds().get(HERO)).toBeUndefined();
     dispose();

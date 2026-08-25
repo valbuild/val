@@ -96,8 +96,10 @@ function enrichNavMenuData(
    * an `s.images()` or `s.files()` module was in neither place, and the only way
    * to open one was to know its URL.
    *
-   * Enriched like the others: `collectMediaModules` attributes errors per module
-   * already, but `hasError` is what the row renders a badge from.
+   * Carried through as-is, unlike the sections above: `collectMediaModules`
+   * already attributes errors per module, and `MediaModule` carries them as
+   * `errors` rather than the `hasError` flag the other rows use. There is
+   * nothing to enrich.
    */
   if (data.media && data.media.length > 0) {
     result.media = data.media;

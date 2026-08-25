@@ -836,6 +836,66 @@ describe("a patch that vanished from stat", () => {
 });
 
 /**
+ * A vanished patch: discarded, or published?
+ *
+ * `/save` in `fs` mode DELETES the patches it commits, so from the patch list
+ * alone a publish and a discard look identical — and they need opposite handling.
+ * A discarded patch's effect must come OUT of source; a published one's must stay,
+ * because it is in the base now. The only signal is `baseSha`: a commit moves it,
+ * a discard does not.
+ */
+describe("telling a publish from a discard", () => {
+  it("keeps the value when the base moved, because that was a publish", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "published value" },
+    ]);
+    await patchSync.flush();
+
+    server.simulateForeignPublish(["local-1" as PatchId]);
+    await settle();
+    await settle();
+
+    // Out of the chain — it has shipped — but the VALUE stays. Dropping it here
+    // rebuilds the module from a base that does not have it yet, so every
+    // published field on screen reverts.
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    const read = await sourceStore.get(TITLE, null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("published value");
+    dispose();
+  });
+
+  it("takes the value back when the base did not move, because that was a discard", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "discarded value" },
+    ]);
+    await patchSync.flush();
+
+    server.simulateForeignDiscard(["local-1" as PatchId]);
+    await settle();
+    await settle();
+
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    const read = await sourceStore.get(TITLE, null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("Hello");
+    dispose();
+  });
+});
+
+/**
  * A patch that cannot be applied is deleted.
  *
  * `failed` on `source:patch-apply` means `applyPatch` REFUSED the ops against the
@@ -885,7 +945,40 @@ describe("a patch that cannot be applied", () => {
     dispose();
   });
 
-  it("is reported once, not once per replay", async () => {
+  it("keeps a patch whose module still has unloaded .jsonValues() entries", async () => {
+    const { c, s } = initVal();
+    const jsonValuesModule = c.define(
+      "/entries.val.ts",
+      s.record(s.object({ title: s.string() })).jsonValues(),
+      {
+        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
+      },
+    );
+    const { sourceStore, patchStore, server, stat, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule]);
+    stat.simulateExternal([]);
+
+    /**
+     * An edit INTO an entry nobody has loaded. Entry content is stitched in on
+     * read, so this applies against the marker and fails — and would succeed
+     * once the entry arrived.
+     *
+     * This is the case that made auto-deletion destroy a real edit: a user typing
+     * in a string field on a `.jsonValues()` route had the patch deleted under
+     * them, with a console message insisting the source did not have the path.
+     */
+    await patchStore.createPatch("/entries.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "typed by a user" },
+    ]);
+    await settle();
+    await settle();
+
+    expect(server.discarded()).toEqual([]);
+    expect((await patchStore.getHead()).type).not.toBe("empty");
+    dispose();
+  });
+
+  it("is reported once per occurrence, not once per replay", async () => {
     const { sourceStore, patchStore, host, server, stat, dispose } =
       initTestSystem();
     await sourceStore.testReceive([module()]);

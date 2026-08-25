@@ -78,10 +78,21 @@ export function ValStoreProvider({
           modules.push(result.value.default);
         }
       }
-      if (modules.length > 0) {
-        system.host.receive(modules);
-        setReceived(true);
-      }
+      /**
+       * Unconditionally, even when NOTHING was adopted.
+       *
+       * The guard here used to be `modules.length > 0`, which reads as caution
+       * and is a hang: if every import rejects — or the registry is momentarily
+       * empty — `receivedAt` stays null, so every readiness gate reads "not
+       * ready", `/stat` is never fed in, and anything waiting on intake waits
+       * forever. `receive([])` completes intake honestly: no modules, and the
+       * project is known to have none rather than not yet known.
+       *
+       * The failures are not lost: `HostStore.receive` records the ones that
+       * could not serialize and the dev banner names them.
+       */
+      system.host.receive(modules);
+      setReceived(true);
     })();
     return () => {
       cancelled = true;
@@ -132,9 +143,21 @@ export function ValStoreProvider({
    * run cleanups on a component that stays mounted.
    */
 
-  // Exposed so a browser test can wait for intake rather than sleeping, and can
-  // drive the system directly. See `e2e/studio.spec.ts`.
+  /**
+   * Exposed so a browser test can wait for intake rather than sleeping, and can
+   * drive the system directly. See `e2e/studio.spec.ts`.
+   *
+   * NOT in a production build. `System` carries write, publish and discard, so
+   * this is a mutation surface, and putting it on `window` hands it to every
+   * script on the page — in an app whose whole point is that its content is
+   * editable by authorised people only. Gated on `NODE_ENV` rather than on Val's
+   * own `fs`/`http` mode because the bundler can then remove it outright, and
+   * because it is the same gate a reader will expect.
+   */
   useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      return;
+    }
     const bag = window as unknown as {
       __VAL_STORES__?: { system: System; received: boolean };
     };
@@ -151,7 +174,7 @@ export function ValStoreProvider({
         shadow mount shows the SYSTEM takes real modules; this shows a COMPONENT
         can get a value out of it. Only ever mounted when the shadow is on.
       */}
-      <ValStoreProbe />
+      {process.env.NODE_ENV !== "production" && <ValStoreProbe />}
       {children}
     </ValSystemProvider>
   );
