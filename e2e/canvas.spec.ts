@@ -114,6 +114,27 @@ test.describe("the canvas", () => {
      */
     const dividerX = async (): Promise<number> =>
       (await divider.boundingBox())!.x;
+
+    /**
+     * Wait for the divider to stop moving before touching it.
+     *
+     * Opening the canvas animates the column across, so for a third of a second
+     * the divider is travelling. Grabbing it mid-flight puts the pointer down
+     * where the divider *was*, the drag lands on the canvas behind it, and the
+     * failure reads as "resize is broken" rather than "the test was early". The
+     * toolbar is no help as a signal — it is mounted before the column moves.
+     */
+    const settled = async (): Promise<number> => {
+      let previous = -1;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const x = Math.round(await dividerX());
+        if (x === previous) return x;
+        previous = x;
+        await page.waitForTimeout(100);
+      }
+      throw new Error("the divider never stopped moving");
+    };
+
     const dragTo = async (x: number): Promise<number> => {
       const from = await dividerX();
       const box = await divider.boundingBox();
@@ -130,7 +151,7 @@ test.describe("the canvas", () => {
       return dividerX();
     };
 
-    const start = (await divider.boundingBox())!.x;
+    const start = await settled();
 
     // Out: the editor gets wider, and the divider follows the pointer.
     const wider = await dragTo(start + 240);
@@ -148,6 +169,92 @@ test.describe("the canvas", () => {
 
     // The editor is still an editor at every stop along the way.
     await expect(studio.locator("input").first()).toHaveValue("Blog 1");
+  });
+
+  /**
+   * Preview mode, and what depends on it.
+   *
+   * Val only decorates a page with `data-val-path` when it is rendering draft
+   * content, so without preview mode the canvas shows the published page and
+   * nothing on it is selectable. That failure looks exactly like a broken
+   * canvas, which is why the frame says so instead of showing nothing — and why
+   * this test starts from preview off and turns it on, rather than assuming a
+   * browser that already has the cookies.
+   */
+  test("turns preview mode on, then makes the page selectable", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: "Canvas" }).click();
+
+    // A fresh browser has neither the Val Enable cookie nor draft mode, so the
+    // page mounts none of Val's client code and never reports back. The canvas
+    // has to notice that rather than sit on a spinner.
+    const enable = studio.getByRole("button", {
+      name: /Turn on preview mode/,
+    });
+    await expect(
+      enable,
+      "the canvas did not notice that preview mode was off",
+    ).toBeVisible({ timeout: 25000 });
+    await enable.click();
+
+    /**
+     * The switch to the fields view appears once the page has reported what is
+     * on it — which is the real assertion here. It only exists if the enable
+     * round trip worked, the page came back in draft mode, Val tagged its
+     * content, and the frame's message reached the studio.
+     */
+    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    await expect(
+      fieldsTab,
+      "the page never reported any content, so preview mode did not take",
+    ).toBeVisible({ timeout: 30000 });
+    await fieldsTab.click();
+
+    // The reported fields, by their real paths — not a fixed list.
+    await expect(studio.getByText("On this page")).toBeVisible();
+    const contentRow = studio.getByRole("button", {
+      name: /page\.val\.ts.*"content"/,
+    });
+    await expect(contentRow).toBeVisible();
+
+    // Picking from the list opens that field in the editor.
+    await contentRow.click();
+    await expect
+      .poll(() => decodeURIComponent(page.url()), {
+        message: "picking a field from the list did not open it",
+      })
+      .toContain('."content"');
+
+    /**
+     * And picking on the page itself, which is the point of the canvas.
+     *
+     * Clicked inside the frame, so this also proves the capture-phase handler
+     * is intercepting: the element clicked here sits inside a link, and without
+     * the intercept the frame would navigate instead of reporting.
+     */
+    const frame = page
+      .frames()
+      .find((candidate) => candidate.url().includes("val_canvas=1"));
+    expect(
+      frame,
+      "the canvas frame was not marked as a canvas load",
+    ).toBeTruthy();
+    const tagged = frame!.locator("[data-val-path]");
+    await expect(tagged.first()).toBeVisible();
+    const picked = await tagged.first().getAttribute("data-val-path");
+    expect(picked, "the page rendered no tagged content").toBeTruthy();
+    await tagged.first().click({ force: true });
+    await expect
+      .poll(() => decodeURIComponent(page.url()), {
+        message: "clicking the page did not open the field it belongs to",
+      })
+      .toContain(picked!.split(",")[0]);
   });
 
   test("is not offered for content that is not on a route", async ({

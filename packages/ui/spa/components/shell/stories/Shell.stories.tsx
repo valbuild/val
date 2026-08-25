@@ -312,7 +312,15 @@ export const MediaPanelOpen: Story = {
   },
 };
 
-/** Non-router val modules. */
+/**
+ * Non-router val modules, as the tree they are in.
+ *
+ * The mock nests deliberately — `/content/shop/shipping` as well as modules
+ * sitting at the top of a directory, and more than one top-level directory —
+ * because a project that keeps everything in one flat folder would never show
+ * the tree doing anything. The selected module is a nested one, so this also
+ * shows the panel opening the directories down to it.
+ */
 export const DataPanelOpen: Story = {
   args: {
     ...Default.args,

@@ -100,6 +100,9 @@ export type ShellProps = {
    * list of what Val found on the page.
    */
   renderCanvas?: PageWorkspaceProps["renderCanvas"];
+  /** What the running page reported finding on itself. See `PageWorkspace`. */
+  canvasPaths?: PageWorkspaceProps["canvasPaths"];
+  onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -169,6 +172,8 @@ export function Shell({
   initialDeploymentsOpen = false,
   canvasPage,
   renderCanvas,
+  canvasPaths,
+  onSelectCanvasPath,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
   skipTransition,
@@ -341,6 +346,8 @@ export function Shell({
         breakpoint={breakpoint}
         page={canCanvas ? canvasPage : undefined}
         renderCanvas={canCanvas ? renderCanvas : undefined}
+        canvasPaths={canCanvas ? canvasPaths : undefined}
+        onSelectCanvasPath={onSelectCanvasPath}
         isCanvasOpen={isCanvasOpen && canCanvas}
         onCloseCanvas={closeCanvas}
         view={canvasView}

@@ -21,6 +21,8 @@ import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
+import { isValCanvasFrame } from "@valbuild/shared/internal";
+import { ValCanvasBridge } from "./ValCanvasBridge";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -75,6 +77,20 @@ export const ValNextProvider = (props: {
   // flash and no hydration mismatch.
   const [suspendActive, setSuspendActive] = React.useState(false);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
+  /**
+   * Whether this document is the studio's canvas frame.
+   *
+   * The canvas needs everything `mountOverlay` turns on — draft content,
+   * `data-val-path` on every tracked element, the refresh loop that brings an
+   * edit across — and none of what it *shows*, because the studio around the
+   * frame is already that UI. So it is a second flag rather than a different
+   * value of the first one: two overlays on one screen, one of them inside the
+   * other, is the thing to avoid.
+   *
+   * Read once, in the same effect as `mountOverlay`: it is a property of how
+   * the document was loaded, and it cannot change without a navigation.
+   */
+  const [isCanvas, setIsCanvas] = React.useState(false);
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
@@ -100,6 +116,7 @@ export const ValNextProvider = (props: {
       setMountOverlay(false);
       return;
     }
+    setIsCanvas(isValCanvasFrame(location.search));
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
@@ -404,6 +421,8 @@ export const ValNextProvider = (props: {
       {dropZone !== null &&
         !spaLoaded &&
         mountOverlay &&
+        // The canvas frame loads no SPA, so its pill would spin for ever.
+        !isCanvas &&
         initTheme !== null && (
           <React.Fragment>
             <style>
@@ -465,7 +484,7 @@ ${prefixStyles(commonStyles)}
             </div>
           </React.Fragment>
         )}
-      {mountOverlay && (
+      {mountOverlay && !isCanvas && (
         <React.Fragment>
           <Script
             type="module"
@@ -475,6 +494,14 @@ ${prefixStyles(commonStyles)}
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID} ref={container}></div>
         </React.Fragment>
+      )}
+      {/**
+       * In the studio's canvas the page reports itself instead of decorating
+       * itself: where the elements Val tracks are, and which one was clicked.
+       * The studio draws the rest.
+       */}
+      {mountOverlay && isCanvas && (
+        <ValCanvasBridge draftMode={draftMode === true} />
       )}
       {/**
        * This iframe is used to enable or disable draft mode.

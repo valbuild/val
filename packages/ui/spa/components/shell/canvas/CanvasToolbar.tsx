@@ -3,6 +3,7 @@ import {
   Minus,
   Monitor,
   Plus,
+  RotateCw,
   Smartphone,
   Tablet,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onFit,
+  onReload,
   className,
 }: {
   device: CanvasDevice;
@@ -40,6 +42,16 @@ export function CanvasToolbar({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
+  /**
+   * Load the page again.
+   *
+   * Needed because the canvas shows a document Val does not control the
+   * rendering of: a server component re-reads content when the page is
+   * requested, not when a patch is written, so there are changes that only a
+   * reload brings across. Absent when there is nothing to reload — the demo
+   * page is rendered from data that is already live.
+   */
+  onReload?: () => void;
   className?: string;
 }) {
   return (
@@ -97,6 +109,19 @@ export function CanvasToolbar({
       >
         <Maximize2 size={13} />
       </button>
+      {onReload && (
+        <>
+          <Divider />
+          <button
+            type="button"
+            aria-label="Reload the page"
+            onClick={onReload}
+            className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+          >
+            <RotateCw size={13} />
+          </button>
+        </>
+      )}
     </div>
   );
 }

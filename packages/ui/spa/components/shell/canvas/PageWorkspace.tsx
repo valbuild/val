@@ -20,7 +20,9 @@ import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
 import { FieldsPanel } from "./FieldsPanel";
+import { CanvasPathList } from "./CanvasPathList";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
+import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
 import {
   CANVAS_DEVICE_HEIGHTS,
@@ -65,7 +67,35 @@ export type PageWorkspaceProps = {
     device: CanvasDevice;
     width: number;
     height: number;
+    /**
+     * Bumped every time the reload control is used.
+     *
+     * Handed over rather than kept here because only the caller knows what
+     * reloading means for what it rendered — for a frame it is a remount, and
+     * the caller is the one holding its `key`.
+     */
+    reloadKey: number;
+    /**
+     * Whether a click on the page picks the element under it.
+     *
+     * Follows the view, which is where that decision already lives: in the
+     * normal view the canvas is the page and a click on a link should follow
+     * it. Passed down rather than taken as a prop so there is one answer.
+     */
+    isPicking: boolean;
+    /** Ask for the page again, as the reload control does. */
+    onRequestReload: () => void;
   }) => ReactNode;
+  /**
+   * The content paths the running page reported finding on itself.
+   *
+   * The app's stand-in for `page`: Val cannot yet say what *kind* of field each
+   * one is or what it holds, but it can say which ones are there, and that is
+   * enough for the column to list them and for a click to open one.
+   */
+  canvasPaths?: readonly SourcePath[];
+  /** Open one of those paths in the editor. */
+  onSelectCanvasPath?: (path: SourcePath) => void;
   isCanvasOpen: boolean;
   onCloseCanvas: () => void;
   view: CanvasView;
@@ -130,6 +160,8 @@ export function PageWorkspace({
   breakpoint,
   page,
   renderCanvas,
+  canvasPaths,
+  onSelectCanvasPath,
   isCanvasOpen,
   onCloseCanvas,
   view,
@@ -181,6 +213,10 @@ export function PageWorkspace({
    * dragging is choosing.
    */
   const [columnPx, setColumnPx] = useState<number | null>(null);
+  // The canvas shows a document Val does not render: a server component
+  // re-reads content when the page is requested, so some changes only arrive
+  // on a reload.
+  const [reloadKey, setReloadKey] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   // The workspace's own width, which is what the limits are relative to: the
   // same column is reasonable on a 1600px screen and far too wide on a 900px
@@ -311,6 +347,13 @@ export function PageWorkspace({
   // after the click, and the observer above catches that too.
   useEffect(() => setNeedsFit(true), [device, open]);
 
+  const reload = useCallback(() => {
+    setReloadKey((key) => key + 1);
+    // A reloaded page can be a different height, so the fit it had is no
+    // longer the right one.
+    setNeedsFit(true);
+  }, []);
+
   const setTransformByUser = useCallback((next: CanvasTransform) => {
     setNeedsFit(false);
     setTransform(next);
@@ -400,14 +443,19 @@ export function PageWorkspace({
    * list of what Val found on the page, so without that list there is one view
    * and a control with a single option.
    */
-  const viewToggle = page ? (
-    <ViewToggle
-      view={view}
-      onChange={onViewChange}
-      fieldCount={Object.keys(page.fields).length}
-      animate={!reducedMotion}
-    />
-  ) : null;
+  const reportedPaths = canvasPaths ?? [];
+  const fieldCount = page
+    ? Object.keys(page.fields).length
+    : reportedPaths.length;
+  const viewToggle =
+    fieldCount > 0 ? (
+      <ViewToggle
+        view={view}
+        onChange={onViewChange}
+        fieldCount={fieldCount}
+        animate={!reducedMotion}
+      />
+    ) : null;
 
   /**
    * Whether the row above the column is there to clear the floating top bar.
@@ -445,6 +493,16 @@ export function PageWorkspace({
     </div>
   );
 
+  const pathsColumn = !page && reportedPaths.length > 0 && (
+    <div style={railPadding} className="h-full pb-14">
+      <CanvasPathList
+        paths={reportedPaths}
+        onSelect={onSelectCanvasPath}
+        isDevMode={isDevMode}
+      />
+    </div>
+  );
+
   const fieldsColumn = page && (
     <div style={railPadding} className="h-full pb-14">
       <FieldsPanel
@@ -475,8 +533,14 @@ export function PageWorkspace({
         </div>
       )}
       <div className="min-h-0 flex-1">
-        {view === "fields" && open && fieldsColumn
-          ? fieldsColumn
+        {/*
+         * The fields view has two forms. Storybook's demo page carries the
+         * values, so it gets the designed panel; a real page can only report
+         * which fields are on it, so it gets the list of those. Either way the
+         * switch above only exists when one of them has something in it.
+         */}
+        {view === "fields" && open && (fieldsColumn || pathsColumn)
+          ? fieldsColumn || pathsColumn
           : moduleColumn}
       </div>
     </div>
@@ -505,6 +569,9 @@ export function PageWorkspace({
             device,
             width: pageWidth,
             height: CANVAS_DEVICE_HEIGHTS[device],
+            reloadKey,
+            isPicking,
+            onRequestReload: reload,
           }) ??
             (page && (
               <CanvasPage
@@ -544,6 +611,9 @@ export function PageWorkspace({
           setTransform((t) => ({ ...t, scale: clampScale(t.scale / 1.2) }));
         }}
         onFit={() => setNeedsFit(true)}
+        // Only where reloading means something. The demo page renders from
+        // data that is already live, so it has nothing to fetch again.
+        onReload={renderCanvas && reload}
       />
     </div>
   );

@@ -1,7 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { SourcePath } from "@valbuild/core";
+import { ValCanvasElement } from "@valbuild/shared/internal";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
+import { CanvasFrame } from "./canvas/CanvasFrame";
 import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellValidationError } from "./types";
@@ -134,39 +136,97 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       : null;
 
   /**
+   * What the page says is on it.
+   *
+   * Held here rather than in the frame because it is what makes the canvas part
+   * of the editor: a click on the page has to become a navigation, and the
+   * column beside it has to list the same things.
+   */
+  const [canvasElements, setCanvasElements] = useState<ValCanvasElement[]>([]);
+
+  /**
+   * The reported paths, deduplicated and in the order they appear on the page.
+   *
+   * Reading order, because that is the order someone works down the page in.
+   * Deduplicated because one path can be on several elements — a value used
+   * twice is tagged twice — and the same field twice in a list is noise.
+   */
+  const canvasPaths = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: SourcePath[] = [];
+    for (const element of canvasElements) {
+      for (const path of element.paths) {
+        if (seen.has(path)) continue;
+        seen.add(path);
+        ordered.push(path);
+      }
+    }
+    return ordered;
+  }, [canvasElements]);
+
+  /** Open one field, from the page or from the list beside it. */
+  const openPath = useCallback(
+    (path: SourcePath) => {
+      navigation.navigate(path, { scrollToPath: path });
+    },
+    [navigation],
+  );
+
+  /**
+   * A pick on the page opens the field it belongs to.
+   *
+   * An element can carry more than one path — a heading built from two fields
+   * is one element with two paths — and nothing says which was meant, so the
+   * first is opened. The overlay makes the same choice.
+   */
+  const onPick = useCallback(
+    (paths: SourcePath[]) => {
+      const first = paths[0];
+      if (first !== undefined) openPath(first);
+    },
+    [openPath],
+  );
+
+  /**
    * The running site, in a frame.
    *
    * The site itself rather than a reconstruction of it: the studio is served
    * from the same origin as the app, so the frame renders the real route with
    * the real components — which is the only version of the page worth looking
-   * at. It also means the frame inherits Val's own cookie, so it renders in
-   * whatever mode the app is already in rather than needing a mode of its own.
-   *
-   * `key` on the URL because a frame does not navigate when its `src` changes
-   * in place as reliably as it remounts, and a canvas showing the previous
-   * page is worse than one showing nothing.
-   *
-   * The frame is not yet wired to the editor: selecting a field does not
-   * highlight it here, and editing does not update it live. Both need the page
-   * to report what is on it, which is the next piece of work rather than
-   * something to fake in the meantime.
+   * at. `CanvasFrame` owns the rest: preview mode, and the message protocol
+   * that lets a page in a different document be part of the editor.
    */
   const renderCanvas = useMemo(() => {
     if (canvasUrl === null) return undefined;
-    return ({ width, height }: { width: number; height: number }) => (
-      <iframe
-        key={canvasUrl}
-        src={canvasUrl}
-        title={`Preview of ${canvasUrl}`}
-        style={{ width, height, border: "none", background: "white" }}
-        // The frame is our own app on our own origin, so it needs no
-        // sandboxing beyond what the browser already applies; naming the
-        // referrer policy keeps it from leaking the studio's URL outward if
-        // the page ever follows a link off-site.
-        referrerPolicy="same-origin"
+    return ({
+      width,
+      height,
+      reloadKey,
+      isPicking,
+      onRequestReload,
+    }: {
+      width: number;
+      height: number;
+      reloadKey: number;
+      isPicking: boolean;
+      onRequestReload: () => void;
+    }) => (
+      <CanvasFrame
+        url={canvasUrl}
+        width={width}
+        height={height}
+        reloadKey={reloadKey}
+        isPicking={isPicking}
+        // The field being edited is the one the route points at, so the
+        // outline on the page follows the editor without a second source of
+        // truth for "what is selected".
+        highlightedPath={navigation.currentSourcePath || null}
+        onElements={setCanvasElements}
+        onPick={onPick}
+        onRequestReload={onRequestReload}
       />
     );
-  }, [canvasUrl]);
+  }, [canvasUrl, navigation.currentSourcePath, onPick]);
 
   const onSelectValidationError = useCallback(
     (error: ShellValidationError) => {
@@ -235,6 +295,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       isLoading={state.status === "loading"}
       loadError={state.status === "error" ? state.error : undefined}
       renderCanvas={renderCanvas}
+      canvasPaths={canvasPaths}
+      onSelectCanvasPath={openPath}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onSignOut={onSignOut}
