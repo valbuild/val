@@ -1,0 +1,18 @@
+{
+  "//": "Own config, because the root one is for editors: it has `types: []` and no `include`, so it neither resolves @playwright/test's globals nor knows which files are e2e. Run by the `typecheck:e2e` script and by CI's Typecheck job — `pnpm run -r typecheck` is per-workspace-package and e2e is not one, so without this nothing type-checks these files at all.",
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}
