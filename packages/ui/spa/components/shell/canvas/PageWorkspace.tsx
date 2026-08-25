@@ -401,9 +401,10 @@ export function PageWorkspace({
               onChange={setPane}
               animate={!reducedMotion}
             />
-            {/* The view switch is about what the canvas shows, so it only
-                appears while the canvas is the pane you are on. */}
-            {pane === "canvas" && <span className="ml-auto">{viewToggle}</span>}
+            {/* The view switch picks what the editor pane holds, so it
+                appears on that pane — the same place it sits on desktop,
+                at the top of the column it changes. */}
+            {pane === "editor" && <span className="ml-auto">{viewToggle}</span>}
           </div>
         )}
       </div>
