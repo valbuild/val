@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronUp,
@@ -50,7 +50,17 @@ export type DeploymentsStatusProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDismiss: (commitSha: string) => void;
+  /**
+   * Close the list on its own once every publish is live.
+   *
+   * Only set for a list that opened itself: one you opened deliberately
+   * should not disappear while you are looking at it.
+   */
+  autoClose?: boolean;
 };
+
+/** How long a finished publish stays on screen before the list closes. */
+export const DEPLOYMENTS_AUTO_CLOSE_MS = 5000;
 
 /**
  * The status bar's deploy item: a summary you can click to open the list.
@@ -63,9 +73,27 @@ export function DeploymentsStatus({
   open,
   onOpenChange,
   onDismiss,
+  autoClose = false,
 }: DeploymentsStatusProps) {
   const summary = summarizeDeployments(deployments);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isReading, setIsReading] = useState(false);
+
+  // The list has said what it opened to say once everything is live, so it
+  // gets out of the way — unless the pointer is on it, which is the one
+  // signal we have that someone is still reading.
+  const shouldAutoClose =
+    open && autoClose && !isReading && summary.state === "live";
+  useEffect(() => {
+    if (!shouldAutoClose) {
+      return;
+    }
+    const timeout = setTimeout(
+      () => onOpenChange(false),
+      DEPLOYMENTS_AUTO_CLOSE_MS,
+    );
+    return () => clearTimeout(timeout);
+  }, [shouldAutoClose, onOpenChange]);
 
   // Clicking anywhere else closes the list. Publishing is not modal, so this
   // must not trap the pointer the way a dialog would.
@@ -133,6 +161,7 @@ export function DeploymentsStatus({
           deployments={deployments}
           onDismiss={onDismiss}
           onClose={() => onOpenChange(false)}
+          onReadingChange={setIsReading}
         />
       )}
     </div>
@@ -177,15 +206,20 @@ export function DeploymentsList({
   deployments,
   onDismiss,
   onClose,
+  onReadingChange,
 }: {
   deployments: ShellDeployment[];
   onDismiss: (commitSha: string) => void;
   onClose: () => void;
+  /** True while the pointer is on the list, which holds off auto-close. */
+  onReadingChange?: (isReading: boolean) => void;
 }) {
   return (
     <div
       role="dialog"
       aria-label="Deployments"
+      onPointerEnter={() => onReadingChange?.(true)}
+      onPointerLeave={() => onReadingChange?.(false)}
       className={cn(
         "absolute bottom-full right-0 mb-2 w-80 rounded-lg overflow-hidden",
         "bg-bg-float border border-border-float shadow-xl",

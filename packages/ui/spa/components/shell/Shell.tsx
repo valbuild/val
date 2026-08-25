@@ -94,6 +94,13 @@ export function Shell({
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
+  // Whether the list on screen is one that opened itself. Only that one closes
+  // itself again; a list you opened stays until you close it.
+  const [deploymentsAutoOpened, setDeploymentsAutoOpened] = useState(false);
+  const setDeploymentsOpenByUser = useCallback((open: boolean) => {
+    setDeploymentsOpen(open);
+    setDeploymentsAutoOpened(false);
+  }, []);
   const [dismissedDeployments, setDismissedDeployments] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -125,6 +132,7 @@ export function Shell({
     }
     if (data.deployments.some((d) => !seen.has(d.commitSha))) {
       setDeploymentsOpen(true);
+      setDeploymentsAutoOpened(true);
     }
   }, [data.deployments]);
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
@@ -240,7 +248,8 @@ export function Shell({
           branch={data.branch}
           deployments={deployments}
           deploymentsOpen={deploymentsOpen}
-          onDeploymentsOpenChange={setDeploymentsOpen}
+          onDeploymentsOpenChange={setDeploymentsOpenByUser}
+          deploymentsAutoOpened={deploymentsAutoOpened}
           onDismissDeployment={dismissDeployment}
         />
       )}

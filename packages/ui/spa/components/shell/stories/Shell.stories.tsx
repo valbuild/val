@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
 import { PublishState } from "../TopBar";
 import { SaveState } from "../StatusBar";
@@ -88,6 +88,11 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Open the deployments list on mount, as a publish does",
     },
+    simulatePublish: {
+      control: "boolean",
+      description:
+        "Run a publish: a new commit appears after a moment, builds, goes live, and the list closes itself",
+    },
   },
 };
 export default meta;
@@ -105,6 +110,7 @@ type HarnessProps = {
   withValidationErrors: boolean;
   deployments: DeploymentsFixture;
   deploymentsOpen: boolean;
+  simulatePublish: boolean;
 };
 
 type DeploymentsFixture =
@@ -158,13 +164,19 @@ function ShellHarness({
   withValidationErrors,
   deployments,
   deploymentsOpen,
+  simulatePublish,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   const base = empty ? emptyShellData : mockShellData;
   const withErrors = withValidationErrors
     ? base
     : { ...base, validationErrors: [] };
-  const data = { ...withErrors, deployments: deploymentsFor(deployments) };
+  const published = useSimulatedPublish(simulatePublish);
+  const feed = deploymentsFor(deployments);
+  const data = {
+    ...withErrors,
+    deployments: published && feed ? [published, ...feed] : feed,
+  };
   return (
     <Shell
       key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}`}
@@ -184,6 +196,42 @@ function ShellHarness({
   );
 }
 
+/**
+ * A publish, as the shell sees one: a commit it has not seen before appears,
+ * builds for a few seconds, then goes live.
+ *
+ * This is the only way to see the list open by itself and close itself again
+ * — mounting with it open is a different thing, and deliberately does not
+ * auto-close.
+ */
+function useSimulatedPublish(enabled: boolean): ShellDeployment | null {
+  const [deployment, setDeployment] = useState<ShellDeployment | null>(null);
+  useEffect(() => {
+    if (!enabled) {
+      setDeployment(null);
+      return;
+    }
+    const base: ShellDeployment = {
+      commitSha: "f00dcafe12345678",
+      state: "pending",
+      message: "Rewrite the pricing page",
+      author: "Fredrik Ekholdt",
+      timestamp: "just now",
+      isLive: false,
+    };
+    const started = setTimeout(() => setDeployment(base), 1500);
+    const finished = setTimeout(
+      () => setDeployment({ ...base, state: "success", isLive: true }),
+      5500,
+    );
+    return () => {
+      clearTimeout(started);
+      clearTimeout(finished);
+    };
+  }, [enabled]);
+  return deployment;
+}
+
 type Story = StoryObj<typeof ShellHarness>;
 
 /** Nothing open: the resting state, and where the empty editor shows. */
@@ -201,6 +249,7 @@ export const Default: Story = {
     withValidationErrors: false,
     deployments: "live",
     deploymentsOpen: false,
+    simulatePublish: false,
   },
 };
 
@@ -372,5 +421,19 @@ export const DeploymentsOnMobile: Story = {
     ...Default.args,
     openPanel: "settings",
     deployments: "mixed",
+  },
+};
+
+/**
+ * The whole round trip, live: wait a moment and a publish appears on its own,
+ * builds, goes live, and the list gets out of the way. Hovering the list holds
+ * it open while you read.
+ */
+export const PublishRoundTrip: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    deployments: "live",
+    simulatePublish: true,
   },
 };
