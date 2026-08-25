@@ -290,3 +290,83 @@ test.describe("a media gallery upload", () => {
     await expect.poll(() => chainLength(page)).toBe(0);
   });
 });
+
+/**
+ * Reordering an array by dragging, and what has to be true afterwards.
+ *
+ * The bug this pins: one drag on `/content/handbook.val.ts` left the list
+ * permanently disabled behind a spinner. `ArrayFields` gated `disabled` on
+ * `clientSideOnly`, which was computed inside `useShallowSourceAtPath`'s memo —
+ * whose inputs are all source-shaped — so saving the patch, which moves the chain
+ * and not source, never refreshed it. The row's drag handle is a
+ * `<button disabled>`, so a single reorder disabled reordering, and it stayed
+ * that way until some unrelated edit happened to move source at that path.
+ *
+ * Only a browser can see this. The patch is correct, source is correct, and the
+ * order ends up right — what is broken is the control, one interaction later. So
+ * the assertion that matters is the SECOND drag: a suite that reordered once and
+ * checked the result passed throughout.
+ */
+test.describe("reordering an array by dragging", () => {
+  /** dnd-kit's mouse sensor needs movement, in steps a collision check can see. */
+  async function dragOnto(page: Page, from: Locator, to: Locator) {
+    const a = await from.boundingBox();
+    const b = await to.boundingBox();
+    if (!a || !b) throw new Error("a drag handle had no box");
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    for (let step = 1; step <= 8; step++) {
+      await page.mouse.move(
+        a.x + a.width / 2,
+        a.y + a.height / 2 + (b.y - a.y) * (step / 8),
+        { steps: 3 },
+      );
+    }
+    await page.mouse.up();
+  }
+
+  const titles = (page: Page) =>
+    page.evaluate(() => {
+      const peek = (
+        window as unknown as {
+          __VAL_STORES__: {
+            system: {
+              sourceStore: {
+                peek(p: string): { status: string; data?: unknown };
+              };
+            };
+          };
+        }
+      ).__VAL_STORES__.system.sourceStore.peek("/content/handbook.val.ts");
+      const rows =
+        peek.status === "ready" ? (peek.data as { title: string }[]) : [];
+      return rows.map((row) => row.title);
+    });
+
+  test("stays draggable after a drag", async ({ page }) => {
+    await openStudio(page, "/val/~/content/handbook.val.ts");
+    const studio = page.locator("#val-shadow-root");
+    const grips = studio.locator("button:has(svg.lucide-grip-vertical)");
+    await expect(grips.first()).toBeEnabled();
+    const before = await titles(page);
+    expect(before.length).toBeGreaterThan(2);
+
+    await dragOnto(page, grips.nth(0), grips.nth(1));
+    await expect
+      .poll(() => titles(page))
+      .toEqual([before[1], before[0], ...before.slice(2)]);
+
+    // The handles are still handles. This is the assertion the bug failed: the
+    // reorder above worked, and then the control was gone.
+    await expect(grips.first()).toBeEnabled();
+    await expect(grips.nth(1)).toBeEnabled();
+
+    // And it really is usable, not merely un-disabled: a second drag moves it
+    // back, which nothing but a working handle can do.
+    await dragOnto(page, grips.nth(0), grips.nth(1));
+    await expect.poll(() => titles(page)).toEqual(before);
+
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(0);
+  });
+});

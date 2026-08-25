@@ -17,6 +17,7 @@ import { ValSystemProvider } from "../stores/react/SystemContext";
 import {
   useAddPatch,
   useFieldCreatorId,
+  useHasUnsavedFrom,
   useLoadingStatus,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -483,6 +484,246 @@ describe("useValidationErrors", () => {
       /should typically be processed by Val internally/,
     );
     expect(shown).not.toMatch(/version mismatch/);
+    system.dispose();
+  });
+});
+
+/**
+ * `clientSideOnly` — "do I have an edit the server has not acknowledged" — has to
+ * track the PATCH CHAIN, not source.
+ *
+ * The two move independently: saving a patch changes its durability, not its
+ * value, so nothing emits `source:change`. This was computed inside
+ * `useShallowSourceAtPath`'s memo, whose inputs are all source-shaped, so it kept
+ * whatever answer it had at the moment of the edit until something unrelated moved
+ * source at that path.
+ *
+ * What that cost, in the real Studio: `ArrayFields` fed it to `disabled`, and an
+ * array row's drag handle is a `<button disabled>`. So one drag on
+ * `/content/handbook.val.ts` disabled dragging and left a spinner up — measured as
+ * still stuck 8 seconds later, and cleared instantly by an unrelated edit, which
+ * is the signature of a stale memo rather than of work still in flight.
+ */
+describe("clientSideOnly", () => {
+  /** The most recent value, without `Array.prototype.at` (not in this lib target). */
+  const last = (values: (boolean | null)[]) => values[values.length - 1];
+
+  function Watcher({
+    path,
+    creatorId,
+    seen,
+  }: {
+    path: string;
+    creatorId: string;
+    seen: { current: (boolean | null)[] };
+  }) {
+    const source = useShallowSourceAtPath(
+      path as SourcePath,
+      "string",
+      creatorId,
+    );
+    seen.current.push(
+      source.status === "success" ? (source.clientSideOnly ?? false) : null,
+    );
+    return <span data-testid="watch">{String(source.status)}</span>;
+  }
+
+  it("is not frozen at the answer it had when the edit was made", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const seen: { current: (boolean | null)[] } = { current: [] };
+    const creatorId = "the-field-instance";
+    // A FRESH element each time: `rerender` with the same element reference lets
+    // React skip the subtree, so the probe would never run again.
+    const view = () => (
+      <Harness system={system}>
+        <Watcher
+          path='/page.val.ts?p="title"'
+          creatorId={creatorId}
+          seen={seen}
+        />
+      </Harness>
+    );
+
+    const { rerender } = render(view());
+    expect(last(seen.current)).toBe(false);
+
+    await act(async () => {
+      await system.patchStore.createPatch(
+        "/page.val.ts" as ModuleFilePath,
+        [{ op: "replace", path: ["title"], value: "mine" }],
+        undefined,
+        creatorId,
+      );
+    });
+    // Rerendered to observe it at all: this field is not woken by its own edit,
+    // so without a render from elsewhere it never shows the change. That is the
+    // suppression the test below guards, and it is why this value has to be
+    // correct on demand rather than pushed.
+    await act(async () => {
+      rerender(view());
+    });
+    expect(last(seen.current)).toBe(true);
+
+    // The acknowledgement, and nothing else: no patch and no source change,
+    // which is the whole difficulty — the chain moved and source did not.
+    await act(async () => {
+      const pending = system.patchStore.pendingPatchIds();
+      expect(pending).toHaveLength(1);
+      system.patchStore.markSaved(pending);
+    });
+
+    // A render this field would have had anyway. It is not woken by the save —
+    // that is per-instance suppression and a text field depends on it — so the
+    // claim is that WHEN it renders, the answer is current. Before the fix this
+    // stayed `true`: the value was computed inside a memo keyed on the source
+    // read, so nothing short of a source change at this path could refresh it.
+    await act(async () => {
+      rerender(view());
+    });
+
+    expect(last(seen.current)).toBe(false);
+    system.dispose();
+  });
+
+  it("does not wake the field that made the edit when it is acknowledged", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const seen: { current: (boolean | null)[] } = { current: [] };
+    const creatorId = "the-field-instance";
+
+    render(
+      <Harness system={system}>
+        <Watcher
+          path='/page.val.ts?p="title"'
+          creatorId={creatorId}
+          seen={seen}
+        />
+      </Harness>,
+    );
+    await act(async () => {
+      await system.patchStore.createPatch(
+        "/page.val.ts" as ModuleFilePath,
+        [{ op: "replace", path: ["title"], value: "mine" }],
+        undefined,
+        creatorId,
+      );
+    });
+
+    const rendersBefore = seen.current.length;
+    await act(async () => {
+      system.patchStore.markSaved(system.patchStore.pendingPatchIds());
+    });
+
+    // The other half of the pair above, and the reason this is a plain read
+    // rather than a subscription: a controlled input re-rendered by the
+    // acknowledgement of its own keystroke loses the caret.
+    expect(seen.current.length).toBe(rendersBefore);
+    system.dispose();
+  });
+
+  /**
+   * And it stays false for someone else's edit, so the fix did not turn this into
+   * "is anything unsaved anywhere".
+   */
+  it("ignores an unsaved edit made by another field", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const seen: { current: (boolean | null)[] } = { current: [] };
+
+    render(
+      <Harness system={system}>
+        <Watcher path='/page.val.ts?p="title"' creatorId="mine" seen={seen} />
+      </Harness>,
+    );
+
+    await act(async () => {
+      await system.patchStore.createPatch(
+        "/page.val.ts" as ModuleFilePath,
+        [{ op: "replace", path: ["title"], value: "theirs" }],
+        undefined,
+        "someone-else",
+      );
+    });
+
+    expect(last(seen.current)).toBe(false);
+    system.dispose();
+  });
+});
+
+/**
+ * `useHasUnsavedFrom` — the same fact, subscribed.
+ *
+ * For a consumer with no caret to lose and a visible indicator, where the value
+ * being merely correct-when-rendered is not enough: an array field's "saving"
+ * hint stuck on after the save had landed is what sent me here.
+ */
+describe("useHasUnsavedFrom", () => {
+  function Probe({
+    creatorId,
+    seen,
+  }: {
+    creatorId: string;
+    seen: { current: boolean[] };
+  }) {
+    const unsaved = useHasUnsavedFrom(
+      "/page.val.ts" as ModuleFilePath,
+      creatorId,
+    );
+    seen.current.push(unsaved);
+    return <span data-testid="unsaved">{String(unsaved)}</span>;
+  }
+
+  it("goes false on the acknowledgement, with no source change and no rerender", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const seen: { current: boolean[] } = { current: [] };
+
+    render(
+      <Harness system={system}>
+        <Probe creatorId="mine" seen={seen} />
+      </Harness>,
+    );
+
+    await act(async () => {
+      await system.patchStore.createPatch(
+        "/page.val.ts" as ModuleFilePath,
+        [{ op: "replace", path: ["title"], value: "mine" }],
+        undefined,
+        "mine",
+      );
+    });
+    expect(screen.getByTestId("unsaved").textContent).toBe("true");
+
+    await act(async () => {
+      system.patchStore.markSaved(system.patchStore.pendingPatchIds());
+    });
+
+    expect(screen.getByTestId("unsaved").textContent).toBe("false");
+    system.dispose();
+  });
+
+  /** A patch from anyone else is not this field's business. */
+  it("stays false for another field's unsaved edit", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const seen: { current: boolean[] } = { current: [] };
+
+    render(
+      <Harness system={system}>
+        <Probe creatorId="mine" seen={seen} />
+      </Harness>,
+    );
+    await act(async () => {
+      await system.patchStore.createPatch(
+        "/page.val.ts" as ModuleFilePath,
+        [{ op: "replace", path: ["title"], value: "theirs" }],
+        undefined,
+        "someone-else",
+      );
+    });
+
+    expect(screen.getByTestId("unsaved").textContent).toBe("false");
     system.dispose();
   });
 });

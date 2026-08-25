@@ -238,6 +238,64 @@ function useSourcesVersion(val: ValSystem | null): number {
   );
 }
 
+/**
+ * Does this field instance have an edit the server has not acknowledged?
+ *
+ * Its own hook, and subscribed to `patch:chain` rather than to source, because
+ * the answer moves WITHOUT source moving: saving a patch changes its durability,
+ * not its value, so nothing emits `source:change` and anything memoised beside a
+ * source read keeps the answer it had when the edit was made.
+ *
+ * That is exactly what froze the array field. `clientSideOnly` was computed
+ * inside {@link useShallowSourceAtPath}'s memo, whose deps are the source read —
+ * so one drag set it true and it stayed true until some unrelated change moved
+ * source at that path. `ArrayFields` fed it to `disabled`, and the drag handle is
+ * a `<button disabled>`, so a single reorder disabled reordering.
+ *
+ * `patch:chain` fires for every patch anywhere in the project, which would be a
+ * whole-project subscription in a per-field component if the snapshot were an
+ * object. It is a BOOLEAN: `useSyncExternalStore` compares with `Object.is` and
+ * bails out, so an unrelated patch costs one walk of the pending set and no
+ * re-render. That is the difference from the reads
+ * `perFieldSubscriptions.test.ts` forbids.
+ *
+ * ## NOT for a text input
+ *
+ * This wakes the field that made the edit, because its own answer is what
+ * changed — and that is precisely what per-instance suppression exists to
+ * prevent: a controlled input re-rendered by its own keystroke loses the caret.
+ * `useShallowSourceAtPath` therefore reads the same fact WITHOUT subscribing, so
+ * it is fresh on every render it has anyway and forces none.
+ *
+ * Use this only where there is no caret to lose and a stale indicator would be
+ * visible — an array field's "saving" hint is the case it was written for.
+ */
+export function useHasUnsavedFrom(
+  moduleFilePath: ModuleFilePath,
+  creatorId: string | undefined,
+): boolean {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      val === null || creatorId === undefined
+        ? false
+        : val.system.patchStore.hasUnsavedFrom(moduleFilePath, creatorId),
+    [val, moduleFilePath, creatorId],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
 /** Bumped whenever any module's schema is received or replaced. */
 function useSchemasVersion(val: ValSystem | null): number {
   const subscribe = useCallback(
@@ -1327,6 +1385,27 @@ export function useShallowSourceAtPath<
   const ownId = useId();
   const seen = usePeek(val, path, creatorId ?? ownId);
   useEntryDemand(val, path, seen);
+  /**
+   * Read on every render, and a DEPENDENCY of the memo below — but deliberately
+   * not through a subscription.
+   *
+   * Two requirements pull against each other here. The value has to be fresh:
+   * computing it inside the memo, whose inputs are all source-shaped, meant it
+   * kept whatever answer it had when the edit was made, because saving a patch
+   * moves the chain and not source. And this field must not be WOKEN when it
+   * changes: for the field that made the edit, its own answer is what moved, and
+   * re-rendering a controlled input on its own keystroke loses the caret —
+   * `valFieldHooks.test.tsx` pins exactly zero extra renders for that case.
+   *
+   * A plain read satisfies both. Nothing is forced, and any render this field has
+   * for another reason recomputes the memo with the current answer. A consumer
+   * that needs the value to be live rather than merely correct-when-rendered
+   * subscribes explicitly with {@link useHasUnsavedFrom}.
+   */
+  const clientSideOnly =
+    val !== null &&
+    creatorId !== undefined &&
+    val.system.patchStore.hasUnsavedFrom(moduleFilePath, creatorId);
 
   return useMemo((): ShallowSourceOf<SchemaType> => {
     if (val === null || initializedAt === null || seen === null) {
@@ -1380,8 +1459,7 @@ export function useShallowSourceAtPath<
            * no instance to ask about, and the answer is no — the same as the
            * engine, which returned `false` for a missing creator.
            */
-          creatorId !== undefined &&
-            val.system.patchStore.hasUnsavedFrom(moduleFilePath, creatorId),
+          clientSideOnly,
         );
     }
   }, [
@@ -1393,6 +1471,7 @@ export function useShallowSourceAtPath<
     type,
     sourceOverride,
     creatorId,
+    clientSideOnly,
   ]);
 }
 
