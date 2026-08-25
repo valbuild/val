@@ -5,13 +5,13 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
-  useSyncEngine,
 } from "../ValFieldProvider";
 import {
   RecordRowError,
   RecordRowSkeleton,
   VirtualizedRecordList,
 } from "./VirtualizedRecordList";
+import { useValSystem } from "../../stores/react/SystemContext";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -182,7 +182,7 @@ function RecordCardList({
   validationErrors: Record<SourcePath, ValidationError[]>;
 }) {
   const { navigate } = useNavigation();
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
     moduleFilePath,
@@ -205,7 +205,9 @@ function RecordCardList({
                 label={key}
                 message={loadError}
                 height={96}
-                onRetry={() => syncEngine.retryJsonEntry(moduleFilePath, key)}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
               />
             </div>
           );
@@ -264,7 +266,7 @@ function useJsonEntryRowStates(
   unloadedKeys: ReadonlySet<string>;
   errorByKey: ReadonlyMap<string, string>;
 } {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const moduleSource = useSourceAtPath(moduleFilePath);
   const data = "data" in moduleSource ? moduleSource.data : undefined;
   return useMemo(() => {
@@ -283,17 +285,20 @@ function useJsonEntryRowStates(
       if (!Internal.isJson(value)) {
         continue;
       }
-      const error = syncEngine.getJsonEntryError(moduleFilePath, key);
-      if (error !== null) {
+      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
+      if (error !== undefined) {
         errorByKey.set(key, error);
       } else {
         unloadedKeys.add(key);
       }
     }
     return { unloadedKeys, errorByKey };
-    // The engine sets an entry's error BEFORE it invalidates the source, so the
-    // source change that re-runs this memo already reflects the failure.
-  }, [jsonValues, data, syncEngine, moduleFilePath]);
+    // `SourceStore.loadEntry` records the failure before it settles, and a
+    // failure leaves the marker in place — so the module source this memo
+    // depends on has not changed, and the memo would not re-run on its own.
+    // It does not need to: `peek` reports `entry-failed` for a path inside the
+    // entry, which is what wakes the row, and this map is read on that render.
+  }, [jsonValues, data, val, moduleFilePath]);
 }
 
 function ListRecordRenderComponent({
@@ -307,7 +312,7 @@ function ListRecordRenderComponent({
   jsonValues: boolean;
 }) {
   const { navigate } = useNavigation();
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
     moduleFilePath,
@@ -330,7 +335,9 @@ function ListRecordRenderComponent({
                 label={key}
                 message={loadError}
                 height={72}
-                onRetry={() => syncEngine.retryJsonEntry(moduleFilePath, key)}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
               />
             </div>
           );

@@ -31,7 +31,10 @@ describe("ArraySchema", () => {
         data: {
           layout: "list",
           parent: "array",
-          items: [{ title: "Ada", subtitle: undefined, image: undefined }],
+          // `[index, value]`, matching the record shape: a windowed render (see
+          // RenderScope) carries only the rows that were asked for, so the index
+          // travels with the item rather than being its position.
+          items: [[0, { title: "Ada", subtitle: undefined, image: undefined }]],
         },
       },
     };

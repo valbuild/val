@@ -1,5 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
+import { useGetNavPath, useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
@@ -14,7 +14,6 @@ import {
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
 import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
-import { getNavPathFromAll } from "./getNavPath";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
 import {
@@ -56,8 +55,17 @@ export function Module({
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
   const { navigate } = useNavigation();
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
+  /**
+   * ON DEMAND, not subscribed — see `useGetNavPath`.
+   *
+   * This read `useAllSources()` + `useSchemas()`, which are whole-PROJECT
+   * subscriptions, for data only `onNavigate` below ever looked at. Opening a
+   * `.jsonValues()` record loads its entries one request each, and every one of
+   * those bumped the project's source revision, so this component and its whole
+   * subtree re-rendered once per entry: 348 renders on a 121-entry record,
+   * against 4 once it reads on demand instead.
+   */
+  const getNavPath = useGetNavPath();
   const validationErrors = useValidationErrors(path);
   const pendingPatchesRes = usePendingPatches(path);
   const hasPendingPatches = pendingPatchesRes
@@ -78,21 +86,18 @@ export function Module({
   const portalContainer = useValPortal();
   const onNavigate = useCallback(
     (path: SourcePath) => {
-      if ("data" in schemasRes) {
-        const schemas = schemasRes.data;
-        const navPath = getNavPathFromAll(path, sources, schemas);
-        if (navPath) {
-          navigate(navPath);
-        } else {
-          navigate(path);
-          console.error(`Error navigating to path: ${path} - no schemas found`);
-        }
+      const navPath = getNavPath(path);
+      if (navPath) {
+        navigate(navPath);
       } else {
-        console.warn("Schemas not loaded yet");
+        // Both "schemas are not in yet" and "no schema at this path" land here.
+        // Navigating to the raw path is the same fallback as before; it is the
+        // caller's own click, so refusing to move is worse than moving
+        // imprecisely.
         navigate(path);
       }
     },
-    [schemasRes, sources, navigate],
+    [getNavPath, navigate],
   );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {

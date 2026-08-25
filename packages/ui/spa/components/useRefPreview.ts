@@ -64,8 +64,11 @@ export function resolveRefPreview(
     } catch {
       index = Number(lastPart);
     }
-    if (!Number.isNaN(index) && arrayRender.items[index]) {
-      return arrayRender.items[index];
+    // By index, not by position: a windowed render carries only the items that
+    // were asked for. See ListArrayRender.
+    const item = arrayRender.items.find(([itemIndex]) => itemIndex === index);
+    if (!Number.isNaN(index) && item) {
+      return item[1];
     }
   } else if (
     parentSchema.type === "record" &&

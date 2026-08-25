@@ -59,6 +59,17 @@ module.exports = defineConfig([
     },
   },
   globalIgnores([
+    /**
+     * Git worktrees checked out inside the repo.
+     *
+     * The fourth place that has to know, after `.gitignore`, `.prettierignore`
+     * and `jest.config.js`: a worktree under `.claude/worktrees/` is a complete
+     * second copy of the repo, so `eslint .` lints someone else's branch —
+     * including its built `examples/next/.next` output, which the
+     * `examples/next*` pattern below does not match at that depth. The result is
+     * 182 errors in files that are not yours.
+     */
+    ".claude/worktrees/",
     "examples/next*",
     "**/trials",
     "**/dist",

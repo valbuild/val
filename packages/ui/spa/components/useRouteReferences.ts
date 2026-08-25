@@ -46,5 +46,6 @@ export function useEagerRouteReferences(
     return [];
   }, [loadingStatus, allSources, schemas, routeKey]);
 
-  return withReferences(scan, references);
+  // Memoised for the same reason as `useKeysOf`.
+  return useMemo(() => withReferences(scan, references), [scan, references]);
 }

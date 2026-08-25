@@ -53,5 +53,10 @@ export function useKeysOf(
     parentPath,
     keyValue,
   ]);
-  return withReferences(scan, referencingSourcePaths);
+  // Memoised: this flows into components that put it in effect dependencies,
+  // so a fresh object per render is a render loop. See `useJsonValuesLoad`.
+  return useMemo(
+    () => withReferences(scan, referencingSourcePaths),
+    [scan, referencingSourcePaths],
+  );
 }

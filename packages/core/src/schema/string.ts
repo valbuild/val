@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { CodeLanguage, ReifiedRender } from "../render";
+import { CodeLanguage, ReifiedRender, RenderScope } from "../render";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -16,6 +16,8 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
+  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
+  render?: true;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -288,6 +290,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
+      render: this.renderInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
@@ -329,6 +332,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    // Accepted and unused: a string's render is a static layout hint
+    // (`{as:"textarea"}` / `{as:"code",language}`) with no closure behind it, so
+    // there is nothing a scope could prune. Declared so the signature is uniform
+    // across every schema rather than something a reader has to check.
+    _scope?: RenderScope,
   ): ReifiedRender {
     if (this.renderInput) {
       if (this.renderInput.as === "code") {

@@ -14,4 +14,8 @@ export default modules(config, [
   { def: () => import("./content/kb.val") },
   { def: () => import("./content/tags.val") },
   { def: () => import("./content/featuredContent.val") },
+  // A handbook: chapters of sections, with a `select` at BOTH array levels —
+  // the shape the store benchmark measures against, in an app that really builds
+  // and really validates. Small on purpose; see scripts/handbook-fixture.mjs.
+  { def: () => import("./content/handbook.val") },
 ]);
