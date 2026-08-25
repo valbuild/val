@@ -17,3 +17,5 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+# Screenshots from e2e/screens.spec.ts: artifacts of a run, not a fixture.
+screens/
