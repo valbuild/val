@@ -628,7 +628,14 @@ export class SourceStore {
       // N readers of one entry cause ONE fetch.
       this.activity.work("source:share-json-entry-load", moduleFilePath);
       await inFlight;
-      return { status: "ok" };
+      // The shared fetch's outcome, not an assumed success. Reporting `ok` for a
+      // load that failed sent the caller on to resolve a path whose marker is
+      // still there, so the real reason was replaced by "was loaded but its
+      // content is still missing".
+      const shared = this.entryFailures.get(cacheKey);
+      return shared === undefined
+        ? { status: "ok" }
+        : { status: "error", message: shared };
     }
     let failure: string | undefined;
     // Cleared before the attempt, so a retry is not reported as failed while it
@@ -1380,27 +1387,42 @@ export class SourceStore {
     for (const path of candidates) {
       const byField = this.listenerTargets.get(path);
       if (byField === undefined) continue;
-      for (const group of wokenBy) {
-        if (!touchesPath(group.paths, path)) continue;
-        // Per matched path, not per registered path: only paths that are
-        // actually being woken pay for the split.
-        const [wokenModule] = Internal.splitModuleFilePathAndModulePath(path);
-        const revision = this.revisionOf(wokenModule);
-        for (const [fieldId, entry] of byField) {
-          // The one listener that caused this stays asleep. Everyone else on the
-          // path is woken — which is what makes a studio field and an inline
-          // overlay on one path both update, while the instance being typed into
-          // is not interrupted by its own keystroke.
-          if (fieldId === group.creatorFieldId) continue;
-          this.activity.work("source:wake-listener", path);
-          const detail: FieldEvent = {
-            type: `${group.origin}-patch`,
-            path,
-            revision,
-          };
-          entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
-        }
-        break;
+      const touching = wokenBy.filter((group) =>
+        touchesPath(group.paths, path),
+      );
+      if (touching.length === 0) continue;
+      // Per matched path, not per registered path: only paths that are actually
+      // being woken pay for the split.
+      const [wokenModule] = Internal.splitModuleFilePathAndModulePath(path);
+      const revision = this.revisionOf(wokenModule);
+      for (const [fieldId, entry] of byField) {
+        /**
+         * The first group this field did NOT cause.
+         *
+         * Defensive, and honestly so: this used to take the first group that
+         * touched the path and skip the field if that group was its own, which
+         * is wrong in principle — a second group from a different creator should
+         * still wake it. No test fails without this, because the only place that
+         * hands `applyEntries` a mixed-creator batch is `receive`'s rebase, and
+         * `receive` follows it with a blanket wake of every listener in the
+         * module. So the old rule was masked rather than harmless. Asking each
+         * listener whether ANY touching group is somebody else's costs the same
+         * and stops depending on that coincidence.
+         */
+        const wokenByGroup = touching.find(
+          (group) => group.creatorFieldId !== fieldId,
+        );
+        // Everyone except the instance that caused it — which is what makes a
+        // studio field and an inline overlay on one path both update, while the
+        // instance being typed into is not interrupted by its own keystroke.
+        if (wokenByGroup === undefined) continue;
+        this.activity.work("source:wake-listener", path);
+        const detail: FieldEvent = {
+          type: `${wokenByGroup.origin}-patch`,
+          path,
+          revision,
+        };
+        entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
       }
     }
   }

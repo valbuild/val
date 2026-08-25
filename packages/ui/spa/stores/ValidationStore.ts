@@ -126,7 +126,14 @@ export class ValidationStore {
     };
   }
 
+  /**
+   * Bumped by every invalidation, so a validation in flight can tell whether the
+   * world moved underneath it. See {@link run}.
+   */
+  private generation = 0;
+
   invalidate(modules: ModuleFilePath[]): void {
+    this.generation++;
     if (modules.length === 0) return;
     // Marking stale is unconditional; ANNOUNCING it is not. "Your errors are
     // now stale" is only news for a module whose errors someone actually has —
@@ -168,6 +175,9 @@ export class ValidationStore {
   }
 
   private async run(moduleFilePath: ModuleFilePath): Promise<ValidationResult> {
+    // Read BEFORE the awaits below, and compared after. See the note at the
+    // bottom of this method.
+    const startedAt = this.generation;
     const serializedSchema = this.schemaStore.get(moduleFilePath);
     const source = this.sourceStore.moduleSource(moduleFilePath);
     if (serializedSchema === undefined || source === undefined) {
@@ -226,7 +236,20 @@ export class ValidationStore {
       jsonEntriesLoaded: !this.sourceStore.hasUnloadedEntries(moduleFilePath),
     };
     this.results.set(moduleFilePath, result);
-    this.stale.delete(moduleFilePath);
+    /**
+     * Only if nothing invalidated while this was running.
+     *
+     * Both halves are awaited — the schema half across a worker, the custom half
+     * across the host seam — so an edit can land mid-flight. Clearing `stale`
+     * unconditionally cached a result computed from the PRE-edit source and
+     * marked it fresh, and `peek` then returned it forever: the reader's effect
+     * only re-asks on `stale`, so nothing would ever ask again. The result is
+     * still stored — showing the previous errors greyed is better than showing
+     * none — but it stays marked stale so the next read recomputes.
+     */
+    if (this.generation === startedAt) {
+      this.stale.delete(moduleFilePath);
+    }
     this.events.emit({
       type: "validation:result",
       moduleFilePath,

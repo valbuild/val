@@ -161,6 +161,17 @@ export type System = HostRealm &
      * that "everything a publish gate needs" is reachable from one place.
      */
     patchErrors(): Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>;
+    /**
+     * Tell the system whether a publish leaves the patches on the server.
+     *
+     * A setter, and not only a constructor option, because the answer comes from
+     * `/stat` — which lands after the Studio has mounted and taken the project
+     * in. Rebuilding the system when it arrives (what `ValProvider` used to do,
+     * by memoising on `mode`) silently discards the first one: its listeners are
+     * attached at construction and never detached, its `PatchSync` retry loop
+     * keeps running, and any patch created in that window goes with it.
+     */
+    setMode(mode: "fs" | "http"): void;
     dispose(): void;
   };
 
@@ -340,6 +351,10 @@ export function createSystem(options: SystemOptions): System {
     options.saveBackoffMs,
     options.saveSleep,
   );
+  // The parent of the next write, which the file upload needs and only
+  // `PatchSync` knows. Wired here rather than passed to the constructor because
+  // the sync is built after the store it drives.
+  patchStore.setParentRefSource(() => patchSync.currentParentRef());
   const host = new HostStore(schemaStore, sourceStore, activity);
   const hostBridge = options.hostBridge ?? host;
   const renderStore = new RenderStore(
@@ -375,6 +390,21 @@ export function createSystem(options: SystemOptions): System {
   const patchSetChain = new PatchSetChain();
   /** One publish at a time. See `publish`. */
   let publishing = false;
+  /**
+   * `fs` by default — dev, and the mode a wrong guess is cheapest in. Replaced
+   * by {@link System.setMode} once `/stat` says which one this really is.
+   */
+  let mode: "fs" | "http" = options.mode ?? "fs";
+  /**
+   * One grouping build at a time.
+   *
+   * `getPatchSets` plans against `PatchSetChain`, awaits the worker, and only
+   * then records that the plan landed — so two callers arriving together both
+   * planned the same `append` and both applied it, inserting every patch in the
+   * suffix twice. Sharing the in-flight call gives concurrent readers one build
+   * and one answer, which is what they wanted anyway.
+   */
+  let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
@@ -586,20 +616,29 @@ export function createSystem(options: SystemOptions): System {
       return referenceStore.at(path);
     },
     async getPatchSets() {
-      // `allRecords()`, so the chain compared against is the patches whose OPS
-      // have arrived — not `ordered`, which can name an announced patch this
-      // client has never seen the contents of. Using `ordered` would ask for a
-      // rebuild carrying a record that does not exist yet; using this means a
-      // foreign patch announced mid-chain reads as `current` until its data
-      // lands, and as a rebuild the moment it does.
-      const chain = patchStore.allRecords();
-      const plan = patchSetChain.plan(chain.map((record) => record.patchId));
-      const request = patchSetRequest(plan, chain);
-      const sets = await patchSetStore.getPatchSets(request);
-      // AFTER the call, not before: a worker that threw or a message that was
-      // never answered must not leave the host believing the grouping moved.
-      patchSetChain.covers(plan);
-      return sets;
+      if (patchSetsInFlight !== null) {
+        return patchSetsInFlight;
+      }
+      const run = (async () => {
+        // `allRecords()`, so the chain compared against is the patches whose OPS
+        // have arrived — not `ordered`, which can name an announced patch this
+        // client has never seen the contents of. Using `ordered` would ask for a
+        // rebuild carrying a record that does not exist yet; using this means a
+        // foreign patch announced mid-chain reads as `current` until its data
+        // lands, and as a rebuild the moment it does.
+        const chain = patchStore.allRecords();
+        const plan = patchSetChain.plan(chain.map((record) => record.patchId));
+        const request = patchSetRequest(plan, chain);
+        const sets = await patchSetStore.getPatchSets(request);
+        // AFTER the call, not before: a worker that threw or a message that was
+        // never answered must not leave the host believing the grouping moved.
+        patchSetChain.covers(plan);
+        return sets;
+      })().finally(() => {
+        patchSetsInFlight = null;
+      });
+      patchSetsInFlight = run;
+      return run;
     },
     async search(query, limit, offset) {
       // Gather ONLY what the index owes a pass for. On a first query that is
@@ -718,7 +757,7 @@ export function createSystem(options: SystemOptions): System {
           };
         }
 
-        if ((options.mode ?? "fs") === "fs") {
+        if (mode === "fs") {
           // ORDER MATTERS, and this is the whole reason both methods exist.
           // Promote first: the patched value becomes the base, so when the chain
           // goes the displayed value does not move. Reversed, every published
@@ -754,6 +793,9 @@ export function createSystem(options: SystemOptions): System {
     },
     patchErrors() {
       return patchStore.publishErrors();
+    },
+    setMode(next) {
+      mode = next;
     },
     dispose() {
       for (const off of unsubscribe) off();

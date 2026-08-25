@@ -13,6 +13,7 @@ import type { StatStore } from "./StatStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
 import { splitPatchFileOps } from "../hooks/splitPatchFileOps";
+import type { ParentRef } from "@valbuild/shared/internal";
 
 /**
  * Fetches the ops for patch ids the system knows about but has no data for.
@@ -44,6 +45,17 @@ export type CreatePatchId = () => PatchId;
  */
 export type UploadFile = (request: {
   patchId: PatchId;
+  /**
+   * The parent the patch carrying these bytes will name.
+   *
+   * Load-bearing, not metadata: `ValOpsFS` writes a patch's files into the
+   * directory named by its parentRef and reads them back out of the directory
+   * the PATCH ended up in. If the two disagree the bytes are on disk and the
+   * image 404s. `null` when nothing has established a parent yet, which the
+   * server reads as the head. (`ValOpsHttp` ignores it — its files are keyed by
+   * patch id — so this matters in `fs` mode.)
+   */
+  parentRef: ParentRef | null;
   filePath: string;
   /** A data URL, or `null` to delete. */
   data: string | null;
@@ -152,6 +164,20 @@ export class PatchStore {
    * current", and that needs one `===`, not a walk.
    */
   private version = 0;
+
+  /**
+   * Where the parent of the next write comes from.
+   *
+   * Set by `createSystem`, because `PatchSync` owns the answer and is built
+   * after this store. Only the file upload needs it, and it needs it badly —
+   * see {@link UploadFile}.
+   */
+  private parentRefSource: () => ParentRef | null = () => null;
+
+  /** See {@link parentRefSource}. */
+  setParentRefSource(source: () => ParentRef | null): void {
+    this.parentRefSource = source;
+  }
 
   constructor(
     private readonly fetchPatches: FetchPatches,
@@ -324,8 +350,21 @@ export class PatchStore {
      * the life of one system, and the server records it per patch.
      */
     sessionId?: string,
+    /**
+     * What KIND of binary the file ops carry.
+     *
+     * From the caller, because a `file` op does not say: it has a path, bytes
+     * and a `remote` flag, and nothing distinguishing an image from a PDF. It
+     * used to be derived from `remote`, which is a different question — so a
+     * remote image was uploaded as a "file" and a local PDF as an "image". Only
+     * `ValOpsHttp` reads it; `ValOpsFS` ignores it.
+     */
+    fileType: "image" | "file" = "image",
   ): Promise<CreatePatchResult> {
     const patchId = withPatchId ?? this.newPatchId();
+    // Read once, so every file in this patch — and any rollback of them — lands
+    // in the same place.
+    const parentRef = this.parentRefSource();
     const { patchOps, fileOps } = splitPatchFileOps(patch);
     const toUpload = fileOps.filter(
       (op): op is typeof op & { value: string } => typeof op.value === "string",
@@ -342,16 +381,17 @@ export class PatchStore {
     }
     const upload = this.uploadFile;
 
-    const uploaded: string[] = [];
+    const uploaded: { filePath: string; remote: boolean }[] = [];
     if (upload) {
       for (const op of toUpload) {
         this.activity.work("patch:upload-file", op.filePath);
         const fileIndex = uploaded.length;
         const res = await upload({
           patchId,
+          parentRef,
           filePath: op.filePath,
           data: op.value,
-          type: op.remote ? "file" : "image",
+          type: fileType,
           remote: op.remote,
           metadata: op.metadata,
           onProgress:
@@ -370,19 +410,24 @@ export class PatchStore {
           // nothing references anything missing.
           const rolledBack: string[] = [];
           const orphaned: string[] = [];
-          for (const filePath of uploaded) {
-            this.activity.work("patch:rollback-file", filePath);
+          for (const done of uploaded) {
+            this.activity.work("patch:rollback-file", done.filePath);
             const undo = await upload({
               patchId,
-              filePath,
+              parentRef,
+              filePath: done.filePath,
               data: null,
-              type: "image",
-              remote: false,
+              type: fileType,
+              // The op's OWN remoteness. Hardcoding `false` handed a remote ref
+              // to a seam that only splits it into a real path when told the ref
+              // is remote, so the delete targeted a path nothing had written —
+              // and still reported success.
+              remote: done.remote,
             });
             if (undo.status === "ok") {
-              rolledBack.push(filePath);
+              rolledBack.push(done.filePath);
             } else {
-              orphaned.push(filePath);
+              orphaned.push(done.filePath);
             }
           }
           return {
@@ -392,7 +437,7 @@ export class PatchStore {
             orphaned,
           };
         }
-        uploaded.push(op.filePath);
+        uploaded.push({ filePath: op.filePath, remote: op.remote === true });
       }
     }
 
@@ -435,9 +480,10 @@ export class PatchStore {
         this.activity.work("patch:delete-file", op.filePath);
         await upload({
           patchId,
+          parentRef,
           filePath: op.filePath,
           data: null,
-          type: op.remote ? "file" : "image",
+          type: fileType,
           remote: op.remote,
         });
       }

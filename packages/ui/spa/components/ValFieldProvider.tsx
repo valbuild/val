@@ -362,6 +362,8 @@ export function useAddPatch(
       target: ModuleFilePath,
       patch: Patch,
       onProgress?: UploadProgress,
+      /** What kind of binary any `file` ops carry. See `PatchStore.createPatch`. */
+      fileType?: "image" | "file",
     ): Promise<
       { status: "ok"; patchId: PatchId } | { status: "error"; message: string }
     > => {
@@ -381,6 +383,9 @@ export function useAddPatch(
         undefined,
         creatorId,
         onProgress,
+        undefined,
+        undefined,
+        fileType,
       );
       if (res.status !== "created") {
         return { status: "error", message: res.message };
@@ -455,7 +460,10 @@ export function useAddPatch(
       // that landed and creates no patch at all, so nothing ever references a
       // file that is not there. `splitPatchFileOps` still does the splitting; it
       // just does it inside the store, where the ordering rule lives.
-      const res = await writePatch(moduleFilePath, patch, onProgress);
+      // `type` reaches the store now. It used to stop here, and the store then
+      // guessed the kind from `op.remote` — a different question, so a remote
+      // image was uploaded as a "file".
+      const res = await writePatch(moduleFilePath, patch, onProgress, type);
       if (res.status === "error") {
         onError(res.message);
         return;

@@ -425,6 +425,72 @@ describe("a permanently rejected patch is dropped, not retried", () => {
  * the store must not know what a UI is — and because that wiring is exactly the
  * kind that is written once and believed forever.
  */
+/**
+ * Where a patch's bytes are written, and why it is this file's business.
+ *
+ * `ValOpsFS` writes a patch's files into the directory named by its parentRef
+ * (`saveBase64EncodedBinaryFileFromPatch`) and reads them back out of the
+ * directory the PATCH ended up in (`getBase64EncodedBinaryFileFromPatch`). The
+ * two must agree, and only `PatchSync` knows what the next write will name — so
+ * the store asks it, and this is where that is pinned.
+ */
+describe("a file upload names the parent the patch will name", () => {
+  it("uses the chain's current parent, not the head", async () => {
+    const uploads: { filePath: string; parentRef: unknown }[] = [];
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `upload-${++next}` as PatchId;
+      })(),
+      savePatches: async ({ patches, parentRef }) => ({
+        status: "saved",
+        newPatchIds: patches.map((entry) => entry.patchId),
+        parentRef: {
+          type: "patch",
+          patchId: patches[patches.length - 1].patchId,
+        },
+        // `parentRef` is read so the fake behaves like the server: it is what
+        // the next write must build on.
+        ...(parentRef ? {} : {}),
+      }),
+      uploadFile: async ({ filePath, parentRef }) => {
+        uploads.push({ filePath, parentRef });
+        return { status: "ok" };
+      },
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    // A plain edit first, so the chain is no longer empty. This is the whole
+    // point: with an empty chain the parent IS the head, so a hardcoded head
+    // looked correct and every test passed.
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "first" },
+    ]);
+    await system.patchSync.flush();
+    const parentAfterFirst = system.patchSync.currentParentRef();
+    expect(parentAfterFirst).toMatchObject({ type: "patch" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      {
+        op: "file",
+        path: ["title"],
+        filePath: "/public/val/hero.png",
+        value: "data:image/png;base64,AAAA",
+        remote: false,
+      },
+    ]);
+
+    expect(uploads).toHaveLength(1);
+    // The parent the patch will be saved under — NOT `{ type: "head" }`, which
+    // would put the bytes in `head/` while the patch lands in `<firstId>/`, and
+    // the image would 404.
+    expect(uploads[0].parentRef).toEqual(parentAfterFirst);
+    system.dispose();
+  });
+});
+
 describe("a rejected patch is reported to the user", () => {
   it("tells them their edit was reverted, and does not un-tell them", async () => {
     const system = createSystem({

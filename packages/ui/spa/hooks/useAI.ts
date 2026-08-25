@@ -766,6 +766,16 @@ export function useAI(
       moduleFilePath: ModuleFilePath,
       patch: Patch,
       sessionId: string | null,
+      /**
+       * Use THIS id rather than minting one.
+       *
+       * The image flows mint an id up front and hand it to
+       * `aiSessionImagesToPatchFile`, which attaches the bytes to it server-side.
+       * Without passing it here the store minted a DIFFERENT id, so the patch
+       * that was created referenced a file attached to an id no patch ever had —
+       * the image resolved to nothing.
+       */
+      withPatchId?: PatchId,
     ): Promise<
       | { status: "patch-synced"; patchId: PatchId }
       | { status: "patch-error"; message: string }
@@ -782,7 +792,7 @@ export function useAI(
         undefined,
         undefined,
         undefined,
-        undefined,
+        withPatchId,
         sessionId ?? undefined,
       );
       if (res.status !== "created") {
@@ -1116,6 +1126,8 @@ export function useAI(
               moduleFilePath,
               patch,
               sessionIdRef.current,
+              // The id the bytes were attached to, above.
+              patchId,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -1339,6 +1351,8 @@ export function useAI(
               moduleFilePath,
               patch,
               sessionIdRef.current,
+              // The id the bytes were attached to, above.
+              patchId,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({

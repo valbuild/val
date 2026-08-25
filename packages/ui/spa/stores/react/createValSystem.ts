@@ -96,6 +96,7 @@ export function createValSystem(
            */
           uploadFile: async ({
             patchId,
+            parentRef,
             filePath,
             data,
             type,
@@ -123,12 +124,21 @@ export function createValSystem(
             }
             const body = JSON.stringify({
               filePath: target,
-              // Required by the endpoint, and about the PATCH — which does not
-              // exist yet, because the bytes go first by design so a patch can
-              // never reference a file that is not there. The server uses it for
-              // authorisation rather than ordering, and the patch that follows
-              // carries the real one.
-              parentRef: { type: "head", headBaseSha: "" },
+              /**
+               * The REAL parent of the patch these bytes belong to.
+               *
+               * Not decoration. `ValOpsFS` writes a patch's files into the
+               * directory named by its parentRef and reads them back out of the
+               * directory the PATCH ended up in — so if the two disagree the
+               * bytes sit on disk and the image 404s. This was hardcoded to
+               * `head`, which is right only while the chain is empty; after the
+               * first patch every image upload landed in the wrong directory.
+               *
+               * `null` means nothing has established a parent yet, which is the
+               * head. (`ValOpsHttp` ignores parentRef entirely — its files are
+               * keyed by patch id — so this matters in `fs` mode.)
+               */
+              parentRef: parentRef ?? { type: "head", headBaseSha: "" },
               data,
               type,
               metadata,

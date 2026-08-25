@@ -249,7 +249,14 @@ export class RenderStore {
     };
   }
 
+  /**
+   * Bumped by every invalidation, so a render in flight can tell whether the
+   * world moved underneath it. See {@link render}.
+   */
+  private generation = 0;
+
   private invalidate(modules: ModuleFilePath[]): void {
+    this.generation++;
     const newlyStale = modules.filter(
       (moduleFilePath) =>
         !this.stale.has(moduleFilePath) && this.renders.has(moduleFilePath),
@@ -400,6 +407,9 @@ export class RenderStore {
     }
     // `const` despite the self-reference in `finally` below: that callback runs
     // long after the binding is initialised.
+    // Read BEFORE the await below, and compared after — see the notes on each
+    // `stale.delete` in the branches.
+    const startedAt = this.generation;
     const request: Promise<void> = (async () => {
       // Asked before crossing the host seam: a module whose schema declares no
       // render cannot produce one, so the walk is pure cost. Cached as an empty
@@ -416,16 +426,31 @@ export class RenderStore {
           render: result.render,
           scope: scope.size === 0 ? null : scope,
         });
-        this.stale.delete(moduleFilePath);
+        /**
+         * Only if nothing invalidated while the host was rendering.
+         *
+         * `host.render` is awaited, so an edit can land mid-flight. Clearing
+         * `stale` unconditionally cached a render of the PRE-edit source and
+         * marked it fresh, and every field on those paths kept showing it — the
+         * reader only re-asks on `needs-render`. Cached anyway, because a stale
+         * render is better than none; just not marked fresh.
+         */
+        if (this.generation === startedAt) {
+          this.stale.delete(moduleFilePath);
+        }
         this.events.emit({ type: "render:result", moduleFilePath });
       } else if (result.status === "unknown-module") {
         // Not an error: a module with no instance simply has no render. Cache
         // the absence so every field in it does not re-ask the host.
         this.renders.delete(moduleFilePath);
-        this.stale.delete(moduleFilePath);
+        if (this.generation === startedAt) {
+          this.stale.delete(moduleFilePath);
+        }
       } else {
         this.renders.delete(moduleFilePath);
-        this.stale.delete(moduleFilePath);
+        if (this.generation === startedAt) {
+          this.stale.delete(moduleFilePath);
+        }
         this.events.emit({
           type: "render:error",
           moduleFilePath,

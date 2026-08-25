@@ -276,6 +276,108 @@ test.describe("the Studio runs on the store system", () => {
   });
 
   /**
+   * An image upload, with a non-empty chain.
+   *
+   * The chain state is the whole test. `ValOpsFS` writes a patch's bytes into the
+   * directory named by its parentRef and reads them back out of the directory the
+   * PATCH ended up in — so while the chain is empty both are `head/` and a
+   * hardcoded head parentRef looks correct. It was hardcoded, and every image
+   * upload after the first patch put its bytes somewhere nothing would ever look:
+   * `GET /api/val/files/...?patch_id=` answered 404 and the editor saw a broken
+   * image with no error anywhere.
+   *
+   * Nothing short of this catches it: the unit test pins which parentRef the
+   * store passes, but only a real server has the two directories.
+   */
+  test("uploads an image the server can read back", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page);
+
+    const written = await page.evaluate(async () => {
+      const bag = window as unknown as {
+        __VAL_STORES__: {
+          system: {
+            patchStore: {
+              createPatch(
+                mfp: string,
+                patch: unknown[],
+                meta?: unknown,
+                fieldId?: string,
+                onProgress?: unknown,
+                withPatchId?: string,
+                sessionId?: string,
+                fileType?: "image" | "file",
+              ): Promise<{
+                status: string;
+                record?: { patchId: string };
+                message?: string;
+              }>;
+            };
+            patchSync: { flush(): Promise<void>; currentParentRef(): unknown };
+          };
+        };
+      };
+      const system = bag.__VAL_STORES__.system;
+      // A text patch first, so the chain's parent is a PATCH rather than the
+      // head. Without this the test passes with the bug in place.
+      await system.patchStore.createPatch("/content/authors.val.ts", [
+        { op: "replace", path: ["teddy", "name"], value: "chain not empty" },
+      ]);
+      await system.patchSync.flush();
+
+      // A 1x1 transparent PNG.
+      const png =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const res = await system.patchStore.createPatch(
+        "/content/media.val.ts",
+        [
+          {
+            op: "add",
+            path: ["/public/val/images/e2e-probe.png"],
+            value: { width: 1, height: 1, mimeType: "image/png", alt: null },
+          },
+          {
+            op: "file",
+            path: ["/public/val/images/e2e-probe.png"],
+            filePath: "/public/val/images/e2e-probe.png",
+            value: png,
+            metadata: { width: 1, height: 1, mimeType: "image/png" },
+            remote: false,
+          },
+        ],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "image",
+      );
+      await system.patchSync.flush();
+      return {
+        status: res.status,
+        message: res.message,
+        patchId: res.record?.patchId ?? null,
+        parentRef: system.patchSync.currentParentRef(),
+      };
+    });
+
+    expect(written.status, written.message ?? "").toBe("created");
+    expect(written.parentRef).toMatchObject({ type: "patch" });
+
+    // The bytes, through the endpoint the Studio uses for a draft file.
+    const file = await request.get(
+      `/api/val/files/public/val/images/e2e-probe.png?patch_id=${written.patchId}`,
+    );
+    expect(
+      file.status(),
+      "the uploaded bytes are not where the patch's directory is",
+    ).toBe(200);
+    expect((await file.body()).length).toBeGreaterThan(20);
+  });
+
+  /**
    * Discard takes it back. The counterpart to the publish/discard asymmetry the
    * unit tests pin: here it is asserted against a real server, which is the only
    * place `DELETE /patches` exists.

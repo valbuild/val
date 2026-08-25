@@ -1,5 +1,7 @@
 import { initVal } from "@valbuild/core";
 import { externalPatch, initTestSystem, mfp, sp } from "./testSystem";
+import { createSystem } from "./createSystem";
+import { SchemaValidator } from "../validation/validateModule";
 
 /**
  * Pinpointed reproductions, one invariant per test.
@@ -471,6 +473,69 @@ describe("validation store", () => {
     }
     expect(JSON.stringify(dirty.errors)).toContain("no spaces allowed");
     dispose();
+  });
+  /**
+   * CLAIM (`ValidationStore.run`): a result is only marked fresh if nothing
+   * invalidated while it was being computed.
+   *
+   * Both halves of validation are awaited — the schema half across a WORKER
+   * since `schemaValidationBridge.ts` — so an edit can land mid-flight. Clearing
+   * `stale` unconditionally cached a result computed from the pre-edit source
+   * and marked it current, and `peek` then returned it forever: the reader's
+   * effect only re-asks on `stale`, so nothing would ever ask again. A field
+   * would show errors for text the user had already replaced.
+   */
+  it("does not mark a result fresh if the source moved while it ran", async () => {
+    const { c, s } = initVal();
+    // A box, not a `let`: TypeScript narrows a `let` assigned only inside a
+    // callback to its initial type at every later use. Same reason the sync
+    // status test uses one.
+    const gate: { release: (() => void) | null } = { release: null };
+    const gated = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    let waiting = true;
+    const validator = new SchemaValidator();
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `stale-${++next}` as never;
+      })(),
+      schemaValidation: {
+        async validate(moduleFilePath, source, serializedSchema, version) {
+          if (waiting) {
+            waiting = false;
+            await gated;
+          }
+          return validator.validate(
+            moduleFilePath,
+            source,
+            serializedSchema,
+            version,
+          );
+        },
+      },
+    });
+    system.host.receive([
+      c.define("/t.val.ts", s.object({ title: s.string() }), {
+        title: "Hello",
+      }),
+    ]);
+
+    const running = system.validationStore.validate(mfp("/t.val.ts"));
+    // The edit lands while the first validation is still inside the bridge.
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "moved" },
+    ]);
+    gate.release?.();
+    await running;
+
+    // Stale, not fresh: the result that just landed describes the OLD source.
+    expect(system.validationStore.peek(mfp("/t.val.ts"))).toMatchObject({
+      status: "stale",
+    });
+    system.dispose();
   });
 });
 

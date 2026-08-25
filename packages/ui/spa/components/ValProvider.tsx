@@ -408,20 +408,30 @@ export function ValProvider({
    * surfaces — and a system created in a child is created below the component
    * that has to use it. `ValStoreProvider` puts it in context and feeds it.
    *
-   * Memoised on what actually configures it. `mode` is in the list and has to be:
-   * it changes what a successful publish means (`fs` deletes the patches and the
-   * client must keep showing the value; `http` keeps them and re-applies them),
-   * and it arrives from `/stat` after the first render.
+   * ONE system, for the life of the provider.
+   *
+   * `mode` is deliberately NOT a dependency, even though it configures the
+   * system: it arrives from `/stat`, which lands after the first render, so
+   * memoising on it built the system twice. The first one had already taken the
+   * project in and attached its listeners — which happens at construction, so
+   * nothing detached them — and its `PatchSync` retry loop kept running against
+   * a system nobody could reach. Any patch created in that window went with it.
+   *
+   * It is pushed in below instead.
    */
   const system = useMemo(
     () =>
       createValSystem(client, {
         writes: true,
         uploadSettings: getDirectFileUploadSettings,
-        mode: statMode,
       }),
-    [client, getDirectFileUploadSettings, statMode],
+    [client, getDirectFileUploadSettings],
   );
+  useEffect(() => {
+    if (statMode === "fs" || statMode === "http") {
+      system.setMode(statMode);
+    }
+  }, [system, statMode]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
