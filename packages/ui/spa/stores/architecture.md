@@ -320,6 +320,60 @@ is what the FS-only `jsonEntriesSha` exists for. Coarse by necessity — the
 fingerprint cannot say WHICH entry — and cheap because of it: dropping content
 causes no fetches, only the next read of an entry does.
 
+## The chain reconciles with stat by ASKING, not by trusting it
+
+`/stat` is the authority on the chain's ORDER — another session's patch can land
+between two of ours, and only the server knows where. It is deliberately _not_
+treated as authority on a patch's existence, and the difference is a user's edit.
+
+A stat response describes the server as it was when the request was **issued**.
+Two things follow, and both are ordinary rather than exotic:
+
+- a poll issued before our `PUT /patches` landed omits a patch that exists;
+- polled responses can arrive out of order, so a response can omit whatever
+  landed between it and the one before.
+
+So a patch stat stops naming is _suspect_, not gone. It stays in the chain, in
+place, and `PatchStore.reconcileVanished` asks `GET /patches` about it — a request
+issued now, after the save that made it durable has already returned, so its
+answer describes a server that has seen everything this client has done. An id
+that comes back in neither the results nor the errors is genuinely deleted and is
+`drop`ped; an id the server errors on is kept, because "I could not read it" is
+not "it is gone".
+
+This is why there is no sequence number anywhere in the chain code. A stale or
+out-of-order stat costs one round trip that answers "still there", instead of a
+protocol that has to be able to date its own responses.
+
+Two failure modes it closes, both of which shipped:
+
+- a patch discarded in another tab, by the CLI, or by a raw `DELETE /patches`
+  never went away — the chain kept it and source kept showing its value, because
+  every locally-created id absent from stat was kept on the grounds that its
+  `PUT` might still be in flight, and nothing revisited that;
+- an id that _did_ leave the chain left by a quiet splice, with no `patch:drop`,
+  so `SourceStore` never rebuilt the module and the deleted edit stayed on screen
+  with nothing left in the chain to explain it.
+
+## A patch that cannot be applied is deleted
+
+`failed` on `source:patch-apply` means `applyPatch` refused the ops against the
+module's current source. It does not mean "not ready": a patch whose module has
+not loaded is skipped and replayed by `receive()`, and a patch carrying only
+`file` ops counts as applied. So a patch that reaches `failed` will fail the same
+way on every future replay.
+
+Keeping it is worse than losing the one edit it carries. It cannot produce a
+value, it holds the head at `partial`, and `PatchSync` keeps offering it to
+`PUT /patches` — so one bad patch stops every _later_ edit to that module from
+being saved. It is deleted on the server too, because a local-only drop returns
+on the next reload.
+
+It is also reported, with the module, the ops and the origin, via `console.error`.
+One is a mishap; a stream of them means patches are being generated that do not
+fit the source they target, and the ops are what make that difference legible from
+a user's console.
+
 ## Files in patches: a file must exist for as long as anything references it
 
 Bytes never travel inside a patch. They are POSTed directly — `POST

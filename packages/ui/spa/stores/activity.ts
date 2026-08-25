@@ -106,6 +106,16 @@ export type WorkKind =
   | "patch:save-retry"
   /** Patches removed from the chain. `count` is how many. */
   | "patch:drop"
+  /**
+   * One round trip asking the server whether patches stat stopped naming still
+   * exist. `count` is how many ids it asked about.
+   *
+   * Worth its own kind rather than reusing `patch:fetch`: this one is not on any
+   * demand path, it fires only when the chain and stat disagree, and a test that
+   * wants to prove the disagreement is settled by ASKING rather than by guessing
+   * has to be able to see it happen.
+   */
+  | "patch:verify-vanished"
   /** Published patches taken out of the chain, source left alone. */
   | "patch:forget-published"
   // --- status: what the editor is told --------------------------------------

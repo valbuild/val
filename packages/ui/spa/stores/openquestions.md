@@ -824,6 +824,15 @@ publishes an edit to one.
       `SourceStore.markJsonEntriesStale` for the modules it moved for. Today a
       published change to an entry is only picked up by a reload.
 
+**What stat's patch id list means is now settled**, and it was not before. Stat is
+the authority on chain ORDER and not on a patch's existence: its response
+describes the server at REQUEST time, so a poll issued before our save landed
+omits a patch that exists, and polled responses can arrive out of order. A patch
+stat stops naming is therefore verified with `GET /patches` before it is dropped —
+see "The chain reconciles with stat by ASKING" in `architecture.md`. That is also
+why this item does not need a sequence number to be finished: the same
+ask-rather-than-infer shape works for `jsonEntriesSha`.
+
 ---
 
 ## 9. ~~Five of the nine stores have no committed test.~~ ✅ CLOSED

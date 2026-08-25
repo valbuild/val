@@ -157,6 +157,15 @@ export class PatchStore {
    */
   private pendingIds = new Set<PatchId>();
   /**
+   * Ids currently being checked against the server by
+   * {@link reconcileVanished}.
+   *
+   * Stat polls, so the same absence is reported again every few seconds. Without
+   * this, a patch that genuinely vanished would start a fresh round trip per
+   * poll until the first one came back.
+   */
+  private verifying = new Set<PatchId>();
+  /**
    * Bumped whenever the chain or its data changes.
    *
    * A monotonic counter rather than a hash, for the same reason the module
@@ -223,8 +232,20 @@ export class PatchStore {
    *
    * The list is adopted wholesale rather than appended to, because stat is the
    * authority on order — another session's patch can land between two of ours.
-   * Locally-created ids not yet in stat's list are kept at the end so an
-   * optimistic edit does not vanish while its `PUT /patches` is in flight.
+   *
+   * ## Stat is the authority on ORDER, not on existence
+   *
+   * What stat does not name is suspect, not gone, and the difference is an edit.
+   * A stat response describes the server as it was when the REQUEST was issued:
+   * one issued before our `PUT /patches` landed omits a patch that exists, and a
+   * response that overtakes an older one omits whatever arrived in between.
+   * Removing a patch on that evidence reverts something the user typed and the
+   * server has.
+   *
+   * So the tail stat did not name is KEPT, in place, and the question is asked
+   * properly — see {@link reconcileVanished}. In place rather than
+   * removed-and-restored, because a patch that turns out to exist must not have
+   * its value flicker out of source and back.
    */
   private async onStatPatchIds(patchIds: PatchId[]): Promise<void> {
     const announced = new Set(patchIds);
@@ -233,12 +254,19 @@ export class PatchStore {
         this.originById.set(patchId, "external");
       }
     }
-    const localTail = this.ordered.filter(
-      (patchId) =>
-        !announced.has(patchId) && this.originById.get(patchId) === "internal",
-    );
-    this.ordered = [...patchIds, ...localTail];
+    const tail = this.ordered.filter((patchId) => !announced.has(patchId));
+    this.ordered = [...patchIds, ...tail];
     this.bump();
+
+    /**
+     * A patch still in flight cannot be in stat, so it is not evidence of
+     * anything and is not worth a round trip. Everything else in the tail is:
+     * either the server has it and stat was stale, or it has been deleted and
+     * this chain is showing an edit that no longer exists anywhere.
+     */
+    void this.reconcileVanished(
+      tail.filter((patchId) => !this.pendingIds.has(patchId)),
+    );
 
     const missing = patchIds.filter(
       (patchId) => !this.dataById.has(patchId) && !this.fetching.has(patchId),
@@ -268,6 +296,68 @@ export class PatchStore {
     }
     if (received.length > 0) {
       this.events.emit({ type: "patch:receive", patches: received });
+    }
+  }
+
+  /**
+   * Ask the server about patches stat stopped naming, and drop the ones it does
+   * not have.
+   *
+   * ## Why this asks instead of inferring
+   *
+   * This request is issued NOW — after the save that made the patch durable has
+   * already returned — so its answer describes a server that has seen everything
+   * this client has done. That is what makes the conclusion safe, and it is also
+   * why there is no sequence number anywhere in this file: an out-of-order or
+   * stale stat costs one extra round trip that answers "still there", instead of
+   * needing a protocol that can date its own responses.
+   *
+   * ## Conservative in both directions
+   *
+   * An id the server reports an ERROR for is kept. "I could not read it" is not
+   * "it is gone", and dropping on it would turn a transient fault into a lost
+   * edit. Only an id that comes back in neither list is treated as deleted —
+   * which is how both `ValOpsFS` and `ValOpsHttp` answer for an id they do not
+   * hold: `fetchPatches` filters its table by the requested ids, so one it does
+   * not have is simply absent from the result.
+   *
+   * `drop` rather than a splice out of `ordered`, because the patch's effect is
+   * in source: `SourceStore` rebuilds the module from base plus the surviving
+   * chain when it hears `patch:drop`. Removing the id alone would leave the
+   * deleted edit on screen with nothing left in the chain to explain it.
+   */
+  private async reconcileVanished(patchIds: PatchId[]): Promise<void> {
+    const ask = patchIds.filter((patchId) => !this.verifying.has(patchId));
+    if (ask.length === 0) return;
+    for (const patchId of ask) {
+      this.verifying.add(patchId);
+    }
+    this.activity.work("patch:verify-vanished", undefined, ask.length);
+    try {
+      const res = await this.fetchPatches(ask);
+      const held = new Set<PatchId>();
+      for (const record of res.patches) {
+        held.add(record.patchId);
+      }
+      for (const patchId of Object.keys(res.errors ?? {})) {
+        held.add(patchId as PatchId);
+      }
+      const gone = ask.filter(
+        (patchId) =>
+          !held.has(patchId) &&
+          // Re-read after the await rather than trusted from before it: this
+          // patch may have been dropped, or published and forgotten, while the
+          // request was in flight.
+          this.ordered.includes(patchId) &&
+          !this.pendingIds.has(patchId),
+      );
+      if (gone.length > 0) {
+        this.drop(gone);
+      }
+    } finally {
+      for (const patchId of ask) {
+        this.verifying.delete(patchId);
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import { initVal, type PatchId } from "@valbuild/core";
+import type { Patch } from "@valbuild/core/patch";
 import { externalPatch, initTestSystem, mfp } from "./testSystem";
 import { createSystem } from "./createSystem";
 
@@ -684,6 +685,241 @@ describe("a session is carried per patch, and constrains the batch", () => {
     // Fewer requests than patches: the three sessionless patches were not split.
     expect(sizes.reduce((a, b) => a + b, 0)).toBe(3);
     expect(server.writes().length).toBeLessThan(3);
+    dispose();
+  });
+});
+
+/**
+ * Reconciling the chain with stat, when stat stops naming a patch.
+ *
+ * The bug: a patch discarded anywhere other than this client — another tab, the
+ * CLI, a raw `DELETE /patches` — never went away. `onStatPatchIds` kept every
+ * locally-created id stat did not name, on the grounds that its `PUT` might be in
+ * flight, and nothing ever revisited that. The chain kept a patch the server had
+ * deleted, and source kept showing its value.
+ *
+ * The fix cannot be "trust stat". Stat is POLLED, so a response describes the
+ * server as it was when the request was issued: one issued before our save landed
+ * omits a patch that exists, and a response that overtakes an older one omits
+ * whatever arrived between them. Removing a patch on that evidence reverts an edit
+ * the user made and the server has — so the store asks, and these tests are about
+ * the asking as much as about the outcome.
+ */
+describe("a patch that vanished from stat", () => {
+  it("is dropped, and its value with it, once the server confirms it is gone", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "typed here" },
+    ]);
+    await patchSync.flush();
+    // Saved, so "the PUT might still be in flight" does not apply to it.
+    expect(patchStore.isPending("local-1" as PatchId)).toBe(false);
+
+    server.simulateForeignDiscard(["local-1" as PatchId]);
+    await settle();
+    await settle();
+
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    // The VALUE, not only the chain. A patch spliced out of the chain whose
+    // effect is still in source is the same bug wearing a different hat — and it
+    // is the half that a user sees.
+    const read = await sourceStore.get(TITLE, null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("Hello");
+    dispose();
+  });
+
+  it("asks the server instead of inferring it from stat", async () => {
+    const {
+      sourceStore,
+      patchStore,
+      patchSync,
+      server,
+      stat,
+      activity,
+      dispose,
+    } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "typed here" },
+    ]);
+    await patchSync.flush();
+
+    const before = activity.position();
+    server.simulateForeignDiscard(["local-1" as PatchId]);
+    await settle();
+    await settle();
+
+    // The round trip is the mechanism, not an implementation detail: without it
+    // the only available evidence is a stat that cannot date itself.
+    expect(
+      activity.count("patch:verify-vanished", { since: before }),
+    ).toBeGreaterThan(0);
+    dispose();
+  });
+
+  /**
+   * The race a "just trust stat" fix loses.
+   *
+   * The server still HAS the patch; this stat snapshot simply predates it. Acting
+   * on it would revert a saved edit, which is worse than the bug being fixed.
+   */
+  it("keeps a saved patch that stat has not caught up with", async () => {
+    const { sourceStore, patchStore, patchSync, stat, server, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "typed here" },
+    ]);
+    await patchSync.flush();
+
+    // A stale snapshot: nothing was discarded, so the server still serves it.
+    expect(server.patchIds()).toContain("local-1" as PatchId);
+    stat.simulateStaleStat([]);
+    await settle();
+    await settle();
+
+    expect((await patchStore.getHead()).type).not.toBe("empty");
+    const read = await sourceStore.get(TITLE, null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("typed here");
+    dispose();
+  });
+
+  /** An unsaved patch is not evidence: stat cannot name what it has not seen. */
+  it("keeps a patch whose save is still in flight, without asking about it", async () => {
+    const {
+      sourceStore,
+      patchStore,
+      patchSync,
+      stat,
+      server,
+      activity,
+      dispose,
+    } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.holdNextWrite(gate);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "typed here" },
+    ]);
+    const inFlight = patchSync.flush();
+    expect(patchStore.isPending("local-1" as PatchId)).toBe(true);
+
+    const before = activity.position();
+    stat.simulateStaleStat([]);
+    await settle();
+
+    expect((await patchStore.getHead()).type).not.toBe("empty");
+    // Not even asked about: a pending patch costs no round trip, which is what
+    // keeps a burst of typing from turning every poll into a verification.
+    expect(activity.count("patch:verify-vanished", { since: before })).toBe(0);
+
+    release();
+    await inFlight;
+    dispose();
+  });
+});
+
+/**
+ * A patch that cannot be applied is deleted.
+ *
+ * `failed` on `source:patch-apply` means `applyPatch` REFUSED the ops against the
+ * module's current source. It does not mean "not ready": a patch whose module has
+ * not loaded is skipped and replayed by `receive()`, and a patch carrying only
+ * `file` ops counts as applied. So a patch that reaches here will fail the same
+ * way on every future replay.
+ *
+ * Leaving it in the chain is the worse option in every direction: it cannot
+ * produce a value, it holds the head at `partial`, and `PatchSync` keeps offering
+ * it to `PUT /patches` — so one bad patch stops every later edit to that module
+ * from being saved.
+ */
+describe("a patch that cannot be applied", () => {
+  /** `remove` at a path that is not there cannot apply, now or ever. */
+  const unapplicable: Patch = [{ op: "remove", path: ["nope"] }];
+
+  it("is deleted on the server, not only locally", async () => {
+    const { sourceStore, patchStore, server, stat, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    await patchStore.createPatch("/t.val.ts", unapplicable);
+    await settle();
+    await settle();
+
+    // Local-only would come straight back on the next reload, which is how one
+    // bad patch becomes a project that cannot be edited.
+    expect(server.discarded()).toContain("local-1" as PatchId);
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    dispose();
+  });
+
+  it("is dropped locally even when the server delete fails", async () => {
+    const { sourceStore, patchStore, server, stat, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    server.failNextDiscard("the server is having a bad day");
+
+    await patchStore.createPatch("/t.val.ts", unapplicable);
+    await settle();
+    await settle();
+
+    // Still out of the chain: it blocks saving whatever the server said, and the
+    // console error is what explains its return after a reload.
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    dispose();
+  });
+
+  it("is reported once, not once per replay", async () => {
+    const { sourceStore, patchStore, host, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    await patchStore.createPatch("/t.val.ts", unapplicable);
+    await settle();
+    await settle();
+    const afterFirst = server.discarded().length;
+    // Re-intake replays the chain, which is where a second report would come
+    // from. Nothing is left to replay, but the guard is what makes that true
+    // even when the delete failed and the patch is still around.
+    host.receive([module()]);
+    await settle();
+    await settle();
+
+    expect(server.discarded().length).toBe(afterFirst);
+    dispose();
+  });
+
+  /** A patch that applies is left alone, which is most of them. */
+  it("leaves an applicable patch in the chain", async () => {
+    const { sourceStore, patchStore, server, stat, dispose } = initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "fine" },
+    ]);
+    await settle();
+    await settle();
+
+    expect(server.discarded()).toEqual([]);
+    expect((await patchStore.getHead()).type).not.toBe("empty");
     dispose();
   });
 });

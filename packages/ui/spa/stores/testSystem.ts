@@ -312,6 +312,16 @@ export type TestStatStore = {
    * ops, which is what makes `external-partial` a state this test can reach.
    */
   simulateExternal(records: PatchRecord[]): void;
+  /**
+   * A stat snapshot naming exactly `patchIds`, with the server left ALONE.
+   *
+   * Models the poll whose response predates something this client did: `/stat`
+   * describes the server as it was when the request was ISSUED, so a snapshot can
+   * legitimately omit a patch that exists. Deleting nothing server-side is the
+   * point — a test using this asserts that the client does not read a stale
+   * snapshot as a deletion.
+   */
+  simulateStaleStat(patchIds: PatchId[]): void;
 };
 
 export type TestPatchStore = {
@@ -449,6 +459,18 @@ export type TestServer = {
    */
   failNextWrites(result: SaveResult, times?: number): void;
   clearFailures(): void;
+  /** Every id the client asked the discard seam to delete, in order. */
+  discarded(): PatchId[];
+  /** Make the next discard answer with an error. */
+  failNextDiscard(message: string): void;
+  /**
+   * Another session deletes patches this client holds.
+   *
+   * The client learns only what it really would: the next stat stops naming
+   * them. Working out that they are gone — rather than that stat was stale — is
+   * what `PatchStore.reconcileVanished` is for.
+   */
+  simulateForeignDiscard(patchIds: PatchId[]): void;
   /** What the chain is rooted at. */
   baseSha: string;
 };
@@ -542,6 +564,10 @@ export function initTestSystem(): TestSystem {
     sessionId: string | null;
   }[] = [];
   const queuedWriteFailures: SaveResult[] = [];
+  /** Every id the client asked the discard seam to delete, in order. */
+  const discarded: PatchId[] = [];
+  /** Make the next discard fail, so the local-drop-anyway path is reachable. */
+  let discardFailure: string | null = null;
   /**
    * A gate the next write waits on.
    *
@@ -605,22 +631,51 @@ export function initTestSystem(): TestSystem {
       serverFiles.set(fileKey(patchId, filePath), data);
       return { status: "ok" };
     },
+    discardPatches: async (patchIds) => {
+      // Genuinely async, like every seam in this rig.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (discardFailure !== null) {
+        const message = discardFailure;
+        discardFailure = null;
+        return { status: "error", message };
+      }
+      const deleted: PatchId[] = [];
+      for (const patchId of patchIds) {
+        discarded.push(patchId);
+        if (!serverPatches.delete(patchId)) continue;
+        const at = announced.indexOf(patchId);
+        if (at !== -1) announced.splice(at, 1);
+        deleted.push(patchId);
+      }
+      // The ids the SERVER deleted, which is what the real endpoint answers and
+      // what `createSystem.discard` is careful to use instead of what it asked.
+      return { status: "discarded", patchIds: deleted };
+    },
     fetchPatches: async (patchIds) => {
       // Genuinely async, even though the data is in memory: the store must not
       // be allowed to accidentally depend on the fetch resolving synchronously,
       // because against a real `GET /patches` it never will.
       await new Promise((resolve) => setTimeout(resolve, 0));
       const patches: PatchRecord[] = [];
-      const errors: Record<PatchId, string> = {};
       for (const patchId of patchIds) {
         const record = serverPatches.get(patchId);
         if (record) {
           patches.push(record);
-        } else {
-          errors[patchId] = `No such patch: ${patchId}`;
         }
+        // An id the table does not hold is OMITTED, not reported as an error,
+        // because that is what the real server does: `ValOpsFS.fetchPatches`
+        // reads its table and filters it by the requested ids, so one it does
+        // not have is simply absent from the result, and `ValOpsHttp` passes the
+        // ids to the content API the same way.
+        //
+        // This used to answer `No such patch`, and the difference is not
+        // cosmetic: `PatchStore.reconcileVanished` treats an error as "could not
+        // tell" and keeps the patch, so against the old rig a deleted patch
+        // could never be observed being dropped — a test would have passed
+        // against a server that cannot exist, which is the one thing this rig is
+        // built not to allow.
       }
-      return { patches, errors };
+      return { patches };
     },
     savePatches: async ({ patches, parentRef, sessionId }) => {
       // Genuinely async, like every seam in this rig.
@@ -988,12 +1043,33 @@ export function initTestSystem(): TestSystem {
         // is correct behaviour and a confusing thing to hit by accident.
         system.stat.receiveStat({ patches: [...announced], baseSha });
       },
+      simulateStaleStat(patchIds) {
+        // The server is left exactly as it is: this is a snapshot that is merely
+        // OUT OF DATE, not a report that anything was deleted.
+        system.stat.receiveStat({ patches: [...patchIds], baseSha });
+      },
     },
     patchSync: system.patchSync,
     server: {
       baseSha,
       patchIds: () => [...announced],
       writes: () => writes.map((write) => ({ ...write })),
+      discarded: () => [...discarded],
+      failNextDiscard(message) {
+        discardFailure = message;
+      },
+      simulateForeignDiscard(patchIds) {
+        // Another session, the CLI, or another tab deletes patches this client
+        // holds. The client is told the way it really would be — by the next
+        // stat no longer naming them — and nothing else. It has to work out that
+        // they are gone, which is the whole point.
+        for (const patchId of patchIds) {
+          serverPatches.delete(patchId);
+          const at = announced.indexOf(patchId);
+          if (at !== -1) announced.splice(at, 1);
+        }
+        system.stat.receiveStat({ patches: [...announced], baseSha });
+      },
       simulateConcurrentWrite(records) {
         // Deliberately NOT followed by `receiveStat`: the whole point is that
         // this client does not know, so its next write names a stale parent. A
