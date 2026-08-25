@@ -883,16 +883,34 @@ export class PatchStore {
   }
 
   /**
-   * File path -> the id of the pending patch that carries its bytes.
+   * File path -> the id of the UNPUBLISHED patch that carries its bytes.
    *
-   * What a component needs to build a URL for an image the server does not have
-   * yet: `/api/val/files{path}?patch_id=...` serves the bytes out of the patch
-   * directory, so without this map a just-uploaded image renders as a broken
-   * link until the patch is published.
+   * What a component needs to build a URL for an image the server has not
+   * committed yet: `/api/val/files{path}?patch_id=...` serves the bytes out of
+   * the patch directory, so without this map a just-uploaded image renders as a
+   * broken link.
    *
-   * PENDING only. Once a patch is saved the file is fetchable by its committed
-   * path and the `patch_id` query is not just unnecessary but wrong — it points
-   * at a patch that may already have been collected.
+   * ## Unpublished, not unsaved — and the difference was a bug
+   *
+   * This gate used to be `pendingIds`, on the reasoning that "once a patch is
+   * saved the file is fetchable by its committed path". That premise is false.
+   * **Saved** means `PUT /patches` succeeded: the patch is on the server, and its
+   * bytes are in the PATCH directory. Only **publish** writes them to the
+   * committed path. Between the two — which is the normal state of every pending
+   * edit, and lasts from the moment the write lands until someone hits Save — the
+   * bytes are reachable at nothing but the `patch_id` URL.
+   *
+   * So a gallery upload rendered correctly for the second or so before its write
+   * came back, and then broke: `filePatchIds` dropped the ref, `refToUrl` fell
+   * through to the published branch, and the tile pointed at a path with no file
+   * behind it. Exactly the symptom the old comment predicted, caused by the gate
+   * that comment was justifying.
+   *
+   * `appliedAt` is the honest test, and the type says why: a published patch
+   * stays in the chain in `http` mode, so "is it in the chain" and "has it
+   * shipped" are different questions. A patch that has shipped has its bytes at
+   * the committed path and must NOT carry a `patch_id` — that one really would
+   * point at a patch that may already have been collected.
    *
    * Reference-stable across an unchanged chain, because this is a
    * `useSyncExternalStore` snapshot. Memoised on {@link chainVersion} rather
@@ -906,12 +924,13 @@ export class PatchStore {
     }
     const map = new Map<string, PatchId>();
     for (const patchId of this.ordered) {
-      if (!this.pendingIds.has(patchId)) continue;
       const record = this.dataById.get(patchId);
       if (record === undefined) continue;
+      // Shipped: the bytes are at the committed path now.
+      if (record.appliedAt) continue;
       for (const op of record.patch) {
         if (op.op === "file") {
-          // Later wins: if two pending patches touch one file, the newest is
+          // Later wins: if two unpublished patches touch one file, the newest is
           // the one whose bytes a read should serve.
           map.set(op.filePath, patchId);
         }

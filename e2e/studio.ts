@@ -18,8 +18,19 @@ const INTAKE_TIMEOUT = 60_000;
  * sources, and adopt the project. `__VAL_STORES__` is set by `ValStoreProvider`
  * once that is done.
  */
-export async function openStudio(page: Page): Promise<void> {
-  await page.goto("/val");
+export async function openStudio(
+  page: Page,
+  /**
+   * The Studio route to open. Defaults to the root.
+   *
+   * Takes a route rather than making callers `goto` afterwards, because a second
+   * navigation throws away the intake this function waited for — and the failure
+   * that produces is a locator finding nothing, which reads as a missing feature
+   * rather than as a missing wait.
+   */
+  route = "/val",
+): Promise<void> {
+  await page.goto(route);
   await expect
     .poll(
       () =>

@@ -225,3 +225,68 @@ async function typeAndSave(
     })
     .toBe(0);
 }
+
+/**
+ * A media gallery (`s.images()`) upload, driven the way an editor does it.
+ *
+ * `studio.spec.ts` covers the same module at the STORE level — it builds the
+ * gallery patch by hand and checks the server serves the bytes back, which is
+ * what pins the `parentRef` directory bug. This one goes through
+ * `ModuleGallery`'s own file input, `addAndUploadPatchWithFileOps` and the
+ * two-phase upload, and then asks the one question neither of those can:
+ *
+ * **does the tile actually render?**
+ *
+ * That is not a cosmetic check. The URL a gallery tile points at is chosen from
+ * `useFilePatchIds()`: a file the server has not committed has to be fetched as
+ * `/api/val/files{path}?patch_id=...`, and a published one from its committed
+ * path. Get the condition wrong and the store, the patch and the server are all
+ * correct while the editor looks at a broken image — which is exactly what
+ * happened: the gate was "is this patch unsaved" rather than "is it unpublished",
+ * so the tile worked for the second before the write came back and then broke.
+ *
+ * `naturalWidth` is the assertion because it is the only one that can tell. A
+ * present `src` and a 200 response both survive the bug: `next dev` answers the
+ * uncommitted path with the app's HTML, so the request succeeds and the decode is
+ * what fails.
+ */
+test.describe("a media gallery upload", () => {
+  test("renders the tile it just uploaded", async ({ page }) => {
+    await openStudio(page, "/val/~/content/media.val.ts");
+    const studio = page.locator("#val-shadow-root");
+    // `ModuleGallery`'s own hidden input — the one its Upload button clicks.
+    const picker = studio.locator('input[type="file"]').first();
+    await expect(picker).toBeAttached();
+
+    await picker.setInputFiles("e2e/fixtures/probe-2x2.png");
+
+    // The ref is `Internal.createFilename`'s — the fixture's basename plus the
+    // first five hex of its content hash — so it is stable for these bytes.
+    const tile = studio.locator('img[src*="probe-2x2_"]');
+    await expect(tile).toHaveCount(1, { timeout: 30_000 });
+
+    // The patch exists, so this is an upload and not a no-op that left the
+    // gallery showing its committed entries.
+    await expect.poll(() => chainLength(page)).toBeGreaterThan(0);
+
+    // Decoded, not merely requested. See the note above.
+    await expect
+      .poll(
+        async () =>
+          tile.evaluate((img) => (img as HTMLImageElement).naturalWidth),
+        {
+          timeout: 20_000,
+          message:
+            "the uploaded tile did not decode, so its URL points at bytes the server does not have there",
+        },
+      )
+      .toBe(2);
+
+    // And the draft URL is the reason it decoded, rather than the fixture having
+    // been committed by an earlier run.
+    await expect(tile).toHaveAttribute("src", /\/api\/val\/files\/.*patch_id=/);
+
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(0);
+  });
+});

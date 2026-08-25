@@ -331,6 +331,13 @@ export type TestPatchStore = {
   /** Everything still local-only, in chain order. */
   pendingPatchIds(): PatchId[];
   /**
+   * File path -> the unpublished patch carrying its bytes.
+   *
+   * Exposed because this is what a component turns into an image URL, and the
+   * difference between "saved" and "published" is invisible from anywhere else.
+   */
+  filePatchIds(): ReadonlyMap<string, PatchId>;
+  /**
    * Remove patches from the chain, as a permanent server refusal does.
    *
    * Exposed because a drop is the one chain change that is not an append, and
@@ -975,6 +982,7 @@ export function initTestSystem(): TestSystem {
       getHead: () => system.patchStore.getHead(),
       isPending: (patchId) => system.patchStore.isPending(patchId as PatchId),
       pendingPatchIds: () => system.patchStore.pendingPatchIds(),
+      filePatchIds: () => system.patchStore.filePatchIds(),
       drop: (patchIds) => system.patchStore.drop(patchIds),
       async createPatchInSession(moduleFilePath, patch, sessionId) {
         const res = await system.patchStore.createPatch(
