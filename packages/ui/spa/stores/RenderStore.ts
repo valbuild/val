@@ -301,9 +301,16 @@ export class RenderStore {
     if (entry === undefined) {
       return { status: "no-render" };
     }
-    // `executeRender` keys the module's own render under the bare module file
-    // path, not under a `?p=` path, so a module-level render is looked up under
-    // the module rather than being missed.
+    // `executeRender` keys every render by its exact `sourcePath`, and a module's
+    // own render lands under the bare module file path — that IS its source path,
+    // `joinModuleFilePathAndModulePath(mfp, "")` being `mfp`.
+    //
+    // The fallback is deliberate and load-bearing, which is worth saying because
+    // it reads like an over-broad default: a WINDOWED container render is keyed
+    // under the container, and a row asks about its OWN path and finds itself in
+    // that render's `items` (which carry their index — see `ListArrayRender`).
+    // Scoping this to the module root breaks exactly that, and
+    // `demandDriven.test.ts` says so in three tests.
     const at =
       entry.render[path] ??
       entry.render[moduleFilePath as string as SourcePath];
@@ -559,6 +566,8 @@ export class RenderStore {
     // cached; a path outside the scope simply has nothing at it, which is
     // `no-render-at-path` — the same answer as a path that genuinely has no
     // render. `peek` cannot fetch, so it has no third thing to say.
+    // The container fallback, for the same reason as in `get` above — a row reads
+    // the windowed render it appears in.
     const at =
       entry.render[path] ??
       entry.render[moduleFilePath as string as SourcePath];
