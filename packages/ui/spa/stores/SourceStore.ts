@@ -251,7 +251,22 @@ export class SourceStore {
    */
   private entryFailures = new Map<string, string>();
   /** Substituted source, cached against the revision it was computed at. */
-  private substituted = new Map<ModuleFilePath, { n: number; source: Json }>();
+  /**
+   * The substituted source, keyed on the source object it was computed FROM.
+   *
+   * Keyed on the input rather than on the module because two maps are walked:
+   * `peek` reads `sources` and `peekBase` reads `baseSources`. A module-keyed
+   * cache would have each alternating call evict the other's entry and rebuild —
+   * which is the instability this cache exists to remove, reintroduced one level
+   * up. Keying on the input gives each map its own entry for free.
+   *
+   * The revision is still part of the validity test: an entry arriving mutates
+   * the `jsonEntries` map in place, so the input object is unchanged and only the
+   * revision can say the answer moved.
+   *
+   * A `WeakMap`, so a source object replaced by a patch takes its entry with it.
+   */
+  private substituted = new WeakMap<object, { n: number; source: Json }>();
 
   /**
    * One `EventTarget` per REGISTERED path, not per module.
@@ -310,7 +325,8 @@ export class SourceStore {
       (this.revisions.get(moduleFilePath) ?? 0) + 1,
     );
     this.globalRevision++;
-    this.substituted.delete(moduleFilePath);
+    // No substitution entry to drop: it is keyed on the source object and
+    // validated against the revision this line just moved.
     this.allSourcesAt = null;
     if (this.batchDepth > 0) {
       this.deferredAnnouncements.add(moduleFilePath);
@@ -764,9 +780,8 @@ export class SourceStore {
       return { status: "module-loading" };
     }
     const resolved = resolveAtModulePath(
-      source,
+      this.substitutedSource(moduleFilePath, source),
       modulePath,
-      this.jsonEntries.get(moduleFilePath),
     );
     if (resolved.status === "needs-entry") {
       const cacheKey = entryKey(moduleFilePath, resolved.key);
@@ -1196,9 +1211,8 @@ export class SourceStore {
     }
     this.activity.work("source:read-path", path);
     let resolved = resolveAtModulePath(
-      source,
+      this.substitutedSource(moduleFilePath, source),
       modulePath,
-      this.jsonEntries.get(moduleFilePath),
     );
     if (resolved.status === "needs-entry") {
       // The READ is the demand signal for entry content, and it waits for it.
@@ -1219,9 +1233,8 @@ export class SourceStore {
         return { status: "module-loading" };
       }
       resolved = resolveAtModulePath(
-        loaded,
+        this.substitutedSource(moduleFilePath, loaded),
         modulePath,
-        this.jsonEntries.get(moduleFilePath),
       );
       if (resolved.status === "needs-entry") {
         // At most ONE load per read, by construction rather than by a depth
@@ -1284,14 +1297,39 @@ export class SourceStore {
     // consumer of a `.jsonValues()` module asks for the same substituted source:
     // the search walk, schema validation and the custom-validate walk would
     // otherwise each rebuild it, per module, per pass.
+    return this.substitutedSource(moduleFilePath, source);
+  }
+
+  /**
+   * `source` with every loaded `.jsonValues()` entry in place, reference-stable
+   * for as long as the answer is.
+   *
+   * Every reader of a `.jsonValues()` module goes through here, and the stability
+   * is the load-bearing part rather than the saved work. `substituteJsonEntries`
+   * is copy-on-write: the moment ONE entry is loaded it returns a fresh `{...source}`,
+   * so calling it per read made `peek` of the module root answer with a new object
+   * every time. `samePeek` compares the value by identity, so it reported a change
+   * on every call, and a `useSyncExternalStore` whose snapshot always changes
+   * re-renders until React gives up with "Maximum update depth exceeded".
+   *
+   * That is why the cache is consulted on the READ path and not only by the
+   * in-realm walks it was first written for.
+   */
+  private substitutedSource(
+    moduleFilePath: ModuleFilePath,
+    source: Json,
+  ): Json {
+    const entries = this.jsonEntries.get(moduleFilePath);
+    if (entries === undefined || entries.size === 0) return source;
+    if (!isJsonObject(source)) return source;
     const n = this.revisions.get(moduleFilePath) ?? 0;
-    const cached = this.substituted.get(moduleFilePath);
+    const cached = this.substituted.get(source);
     if (cached !== undefined && cached.n === n) {
       return cached.source;
     }
     this.activity.work("source:substitute-json-entries", moduleFilePath);
     const substituted = substituteJsonEntries(source, entries);
-    this.substituted.set(moduleFilePath, { n, source: substituted });
+    this.substituted.set(source, { n, source: substituted });
     return substituted;
   }
 
@@ -1700,15 +1738,21 @@ function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   }
 }
 
-function resolveAtModulePath(
-  source: Json,
-  modulePath: string,
-  entries: Map<string, Json> | undefined,
-): Resolved {
+/**
+ * Walk `modulePath` through a source that is ALREADY substituted.
+ *
+ * Substituting here was the natural place for it and was wrong: this is called
+ * once per read, and the substitution is copy-on-write, so every read of a
+ * module with loaded entries produced a new object. The caller now passes
+ * `substitutedSource`, which is reference-stable — see its comment for what the
+ * instability cost.
+ *
+ * A marker still standing in the substituted source is therefore an entry nobody
+ * has fetched, which is exactly what the `needs-entry` check below reads it as.
+ */
+function resolveAtModulePath(source: Json, modulePath: string): Resolved {
   const parts = Internal.splitModulePath(modulePath as never);
-  // Substituted up front rather than per step, so a path that continues into an
-  // entry walks real content with no further marker handling below.
-  let current: Json = substituteJsonEntries(source, entries);
+  let current: Json = source;
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
     if (current === null || typeof current !== "object") {

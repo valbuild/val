@@ -200,6 +200,86 @@ describe("reading a `.jsonValues()` record", () => {
   });
 });
 
+describe("peeking a `.jsonValues()` record", () => {
+  /**
+   * The module root must peek to the SAME OBJECT once an entry is loaded.
+   *
+   * This is the render loop a user hit on `/app/support/[slug]/page.val.ts`, and
+   * it is asserted on identity rather than on value because identity is the whole
+   * of it: the value was right the entire time.
+   *
+   * `substituteJsonEntries` is copy-on-write, so the first loaded entry turned
+   * every later read into a fresh `{...source}`. `samePeek` compares `ready`
+   * answers by `data` identity, so it saw a change on every call and handed back
+   * a new `SourcePeek`. `usePeek` is a `useSyncExternalStore` snapshot, and a
+   * snapshot that always changes re-renders until React gives up with "Maximum
+   * update depth exceeded" — from inside a Radix ref callback that names nothing
+   * about source.
+   *
+   * Two peeks with nothing in between, because that is the weakest claim that
+   * catches it: React reads a snapshot more than once per commit without
+   * anything having changed, and every read has to agree.
+   */
+  it("peeks the module root to the same object once an entry is loaded", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    // The load is what arms it: with no entry loaded, substitution returns the
+    // source untouched and the peek is stable for a reason that does not last.
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    const first = sourceStore.peek("/blogs.val.ts" as never);
+    const second = sourceStore.peek("/blogs.val.ts" as never);
+
+    expect(first.status).toBe("ready");
+    expect(second).toBe(first);
+    dispose();
+  });
+
+  /**
+   * And the substituted content is really in there — so the test above cannot be
+   * satisfied by caching a source with the markers still in place.
+   */
+  it("peeks the module root to source with the loaded entry substituted in", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    const peeked = sourceStore.peek("/blogs.val.ts" as never);
+
+    if (peeked.status !== "ready") {
+      throw new Error(`expected the module to be ready, got ${peeked.status}`);
+    }
+    const data = peeked.data as Record<string, { title?: string }>;
+    expect(data["/a"].title).toBe("Alpha");
+    dispose();
+  });
+
+  /**
+   * A LOADED entry moves the answer, and the identity has to move with it.
+   *
+   * The other half of the contract: reusing the object whenever the revision is
+   * unchanged would be stable and wrong, and a field frozen on stale content is
+   * a worse bug than a loop.
+   */
+  it("peeks to a different object after another entry loads", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+    const before = sourceStore.peek("/blogs.val.ts" as never);
+
+    await sourceStore.get('/blogs.val.ts?p="/b"."title"', null);
+    const after = sourceStore.peek("/blogs.val.ts" as never);
+
+    expect(after).not.toBe(before);
+    if (after.status !== "ready") {
+      throw new Error(`expected the module to be ready, got ${after.status}`);
+    }
+    const data = after.data as Record<string, { title?: string }>;
+    expect(data["/b"].title).toBe("Beta");
+    dispose();
+  });
+});
+
 describe("searching a `.jsonValues()` record", () => {
   /**
    * GUARD: the walk skips markers, so nothing inside an entry is indexed.

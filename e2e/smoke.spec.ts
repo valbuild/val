@@ -22,6 +22,12 @@ import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
  * available from outside was an uncaught error in the page, so that is what this
  * watches.
  *
+ * The Radix frame is worth knowing about, because it cost a lot of time: it is
+ * the error boundary DETACHING the tree, not the cause. A fiber census across
+ * commits showed the tree completely unchanged — same components, same counts —
+ * for the 55 commits before the crash, which is what said the loop was a pure
+ * re-render and sent the search to the snapshot the fields were reading.
+ *
  * A render loop is also the one failure that a screenshot test would MISS while
  * looking healthy: the error boundary paints, so the page has content.
  *
@@ -143,6 +149,37 @@ const ROUTES: { route: string; shape: string; expect: RegExp }[] = [
     shape: "a router record, at its root",
     expect: /\w/,
   },
+  /**
+   * The three shapes that used to loop, kept apart because of what made them
+   * loop: a `.jsonValues()` module whose entries arrive one request at a time.
+   *
+   * `substituteJsonEntries` is copy-on-write, so the first loaded entry made
+   * every subsequent read of the module's source return a fresh object. `peek`
+   * compares by identity, so it reported a change on every call, and the fields
+   * reading it through `useSyncExternalStore` re-rendered until React gave up.
+   * A module with no entries loaded never entered it, which is why every route
+   * above stayed clean throughout.
+   *
+   * All three, because they reach the module root by different routes: the
+   * record itself, the router record, and the router record with one entry open
+   * — the last being the one a user reported, and the only one that mounts the
+   * field tree under it.
+   */
+  {
+    route: "/content/kb.val.ts",
+    shape: "a jsonValues record",
+    expect: /\w/,
+  },
+  {
+    route: "/app/support/[slug]/page.val.ts",
+    shape: "a jsonValues router record, at its root",
+    expect: /\w/,
+  },
+  {
+    route: '/app/support/[slug]/page.val.ts?p="/support/getting-started"',
+    shape: "a jsonValues router record, at one entry",
+    expect: /\w/,
+  },
 ];
 
 test.describe("the Studio comes up and renders", () => {
@@ -186,37 +223,6 @@ test.describe("the Studio comes up and renders", () => {
       expect(problems.thrown, `uncaught in the page on ${route}`).toEqual([]);
       expect(problems.logged, `console errors on ${route}`).toEqual([]);
       expect(await renderedText(page)).not.toMatch(/encountered an error/i);
-    });
-  }
-
-  /**
-   * KNOWN BROKEN — see the note on the loop below.
-   *
-   * `test.fail()` rather than `test.skip()`, deliberately: skipping hides the
-   * bug and a green suite would imply this shape works. This asserts that it
-   * does NOT, so the suite stays honest AND turns red the moment someone fixes
-   * it, which is the reminder to delete this block.
-   *
-   * The shape: a `.jsonValues()` record whose entries load one request each, and
-   * a router record that pulls the same entries in through its reference scan.
-   * Entry arrivals re-render the rows, that moves the virtualizer's window, the
-   * new window asks for more entries, and the cascade exhausts React's nested
-   * update budget. Timing-dependent — it does not reproduce on every run — which
-   * is its own reason to pin it here rather than trust a manual check.
-   */
-  for (const route of [
-    "/content/kb.val.ts",
-    "/app/support/[slug]/page.val.ts",
-  ]) {
-    test(`renders ${route} (known render loop)`, async ({ page }) => {
-      // Inside the body, not beside it: called at describe level this applies to
-      // every test in the scope, which quietly marks the passing routes above as
-      // expected-to-fail.
-      test.fail();
-      const problems = watchForProblems(page);
-      await openModule(page, route);
-      await page.waitForTimeout(6_000);
-      expect(problems.thrown, `uncaught in the page on ${route}`).toEqual([]);
     });
   }
 });
