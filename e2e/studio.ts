@@ -1,4 +1,9 @@
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 /**
  * Shared helpers for the two Studio suites.
@@ -102,4 +107,58 @@ export async function discardAll(page: Page): Promise<void> {
     }
   });
   await expect.poll(() => chainLength(page)).toBe(0);
+}
+
+/**
+ * Open one of the shell's navigation panels.
+ *
+ * The floating shell keeps navigation behind the left rail rather than always
+ * on screen, so a test that wants to click a page has to open the panel first.
+ * The rail button and the panel's own header share a name, hence `.first()`.
+ */
+export async function openNavPanel(
+  page: Page,
+  panel: "Pages" | "Media" | "Data",
+): Promise<Locator> {
+  const studio = page.locator("#val-shadow-root");
+  await studio.getByRole("button", { name: panel }).first().click();
+  return studio;
+}
+
+/**
+ * Expand a row in the Pages panel, by name.
+ *
+ * Nothing is expanded on mount — a real site map has sections with hundreds of
+ * rows — so reaching a nested page means opening the rows above it. A row that
+ * is also a page selects itself as well, which is what clicking it does in the
+ * app too.
+ */
+export async function expandRow(studio: Locator, name: string): Promise<void> {
+  await studio.getByRole("button", { name, exact: true }).first().click();
+}
+
+/**
+ * Open the Pages panel and expand the site map down to the top level.
+ *
+ * The root of the site map is the home page on this project, so every other
+ * page is nested under it: without opening `/` there is nothing else to click.
+ */
+export async function openSiteMap(page: Page): Promise<Locator> {
+  const studio = await openNavPanel(page, "Pages");
+  await expandRow(studio, "/");
+  return studio;
+}
+
+/**
+ * Close the navigation panel, leaving the editor unobstructed.
+ *
+ * Not tidiness: an open panel has a filter input of its own, so a test that
+ * reaches for "the first input" while one is open can end up typing into the
+ * filter. Closing is also what an editor does once they have picked a page.
+ */
+export async function closeNavPanel(
+  studio: Locator,
+  panel: "Pages" | "Media" | "Data",
+): Promise<void> {
+  await studio.getByRole("button", { name: `Close ${panel}` }).click();
 }

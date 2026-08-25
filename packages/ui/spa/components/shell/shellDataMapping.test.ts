@@ -62,9 +62,27 @@ describe("toShellPages", () => {
     ],
   };
 
-  test("drops the root and keeps its children as the top level", () => {
+  test("drops a purely structural root and lifts its children", () => {
     const pages = toShellPages(sitemap, new Set());
     expect(pages.map((p) => p.urlPath)).toEqual(["/about", "/blog/[slug]"]);
+  });
+
+  test("keeps a root that is itself a page, with the rest under it", () => {
+    // An `/app/page.val.ts` puts content on `/`, so the root is both the site
+    // and the home page. Dropping it would leave the home page as the one page
+    // the navigation cannot reach.
+    const withHome: SitemapItem = {
+      ...sitemap,
+      sourcePath: source('/app/page.val.ts?p="/"'),
+      moduleFilePath: path("/app/page.val.ts"),
+    };
+    const pages = toShellPages(withHome, new Set());
+    expect(pages).toHaveLength(1);
+    expect(pages[0].id).toBe('/app/page.val.ts?p="/"');
+    expect(pages[0].children?.map((child) => child.urlPath)).toEqual([
+      "/about",
+      "/blog/[slug]",
+    ]);
   });
 
   test("keeps the tree, and carries errors from the row they belong to", () => {

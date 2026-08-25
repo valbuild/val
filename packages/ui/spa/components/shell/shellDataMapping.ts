@@ -47,9 +47,15 @@ export function toShellPages(
     isTracked: item.sourcePath !== undefined,
     children: item.children.map(toPage),
   });
-  // The site map's root stands for the site itself rather than a page, so its
-  // children are the top level the navigation shows.
-  return root.children.map(toPage);
+  // The root is the site, and on most projects it is also the home page: an
+  // `/app/page.val.ts` puts content on `/`. When it has a source path it is
+  // therefore a row of its own, with everything else nested under it — drop it
+  // and the home page becomes the one page the navigation cannot reach. Only a
+  // project with no page at `/` has a root that is purely structural, and
+  // there its children are the top level.
+  return root.sourcePath !== undefined
+    ? [toPage(root)]
+    : root.children.map(toPage);
 }
 
 /**

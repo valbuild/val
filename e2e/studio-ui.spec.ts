@@ -1,5 +1,14 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
+import {
+  chainLength,
+  clearPatchChain,
+  closeNavPanel,
+  discardAll,
+  expandRow,
+  openNavPanel,
+  openSiteMap,
+  openStudio,
+} from "./studio";
 
 /**
  * The Studio, driven through its own UI.
@@ -11,6 +20,14 @@ import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
  * were kept identical so no component had to change; the risk that creates is
  * exactly the one a compiler cannot see, because everything still typechecks
  * whether or not a hook returns the right thing.
+ *
+ * ## Navigation is behind a panel
+ *
+ * The floating shell keeps the site map in a panel off the left rail rather
+ * than always on screen, and expands nothing on mount — a real project has
+ * sections with hundreds of rows. So reaching a page is: open the panel, open
+ * the rows above it, click it. `openSiteMap` and `expandRow` do that, and the
+ * clicks are the same ones an editor makes.
  *
  * ## Everything is inside a shadow root
  *
@@ -53,19 +70,34 @@ test.describe("the Studio, through its own UI", () => {
   test("renders the project's navigation from real content", async ({
     page,
   }) => {
-    const studio = await studioRoot(page);
-    await expect(studio.getByRole("button", { name: "Pages" })).toBeVisible();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
     // Routes discovered from the app's own route modules...
     await expect(
       studio.getByRole("button", { name: "blogs", exact: true }),
     ).toBeVisible();
+    await expect(
+      studio.getByRole("button", { name: "support", exact: true }),
+    ).toBeVisible();
     // ...and record keys read out of source, which only appear if the source
     // store answered for those modules.
+    await expandRow(studio, "blogs");
     await expect(
       studio.getByRole("button", { name: "blog-12", exact: true }),
     ).toBeVisible();
+    await expandRow(studio, "support");
     await expect(
       studio.getByRole("button", { name: "getting-started", exact: true }),
+    ).toBeVisible();
+
+    // The non-router modules, which come from the schemas rather than from the
+    // routers: a different read, and one that has its own panel.
+    const dataPanel = await openNavPanel(page, "Data");
+    await expect(
+      dataPanel.getByRole("button", { name: "authors", exact: true }),
+    ).toBeVisible();
+    await expect(
+      dataPanel.getByRole("button", { name: "handbook", exact: true }),
     ).toBeVisible();
   });
 
@@ -75,9 +107,10 @@ test.describe("the Studio, through its own UI", () => {
    * `useShallowSourceAtPath` reads the value -> the field renders it.
    */
   test("opens a module and shows its values", async ({ page }) => {
-    const studio = await studioRoot(page);
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
 
     await expect
       .poll(() => fieldValues(page), {
@@ -98,9 +131,10 @@ test.describe("the Studio, through its own UI", () => {
    * that wrote nothing.
    */
   test("types into a field and writes exactly one patch", async ({ page }) => {
-    const studio = await studioRoot(page);
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
     await expect.poll(() => fieldValues(page)).toContain("Generic");
 
     const before = await chainLength(page);
@@ -143,12 +177,13 @@ test.describe("the Studio, through its own UI", () => {
    * on screen would be the reversed-order bug `system.publish` documents.
    */
   test("saves the pending change and keeps showing it", async ({ page }) => {
-    const studio = await studioRoot(page);
+    await studioRoot(page);
     // Start from the committed state, whatever the tests before this one left.
     await discardAll(page);
 
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
 
     /**
      * The committed value, read from the store rather than off the screen.

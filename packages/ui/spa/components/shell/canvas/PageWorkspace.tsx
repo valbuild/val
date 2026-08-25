@@ -236,7 +236,13 @@ export function PageWorkspace({
     breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
 
   const moduleColumn = (
-    <div className="h-full overflow-y-auto scrollbar-slim">
+    // `val-content-area` is what ValRouter scrolls when it is asked to bring a
+    // field into view, so the id has to be on the element that actually
+    // scrolls the editor.
+    <div
+      id="val-content-area"
+      className="h-full overflow-y-auto scrollbar-slim"
+    >
       {/*
        * `w-full` matters: without a definite width the box shrink-to-fits its
        * content, and `mx-auto` then centres a box wider than the column —

@@ -107,7 +107,21 @@ export type ShellProps = {
    * real field editor.
    */
   renderEditor?: (selection: ShellSelection) => ReactNode;
+  /**
+   * Something to show in the editor column instead of the selection's editor.
+   *
+   * The compare and errors views are not items: they take the whole column and
+   * have no row in the navigation to be selected. They are still *in* the
+   * column rather than replacing the shell, so the chrome around them keeps
+   * working — you can publish from the compare view, which is the point of it.
+   */
+  editorOverride?: ReactNode;
   onPublish?: () => void;
+  /**
+   * The real publish control, when there is one. See `TopBarProps` — the app
+   * passes the existing control so the publish rules live in one place.
+   */
+  publishSlot?: ReactNode;
   onPreview?: () => void;
   onSignOut?: () => void;
   /** Open the full validation-errors view. Falls back to the utility panel. */
@@ -147,7 +161,9 @@ export function Shell({
   selectionId,
   onSelectionChange,
   renderEditor,
+  editorOverride,
   onPublish,
+  publishSlot,
   onPreview,
   onSignOut,
   onShowErrors,
@@ -318,7 +334,9 @@ export function Shell({
         onAttachToChat={attachToChat}
         skipTransition={skipTransition}
       >
-        {selection === null ? (
+        {editorOverride ? (
+          editorOverride
+        ) : selection === null ? (
           <EmptyEditorState />
         ) : renderEditor ? (
           renderEditor(selection)
@@ -359,6 +377,7 @@ export function Shell({
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
         onPublish={onPublish ?? (() => undefined)}
+        publishSlot={publishSlot}
         pendingChanges={pendingChanges}
         publishState={
           publishState === "idle" && validationErrorCount > 0
@@ -376,6 +395,7 @@ export function Shell({
           onToggleCanvas={canCanvas ? toggleCanvas : undefined}
           isCanvasOpen={isCanvasOpen}
           onPublish={onPublish ?? (() => undefined)}
+          publishSlot={publishSlot}
           onOpenStatus={() => setOpenPanel("settings")}
         />
       ) : (

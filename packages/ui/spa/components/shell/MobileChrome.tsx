@@ -1,4 +1,5 @@
 import { Columns2, Eye, Info } from "lucide-react";
+import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { PublishButton } from "./TopBar";
 import { RAIL_ITEMS } from "./LeftRail";
@@ -52,6 +53,7 @@ export function MobileBottomBar({
   pendingChanges,
   onPreview,
   onPublish,
+  publishSlot,
   onOpenStatus,
   onToggleCanvas,
   isCanvasOpen,
@@ -59,6 +61,8 @@ export function MobileBottomBar({
   pendingChanges: number;
   onPreview: () => void;
   onPublish: () => void;
+  /** The real publish control, when there is one. See `TopBarProps`. */
+  publishSlot?: ReactNode;
   onOpenStatus: () => void;
   /** Absent when the selection has no route Val can put on a canvas. */
   onToggleCanvas?: () => void;
@@ -98,11 +102,13 @@ export function MobileBottomBar({
         <Eye size={14} />
         Preview
       </button>
-      <PublishButton
-        pendingChanges={pendingChanges}
-        onPublish={onPublish}
-        className="flex-1 h-9"
-      />
+      {publishSlot ?? (
+        <PublishButton
+          pendingChanges={pendingChanges}
+          onPublish={onPublish}
+          className="flex-1 h-9"
+        />
+      )}
     </div>
   );
 }

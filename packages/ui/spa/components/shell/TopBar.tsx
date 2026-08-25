@@ -10,6 +10,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
+import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "./Avatar";
 import { ValLogo } from "./ValLogo";
@@ -40,6 +41,15 @@ export type TopBarProps = {
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
   onPublish: () => void;
+  /**
+   * The real publish control, when there is one.
+   *
+   * Publishing is not a button press: it needs a commit summary, it is
+   * disabled by validation errors and conflicting patches, and in `fs` mode it
+   * says "Save" instead. That behaviour already exists, so the app passes the
+   * control itself rather than the shell growing a second copy of the rules.
+   */
+  publishSlot?: ReactNode;
   /** Number of changes Publish would ship. 0 disables the button. */
   pendingChanges: number;
   publishState?: PublishState;
@@ -74,6 +84,7 @@ export function TopBar({
   onToggleCanvas,
   isCanvasOpen,
   onPublish,
+  publishSlot,
   pendingChanges,
   publishState = "idle",
   validationErrorCount = 0,
@@ -144,11 +155,13 @@ export function TopBar({
                 onClick={onShowErrors}
               />
             )}
-            <PublishButton
-              pendingChanges={pendingChanges}
-              onPublish={onPublish}
-              publishState={publishState}
-            />
+            {publishSlot ?? (
+              <PublishButton
+                pendingChanges={pendingChanges}
+                onPublish={onPublish}
+                publishState={publishState}
+              />
+            )}
             <BarDivider />
           </>
         )}
