@@ -109,6 +109,22 @@ export async function openHttpStudio(
   page: Page,
   route = "/val",
 ): Promise<void> {
+  /**
+   * Proof that this page really is in proxy mode.
+   *
+   * The socket exists ONLY in `http` mode — `/stat` answers `use-websocket` there
+   * and long-polls in `fs` mode — so a socket to the content host is proof the
+   * app is talking to the content service. Without this a misconfigured server
+   * would run the whole suite against `fs` mode, passing while proving nothing.
+   *
+   * Watched on THIS page rather than by counting subscribers on the mock: a
+   * socket left open by a previous test would satisfy a count and this would then
+   * assert nothing. Registered before `goto`, because the socket opens during
+   * intake and a listener added afterwards can miss it.
+   */
+  const sockets: string[] = [];
+  page.on("websocket", (socket) => sockets.push(socket.url()));
+
   await page.goto(route);
   await expect
     .poll(
@@ -125,22 +141,12 @@ export async function openHttpStudio(
       },
     )
     .toBe(true);
-  /**
-   * And confirm it really is proxy mode.
-   *
-   * Asserted on the WebSocket rather than on the system, which exposes only a
-   * `setMode` and no getter: the socket exists ONLY in `http` mode — `/stat`
-   * answers `use-websocket` there and long-polls in `fs` mode — so a subscriber
-   * on the mock is proof the app is talking to the content service. Without this
-   * a misconfigured server would run the whole suite against `fs` mode, passing
-   * while proving nothing.
-   */
   await expect
-    .poll(async () => (await mock.state()).subscribers, {
+    .poll(() => sockets, {
       timeout: INTAKE_TIMEOUT,
-      message: "the Studio never subscribed to the content service",
+      message: "this page never opened a socket to the content service",
     })
-    .toBeGreaterThan(0);
+    .toContain(`ws://localhost:${MOCK_CONTENT_PORT}/ws`);
 }
 
 // #region the mock's control plane

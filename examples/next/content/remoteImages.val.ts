@@ -12,6 +12,9 @@ import { s, c } from "../val.config";
  * ship in the example app without making `pnpm dev` unable to publish.
  *
  * Starts empty: the entries are whatever a test or a developer uploads.
+ *
+ * Registered only when `NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA` is `"true"` — see
+ * `val.modules.ts` for why it is opt-in.
  */
 export default c.define(
   "/content/remoteImages.val.ts",

@@ -60,6 +60,46 @@ wherever the update budget ran out — typically a Radix ref callback, whose JS
 stack is pure Radix. Do not start there; census the fiber tree instead
 (see [stores.md](./stores.md#debugging-in-a-browser)).
 
+## Remote files and proxy mode
+
+**Two different functions answer "does this project use remote files", and they
+disagree.** `hasRemoteFileSchema` (server, gates whether `/save` demands remote
+credentials) only looks at `type: "file" | "image"` schemas, so it returns FALSE
+for `s.images({ remote: true })` — a record of metadata, not an image schema.
+`findRequiredRemoteFiles` (Studio, gates the `/remote/settings` fetch) has a
+`record` branch that checks `mediaType && remote`, so it returns TRUE for the same
+schema. A remote gallery therefore makes the Studio ask for remote settings while
+leaving publishing unguarded, and a remote _field_ guards publishing too.
+
+**One remote image or file field anywhere makes EVERY publish need remote
+credentials.** `/save` in `fs` mode calls `getIsRemoteRequired` over all schemas,
+and a single `true` switches the whole save into `upload-remote`, which needs an
+api key or a `.val/pat.json`. A local checkout has neither, so adding one
+`s.image().remote()` stops a project from publishing plain text. This is why the
+example app's remote gallery is opt-in (see `examples/next/val.modules.ts`).
+
+**Every commit failure reads "Unknown error".** `ValOpsHttp.commit` parses the
+error body with zod and then passes the _safeParse result_ — not the payload — to
+`getErrorMessageFromUnknownJson`, so the service's own message never survives.
+When a publish fails in proxy mode, read the content service's log, not the
+Studio's.
+
+**A remote upload and the commit that ships it key the same file differently.**
+The browser uploads bytes under the file path (the store splits the ref first),
+while `prepare` describes the file by its full remote ref. The content service is
+what reconciles them.
+
+**The `val_session` cookie is percent-encoded on the wire.** `initValServer`
+writes `encodeURIComponent(value)` into `Set-Cookie` and the read side decodes, so
+a hand-made session cookie has to be encoded too — an HMAC signature is base64 and
+routinely contains `+` and `/`. Sending it raw decodes to something else and reads
+as "you will need to login again".
+
+**The deployment UI is not mounted.** `DraftChanges` is the only component that
+renders `useDeployments()`, and nothing imports it as a component. Deployments and
+commits still arrive over the WebSocket and still land in provider state; there is
+just nothing on screen.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in

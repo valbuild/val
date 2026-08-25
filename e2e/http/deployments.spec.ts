@@ -58,11 +58,17 @@ test.beforeEach(async () => {
 
 test.describe("events from the content service", () => {
   test("the Studio opens a socket to the content service", async ({ page }) => {
-    // `openHttpStudio` already waits for a subscriber, so this test is mostly a
+    // `openHttpStudio` already waits for the socket, so this test is mostly a
     // named place for the failure: if the socket does not come up, every other
-    // test in this file fails for a reason that looks like a missing event.
+    // test in this file fails for a reason that looks like a missing event. What
+    // it adds is the other end — the content service accepted the nonce and
+    // registered a subscriber, rather than closing the connection on it.
     await openHttpStudio(page);
-    expect((await mock.state()).subscribers).toBeGreaterThan(0);
+    await expect
+      .poll(async () => (await mock.state()).subscribers, {
+        message: "the content service did not accept the subscription",
+      })
+      .toBeGreaterThan(0);
   });
 
   test("a deployment announced by CI reaches the Studio", async ({ page }) => {

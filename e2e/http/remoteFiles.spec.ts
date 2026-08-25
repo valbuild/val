@@ -71,6 +71,21 @@ test.beforeEach(async () => {
 
 test.describe("remote files", () => {
   /**
+   * The gallery is reachable from the nav, not only from its URL.
+   *
+   * Galleries have been missing from the Media section before — `enrichNavMenuData`
+   * rebuilt the nav without carrying `media` across — and a remote gallery is a
+   * separate branch of that listing. Asserted here because the rest of this file
+   * navigates straight to the module and would not notice.
+   */
+  test("is listed under Media", async ({ page }) => {
+    await openHttpStudio(page);
+    const studio = page.locator("#val-shadow-root");
+    await studio.getByRole("button", { name: "Media", exact: true }).click();
+    await expect(studio.getByTitle(MODULE)).toBeVisible();
+  });
+
+  /**
    * An upload, and the three things that make it remote rather than local.
    *
    * The ref is a URL on the remote host, not a repo path. The bytes reach the

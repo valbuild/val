@@ -163,8 +163,17 @@ type State = {
    * `null` means the commit deleted the file. Read back by `PUT /files` with
    * `location: "repo"`, so a second publish prepares against the first one's
    * result rather than against whatever is on disk.
+   *
+   * The encoding travels with the value because a commit carries two different
+   * kinds of file: source text, which arrives as a string, and image bytes, which
+   * arrive as base64. Storing both as "a string" and reading both back as UTF-8
+   * silently corrupts every byte outside ASCII — so the bytes are kept as base64
+   * and only decoded on the way out.
    */
-  repoOverlay: Map<string, string | null>;
+  repoOverlay: Map<
+    string,
+    { encoding: "utf8" | "base64"; value: string } | null
+  >;
   /** Bytes of files a commit moved out to remote storage, keyed by remote ref. */
   remoteFiles: Map<string, string>;
   /** Nonces handed out by `presigned-auth-nonce` and `websocket/nonces`. */
@@ -190,6 +199,16 @@ let state = emptyState();
 
 /** Every subscribed browser. Written to by the control plane and by commits. */
 const sockets = new Set<WebSocket>();
+
+/**
+ * The `Origin` of the request each response belongs to.
+ *
+ * A side table rather than a property hung off the response, so that
+ * `corsHeaders` can reflect the caller's origin back without a cast: the browser
+ * sends credentials with its uploads, and `Access-Control-Allow-Origin: *` is not
+ * allowed to be combined with `Allow-Credentials`.
+ */
+const requestOrigins = new WeakMap<ServerResponse, string>();
 
 // #endregion
 
@@ -221,7 +240,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
  * what the Studio shows for that is a stuck progress bar, not an error.
  */
 function corsHeaders(res: ServerResponse): Record<string, string> {
-  const origin = (res as ServerResponse & { __origin?: string }).__origin;
+  const origin = requestOrigins.get(res);
   return {
     "Access-Control-Allow-Origin": origin ?? "*",
     "Access-Control-Allow-Credentials": "true",
@@ -327,7 +346,13 @@ async function readRepoFile(
     if (overlaid === null) {
       return { error: `File was deleted by a commit: ${key}` };
     }
-    return { value: Buffer.from(overlaid, "utf-8").toString("base64") };
+    // A repo read answers with plain base64, whatever the value was stored as.
+    return {
+      value:
+        overlaid.encoding === "base64"
+          ? overlaid.value
+          : Buffer.from(overlaid.value, "utf-8").toString("base64"),
+    };
   }
   const onDisk = path.join(REPO_ROOT, key);
   try {
@@ -607,7 +632,10 @@ const commit: Handler = async (req, res) => {
   for (const [filePath, content] of Object.entries(
     body.patchedSourceFiles ?? {},
   )) {
-    state.repoOverlay.set(path.posix.join(body.root || "/", filePath), content);
+    state.repoOverlay.set(
+      path.posix.join(body.root || "/", filePath),
+      content === null ? null : { encoding: "utf8", value: content },
+    );
   }
   for (const [filePath, descriptor] of Object.entries(
     body.patchedBinaryFilesDescriptors ?? {},
@@ -630,10 +658,10 @@ const commit: Handler = async (req, res) => {
     if (descriptor.remote) {
       state.remoteFiles.set(filePath, base64);
     } else {
-      state.repoOverlay.set(
-        path.posix.join(body.root || "/", filePath),
-        Buffer.from(base64, "base64").toString("binary"),
-      );
+      state.repoOverlay.set(path.posix.join(body.root || "/", filePath), {
+        encoding: "base64",
+        value: base64,
+      });
     }
   }
   for (const patchIds of Object.values(body.appliedPatches ?? {})) {
@@ -852,7 +880,7 @@ const controlPlane: Handler = async (req, res, url) => {
 const server = createServer((req, res) => {
   const origin = req.headers.origin;
   if (typeof origin === "string") {
-    (res as ServerResponse & { __origin?: string }).__origin = origin;
+    requestOrigins.set(res, origin);
   }
   void handle(req, res).catch((err) => {
     console.error("[mock-content-host] unhandled error", err);

@@ -148,6 +148,11 @@ export default defineConfig({
       cwd: "./examples/next",
       env: {
         NEXT_DIST_DIR: ".next-http",
+        // The remote-file example, which only this server registers: a remote
+        // schema makes the Studio ask for remote settings and makes every publish
+        // require remote credentials, so the fs-mode server has to stay without
+        // one. See examples/next/val.modules.ts.
+        NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA: "true",
         VAL_API_KEY: MOCK_API_KEY,
         VAL_SECRET: MOCK_SECRET,
         VAL_PROJECT: MOCK_PROJECT,
