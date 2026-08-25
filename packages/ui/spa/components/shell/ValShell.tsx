@@ -40,7 +40,8 @@ import {
   usePublishSummary,
   useValMode,
 } from "../ValProvider";
-import { useValConfig } from "../ValFieldProvider";
+import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
+import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
 
 /**
@@ -287,6 +288,21 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     );
   }, [canvasUrl]);
 
+  /**
+   * A thumbnail URL for a file in a gallery.
+   *
+   * The same resolution the media picker uses, which is the part that has to be
+   * shared: a just-uploaded file is only readable through `/api/val/files` with
+   * its patch id, and a published one is served straight from `/public`. Doing
+   * it a second way here is how a freshly uploaded image comes to render as a
+   * broken one.
+   */
+  const filePatchIds = useFilePatchIds();
+  const getMediaFileUrl = useCallback(
+    (ref: string) => refToUrl(ref, filePatchIds),
+    [filePatchIds],
+  );
+
   /** Open one field, from the page or from the list beside it. */
   const openPath = useCallback(
     (path: SourcePath) => {
@@ -461,6 +477,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onCompare={showCompare}
+      getMediaFileUrl={getMediaFileUrl}
       searchContentResults={contentSearch.results}
       isSearchingContent={contentSearch.isSearching}
       onSearchQueryChange={setSearchQuery}

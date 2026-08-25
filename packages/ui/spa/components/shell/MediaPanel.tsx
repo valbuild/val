@@ -1,5 +1,12 @@
-import { ReactNode, useMemo, useState } from "react";
-import { FileText, Image, Plus } from "lucide-react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Plus,
+} from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import {
   PanelErrorState,
@@ -7,13 +14,24 @@ import {
   PanelRow,
   PanelSkeleton,
 } from "./PanelPrimitives";
-import { ShellBreakpoint, ShellMediaGallery } from "./types";
+import { cn } from "../designSystem/cn";
+import { ShellBreakpoint, ShellMediaFile, ShellMediaGallery } from "./types";
 
 export type MediaPanelProps = {
   breakpoint: ShellBreakpoint;
   media: ShellMediaGallery[];
   selectedId: string | null;
   onSelect: (gallery: ShellMediaGallery) => void;
+  /** Open one file in the editor. */
+  onSelectFile?: (gallery: ShellMediaGallery, file: ShellMediaFile) => void;
+  /**
+   * A thumbnail URL for a file, or null when there is nothing to show one from.
+   *
+   * Supplied by the app because the answer depends on whether the file has an
+   * uncommitted patch: a just-uploaded image lives behind `/api/val/files` with
+   * a patch id, and the published one does not.
+   */
+  getFileUrl?: (ref: string) => string | null;
   onUpload: () => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
@@ -25,12 +43,36 @@ export type MediaPanelProps = {
   onRetryLoad?: () => void;
 };
 
-/** Media galleries — `s.images()` / `s.files()` modules, by directory. */
+/**
+ * How many files are rendered before a gallery asks to show more.
+ *
+ * A gallery can hold thousands, and every row is a DOM node with an image in
+ * it. The chunk is what keeps opening one from freezing the panel; the rest
+ * arrive as you reach them.
+ */
+const CHUNK = 40;
+
+/**
+ * Media galleries, and the files in them.
+ *
+ * Closed by default, all of them. A gallery's rows are cheap — its record keys
+ * are already loaded, because that is what a gallery *is* — but its thumbnails
+ * are not: opening every gallery on mount would fetch every image in the
+ * project to draw them at 24 pixels. So a gallery is opened deliberately, and
+ * even then its images load only as they are scrolled to.
+ *
+ * The files are shown as the tree their paths describe, for the same reason the
+ * Data panel is a tree: a gallery constrained to `/public/val/images` can still
+ * have subdirectories under it, and a flat list of two hundred names stops
+ * saying where anything is.
+ */
 export function MediaPanel({
   breakpoint,
   media,
   selectedId,
   onSelect,
+  onSelectFile,
+  getFileUrl,
   onUpload,
   onClose,
   navSwitcher,
@@ -39,15 +81,52 @@ export function MediaPanel({
   onRetryLoad,
 }: MediaPanelProps) {
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  const q = query.trim().toLowerCase();
+
+  /**
+   * Galleries, with the files that match the filter.
+   *
+   * A filter reaches inside: typing a file name should find the file, not only
+   * the gallery it is in — which means a matching gallery is kept even when
+   * nothing in it matches, and a gallery is kept when something in it does.
+   */
   const filtered = useMemo(() => {
-    if (!query) return media;
-    const q = query.toLowerCase();
-    return media.filter(
-      (gallery) =>
-        gallery.name.toLowerCase().includes(q) ||
-        gallery.directory.toLowerCase().includes(q),
-    );
-  }, [media, query]);
+    if (!q) return media.map((gallery) => ({ gallery, files: gallery.files }));
+    return media
+      .map((gallery) => {
+        const galleryMatches =
+          gallery.name.toLowerCase().includes(q) ||
+          gallery.directory.toLowerCase().includes(q);
+        const files = (gallery.files ?? []).filter((file) =>
+          file.ref.toLowerCase().includes(q),
+        );
+        return { gallery, files, galleryMatches };
+      })
+      .filter(({ files, galleryMatches }) => galleryMatches || files.length > 0)
+      .map(({ gallery, files, galleryMatches }) => ({
+        gallery,
+        // A gallery matched by its own name shows everything in it; one matched
+        // by its contents shows only what matched.
+        files: galleryMatches && files.length === 0 ? gallery.files : files,
+      }));
+  }, [media, q]);
+
+  // While filtering, everything that survived is open: a match nobody can see
+  // is not a match.
+  const isOpen = (id: string) => (q ? true : expanded.has(id));
+
+  const toggle = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   return (
     <FloatingPanel
       side="left"
@@ -84,36 +163,269 @@ export function MediaPanel({
           <PanelErrorState message={loadError} onRetry={onRetryLoad} />
         ) : filtered.length === 0 ? (
           <PanelEmptyState>
-            {query ? "No galleries match this filter." : "No galleries yet."}
+            {query ? "Nothing matches this filter." : "No galleries yet."}
           </PanelEmptyState>
         ) : (
-          filtered.map((gallery) => (
-            <PanelRow
-              key={gallery.id}
-              selected={selectedId === gallery.id}
-              // The module, because that is what the row opens and what
-              // identifies it; the directory is already on the row as its
-              // label and its meta.
-              title={gallery.moduleFilePath}
-              onClick={() => onSelect(gallery)}
-              leading={
-                gallery.mediaType === "images" ? (
-                  <Image size={13} className="text-fg-secondary-alt" />
-                ) : (
-                  <FileText size={13} className="text-fg-secondary-alt" />
-                )
-              }
-              label={gallery.name}
-              meta={gallery.directory}
-              trailing={
-                <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
-                  {gallery.itemCount}
-                </span>
-              }
-            />
-          ))
+          filtered.map(({ gallery, files }) => {
+            const open = isOpen(gallery.id);
+            return (
+              <div key={gallery.id}>
+                <PanelRow
+                  selected={selectedId === gallery.id}
+                  // The module, because that is what the row opens; the
+                  // directory is the row's meta.
+                  title={gallery.moduleFilePath}
+                  onClick={() => {
+                    onSelect(gallery);
+                    if (!q) toggle(gallery.id);
+                  }}
+                  leading={
+                    <span className="text-fg-secondary-alt">
+                      {open ? (
+                        <ChevronDown size={13} />
+                      ) : (
+                        <ChevronRight size={13} />
+                      )}
+                    </span>
+                  }
+                  label={gallery.name}
+                  meta={gallery.directory}
+                  trailing={
+                    <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
+                      {gallery.itemCount}
+                    </span>
+                  }
+                />
+                {open && (
+                  <GalleryFiles
+                    gallery={gallery}
+                    files={files}
+                    selectedId={selectedId}
+                    onSelectFile={onSelectFile}
+                    getFileUrl={getFileUrl}
+                  />
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </FloatingPanel>
   );
+}
+
+/** The files in one gallery, as a tree, a chunk at a time. */
+function GalleryFiles({
+  gallery,
+  files,
+  selectedId,
+  onSelectFile,
+  getFileUrl,
+}: {
+  gallery: ShellMediaGallery;
+  files: ShellMediaFile[] | undefined;
+  selectedId: string | null;
+  onSelectFile?: (gallery: ShellMediaGallery, file: ShellMediaFile) => void;
+  getFileUrl?: (ref: string) => string | null;
+}) {
+  const [shown, setShown] = useState(CHUNK);
+
+  // A different filter is a different list, so the chunk starts over.
+  const signature = files?.length ?? -1;
+  useEffect(() => setShown(CHUNK), [signature]);
+
+  if (files === undefined) {
+    return (
+      <p className="flex items-center gap-1.5 pl-8 py-1.5 text-[0.6875rem] text-fg-secondary-alt">
+        <Loader2 size={11} className="animate-spin" />
+        Loading files…
+      </p>
+    );
+  }
+  if (files.length === 0) {
+    return (
+      <p className="pl-8 py-1.5 text-[0.6875rem] text-fg-secondary-alt">
+        No files in this gallery yet.
+      </p>
+    );
+  }
+
+  const visible = files.slice(0, shown);
+  const remaining = files.length - visible.length;
+  const groups = groupByDirectory(visible, gallery.directory);
+
+  return (
+    <div>
+      {groups.map((group) => (
+        <div key={group.directory}>
+          {/* Only when there is more than one: a heading repeating the
+              gallery's own directory on every row says nothing. */}
+          {groups.length > 1 && (
+            <p
+              title={group.directory}
+              className="truncate pl-8 pr-3 pt-1.5 pb-0.5 text-[0.625rem] uppercase tracking-wide text-fg-secondary-alt"
+            >
+              {group.label}
+            </p>
+          )}
+          {group.files.map((file) => (
+            <FileRow
+              key={file.ref}
+              gallery={gallery}
+              file={file}
+              selected={selectedId === file.sourcePath}
+              onSelect={onSelectFile}
+              getFileUrl={getFileUrl}
+            />
+          ))}
+        </div>
+      ))}
+      {remaining > 0 && (
+        <ShowMore
+          remaining={remaining}
+          onShowMore={() => setShown((current) => current + CHUNK)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * One file: a thumbnail and a name.
+ *
+ * `loading="lazy"` on the image is what makes a gallery of hundreds openable —
+ * the rows are cheap, the bytes are not, and the browser is better than we are
+ * at deciding which ones are about to be on screen.
+ */
+function FileRow({
+  gallery,
+  file,
+  selected,
+  onSelect,
+  getFileUrl,
+}: {
+  gallery: ShellMediaGallery;
+  file: ShellMediaFile;
+  selected: boolean;
+  onSelect?: (gallery: ShellMediaGallery, file: ShellMediaFile) => void;
+  getFileUrl?: (ref: string) => string | null;
+}) {
+  const [failed, setFailed] = useState(false);
+  const url = getFileUrl?.(file.ref) ?? null;
+  const showImage = gallery.mediaType === "images" && url !== null && !failed;
+  return (
+    <div className="flex items-center pl-5 pr-2">
+      <button
+        type="button"
+        onClick={() => onSelect?.(gallery, file)}
+        title={file.ref}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "group flex items-center gap-2 min-w-0 flex-1 h-8 px-1.5 rounded-md text-xs text-left",
+          selected
+            ? "bg-bg-float-raised text-fg-primary font-medium"
+            : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+        )}
+      >
+        <span className="grid place-items-center w-6 h-6 shrink-0 overflow-hidden rounded bg-bg-float-raised">
+          {showImage ? (
+            <img
+              src={url}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailed(true)}
+              className="h-full w-full object-cover"
+            />
+          ) : gallery.mediaType === "images" ? (
+            <ImageIcon size={12} className="text-fg-secondary-alt" />
+          ) : (
+            <FileText size={12} className="text-fg-secondary-alt" />
+          )}
+        </span>
+        <span className="truncate">{baseName(file.ref)}</span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The next chunk, taken when it comes into view.
+ *
+ * A button as well as an observer: the observer is what makes scrolling feel
+ * like one list, and the button is what works when there is no observer and
+ * for anyone reaching it by keyboard.
+ */
+function ShowMore({
+  remaining,
+  onShowMore,
+}: {
+  remaining: number;
+  onShowMore: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onShowMore();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onShowMore]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onShowMore}
+      className="block w-full pl-8 pr-3 py-1.5 text-left text-[0.6875rem] text-fg-secondary-alt hover:text-fg-primary"
+    >
+      Show {Math.min(remaining, CHUNK)} more ({remaining} left)
+    </button>
+  );
+}
+
+/** `/public/val/images/logo_a1b2c.png` -> `logo_a1b2c.png` */
+function baseName(ref: string): string {
+  const segments = ref.split("/");
+  return segments[segments.length - 1] || ref;
+}
+
+/**
+ * Files grouped by the directory they are in, relative to the gallery's own.
+ *
+ * Relative because the gallery's directory is on the row above and repeating it
+ * on every group heading pushes the part that differs off the end.
+ */
+export function groupByDirectory(
+  files: ShellMediaFile[],
+  galleryDirectory: string,
+): { directory: string; label: string; files: ShellMediaFile[] }[] {
+  const groups = new Map<string, ShellMediaFile[]>();
+  for (const file of files) {
+    const directory = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
+    const existing = groups.get(directory);
+    if (existing) existing.push(file);
+    else groups.set(directory, [file]);
+  }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([directory, groupFiles]) => ({
+      directory,
+      label: relativeDirectory(directory, galleryDirectory),
+      files: groupFiles,
+    }));
+}
+
+function relativeDirectory(
+  directory: string,
+  galleryDirectory: string,
+): string {
+  if (directory === galleryDirectory) return "In this folder";
+  const prefix = galleryDirectory.endsWith("/")
+    ? galleryDirectory
+    : `${galleryDirectory}/`;
+  return directory.startsWith(prefix)
+    ? directory.slice(prefix.length)
+    : directory;
 }

@@ -170,6 +170,8 @@ export type ShellProps = {
   onNewDataFile?: () => void;
   /** Open the review view. Offered from the quick actions. */
   onCompare?: () => void;
+  /** A thumbnail URL for a media file. See `MediaPanelProps`. */
+  getMediaFileUrl?: (ref: string) => string | null;
   /** Content matches for the current query. See `GlobalSearchProps`. */
   searchContentResults?: SearchResult[];
   isSearchingContent?: boolean;
@@ -232,6 +234,7 @@ export function Shell({
   onUploadMedia,
   onNewDataFile,
   onCompare,
+  getMediaFileUrl,
   searchContentResults,
   isSearchingContent,
   onSearchQueryChange,
@@ -541,6 +544,18 @@ export function Shell({
           media={data.media}
           selectedId={selection?.id ?? null}
           onSelect={(gallery) => select(toMediaSelection(gallery))}
+          onSelectFile={(gallery, file) =>
+            select({
+              kind: "media",
+              // The file's own entry, so the editor opens that one rather than
+              // the whole gallery.
+              id: file.sourcePath,
+              title: file.ref.split("/").pop() ?? file.ref,
+              urlPath: gallery.directory,
+              sourcePath: file.sourcePath,
+            })
+          }
+          getFileUrl={getMediaFileUrl}
           onUpload={() => {
             const gallery = data.media.find((g) => g.id === selection?.id);
             if (gallery) onUploadMedia?.(gallery);

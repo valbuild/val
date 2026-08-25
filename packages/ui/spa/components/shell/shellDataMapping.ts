@@ -6,6 +6,7 @@ import {
   ShellDataModule,
   ShellDeployment,
   ShellExternalPage,
+  ShellMediaFile,
   ShellPage,
   ShellValidationError,
 } from "./types";
@@ -217,6 +218,32 @@ export function formatRelativeTime(iso: string, now: number): string {
 
 function plural(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * A gallery's record, as the files in it.
+ *
+ * `undefined` while the record is still loading, so the panel can tell "not
+ * fetched yet" from "no files" — one is a spinner and the other is an empty
+ * state, and showing the wrong one is how a slow load reads as an empty
+ * gallery.
+ *
+ * Sorted by file name rather than by full path: two directories deep, the paths
+ * share a prefix and the name is the part anyone is scanning for.
+ */
+export function toMediaFiles(
+  record: Record<string, SourcePath> | null | undefined,
+): ShellMediaFile[] | undefined {
+  if (!record) return undefined;
+  return Object.entries(record)
+    .map(([ref, sourcePath]): ShellMediaFile => ({ ref, sourcePath }))
+    .sort((a, b) => fileName(a.ref).localeCompare(fileName(b.ref)));
+}
+
+/** `/public/val/images/logo_a1b2c.png` -> `logo_a1b2c.png` */
+export function fileName(ref: string): string {
+  const segments = ref.split("/");
+  return segments[segments.length - 1] || ref;
 }
 
 export function countKeys(

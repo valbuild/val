@@ -23,6 +23,7 @@ import {
   initialsOf,
   directoryName,
   countKeys,
+  toMediaFiles,
 } from "./shellDataMapping";
 
 export type ShellDataState =
@@ -115,6 +116,7 @@ export function useShellData(): ShellDataState {
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             itemCount: countKeys(mediaRecords[index]),
+            files: toMediaFiles(mediaRecords[index]),
           }),
         ),
         data: navData?.explorer

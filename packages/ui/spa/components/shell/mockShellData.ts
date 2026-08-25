@@ -5,6 +5,7 @@ import {
   ShellDataModule,
   ShellDeployment,
   ShellExternalPage,
+  ShellMediaFile,
   ShellMediaGallery,
   ShellNotification,
   ShellPage,
@@ -206,6 +207,45 @@ export const mockExternalPages: ShellExternalPage[] = [
 ];
 
 /**
+ * The files in a gallery.
+ *
+ * Built rather than written out, because the panel's whole job is to stay
+ * usable at a size nobody would type: the images gallery here has more files
+ * than fit in one chunk, so the story shows the chunking doing something. The
+ * refs carry the hash suffix `Internal.createFilename` adds, and some sit in
+ * subdirectories, because both are true of a real gallery and both are what the
+ * panel groups by.
+ */
+function galleryFiles(
+  moduleFilePath: string,
+  directory: string,
+  names: string[],
+): ShellMediaFile[] {
+  return names.map((name) => {
+    const ref = `${directory}/${name}`;
+    return { ref, sourcePath: `${moduleFilePath}?p=${JSON.stringify(ref)}` };
+  });
+}
+
+const IMAGE_NAMES: string[] = [
+  "logo_a1b2c.png",
+  "logo-dark_c3d4e.png",
+  "hero-autumn_5f6a7.jpg",
+  "hero-winter_8b9c0.jpg",
+  "og-default_d1e2f.png",
+  ...Array.from(
+    { length: 48 },
+    (_, i) =>
+      `product-${String(i + 1).padStart(3, "0")}_${(i * 7919).toString(16).slice(0, 5)}.jpg`,
+  ),
+  "portraits/ada_1a2b3.jpg",
+  "portraits/ida_4c5d6.jpg",
+  "portraits/fredrik_7e8f9.jpg",
+  "icons/check_0a1b2.svg",
+  "icons/close_3c4d5.svg",
+];
+
+/**
  * Galleries, keyed by their module. The label is the last segment of the
  * directory the gallery is constrained to, which is what `directoryName`
  * produces — so it is lowercase, like the directory itself.
@@ -216,32 +256,51 @@ export const mockMedia: ShellMediaGallery[] = [
     name: "images",
     directory: "/public/val/images",
     moduleFilePath: "/content/media.val.ts",
-    itemCount: 184,
+    itemCount: IMAGE_NAMES.length,
     mediaType: "images",
+    files: galleryFiles(
+      "/content/media.val.ts",
+      "/public/val/images",
+      IMAGE_NAMES,
+    ),
   },
   {
     id: "/content/illustrations.val.ts",
     name: "illustrations",
     directory: "/public/val/illustrations",
     moduleFilePath: "/content/illustrations.val.ts",
-    itemCount: 42,
+    itemCount: 3,
     mediaType: "images",
+    files: galleryFiles(
+      "/content/illustrations.val.ts",
+      "/public/val/illustrations",
+      ["empty-state_a1b2c.svg", "onboarding_d3e4f.svg", "error_5a6b7.svg"],
+    ),
   },
   {
     id: "/content/people.val.ts",
     name: "people",
     directory: "/public/val/people",
     moduleFilePath: "/content/people.val.ts",
-    itemCount: 27,
+    itemCount: 0,
     mediaType: "images",
+    // An empty gallery is a state of its own, and reads differently from one
+    // that has not loaded.
+    files: [],
   },
   {
     id: "/content/documents.val.ts",
     name: "docs",
     directory: "/public/val/docs",
     moduleFilePath: "/content/documents.val.ts",
-    itemCount: 9,
+    itemCount: 4,
     mediaType: "files",
+    files: galleryFiles("/content/documents.val.ts", "/public/val/docs", [
+      "price-list_1a2b3.pdf",
+      "terms_4c5d6.pdf",
+      "legal/dpa_7e8f9.pdf",
+      "legal/sla_0a1b2.pdf",
+    ]),
   },
 ];
 

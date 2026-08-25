@@ -67,6 +67,25 @@ export type ShellMediaGallery = {
   moduleFilePath: string;
   itemCount: number;
   mediaType: "images" | "files";
+  /**
+   * The files in the gallery.
+   *
+   * A gallery is a record keyed by file path, so its keys *are* its contents —
+   * the panel does not have to fetch anything to list them. Absent while the
+   * record is still loading, which is not the same as an empty gallery.
+   */
+  files?: ShellMediaFile[];
+};
+
+/** One file in a gallery. */
+export type ShellMediaFile = {
+  /**
+   * The file's path, which is also its key in the gallery record —
+   * `/public/val/images/logo_a1b2c.png`, or a remote ref.
+   */
+  ref: string;
+  /** Where the entry lives, for opening it in the editor. */
+  sourcePath: string;
 };
 
 /** A non-router val module, shown under Data. */
