@@ -195,6 +195,48 @@ export function FileField({
     }
   }, [schemaAtPath, maybeSourceData]);
 
+  /**
+   * Hooks first, guards after — see the same note in `ImageField`.
+   *
+   * These two `useMemo`s sat below the `loading` / `not-found` / wrong-type
+   * returns, so an `s.file().nullable()` field that nothing has uploaded to yet
+   * ran fewer hooks on its first render than on its second and crashed the
+   * Studio with "Rendered more hooks than during the previous render".
+   */
+  const fileSchema =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "file"
+      ? schemaAtPath.data
+      : undefined;
+  const referencedModule = fileSchema?.referencedModule;
+  const acceptOptions = useMemo(() => {
+    if (!fileSchema || schemas.status !== "success") {
+      return undefined;
+    }
+    if (fileSchema.options?.accept) {
+      return fileSchema.options.accept;
+    }
+    if (!referencedModule) {
+      return undefined;
+    }
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    if (moduleSchema?.type === "record" && moduleSchema.accept) {
+      return moduleSchema.accept;
+    }
+    return undefined;
+  }, [fileSchema, referencedModule, schemas]);
+  /**
+   * Where an upload from this field is stored: the gallery it references, or
+   * `createFilePatch`'s `/public/val` default.
+   *
+   * Unlike `s.image()`, `FileOptions` has no `directory` — so a standalone
+   * `s.file()` cannot choose one. Left as it is rather than added here: that is
+   * an API change to `packages/core`, not a fix.
+   */
+  const uploadDirectory = useMemo(() => {
+    if (!referencedModule || schemas.status !== "success") return undefined;
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [referencedModule, schemas]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -238,7 +280,6 @@ export function FileField({
     schemaAtPath.data.type === "file" &&
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
-  const referencedModule = schemaAtPath.data.referencedModule;
   const missingModules =
     referencedModule && schemas.status === "success"
       ? schemas.data[referencedModule as ModuleFilePath]
@@ -247,28 +288,6 @@ export function FileField({
       : [];
   const disabled =
     readonly || remoteFileUploadDisabled || missingModules.length > 0;
-  const acceptOptions = useMemo(() => {
-    if (
-      schemaAtPath.data.type !== "file" ||
-      !referencedModule ||
-      schemas.status !== "success"
-    ) {
-      return undefined;
-    }
-    if (schemaAtPath.data.options?.accept) {
-      return schemaAtPath.data.options.accept;
-    }
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    if (moduleSchema?.type === "record" && moduleSchema.accept) {
-      return moduleSchema.accept;
-    }
-    return undefined;
-  }, [schemaAtPath.data, referencedModule, schemas]);
-  const moduleDirectory = useMemo(() => {
-    if (!referencedModule || schemas.status !== "success") return undefined;
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -439,7 +458,7 @@ export function FileField({
                   metadata,
                   type,
                   remoteData,
-                  moduleDirectory,
+                  uploadDirectory,
                   !!referencedModule,
                 )
                   .then(({ patch, filePath }) => {
