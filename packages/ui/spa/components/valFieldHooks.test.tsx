@@ -5,7 +5,12 @@
 // scope, so the polyfills have to be installed before those modules evaluate.
 import "../stores/react/testPolyfills";
 import { act, render, screen } from "@testing-library/react";
-import { initVal, type ModuleFilePath, type SourcePath } from "@valbuild/core";
+import {
+  initVal,
+  Internal,
+  type ModuleFilePath,
+  type SourcePath,
+} from "@valbuild/core";
 import { useRef, type ReactNode } from "react";
 import { createSystem, type System } from "../stores/createSystem";
 import { ValSystemProvider } from "../stores/react/SystemContext";
@@ -17,6 +22,7 @@ import {
   useShallowSourceAtPath,
   useSourceAtPath,
 } from "./ValFieldProvider";
+import { useValidationErrors } from "./ValErrorProvider";
 
 /**
  * The hooks a field actually renders through, tested against a real system.
@@ -405,6 +411,78 @@ describe("useLoadingStatus", () => {
     });
 
     expect(box.seen).toBe("loading");
+    system.dispose();
+  });
+});
+
+/**
+ * A router record with a `s.route()` field, which is the shape that exposed the
+ * bug: `RouteSchema` emits `router:check-route` for EVERY route field,
+ * unconditionally, and something with the whole project in hand has to resolve it
+ * into a real error or nothing.
+ */
+const routerProject = () => {
+  const { c, s } = initVal();
+  return [
+    c.define(
+      "/app/pages/[[...path]]/page.val.ts",
+      s.router(
+        Internal.nextAppRouter,
+        s.object({ url: s.route(), title: s.string() }),
+      ),
+      {
+        "/pages/one": { url: "/pages/one", title: "One" },
+      },
+    ),
+  ];
+};
+
+function RouteErrors({ path }: { path: string }) {
+  const errors = useValidationErrors(path as SourcePath);
+  return (
+    <span data-testid="errors">
+      {errors.length === 0 ? "none" : errors.map((e) => e.message).join(" | ")}
+    </span>
+  );
+}
+
+describe("useValidationErrors", () => {
+  /**
+   * GUARD: a route field never shows the raw cross-module marker.
+   *
+   * The engine resolved these before any consumer saw them — its per-path
+   * snapshot read through the resolved whole-project map — and the store port
+   * returned `result.errors[path]` raw instead. The visible consequence is worse
+   * than the ugly text: nothing in the raw map ever asks whether the route is
+   * valid, so a route error could not clear when the route was set. Setting it
+   * fixed the content and the field went on complaining until a reload.
+   */
+  it("resolves router:check-route instead of showing it raw", async () => {
+    const system = makeSystem();
+    system.host.receive(routerProject());
+
+    render(
+      <Harness system={system}>
+        <RouteErrors path='/app/pages/[[...path]]/page.val.ts?p="/pages/one"."url"' />
+      </Harness>,
+    );
+
+    // Validation is demand-driven, so the first paint has nothing yet. Wait for
+    // the result rather than sleeping.
+    await act(async () => {
+      await system.validationStore.validate(
+        "/app/pages/[[...path]]/page.val.ts" as ModuleFilePath,
+      );
+    });
+
+    const shown = screen.getByTestId("errors").textContent ?? "";
+    // The marker's own words. Asserted on the TEXT rather than on the count,
+    // because "no errors at all" is not the claim — the claim is that whatever
+    // reaches a field has been through the resolver.
+    expect(shown).not.toMatch(
+      /should typically be processed by Val internally/,
+    );
+    expect(shown).not.toMatch(/version mismatch/);
     system.dispose();
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { filterBlockingValidationErrors } from "../../validation/blockingValidationErrors";
 import {
   Internal,
   type ModuleFilePath,
@@ -154,21 +155,79 @@ export function useModuleValidation(
 }
 
 /**
- * Just this path's errors.
- *
  * A stable empty array for "no errors", because returning a fresh `[]` would make
  * every field with nothing wrong re-render whenever any module revalidated.
  */
 const NO_ERRORS: ValidationError[] = [];
 
+/**
+ * The surfaced errors per module RESULT, cached by the result's identity.
+ *
+ * Keyed on the result object rather than on the module path, and that is what
+ * makes it correct rather than merely fast: resolving depends on the project's
+ * schemas and sources, and any change to either invalidates validation, which
+ * deletes the result and produces a new object. So a stale resolution cannot
+ * outlive the inputs it was computed from.
+ *
+ * A `WeakMap` because the key is the store's own object and the store decides
+ * when it dies. Cached at all because the alternative is resolving the whole
+ * module's errors once per FIELD in it — `useValidationErrors` is on every field
+ * on screen.
+ */
+const surfacedByResult = new WeakMap<
+  ValidationResult,
+  Record<SourcePath, ValidationError[]>
+>();
+
+/**
+ * Just this path's errors, RESOLVED and filtered to what a user must act on.
+ *
+ * ## The filtering is not cosmetic
+ *
+ * A core schema cannot resolve a cross-module fix, so it emits a marker and
+ * expects something with the whole project in hand to settle it. `RouteSchema`
+ * emits `router:check-route` on EVERY route field, unconditionally, with the text
+ * "This error (router:check-route) should typically be processed by Val
+ * internally. Seeing this error most likely means you have a Val version
+ * mismatch" — and `resolveSchemaSourceFixes` is what turns that into either a
+ * real error or nothing.
+ *
+ * Returning the raw errors therefore does not merely show an ugly message: it
+ * shows a route error that CANNOT clear, because nothing in the raw map ever
+ * looked at whether the route is now valid. Setting the route fixed the content
+ * and the field went on complaining.
+ *
+ * The engine did this — `getValidationErrorSnapshot` read through
+ * `getAllValidationErrorsSnapshot`, which resolved and partitioned — and this
+ * hook dropped it in the port while its own comment still claimed it. Restored,
+ * with a test that pins it.
+ */
 export function useValidationErrorsAtPath(
   sourcePath: SourcePath,
 ): ValidationError[] {
+  const val = useValSystem();
   const [moduleFilePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const result = useModuleValidation(moduleFilePath);
-  if (result.status !== "validated" || result.errors === false) {
-    return NO_ERRORS;
-  }
-  return result.errors[sourcePath] ?? NO_ERRORS;
+  const surfaced = useMemo(() => {
+    if (
+      val === null ||
+      result.status !== "validated" ||
+      result.errors === false
+    ) {
+      return null;
+    }
+    const cached = surfacedByResult.get(result);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const next = filterBlockingValidationErrors(
+      result.errors,
+      val.system.schemaStore.all(),
+      val.system.sourceStore.allSources(),
+    );
+    surfacedByResult.set(result, next);
+    return next;
+  }, [val, result]);
+  return surfaced?.[sourcePath] ?? NO_ERRORS;
 }
