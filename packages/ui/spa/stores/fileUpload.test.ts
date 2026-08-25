@@ -280,7 +280,11 @@ describe("a patch with no files", () => {
 
     await sourceStore.testReceive([imageModule()]);
     await patchStore.createPatch("/img.val.ts", [
-      { op: "replace", path: ["hero", "metadata", "alt"], value: "an alt" },
+      // `add`, not `replace`: the fixture's metadata has no `alt`, and JSON
+      // Patch `replace` requires the target to exist — so `replace` here was a
+      // patch that could never apply, which is not what this test is about. The
+      // product uses `add` for the same reason (see `ImageField`).
+      { op: "add", path: ["hero", "metadata", "alt"], value: "an alt" },
     ]);
 
     expect(activity.count("patch:upload-file")).toBe(0);

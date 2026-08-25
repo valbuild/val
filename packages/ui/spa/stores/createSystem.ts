@@ -406,6 +406,84 @@ export function createSystem(options: SystemOptions): System {
    */
   let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
 
+  /**
+   * Ids already actioned by {@link discardUnapplicable}, so one bad patch is
+   * reported once.
+   *
+   * A failed apply is re-reported on every replay that reaches it, and the
+   * server delete is a round trip that can fail — without this, a project with
+   * one unapplicable patch and no discard seam would print an error and issue a
+   * DELETE on every intake for the rest of the session.
+   */
+  const unapplicableSeen = new Set<PatchId>();
+
+  /**
+   * Delete patches the apply refused, and say why in enough detail to be
+   * actionable. See the `source:patch-apply` listener below for the reasoning.
+   */
+  async function discardUnapplicable(
+    failed: readonly { patchId: PatchId; message: string }[],
+  ): Promise<void> {
+    const fresh = failed.filter(
+      ({ patchId }) => !unapplicableSeen.has(patchId),
+    );
+    if (fresh.length === 0) return;
+    for (const { patchId } of fresh) {
+      unapplicableSeen.add(patchId);
+    }
+    const ids = fresh.map(({ patchId }) => patchId);
+    // Read BEFORE the drop: `drop` forgets the record, and the record is what
+    // makes the log worth printing.
+    const records = patchStore.recordsFor(ids);
+    for (const { patchId, message } of fresh) {
+      const record = records.find((candidate) => candidate.patchId === patchId);
+      console.error(
+        "Val: discarding a patch that cannot be applied. " +
+          "If you see this often, please report it — it means a patch is being " +
+          "generated that does not fit the source it targets.",
+        {
+          patchId,
+          reason: message,
+          module: record?.moduleFilePath ?? "(record already gone)",
+          // The ops, not a count: which op and which path is the whole diagnosis.
+          ops: record?.patch?.map((op) => ({
+            op: op.op,
+            path: "path" in op ? op.path : undefined,
+          })),
+          origin: patchStore.originOf(patchId),
+          savedOnServer: !patchStore.isPending(patchId),
+          chainLength: patchStore.allRecords().length,
+        },
+      );
+    }
+    if (options.discardPatches === undefined) {
+      // Still dropped locally: an unapplicable patch in the chain blocks every
+      // later save to its module, so leaving it is not the safer option. It will
+      // be back on the next reload, and the log above is what explains that.
+      console.error(
+        "Val: cannot delete the patch on the server — this system has no " +
+          "discard seam. It will return on the next reload.",
+        { patchIds: ids },
+      );
+      patchStore.drop(ids);
+      return;
+    }
+    const res = await options.discardPatches(ids);
+    if (res.status === "error") {
+      console.error(
+        "Val: could not delete an unapplicable patch on the server.",
+        { patchIds: ids, error: res.message },
+      );
+      // Dropped locally anyway, for the same reason as above.
+      patchStore.drop(ids);
+      return;
+    }
+    // The ids the SERVER says it deleted, plus the ones it did not: the local
+    // drop is not conditional on the delete succeeding, because the chain cannot
+    // keep a patch that will never apply.
+    patchStore.drop(ids);
+  }
+
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
@@ -457,6 +535,36 @@ export function createSystem(options: SystemOptions): System {
     }),
     renderStore.listenTo(),
     validationStore.listenTo(),
+
+    /**
+     * A patch that cannot be applied is deleted, and says so loudly.
+     *
+     * `failed` means `applyPatch` REFUSED the ops against the module's current
+     * source — a `replace` at a path that is not there, an array index past the
+     * end. It does not mean "not ready": a patch whose module has not loaded is
+     * skipped and replayed by `receive()`, and a patch carrying only `file` ops
+     * counts as applied. So everything reaching here is a patch that will fail
+     * the same way on every future replay, forever.
+     *
+     * Leaving it in the chain is the worst of the options. It cannot contribute a
+     * value, it makes the head permanently `partial`, and `PatchSync` keeps
+     * offering it to `PUT /patches` — so one bad patch blocks every later edit to
+     * that module from ever being saved. Deleting it costs the one edit it
+     * carried; keeping it costs all the others.
+     *
+     * Deleted on the SERVER too, not just here. A local-only drop comes straight
+     * back on the next reload, which is how a single bad patch turns into a
+     * project that cannot be edited until someone finds `.val/patches` by hand.
+     *
+     * The `console.error` is the point of the whole thing being visible rather
+     * than quiet: one is a mishap, a stream of them is a bug in patch generation
+     * or in the apply, and the ops plus the module are what makes the difference
+     * legible from a user's console.
+     */
+    sourceStore.events.on("source:patch-apply", (event) => {
+      if (event.failed.length === 0) return;
+      void discardUnapplicable(event.failed);
+    }),
 
     // --- host-side staleness ----------------------------------------------
     // No longer a push ACROSS the seam: the host records what changed and keeps
