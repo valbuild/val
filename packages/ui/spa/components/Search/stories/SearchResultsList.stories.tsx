@@ -161,28 +161,6 @@ function SearchResultsListWithProviders({
     console.log("Selected:", path);
   };
 
-  const loadedSources = useMemo(() => {
-    const loadedSources: Record<ModuleFilePath, Json> = {};
-    for (const key in sources) {
-      if (sources[key as ModuleFilePath] !== undefined) {
-        loadedSources[key as ModuleFilePath] = sources[
-          key as ModuleFilePath
-        ] as Json;
-      }
-    }
-    return loadedSources;
-  }, [sources]);
-  const loadedSchemas = useMemo(() => {
-    const loadedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-    for (const key in schemas) {
-      if (schemas[key as ModuleFilePath] !== undefined) {
-        loadedSchemas[key as ModuleFilePath] = schemas[
-          key as ModuleFilePath
-        ] as SerializedSchema;
-      }
-    }
-    return loadedSchemas;
-  }, [schemas]);
   return (
     <ValSystemProvider system={system}>
       <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
@@ -198,8 +176,6 @@ function SearchResultsListWithProviders({
                     <Command shouldFilter={false}>
                       <SearchResultsList
                         results={results}
-                        sources={loadedSources}
-                        schemas={loadedSchemas}
                         onSelect={handleSelect}
                       />
                     </Command>

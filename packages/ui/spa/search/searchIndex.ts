@@ -16,8 +16,10 @@ import { getRefParts } from "../utils/getFilenameFromRef";
 /**
  * The search index and the labels to render for its hits.
  *
- * Kept out of `search.worker.ts` so it can be tested: the worker module runs
- * `self.onmessage` on import, which no test environment here provides.
+ * Kept as a plain module rather than living inside a worker so it can be tested:
+ * a worker entry runs `self.onmessage` on import, which no test environment here
+ * provides. `SearchStore` is the only consumer — the Studio's own second copy in
+ * `search/search.worker.ts` is deleted.
  */
 export type SearchIndex = {
   index: Index;

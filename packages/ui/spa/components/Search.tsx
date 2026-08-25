@@ -1,11 +1,7 @@
-import {
-  Json,
-  ModuleFilePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { useGetNavPath } from "./ValFieldProvider";
+import { useValSystem } from "../stores/react/SystemContext";
 import { useNavigation } from "./ValRouter";
 import { Command, CommandInput } from "./designSystem/command";
 import {
@@ -18,22 +14,9 @@ import * as DialogPrimitive from "./designSystem/dialog-primitive";
 import { Search as SearchIcon } from "lucide-react";
 import { cn } from "./designSystem/cn";
 import { SearchResultsList, type SearchResult } from "./SearchResultsList";
-import { getNavPathFromAll } from "./getNavPath";
-import { useSearchWorker } from "../search/useSearchWorker";
 import { useAllJsonValuesLoad } from "./useJsonValuesLoad";
 
-/**
- * Minimum time between index rebuilds. Long enough that a multi-batch
- * `.jsonValues()` load does not rebuild once per batch, short enough that new
- * content keeps appearing while the user is looking at the dropdown.
- */
-const INDEX_REBUILD_THROTTLE_MS = 300;
-
 export function Search({ container }: { container?: HTMLElement }) {
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
-  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
-
   const [open, setOpen] = useState(false);
   const searchTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -77,8 +60,6 @@ export function Search({ container }: { container?: HTMLElement }) {
           <DialogPrimitive.Content className="top-full absolute left-0 bg-bg-primary -translate-y-full z-[8999] w-full">
             <DialogOverlay />
             <SearchField
-              sources={sources}
-              schemas={schemas}
               onSelect={(path) => {
                 navigate(path);
                 setOpen(false);
@@ -112,24 +93,16 @@ function SearchTrigger() {
 }
 
 function SearchField({
-  sources,
-  schemas,
   onSelect,
   onDeactivate,
 }: {
-  sources: Record<ModuleFilePath, Json>;
-  schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
   onSelect: (path: SourcePath | ModuleFilePath) => void;
   onDeactivate?: () => void;
 }) {
+  const val = useValSystem();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const {
-    buildIndex,
-    search,
-    results: workerResults,
-    indexVersion,
-  } = useSearchWorker();
+  const [results, setResults] = useState<SearchResult[]>([]);
   const hasQuery = query.trim() !== "";
   // Search is the one consumer that cannot be scoped — it indexes all content by
   // definition — so it loads every `.jsonValues()` entry. That happens on user
@@ -137,55 +110,60 @@ function SearchField({
   // when the dialog opens, so a mount-effect trigger would load on open.
   const jsonEntriesLoad = useAllJsonValuesLoad(hasQuery);
 
-  // Build the index when sources/schemas change, THROTTLED: jsonValues entry
-  // content lands one batch at a time and every batch changes `sources`, so an
-  // un-throttled effect rebuilds the whole index once per batch. Throttled rather
-  // than debounced on purpose — a debounce would postpone every rebuild until the
-  // load went quiet, and the point is that results grow WHILE it is loading.
-  const lastIndexBuildAtRef = useRef(0);
+  /**
+   * How far the entry load has got, as one value an effect can depend on.
+   *
+   * This is what re-runs the query while content is still arriving, and it is the
+   * whole reason a progress number is used as a dependency: a `.jsonValues()`
+   * index grows as batches land, so a query answered at 20% has to be asked again
+   * at 60% or the results are stuck on what existed when it was typed.
+   */
+  const loadProgress =
+    jsonEntriesLoad.status === "loading"
+      ? jsonEntriesLoad.percentage
+      : jsonEntriesLoad.status;
+
+  /**
+   * Query the one search index in the worker realm.
+   *
+   * This used to build a SECOND index here: `useSearchWorker` spun up its own
+   * worker and this component rebuilt the whole thing in a throttled effect
+   * whenever `sources` changed — while `useAISearch` queried the store's index
+   * over the same content. Two indexes of one project, and the local one was
+   * rebuilt from a whole-project subscription on every edit anywhere.
+   *
+   * `system.search` indexes on demand and only for the modules the index owes a
+   * pass for, so the QUERY pays instead of every keystroke in the Studio. There
+   * is nothing to build here and nothing to tear down.
+   */
   useEffect(() => {
-    if (!schemas) return;
-
-    const modules: Record<
-      ModuleFilePath,
-      { source: Json; schema: SerializedSchema }
-    > = {};
-
-    for (const moduleFilePath in schemas) {
-      const schema = schemas[moduleFilePath as ModuleFilePath];
-      const source = sources[moduleFilePath as ModuleFilePath];
-      if (schema && source !== undefined) {
-        modules[moduleFilePath as ModuleFilePath] = { source, schema };
-      }
-    }
-
-    const build = () => {
-      lastIndexBuildAtRef.current = Date.now();
-      buildIndex(modules);
-    };
-    const delay = Math.max(
-      0,
-      INDEX_REBUILD_THROTTLE_MS - (Date.now() - lastIndexBuildAtRef.current),
-    );
-    if (delay === 0) {
-      // Includes the first build (the ref starts at 0), so typing into a
-      // freshly-opened dialog is never waiting on a timer.
-      build();
+    if (val === null || !hasQuery) {
+      setResults([]);
       return;
     }
-    const timeout = setTimeout(build, delay);
-    return () => clearTimeout(timeout);
-  }, [sources, schemas, buildIndex]);
-
-  // Trigger search when the query changes — and again on each new index, since a
-  // jsonValues index grows as batches land and results must grow with it.
-  useEffect(() => {
-    search(query, 10);
-  }, [query, search, indexVersion]);
-
-  const results = useMemo((): SearchResult[] => {
-    return workerResults;
-  }, [workerResults]);
+    let cancelled = false;
+    void val.system
+      .search(query, 10)
+      .then((found) => {
+        if (cancelled) {
+          return;
+        }
+        // `no-index` means the project has nothing indexable at all — an empty
+        // result is the honest answer, not an error. `system.search` builds the
+        // index before it queries, so it is never "not built yet".
+        setResults(found.status === "no-index" ? [] : found.results);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResults([]);
+        }
+      });
+    return () => {
+      // The guard against an out-of-order answer: a slow query for "a" must not
+      // overwrite the results for "abc".
+      cancelled = true;
+    };
+  }, [val, query, hasQuery, loadProgress]);
 
   const handleSelect = useCallback(
     (path: SourcePath | ModuleFilePath) => {
@@ -196,22 +174,25 @@ function SearchField({
     [onSelect, onDeactivate],
   );
 
-  // Deduplicate results based on navPath
+  /**
+   * One row per NAV path: several hits can live under one thing the Studio shows.
+   *
+   * Resolved through `useGetNavPath` rather than from a whole-project
+   * subscription — the reason this component no longer reads `useAllSources()`.
+   */
+  const getNavPath = useGetNavPath();
   const deduplicatedResults = useMemo(() => {
     const addedPaths = new Set<string>();
     const deduplicated: SearchResult[] = [];
-
     for (const result of results) {
-      const navPath =
-        getNavPathFromAll(result.path, sources, schemas) || result.path;
+      const navPath = getNavPath(result.path) || result.path;
       if (!addedPaths.has(navPath)) {
         deduplicated.push(result);
         addedPaths.add(navPath);
       }
     }
-
     return deduplicated;
-  }, [results, sources, schemas]);
+  }, [results, getNavPath]);
 
   // Focus the input when the component mounts (when dialog opens)
   useEffect(() => {
@@ -243,8 +224,6 @@ function SearchField({
         {hasQuery && (
           <SearchResultsList
             results={deduplicatedResults}
-            sources={sources}
-            schemas={schemas}
             onSelect={handleSelect}
             indexing={jsonEntriesLoad}
           />
