@@ -19,6 +19,7 @@ import { ExplorerItem, SitemapItem } from "../NavMenu/types";
  */
 
 const path = (p: string) => p as ModuleFilePath;
+const source = (p: string) => p as SourcePath;
 
 describe("toShellPages", () => {
   // The site map's root stands for the site, not for a page.
@@ -29,17 +30,31 @@ describe("toShellPages", () => {
       {
         name: "about",
         urlPath: "/about",
-        moduleFilePath: path("/content/pages.val.ts"),
+        sourcePath: source('/app/about/page.val.ts?p="/about"'),
+        moduleFilePath: path("/app/about/page.val.ts"),
         children: [],
       },
       {
+        // A folder row: it exists because pages exist below it, so the sitemap
+        // gives it no source path of its own.
         name: "blog",
-        urlPath: "/blog",
+        urlPath: "/blog/[slug]",
         children: [
           {
             name: "first-post",
             urlPath: "/blog/first-post",
+            sourcePath: source(
+              '/app/blog/[slug]/page.val.ts?p="/blog/first-post"',
+            ),
             errors: { ownCount: 2 },
+            children: [],
+          },
+          {
+            name: "second-post",
+            urlPath: "/blog/second-post",
+            sourcePath: source(
+              '/app/blog/[slug]/page.val.ts?p="/blog/second-post"',
+            ),
             children: [],
           },
         ],
@@ -49,7 +64,7 @@ describe("toShellPages", () => {
 
   test("drops the root and keeps its children as the top level", () => {
     const pages = toShellPages(sitemap, new Set());
-    expect(pages.map((p) => p.urlPath)).toEqual(["/about", "/blog"]);
+    expect(pages.map((p) => p.urlPath)).toEqual(["/about", "/blog/[slug]"]);
   });
 
   test("keeps the tree, and carries errors from the row they belong to", () => {
@@ -64,13 +79,34 @@ describe("toShellPages", () => {
   });
 
   test("marks a page whose module has unpublished patches", () => {
-    const [about] = toShellPages(sitemap, new Set(["/content/pages.val.ts"]));
+    const [about] = toShellPages(sitemap, new Set(["/app/about/page.val.ts"]));
     expect(about.hasDraft).toBe(true);
   });
 
-  test("uses the url path as the id, so rows are addressable", () => {
+  test("identifies a page by the content it opens", () => {
+    // The id doubles as the navigation target, so the app can resolve the
+    // route it is on back to a row without keeping a second mapping.
     const [about] = toShellPages(sitemap, new Set());
-    expect(about.id).toBe("/about");
+    expect(about.id).toBe('/app/about/page.val.ts?p="/about"');
+    expect(about.sourcePath).toBe(about.id);
+  });
+
+  test("gives siblings under one dynamic route distinct ids", () => {
+    // Every post under `/blog/[slug]` is served by the same route module and
+    // shares the same route *pattern*. Identifying rows by anything the
+    // pattern contributes would collapse them all onto one row.
+    const [, blog] = toShellPages(sitemap, new Set());
+    const ids = (blog.children ?? []).map((child) => child.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("leaves a folder row unopenable, and marks it untracked", () => {
+    // A path segment that is not itself a page has no content and no route
+    // for the canvas to ask about.
+    const [, blog] = toShellPages(sitemap, new Set());
+    expect(blog.sourcePath).toBeUndefined();
+    expect(blog.isTracked).toBe(false);
+    expect(blog.children?.[0]?.isTracked).toBe(true);
   });
 });
 
@@ -82,14 +118,17 @@ describe("toExternalPages", () => {
     };
     expect(toExternalPages(record)).toEqual([
       {
-        id: "https://instagram.com/valbuild",
+        // As with pages, the id is the content the row opens.
+        id: "x",
         name: "instagram.com/valbuild",
         url: "https://instagram.com/valbuild",
+        sourcePath: "x",
       },
       {
-        id: "https://example.com/",
+        id: "y",
         name: "example.com",
         url: "https://example.com/",
+        sourcePath: "y",
       },
     ]);
   });

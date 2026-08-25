@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -57,6 +57,26 @@ function collectIds(pages: ShellPage[]): string[] {
   return pages.flatMap((page) => [page.id, ...collectIds(page.children ?? [])]);
 }
 
+/**
+ * The rows that have to be open for `id` to be on screen.
+ *
+ * A selection made somewhere else — a search result, a deep link, the route
+ * the app was opened on — is usually several levels down. Opening its
+ * ancestors is the only way the panel can show where you are.
+ */
+function ancestorsOf(pages: ShellPage[], id: string | null): string[] {
+  if (id === null) return [];
+  const walk = (items: ShellPage[], trail: string[]): string[] | null => {
+    for (const item of items) {
+      if (item.id === id) return trail;
+      const found = walk(item.children ?? [], [...trail, item.id]);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(pages, []) ?? [];
+}
+
 /** Errors on a page and everything below it — what a collapsed row has to show. */
 function subtreeErrorCount(page: ShellPage): number {
   return (
@@ -95,11 +115,25 @@ export function PagesPanel({
   onRetryLoad,
 }: PagesPanelProps) {
   const [query, setQuery] = useState("");
-  // Top-level sections start open; deeper folders stay collapsed so a project
-  // with a hundred blog posts does not bury everything else.
+  // Nothing is open by default: a real site map has sections with hundreds of
+  // rows, and opening one on mount buries everything else. The exception is
+  // the path down to whatever is selected, which has to be visible.
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(["features"]),
+    () => new Set(ancestorsOf(pages, selectedId)),
   );
+  // The selection can change from outside the panel — the app's route, a
+  // search result — and the panel has to follow it rather than leave the row
+  // hidden. Only opening, never closing: a folder you opened stays open.
+  const selectedAncestors = useMemo(
+    () => ancestorsOf(pages, selectedId).join("\u0000"),
+    [pages, selectedId],
+  );
+  useEffect(() => {
+    if (!selectedAncestors) return;
+    setExpanded(
+      (prev) => new Set([...prev, ...selectedAncestors.split("\u0000")]),
+    );
+  }, [selectedAncestors]);
   const filtered = useMemo(() => filterPages(pages, query), [pages, query]);
   // A search result nobody can see is not a result: while searching, every
   // surviving folder is forced open.

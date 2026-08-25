@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
@@ -21,18 +28,31 @@ import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
+  ShellActivityEntry,
   ShellChatMessage,
   ShellData,
+  ShellDataModule,
+  ShellExternalPage,
+  ShellMediaGallery,
   ShellNotification,
   ShellPanel,
+  ShellValidationError,
 } from "./types";
 
 /** What the editor canvas is currently showing. */
-type Selection = {
+export type ShellSelection = {
   kind: "page" | "external" | "media" | "data";
   id: string;
   title: string;
+  /** What to show above the editor: a URL for a page, a directory for media. */
   urlPath: string;
+  /**
+   * The content this selection opens.
+   *
+   * Comes from the navigation data rather than being derived from the id: only
+   * the provider knows which module a route resolves to, and guessing it is
+   * how a shell ends up opening a module that does not exist.
+   */
   sourcePath: string;
   hasDraft?: boolean;
   /** True when Val resolves this route and can therefore put it on a canvas. */
@@ -72,6 +92,31 @@ export type ShellProps = {
   initialCanvasView?: CanvasView;
   /** Skips the canvas entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
+  /**
+   * The selected item, by id, when something outside the shell owns the
+   * selection — in the app that is the router, which has to stay the single
+   * source of truth so a reload lands where you were. Leave it undefined and
+   * the shell keeps the selection itself, which is what Storybook does.
+   */
+  selectionId?: string | null;
+  /** Called whenever something is picked, in either mode. */
+  onSelectionChange?: (selection: ShellSelection) => void;
+  /**
+   * The editor for the selected item. Defaults to a representative stand-in so
+   * the layout can be exercised without the Val providers; the app passes the
+   * real field editor.
+   */
+  renderEditor?: (selection: ShellSelection) => ReactNode;
+  onPublish?: () => void;
+  onPreview?: () => void;
+  onSignOut?: () => void;
+  /** Open the full validation-errors view. Falls back to the utility panel. */
+  onShowErrors?: () => void;
+  onSelectValidationError?: (error: ShellValidationError) => void;
+  onSelectActivity?: (entry: ShellActivityEntry) => void;
+  onNewPage?: () => void;
+  onUploadMedia?: (gallery: ShellMediaGallery) => void;
+  onNewDataFile?: () => void;
 };
 
 /**
@@ -99,6 +144,18 @@ export function Shell({
   initialCanvasOpen = false,
   initialCanvasView = "normal",
   skipTransition,
+  selectionId,
+  onSelectionChange,
+  renderEditor,
+  onPublish,
+  onPreview,
+  onSignOut,
+  onShowErrors,
+  onSelectValidationError,
+  onSelectActivity,
+  onNewPage,
+  onUploadMedia,
+  onNewDataFile,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
@@ -108,9 +165,19 @@ export function Shell({
     data.notifications ?? [],
   );
   const [chat, setChat] = useState<ShellChatMessage[]>(data.chat ?? []);
-  const [selection, setSelection] = useState<Selection | null>(() =>
-    initialSelectionId ? findSelection(data, initialSelectionId) : null,
+  const isControlled = selectionId !== undefined;
+  const [internalSelection, setInternalSelection] =
+    useState<ShellSelection | null>(() =>
+      initialSelectionId ? findSelection(data, initialSelectionId) : null,
+    );
+  // In controlled mode the selection is a function of the id and the data, so
+  // it follows both: navigation changes the id, and a reload that fills the
+  // navigation in resolves an id that could not be resolved on mount.
+  const controlledSelection = useMemo(
+    () => (selectionId ? findSelection(data, selectionId) : null),
+    [selectionId, data],
   );
+  const selection = isControlled ? controlledSelection : internalSelection;
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
@@ -200,8 +267,13 @@ export function Shell({
   // On mobile a panel covers the editor, so selecting something has to get
   // the panel out of the way of the thing that was just selected.
   const select = useCallback(
-    (next: Selection) => {
-      setSelection(next);
+    (next: ShellSelection) => {
+      // In controlled mode the owner of the selection decides what happens;
+      // keeping a copy here would let the two disagree.
+      if (!isControlled) {
+        setInternalSelection(next);
+      }
+      onSelectionChange?.(next);
       setChatTarget(null);
       // The canvas belongs to the page it was opened on, and a page Val does
       // not track has nothing to put on it.
@@ -211,7 +283,7 @@ export function Shell({
       }
       if (breakpoint === "mobile") setOpenPanel(null);
     },
-    [breakpoint],
+    [breakpoint, isControlled, onSelectionChange],
   );
 
   // A search result can be any kind of item, so it resolves through the same
@@ -248,6 +320,8 @@ export function Shell({
       >
         {selection === null ? (
           <EmptyEditorState />
+        ) : renderEditor ? (
+          renderEditor(selection)
         ) : (
           <PageEditor
             title={selection.title}
@@ -281,10 +355,10 @@ export function Shell({
         // The rail owns the account wherever it is shown. Passing the user
         // here too would put the same avatar in two corners of one screen.
         user={breakpoint === "desktop" ? undefined : data.user}
-        onPreview={() => undefined}
+        onPreview={onPreview ?? (() => undefined)}
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
-        onPublish={() => undefined}
+        onPublish={onPublish ?? (() => undefined)}
         pendingChanges={pendingChanges}
         publishState={
           publishState === "idle" && validationErrorCount > 0
@@ -292,16 +366,16 @@ export function Shell({
             : publishState
         }
         validationErrorCount={validationErrorCount}
-        onShowErrors={() => setOpenPanel("utility")}
+        onShowErrors={onShowErrors ?? (() => setOpenPanel("utility"))}
       />
 
       {breakpoint === "mobile" ? (
         <MobileBottomBar
           pendingChanges={pendingChanges}
-          onPreview={() => undefined}
+          onPreview={onPreview ?? (() => undefined)}
           onToggleCanvas={canCanvas ? toggleCanvas : undefined}
           isCanvasOpen={isCanvasOpen}
-          onPublish={() => undefined}
+          onPublish={onPublish ?? (() => undefined)}
           onOpenStatus={() => setOpenPanel("settings")}
         />
       ) : (
@@ -326,26 +400,18 @@ export function Shell({
           pages={data.pages}
           externalPages={data.externalPages}
           selectedId={selection?.id ?? null}
-          onSelectPage={(page) =>
-            select({
-              kind: "page",
-              id: page.id,
-              title: page.name,
-              urlPath: page.urlPath,
-              sourcePath: `/content/pages.val.ts?p="${page.urlPath}"`,
-              hasDraft: page.hasDraft,
-            })
-          }
-          onSelectExternalPage={(page) =>
-            select({
-              kind: "external",
-              id: page.id,
-              title: page.name,
-              urlPath: page.url,
-              sourcePath: `/content/external.val.ts?p="${page.url}"`,
-            })
-          }
-          onNewPage={() => undefined}
+          // A row with no source path is a path segment rather than a page —
+          // `/blog` existing because `/blog/why-val` does. Clicking it expands
+          // it; there is nothing to open.
+          onSelectPage={(page) => {
+            const next = toPageSelection(page);
+            if (next) select(next);
+          }}
+          onSelectExternalPage={(page) => {
+            const next = toExternalSelection(page);
+            if (next) select(next);
+          }}
+          onNewPage={onNewPage ?? (() => undefined)}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}
@@ -358,16 +424,11 @@ export function Shell({
           breakpoint={breakpoint}
           media={data.media}
           selectedId={selection?.id ?? null}
-          onSelect={(gallery) =>
-            select({
-              kind: "media",
-              id: gallery.id,
-              title: gallery.name,
-              urlPath: gallery.directory,
-              sourcePath: `/content/media.val.ts`,
-            })
-          }
-          onUpload={() => undefined}
+          onSelect={(gallery) => select(toMediaSelection(gallery))}
+          onUpload={() => {
+            const gallery = data.media.find((g) => g.id === selection?.id);
+            if (gallery) onUploadMedia?.(gallery);
+          }}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}
@@ -380,17 +441,8 @@ export function Shell({
           breakpoint={breakpoint}
           data={data.data}
           selectedId={selection?.id ?? null}
-          onSelect={(module) =>
-            select({
-              kind: "data",
-              id: module.id,
-              title: module.name,
-              urlPath: module.moduleFilePath,
-              sourcePath: module.moduleFilePath,
-              hasDraft: module.hasDraft,
-            })
-          }
-          onNewDataFile={() => undefined}
+          onSelect={(module) => select(toDataSelection(module))}
+          onNewDataFile={onNewDataFile ?? (() => undefined)}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}
@@ -411,7 +463,7 @@ export function Shell({
           branch={data.branch}
           deployments={deployments}
           onDismissDeployment={dismissDeployment}
-          onSignOut={() => undefined}
+          onSignOut={onSignOut ?? (() => undefined)}
           onClose={closePanel}
           navSwitcher={navSwitcher}
         />
@@ -422,12 +474,12 @@ export function Shell({
           breakpoint={breakpoint}
           activity={data.activity}
           validationErrors={data.validationErrors}
-          onSelectValidationError={() => undefined}
-          onNewPage={() => undefined}
-          onUploadMedia={() => undefined}
-          onNewDataFile={() => undefined}
+          onSelectValidationError={onSelectValidationError ?? (() => undefined)}
+          onNewPage={onNewPage ?? (() => undefined)}
+          onUploadMedia={() => setOpenPanel("media")}
+          onNewDataFile={onNewDataFile ?? (() => undefined)}
           onOpenAI={() => setOpenPanel("ai")}
-          onSelectActivity={() => undefined}
+          onSelectActivity={onSelectActivity ?? (() => undefined)}
           onClose={closePanel}
         />
       )}
@@ -484,21 +536,66 @@ export function Shell({
   );
 }
 
-/** Resolve an initial selection id against every kind of navigable item. */
-function findSelection(data: ShellData, id: string): Selection | null {
-  const fromPages = (pages: ShellData["pages"]): Selection | null => {
+/**
+ * One page row as a selection, or null when the row cannot be opened.
+ *
+ * Every selection carries the source path the navigation data gave it. Nothing
+ * here derives a path from a URL: which module serves `/blog/why-val` is the
+ * router's answer, not a string the shell can build.
+ */
+function toPageSelection(
+  page: ShellData["pages"][number],
+): ShellSelection | null {
+  if (page.sourcePath === undefined) return null;
+  return {
+    kind: "page",
+    id: page.id,
+    title: page.name,
+    urlPath: page.urlPath,
+    sourcePath: page.sourcePath,
+    hasDraft: page.hasDraft,
+    isTracked: page.isTracked,
+  };
+}
+
+function toExternalSelection(page: ShellExternalPage): ShellSelection | null {
+  if (page.sourcePath === undefined) return null;
+  return {
+    kind: "external",
+    id: page.id,
+    title: page.name,
+    urlPath: page.url,
+    sourcePath: page.sourcePath,
+  };
+}
+
+/** A gallery opens the module that holds it, which renders the grid. */
+function toMediaSelection(gallery: ShellMediaGallery): ShellSelection {
+  return {
+    kind: "media",
+    id: gallery.id,
+    title: gallery.name,
+    urlPath: gallery.directory,
+    sourcePath: gallery.moduleFilePath,
+  };
+}
+
+function toDataSelection(module: ShellDataModule): ShellSelection {
+  return {
+    kind: "data",
+    id: module.id,
+    title: module.name,
+    urlPath: module.moduleFilePath,
+    sourcePath: module.moduleFilePath,
+    hasDraft: module.hasDraft,
+  };
+}
+
+/** Resolve a selection id against every kind of navigable item. */
+function findSelection(data: ShellData, id: string): ShellSelection | null {
+  const fromPages = (pages: ShellData["pages"]): ShellSelection | null => {
     for (const page of pages) {
-      if (page.id === id) {
-        return {
-          kind: "page",
-          id: page.id,
-          title: page.name,
-          urlPath: page.urlPath,
-          sourcePath: `/content/pages.val.ts?p="${page.urlPath}"`,
-          hasDraft: page.hasDraft,
-          isTracked: page.isTracked,
-        };
-      }
+      if (page.id === id) return toPageSelection(page);
       const child = fromPages(page.children ?? []);
       if (child) return child;
     }
@@ -507,35 +604,10 @@ function findSelection(data: ShellData, id: string): Selection | null {
   const page = fromPages(data.pages);
   if (page) return page;
   const external = data.externalPages.find((entry) => entry.id === id);
-  if (external) {
-    return {
-      kind: "external",
-      id: external.id,
-      title: external.name,
-      urlPath: external.url,
-      sourcePath: `/content/external.val.ts?p="${external.url}"`,
-    };
-  }
+  if (external) return toExternalSelection(external);
   const gallery = data.media.find((entry) => entry.id === id);
-  if (gallery) {
-    return {
-      kind: "media",
-      id: gallery.id,
-      title: gallery.name,
-      urlPath: gallery.directory,
-      sourcePath: "/content/media.val.ts",
-    };
-  }
+  if (gallery) return toMediaSelection(gallery);
   const module = data.data.find((entry) => entry.id === id);
-  if (module) {
-    return {
-      kind: "data",
-      id: module.id,
-      title: module.name,
-      urlPath: module.moduleFilePath,
-      sourcePath: module.moduleFilePath,
-      hasDraft: module.hasDraft,
-    };
-  }
+  if (module) return toDataSelection(module);
   return null;
 }

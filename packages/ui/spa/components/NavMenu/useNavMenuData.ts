@@ -60,9 +60,20 @@ function transformSitemapNode(
   const keyDescription =
     routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
 
+  // The URL this row resolves to, which is what navigation, key creation and
+  // the row's own label all need. `pattern` is the route *pattern*
+  // (`/blogs/[blog]`), shared by every sibling under a dynamic segment, so
+  // taking it would give two blog posts the same URL. `fullPath` is the
+  // resolved one; only a folder row that is not itself a page lacks it, and
+  // there the pattern is all there is.
+  const resolvedUrlPath =
+    (node.type === "leaf" ? node.fullPath : node.page?.fullPath) ||
+    node.pattern ||
+    "/";
+
   return {
     name: node.name,
-    urlPath: node.pattern || "/",
+    urlPath: resolvedUrlPath,
     sourcePath,
     moduleFilePath,
     canAddChild,

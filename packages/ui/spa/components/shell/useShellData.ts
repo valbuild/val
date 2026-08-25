@@ -112,6 +112,7 @@ export function useShellData(): ShellDataState {
             id: entry.moduleFilePath,
             name: directoryName(entry.directory),
             directory: entry.directory,
+            moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             itemCount: countKeys(mediaRecords[index]),
           }),

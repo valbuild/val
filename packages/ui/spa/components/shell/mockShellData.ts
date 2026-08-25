@@ -14,238 +14,293 @@ import {
 /**
  * Mock data for the shell stories.
  *
- * Sized to be realistic rather than pretty: real projects have dozens of
- * pages and a long tail of external links, and the panels have to stay
- * usable at that size.
+ * Shaped by `shellDataMapping`, not by hand: every field here is what that
+ * mapping would actually produce from `useNavMenuData` and the patch sets, so
+ * a story cannot pass on data the app can never supply. In particular
+ *
+ *  - a row's `id` is the content it opens, because that is what the mapping
+ *    sets — a source path for a page, a module file path for everything else;
+ *  - a page's `sourcePath` is `<route module>?p="<url>"`, the shape
+ *    `getSitemapTree` builds, and a folder row that is only a path segment has
+ *    none, so it expands rather than opens;
+ *  - names are the raw segment for pages and the extension-stripped file name
+ *    for data modules, matching what the nav menu shows today;
+ *  - external pages are labelled by host, because the external router's keys
+ *    are URLs and there is no other label to use.
+ *
+ * Sized to be realistic rather than pretty: real projects have dozens of pages
+ * and a long tail of external links, and the panels have to stay usable at
+ * that size.
  */
 
+/** `/blog/why-we-built-val` -> the source path its route module resolves to. */
+function pageSourcePath(routeModule: string, urlPath: string): string {
+  return `${routeModule}?p=${JSON.stringify(urlPath)}`;
+}
+
+/**
+ * A leaf page under a dynamic route.
+ *
+ * Every post under `/blog/[slug]` is served by the same route module and
+ * differs only by the key, which is exactly why the id has to be the source
+ * path: the route *pattern* is shared by all of them.
+ */
+function leafPage(
+  routeModule: string,
+  urlPath: string,
+  extra: Partial<ShellPage> = {},
+): ShellPage {
+  const sourcePath = pageSourcePath(routeModule, urlPath);
+  return {
+    id: sourcePath,
+    name: urlPath.split("/").filter(Boolean).slice(-1)[0] ?? "/",
+    urlPath,
+    sourcePath,
+    isTracked: true,
+    ...extra,
+  };
+}
+
+const BLOG_ROUTE = "/app/blog/[slug]/page.val.ts";
+const CUSTOMER_ROUTE = "/app/customers/[customer]/page.val.ts";
+const DOCS_ROUTE = "/app/docs/[[...path]]/page.val.ts";
+
 const blogPosts: ShellPage[] = [
-  "Why we built Val",
-  "Git-based content, explained",
-  "Type-safe content for Next.js",
-  "Shipping a CMS without a database",
-  "Content modelling for developers",
-  "Structured content in TypeScript",
-  "Migrating from a headless CMS",
-  "Validation as a content feature",
-  "Draft previews without a preview server",
-  "Editing in place",
-  "The case against page builders",
-  "Localisation without lock-in",
-].map((name, i) => ({
-  id: `blog-${i}`,
-  name,
-  urlPath: `/blog/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-  hasDraft: i === 0 || i === 4,
-  errorCount: i === 7 ? 1 : undefined,
-}));
+  "why-we-built-val",
+  "git-based-content-explained",
+  "type-safe-content-for-nextjs",
+  "shipping-a-cms-without-a-database",
+  "content-modelling-for-developers",
+  "structured-content-in-typescript",
+  "migrating-from-a-headless-cms",
+  "validation-as-a-content-feature",
+  "draft-previews-without-a-preview-server",
+  "editing-in-place",
+  "the-case-against-page-builders",
+  "localisation-without-lock-in",
+].map((slug, i) =>
+  leafPage(BLOG_ROUTE, `/blog/${slug}`, {
+    hasDraft: i === 0 || i === 4,
+    errorCount: i === 7 ? 1 : undefined,
+  }),
+);
 
 const caseStudies: ShellPage[] = [
-  "Nordic Retail",
-  "Bergen Energy",
-  "Fjord Logistics",
-  "Aurora Bank",
-  "Vestland Municipality",
-  "Polar Media",
-].map((name, i) => ({
-  id: `case-${i}`,
-  name,
-  urlPath: `/customers/${name.toLowerCase().replace(/\s+/g, "-")}`,
-  hasDraft: i === 2,
-}));
+  "nordic-retail",
+  "bergen-energy",
+  "fjord-logistics",
+  "aurora-bank",
+  "vestland-municipality",
+  "polar-media",
+].map((slug, i) =>
+  leafPage(CUSTOMER_ROUTE, `/customers/${slug}`, { hasDraft: i === 2 }),
+);
 
 const docsPages: ShellPage[] = [
-  "Getting started",
-  "Installation",
-  "Schemas",
-  "Modules",
-  "Rich text",
-  "Images and files",
-  "Remote files",
-  "Validation",
-  "Patches",
-  "CLI",
-  "Deployment",
-  "API reference",
-].map((name, i) => ({
-  id: `docs-${i}`,
-  name,
-  urlPath: `/docs/${name.toLowerCase().replace(/\s+/g, "-")}`,
-  errorCount: i === 6 ? 2 : undefined,
-}));
+  "getting-started",
+  "installation",
+  "schemas",
+  "modules",
+  "rich-text",
+  "images-and-files",
+  "remote-files",
+  "validation",
+  "patches",
+  "cli",
+  "deployment",
+  "api-reference",
+].map((slug, i) =>
+  leafPage(DOCS_ROUTE, `/docs/${slug}`, {
+    errorCount: i === 6 ? 2 : undefined,
+  }),
+);
 
-// `isTracked` is what gates the canvas: a route Val resolves can report what
-// is on it, an arbitrary path cannot. Most pages here are tracked; the legal
-// pages deliberately are not, so the shell can be checked in both states.
+/**
+ * A folder row: a segment that exists only because pages exist below it.
+ *
+ * `getSitemapTree` gives these no source path, which is what makes them
+ * unopenable. `urlPath` is the route pattern, because that is all a folder row
+ * has — there is no single URL it resolves to.
+ */
+function folderPage(
+  urlPath: string,
+  name: string,
+  children: ShellPage[],
+): ShellPage {
+  return { id: urlPath, name, urlPath, isTracked: false, children };
+}
+
+/** A page with its own route module, e.g. `/app/pricing/page.val.ts`. */
+function staticPage(
+  urlPath: string,
+  extra: Partial<ShellPage> = {},
+): ShellPage {
+  const segments = urlPath.split("/").filter(Boolean);
+  const routeModule =
+    segments.length === 0
+      ? "/app/page.val.ts"
+      : `/app/${segments.join("/")}/page.val.ts`;
+  return leafPage(routeModule, urlPath, extra);
+}
+
 export const mockPages: ShellPage[] = [
-  { id: "home", name: "Home", urlPath: "/", hasDraft: true, isTracked: true },
-  { id: "about", name: "About", urlPath: "/about", isTracked: true },
-  { id: "product", name: "Product", urlPath: "/product", isTracked: true },
-  {
-    id: "pricing",
-    name: "Pricing",
-    urlPath: "/pricing",
-    hasDraft: true,
-    isTracked: true,
-  },
-  {
-    id: "features",
-    name: "Features",
-    urlPath: "/features",
-    children: [
-      { id: "feat-editor", name: "Editor", urlPath: "/features/editor" },
-      { id: "feat-ai", name: "AI", urlPath: "/features/ai" },
-      {
-        id: "feat-validation",
-        name: "Validation",
-        urlPath: "/features/validation",
-        errorCount: 1,
-      },
-      { id: "feat-git", name: "Git workflow", urlPath: "/features/git" },
-    ],
-  },
-  { id: "blog-index", name: "Blog", urlPath: "/blog", children: blogPosts },
-  {
-    id: "customers",
-    name: "Customers",
-    urlPath: "/customers",
-    children: caseStudies,
-  },
-  { id: "docs", name: "Docs", urlPath: "/docs", children: docsPages },
-  {
-    id: "changelog",
-    name: "Changelog",
-    urlPath: "/changelog",
-    isTracked: true,
-  },
-  { id: "careers", name: "Careers", urlPath: "/careers", isTracked: true },
-  { id: "contact", name: "Contact", urlPath: "/contact", isTracked: true },
-  { id: "privacy", name: "Privacy policy", urlPath: "/legal/privacy" },
-  { id: "terms", name: "Terms of service", urlPath: "/legal/terms" },
-  { id: "cookies", name: "Cookie policy", urlPath: "/legal/cookies" },
+  { ...staticPage("/", { hasDraft: true }), name: "/" },
+  staticPage("/about"),
+  staticPage("/product"),
+  staticPage("/pricing", { hasDraft: true }),
+  folderPage("/features/[feature]", "features", [
+    leafPage("/app/features/[feature]/page.val.ts", "/features/editor"),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/ai"),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/validation", {
+      errorCount: 1,
+    }),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/git"),
+  ]),
+  folderPage("/blog/[slug]", "blog", blogPosts),
+  folderPage("/customers/[customer]", "customers", caseStudies),
+  folderPage("/docs/[[...path]]", "docs", docsPages),
+  staticPage("/changelog"),
+  staticPage("/careers"),
+  staticPage("/contact"),
+  folderPage("/legal/[document]", "legal", [
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/privacy"),
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/terms"),
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/cookies"),
+  ]),
 ];
+
+const EXTERNAL_ROUTE = "/app/external.val.ts";
+
+/**
+ * External pages, as the external router produces them: the record's keys are
+ * the URLs, so the id is the source path and the label is the host.
+ */
+function externalPage(
+  url: string,
+  extra: Partial<ShellExternalPage> = {},
+): ShellExternalPage {
+  const sourcePath = pageSourcePath(EXTERNAL_ROUTE, url);
+  const parsed = new URL(url);
+  return {
+    id: sourcePath,
+    name: `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`,
+    url,
+    sourcePath,
+    ...extra,
+  };
+}
 
 export const mockExternalPages: ShellExternalPage[] = [
-  { id: "ext-ig", name: "Instagram", url: "https://instagram.com/valbuild" },
-  { id: "ext-li", name: "LinkedIn", url: "https://linkedin.com/company/val" },
-  { id: "ext-x", name: "X", url: "https://x.com/valbuild" },
-  { id: "ext-gh", name: "GitHub", url: "https://github.com/valbuild/val" },
-  { id: "ext-yt", name: "YouTube", url: "https://youtube.com/@valbuild" },
-  {
-    id: "ext-portal",
-    name: "Customer portal",
-    url: "https://portal.example.com",
-  },
-  { id: "ext-status", name: "Status page", url: "https://status.example.com" },
-  { id: "ext-support", name: "Support", url: "https://support.example.com" },
-  { id: "ext-shop", name: "Shop", url: "https://shop.example.com" },
-  {
-    id: "ext-jobs",
-    name: "Job listings",
-    url: "https://jobs.example.com/val",
-    errorCount: 1,
-  },
-  { id: "ext-community", name: "Community", url: "https://discord.gg/val" },
-  { id: "ext-newsletter", name: "Newsletter", url: "https://val.substack.com" },
+  externalPage("https://instagram.com/valbuild"),
+  externalPage("https://linkedin.com/company/val"),
+  externalPage("https://x.com/valbuild"),
+  externalPage("https://github.com/valbuild/val"),
+  externalPage("https://youtube.com/@valbuild"),
+  externalPage("https://portal.example.com"),
+  externalPage("https://status.example.com"),
+  externalPage("https://support.example.com"),
+  externalPage("https://shop.example.com"),
+  externalPage("https://jobs.example.com/val", { errorCount: 1 }),
+  externalPage("https://discord.gg/val"),
+  externalPage("https://val.substack.com"),
 ];
 
+/**
+ * Galleries, keyed by their module. The label is the last segment of the
+ * directory the gallery is constrained to, which is what `directoryName`
+ * produces — so it is lowercase, like the directory itself.
+ */
 export const mockMedia: ShellMediaGallery[] = [
   {
-    id: "media-images",
-    name: "Images",
+    id: "/content/media.val.ts",
+    name: "images",
     directory: "/public/val/images",
+    moduleFilePath: "/content/media.val.ts",
     itemCount: 184,
     mediaType: "images",
   },
   {
-    id: "media-illustrations",
-    name: "Illustrations",
+    id: "/content/illustrations.val.ts",
+    name: "illustrations",
     directory: "/public/val/illustrations",
+    moduleFilePath: "/content/illustrations.val.ts",
     itemCount: 42,
     mediaType: "images",
   },
   {
-    id: "media-people",
-    name: "People",
+    id: "/content/people.val.ts",
+    name: "people",
     directory: "/public/val/people",
+    moduleFilePath: "/content/people.val.ts",
     itemCount: 27,
     mediaType: "images",
   },
   {
-    id: "media-docs",
-    name: "Documents",
+    id: "/content/documents.val.ts",
+    name: "docs",
     directory: "/public/val/docs",
+    moduleFilePath: "/content/documents.val.ts",
     itemCount: 9,
     mediaType: "files",
   },
 ];
 
+/** A val file under Data. The label is the file name without its extension. */
+function dataModule(
+  moduleFilePath: string,
+  extra: Partial<ShellDataModule> = {},
+): ShellDataModule {
+  const file = moduleFilePath.split("/").pop() ?? moduleFilePath;
+  return {
+    id: moduleFilePath,
+    name: file.replace(/\.val\.(ts|js)$/, ""),
+    moduleFilePath,
+    ...extra,
+  };
+}
+
 export const mockDataModules: ShellDataModule[] = [
-  {
-    id: "data-settings",
-    name: "Site settings",
-    moduleFilePath: "/content/settings.val.ts",
-  },
-  {
-    id: "data-nav",
-    name: "Navigation",
-    moduleFilePath: "/content/navigation.val.ts",
-    hasDraft: true,
-  },
-  {
-    id: "data-footer",
-    name: "Footer",
-    moduleFilePath: "/content/footer.val.ts",
-  },
-  {
-    id: "data-products",
-    name: "Products",
-    moduleFilePath: "/content/products.val.ts",
-    errorCount: 3,
-  },
-  {
-    id: "data-authors",
-    name: "Authors",
-    moduleFilePath: "/content/authors.val.ts",
-  },
-  {
-    id: "data-redirects",
-    name: "Redirects",
-    moduleFilePath: "/content/redirects.val.ts",
-  },
-  {
-    id: "data-i18n",
-    name: "Translations",
-    moduleFilePath: "/content/i18n.val.ts",
-  },
+  dataModule("/content/settings.val.ts"),
+  dataModule("/content/navigation.val.ts", { hasDraft: true }),
+  dataModule("/content/footer.val.ts"),
+  dataModule("/content/products.val.ts", { errorCount: 3 }),
+  dataModule("/content/authors.val.ts"),
+  dataModule("/content/tags.val.ts"),
+  dataModule("/content/redirects.val.ts"),
+  dataModule("/content/featuredContent.val.ts"),
+  dataModule("/components/link.val.ts"),
 ];
 
+/**
+ * Val has no notification feed, so this is design surface rather than a
+ * mapping of anything. Kept as prose a feed would plausibly produce.
+ */
 export const mockNotifications: ShellNotification[] = [
   {
     id: "n1",
     kind: "content",
-    title: 'Page "Home" was updated',
+    title: "/ was updated",
     timestamp: "2 minutes ago",
     unread: true,
   },
   {
     id: "n2",
     kind: "media",
-    title: 'Media "hero-dark.png" uploaded',
+    title: "hero-dark.png uploaded to /public/val/images",
     timestamp: "10 minutes ago",
     unread: true,
   },
   {
     id: "n3",
     kind: "validation",
-    title: "3 validation errors in Products",
+    title: "3 validation errors in products",
     timestamp: "24 minutes ago",
     unread: true,
   },
   {
     id: "n4",
     kind: "content",
-    title: 'Data "navigation" was updated',
+    title: "navigation was updated",
     timestamp: "1 hour ago",
   },
   {
@@ -257,57 +312,73 @@ export const mockNotifications: ShellNotification[] = [
   {
     id: "n6",
     kind: "content",
-    title: 'Page "Pricing" was created',
+    title: "/pricing was created",
     timestamp: "Yesterday",
   },
 ];
 
+/**
+ * Validation errors, grouped the way `toValidationErrors` groups them: by
+ * module file. There is no per-page grouping, because an error's source path
+ * names the module it is in — a page under `/blog/[slug]` reports against its
+ * route module, not against its URL.
+ */
 export const mockValidationErrors: ShellValidationError[] = [
-  { id: "v1", title: "Products", detail: "/content/products.val.ts", count: 3 },
   {
-    id: "v2",
-    title: "Docs › Remote files",
-    detail: "/docs/remote-files",
+    id: "/content/products.val.ts",
+    title: "products",
+    detail: "/content/products.val.ts",
+    count: 3,
+  },
+  {
+    id: DOCS_ROUTE,
+    title: "page",
+    detail: DOCS_ROUTE,
     count: 2,
   },
   {
-    id: "v3",
-    title: "Features › Validation",
-    detail: "/features/validation",
+    id: "/app/features/[feature]/page.val.ts",
+    title: "page",
+    detail: "/app/features/[feature]/page.val.ts",
     count: 1,
   },
   {
-    id: "v4",
-    title: "External › Job listings",
-    detail: "https://jobs.example.com/val",
+    id: EXTERNAL_ROUTE,
+    title: "external",
+    detail: EXTERNAL_ROUTE,
     count: 1,
   },
 ];
 
+/**
+ * Recent activity, as `toActivity` builds it: the module's file label followed
+ * by the patch path, and the author id resolved to a name where a profile is
+ * known. A local dev project has no profiles, which is why the last entry has
+ * no author rather than a placeholder one.
+ */
 export const mockActivity: ShellActivityEntry[] = [
   {
-    id: "a1",
-    title: "Home › Hero › Title",
+    id: '/app/page.val.ts?p="/"/hero/title-0',
+    title: "page › hero › title",
     timestamp: "2 minutes ago",
-    author: "You",
+    author: "Fredrik Ekholdt",
   },
   {
-    id: "a2",
-    title: "Pricing › Plans",
+    id: '/app/pricing/page.val.ts?p="/pricing"/plans-1',
+    title: "page › plans",
     timestamp: "18 minutes ago",
-    author: "You",
+    author: "Fredrik Ekholdt",
   },
   {
-    id: "a3",
-    title: "Navigation › Primary",
+    id: "/content/navigation.val.ts?primary-2",
+    title: "navigation › primary",
     timestamp: "1 hour ago",
-    author: "Ada L.",
+    author: "Ida Sørensen",
   },
   {
-    id: "a4",
-    title: "Blog › Why we built Val",
+    id: '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"/text-3',
+    title: "page › /blog/why-we-built-val › text",
     timestamp: "Yesterday",
-    author: "Ada L.",
   },
 ];
 
@@ -322,8 +393,8 @@ export const mockChat: ShellChatMessage[] = [
     role: "assistant",
     text: "Here is a shorter heading. It keeps the promise but drops the qualifier.",
     proposal: {
-      target: "Home › Hero › Title",
-      content: "Build better websites",
+      target: "page › hero › title",
+      content: "Content as code",
       actions: ["apply", "replace", "try-another"],
     },
   },
@@ -336,9 +407,10 @@ export const mockChatSuggestions: string[] = [
   "Suggest sections",
 ];
 
+/** Full 40-character shas, as git produces and as the deployment feed joins on. */
 export const mockDeployments: ShellDeployment[] = [
   {
-    commitSha: "9f21c4ae0b7d1e5a",
+    commitSha: "9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
     state: "pending",
     message: "Update hero copy and pricing table",
     author: "Fredrik Ekholdt",
@@ -346,15 +418,15 @@ export const mockDeployments: ShellDeployment[] = [
     isLive: false,
   },
   {
-    commitSha: "3ab77c1902ef4d88",
+    commitSha: "3ab77c1902ef4d885b16c0da79f3e421ab5c9d08",
     state: "success",
-    message: "Add case study: Northwind",
+    message: "Add customer story: nordic-retail",
     author: "Ida Sørensen",
     timestamp: "12 minutes ago",
     isLive: true,
   },
   {
-    commitSha: "c05e9182aab34f60",
+    commitSha: "c05e9182aab34f6072d1e5b8c4a09f37e6215dba",
     state: "failure",
     message: "Swap footer links",
     author: "Fredrik Ekholdt",
@@ -382,6 +454,21 @@ export const mockShellData: ShellData = {
     email: "fredrik@valbuild.com",
   },
 };
+
+/**
+ * Ids of items worth selecting from a story control.
+ *
+ * Exported because the ids are source paths now, which are too long to retype
+ * in a story's `argTypes` and too easy to get subtly wrong.
+ */
+export const mockSelectionIds = {
+  home: mockPages[0].id,
+  pricing: mockPages[3].id,
+  firstBlogPost: blogPosts[0].id,
+  products: "/content/products.val.ts",
+  images: "/content/media.val.ts",
+  instagram: mockExternalPages[0].id,
+} satisfies Record<string, string>;
 
 /** An empty project — used to check the shell's empty states. */
 export const emptyShellData: ShellData = {

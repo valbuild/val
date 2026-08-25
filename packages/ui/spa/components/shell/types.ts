@@ -15,6 +15,14 @@ export type ShellPage = {
   name: string;
   /** URL path of the page, e.g. "/blogs/why-val". */
   urlPath: string;
+  /**
+   * Where the page's content lives, for navigation.
+   *
+   * Absent on a row that is only a path segment — `/blog` exists in the site
+   * map because `/blog/why-val` does, but has no content of its own. Those
+   * rows expand rather than open.
+   */
+  sourcePath?: string;
   /** Number of validation errors on this page (not descendants). */
   errorCount?: number;
   /** Whether the page has unpublished changes. */
@@ -37,10 +45,12 @@ export type ShellPage = {
  */
 export type ShellExternalPage = {
   id: string;
-  /** Display name, e.g. "Instagram". */
+  /** Display name, e.g. "instagram.com/valbuild". */
   name: string;
   /** The full external URL. */
   url: string;
+  /** Where the entry's content lives, for navigation. */
+  sourcePath?: string;
   errorCount?: number;
 };
 
@@ -50,6 +60,11 @@ export type ShellMediaGallery = {
   name: string;
   /** Directory the gallery is constrained to, e.g. "/public/val/images". */
   directory: string;
+  /**
+   * The gallery module itself. Selecting a gallery opens this module, which
+   * is what renders the grid of files.
+   */
+  moduleFilePath: string;
   itemCount: number;
   mediaType: "images" | "files";
 };

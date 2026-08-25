@@ -25,15 +25,26 @@ export function toShellPages(
   modulesWithDrafts: ReadonlySet<string>,
 ): ShellPage[] {
   const toPage = (item: SitemapItem): ShellPage => ({
-    // The URL path is what identifies a page to a person, and it is unique
-    // within a site map, so it doubles as the row's id.
-    id: item.urlPath,
+    // The row's id is the content it opens. That makes the id and the
+    // navigation target the same string, so the app can resolve the route it
+    // is on back to a row without a second lookup table. Folder rows have no
+    // content of their own, so they fall back to their URL — they are never
+    // selected, only expanded.
+    id: item.sourcePath ?? item.urlPath,
+    // The raw segment, which is what the site map shows elsewhere in the UI.
+    // A slug is a slug: prettifying `why-we-built-val` only obscures which
+    // URL the row is.
     name: item.name,
     urlPath: item.urlPath,
+    sourcePath: item.sourcePath,
     errorCount: item.errors?.ownCount,
     hasDraft: item.moduleFilePath
       ? modulesWithDrafts.has(item.moduleFilePath)
       : undefined,
+    // A row with a source path is a route Val resolves, which is exactly the
+    // condition for the canvas: it can ask the running site what is on it.
+    // A row without one is a path segment that only exists to hold children.
+    isTracked: item.sourcePath !== undefined,
     children: item.children.map(toPage),
   });
   // The site map's root stands for the site itself rather than a page, so its
@@ -49,11 +60,13 @@ export function toExternalPages(
   record: Record<string, SourcePath> | null | undefined,
 ): ShellExternalPage[] {
   if (!record) return [];
-  return Object.keys(record).map(
-    (url): ShellExternalPage => ({
-      id: url,
+  return Object.entries(record).map(
+    ([url, sourcePath]): ShellExternalPage => ({
+      // As with pages: the id is what the row opens.
+      id: sourcePath,
       name: hostLabel(url),
       url,
+      sourcePath,
     }),
   );
 }
@@ -71,7 +84,9 @@ export function toDataModules(
     }
     modules.push({
       id: item.fullPath,
-      name: item.name,
+      // The tree's names are file names; the explorer shows them without the
+      // val extension, and so does this row.
+      name: fileLabel(item.name),
       moduleFilePath: item.fullPath,
       errorCount: item.errors?.ownCount,
       hasDraft: modulesWithDrafts.has(item.fullPath),
