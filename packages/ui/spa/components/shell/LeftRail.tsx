@@ -1,4 +1,4 @@
-import { Braces, FileText, Image, Settings } from "lucide-react";
+import { Braces, FileText, Image } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Tooltip,
@@ -10,21 +10,26 @@ import { ValLogo } from "./ValLogo";
 import { Avatar } from "./Avatar";
 
 export type RailItem = {
-  panel: Extract<ShellPanel, "pages" | "media" | "data" | "settings">;
+  panel: Extract<ShellPanel, "pages" | "media" | "data">;
   label: string;
   icon: typeof FileText;
 };
 
 /**
- * External pages are not a top-level destination: they live at the bottom of
- * the Pages panel, because that is where someone looks for "the page that
- * links to Instagram".
+ * The content destinations, and only those.
+ *
+ * Settings is not one of them: the account button at the foot of the rail
+ * opens the same panel, and two controls that do the same thing in one strip
+ * of four icons is one too many.
+ *
+ * External pages are not a top-level destination either — they live at the
+ * bottom of the Pages panel, because that is where someone looks for "the
+ * page that links to Instagram".
  */
 export const RAIL_ITEMS: RailItem[] = [
   { panel: "pages", label: "Pages", icon: FileText },
   { panel: "media", label: "Media", icon: Image },
   { panel: "data", label: "Data", icon: Braces },
-  { panel: "settings", label: "Settings", icon: Settings },
 ];
 
 export type LeftRailProps = {

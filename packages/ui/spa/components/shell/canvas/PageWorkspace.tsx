@@ -401,7 +401,9 @@ export function PageWorkspace({
               onChange={setPane}
               animate={!reducedMotion}
             />
-            <span className="ml-auto">{viewToggle}</span>
+            {/* The view switch is about what the canvas shows, so it only
+                appears while the canvas is the pane you are on. */}
+            {pane === "canvas" && <span className="ml-auto">{viewToggle}</span>}
           </div>
         )}
       </div>
