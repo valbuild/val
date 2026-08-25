@@ -130,6 +130,37 @@ type Resolved =
  * field woken by an event can read immediately and cannot get a pre-patch
  * value.
  */
+/** The shape {@link SourceStore.entriesStatus} answers with. */
+type EntriesStatus = {
+  status: "complete" | "incomplete" | "error";
+  errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
+};
+
+/**
+ * Are two entry statuses the same answer?
+ *
+ * Compared field by field rather than by `JSON.stringify`: the error list is
+ * small and ordered by the walk, so this is both cheaper and honest about what
+ * "the same" means here.
+ */
+function sameEntriesStatus(a: EntriesStatus, b: EntriesStatus): boolean {
+  if (a.status !== b.status || a.errors.length !== b.errors.length) {
+    return false;
+  }
+  for (let index = 0; index < a.errors.length; index++) {
+    const left = a.errors[index];
+    const right = b.errors[index];
+    if (
+      left.moduleFilePath !== right.moduleFilePath ||
+      left.key !== right.key ||
+      left.message !== right.message
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class SourceStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -264,6 +295,15 @@ export class SourceStore {
    */
   private globalRevision = 0;
 
+  /**
+   * Modules whose change is computed but not yet announced. See {@link batched}.
+   *
+   * Only ever non-empty inside a batch: the revisions have already moved, so a
+   * read during one is correct — what is deferred is the telling, not the doing.
+   */
+  private deferredAnnouncements = new Set<ModuleFilePath>();
+  private batchDepth = 0;
+
   private bump(moduleFilePath: ModuleFilePath): void {
     this.revisions.set(
       moduleFilePath,
@@ -272,10 +312,63 @@ export class SourceStore {
     this.globalRevision++;
     this.substituted.delete(moduleFilePath);
     this.allSourcesAt = null;
+    if (this.batchDepth > 0) {
+      this.deferredAnnouncements.add(moduleFilePath);
+      return;
+    }
     // The one place a revision moves is the one place this is announced. See
     // `source:change` in `types.ts` for why it is not the union of the five
     // specific events.
     this.events.emit({ type: "source:change", moduleFilePath });
+  }
+
+  /**
+   * Run `fn`, announcing the modules it changed ONCE at the end instead of once
+   * per change.
+   *
+   * For an operation that is one thing to its caller but many writes underneath.
+   * Loading a `.jsonValues()` record's entries is the case that forced it: each
+   * entry is its own request, each arrival bumped the module, and every bump woke
+   * every whole-project subscriber in the app. A 121-entry record therefore
+   * re-rendered the open module 121 times in a burst — doubled by StrictMode —
+   * and the ref churn under it nested deep enough to trip React's update-depth
+   * limit. The route died with "Maximum update depth exceeded" from inside a
+   * Radix ref callback, which names nothing about entries; only counting the
+   * renders found it.
+   *
+   * Deferring the ANNOUNCEMENT and not the write is what makes this safe: the
+   * revisions, the `substituted` cache and `allSourcesAt` are all updated as each
+   * entry lands, so anything that reads mid-batch sees current data. Only the
+   * events wait.
+   *
+   * Flushed in a `finally` before the returned promise settles, so a caller that
+   * awaits this and then asserts on events sees them — deliberately not a
+   * `setTimeout`, which would emit after the await and make that racy.
+   *
+   * The cost: a progress indicator fed by `source:change` advances once per
+   * batch rather than per entry. Worth it against 121 whole-project re-renders,
+   * and a dedicated progress event is the fix if the bar needs to animate.
+   */
+  private async batched<T>(fn: () => Promise<T>): Promise<T> {
+    this.batchDepth++;
+    try {
+      return await fn();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.deferredAnnouncements.size > 0) {
+        const modules = [...this.deferredAnnouncements];
+        this.deferredAnnouncements.clear();
+        for (const moduleFilePath of modules) {
+          this.events.emit({ type: "source:change", moduleFilePath });
+        }
+        this.events.emit({
+          type: "source:patch-apply",
+          success: [],
+          failed: [],
+          modules,
+        });
+      }
+    }
   }
 
   /**
@@ -347,8 +440,27 @@ export class SourceStore {
       loaded += at.loaded;
       failed += at.failed;
     }
-    return { total, loaded, failed };
+    const next = { total, loaded, failed };
+    // Stable for the same reason as `entriesStatus` above: a progress hook reads
+    // this on every render.
+    const previous = this.allEntriesProgressCache;
+    if (
+      previous !== null &&
+      previous.total === next.total &&
+      previous.loaded === next.loaded &&
+      previous.failed === next.failed
+    ) {
+      return previous;
+    }
+    this.allEntriesProgressCache = next;
+    return next;
   }
+
+  private allEntriesProgressCache: {
+    total: number;
+    loaded: number;
+    failed: number;
+  } | null = null;
 
   /**
    * Deliver one entry's content. Bumps the module, because this changes what
@@ -368,6 +480,12 @@ export class SourceStore {
     byKey.set(key, content);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
+    if (this.batchDepth > 0) {
+      // `batched` emits one of these for the whole batch. Emitting here as well
+      // would invalidate every render and every validation in the module once
+      // per entry, which is the storm this exists to stop.
+      return;
+    }
     this.events.emit({
       type: "source:patch-apply",
       success: [],
@@ -422,8 +540,46 @@ export class SourceStore {
     const here = this.jsonEntries.get(moduleFilePath);
     const wanted = keys.filter((key) => here?.has(key) !== true);
     if (wanted.length === 0) return;
-    await Promise.all(wanted.map((key) => this.loadEntry(moduleFilePath, key)));
+    /**
+     * Coalesced per module per tick, then announced once.
+     *
+     * The engine did this too — its call site in `VirtualizedRecordList` said
+     * "coalesced by the engine into one request per module per tick, so a fast
+     * scroll that crosses several windows does not fan out" — and porting the
+     * call to the store dropped it. That turned out to be load-bearing for more
+     * than request count: a virtualized `.jsonValues()` record asks for the
+     * window it is showing, and every arrival re-renders those rows, which moves
+     * the window, which asks again. One announcement per tick is what lets that
+     * settle; per call it walked the whole record and blew React's update depth.
+     */
+    let pending = this.pendingEntryLoads.get(moduleFilePath);
+    if (pending === undefined) {
+      const keysWanted = new Set<string>();
+      const request = (async () => {
+        // One turn for every caller in this tick to join, then one fetch and one
+        // announcement for all of them.
+        await Promise.resolve();
+        this.pendingEntryLoads.delete(moduleFilePath);
+        await this.batched(() =>
+          Promise.all(
+            [...keysWanted].map((key) => this.loadEntry(moduleFilePath, key)),
+          ),
+        );
+      })();
+      pending = { keys: keysWanted, request };
+      this.pendingEntryLoads.set(moduleFilePath, pending);
+    }
+    for (const key of wanted) {
+      pending.keys.add(key);
+    }
+    await pending.request;
   }
+
+  /** In-flight coalesced entry loads, per module. See {@link loadEntries}. */
+  private pendingEntryLoads = new Map<
+    ModuleFilePath,
+    { keys: Set<string>; request: Promise<void> }
+  >();
 
   /**
    * Every `.jsonValues()` entry this module has, loaded.
@@ -500,11 +656,32 @@ export class SourceStore {
         incomplete = true;
       }
     }
-    if (errors.length > 0) {
-      return { status: "error", errors };
+    const next: EntriesStatus =
+      errors.length > 0
+        ? { status: "error", errors }
+        : { status: incomplete ? "incomplete" : "complete", errors };
+    /**
+     * Reference-stable, by recompute-and-compare — the same contract as
+     * {@link peek} and for the same reason: this is read on a render path, and a
+     * hook that returns a fresh object every render is a render loop as soon as
+     * anything downstream puts it in an effect's dependencies. `useKeysOf` did
+     * exactly that, through `useReferenceScanStatus`, and the record route it
+     * feeds re-rendered until React gave up with "Maximum update depth
+     * exceeded".
+     *
+     * Keyed on the requested modules, because the answer is about them: two
+     * callers asking about different sets must not evict each other.
+     */
+    const cacheKey = moduleFilePaths.join("\n");
+    const previous = this.entriesStatusCache.get(cacheKey);
+    if (previous !== undefined && sameEntriesStatus(previous, next)) {
+      return previous;
     }
-    return { status: incomplete ? "incomplete" : "complete", errors };
+    this.entriesStatusCache.set(cacheKey, next);
+    return next;
   }
+
+  private entriesStatusCache = new Map<string, EntriesStatus>();
 
   /**
    * Why this entry's last fetch failed, if it did.

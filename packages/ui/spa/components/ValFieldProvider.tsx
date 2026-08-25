@@ -768,35 +768,53 @@ function useSchemaAtPathInternal(
     initializedAt,
   ]);
 
-  if (initializedAt === null) {
-    return { status: "loading" };
-  }
-  if (resolvedSchemaAtPathRes.status !== "success") {
-    switch (resolvedSchemaAtPathRes.status) {
-      case "resolved-schema-not-found":
-      case "source-not-found":
-      case "module-schema-not-found":
-      case "schema-not-found":
-        return { status: "not-found" };
-      case "no-schemas":
-        return { status: "error", error: "No schemas" };
-      case "error":
-        return { status: "error", error: resolvedSchemaAtPathRes.error };
-      case "loading":
-        return { status: "loading" };
+  /**
+   * Memoised, and it is not a micro-optimisation: this hook's result is a
+   * dependency of effects all over the app, so an unstable reference is a render
+   * loop. The narrowing below built a FRESH object on every render for every
+   * status — `{ status: "loading" }`, `{ status: "not-found" }` — and the one
+   * memoised branch (`resolvedSchemaAtPathRes`) was the success case only. On a
+   * `.jsonValues()` record that was 346 renders in 15 seconds, ending in
+   * "Maximum update depth exceeded" out of a Radix ref callback.
+   *
+   * Same rule as `SourceStore.peek` and `ValidationStore.peek`: whatever a
+   * render path reads owes it a stable reference.
+   */
+  return useMemo<SchemaWithResolvedPathResult>(() => {
+    if (initializedAt === null) {
+      return { status: "loading" };
     }
-  }
-  return resolvedSchemaAtPathRes;
+    if (resolvedSchemaAtPathRes.status !== "success") {
+      switch (resolvedSchemaAtPathRes.status) {
+        case "resolved-schema-not-found":
+        case "source-not-found":
+        case "module-schema-not-found":
+        case "schema-not-found":
+          return { status: "not-found" };
+        case "no-schemas":
+          return { status: "error", error: "No schemas" };
+        case "error":
+          return { status: "error", error: resolvedSchemaAtPathRes.error };
+        case "loading":
+          return { status: "loading" };
+      }
+    }
+    return resolvedSchemaAtPathRes;
+  }, [resolvedSchemaAtPathRes, initializedAt]);
 }
 
 export function useSchemaAtPath(
   sourcePath: SourcePath | ModuleFilePath,
 ): SchemaAtPathResult {
   const res = useSchemaAtPathInternal(sourcePath);
-  if (res.status === "success") {
-    return { status: "success", data: res.data };
-  }
-  return res;
+  // Memoised for the same reason as the internal hook above: dropping
+  // `resolvedPath` by building a new object made every render a new reference.
+  return useMemo<SchemaAtPathResult>(() => {
+    if (res.status === "success") {
+      return { status: "success", data: res.data };
+    }
+    return res;
+  }, [res]);
 }
 
 /**

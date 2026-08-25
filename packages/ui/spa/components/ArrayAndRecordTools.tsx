@@ -64,32 +64,52 @@ export function ArrayAndRecordTools({
       : undefined,
   );
   const srcFolder = useNextAppRouterSrcFolder();
-  const routePattern =
-    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    "data" in schemaAtPath &&
-    schemaAtPath.data.type === "record" &&
-    schemaAtPath.data.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          schemaAtPath.data.router,
-        )
-      : null;
-  const parentRoutePattern =
-    isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    parentSchemaAtPath &&
-    parentSchemaAtPath.type === "record" &&
-    parentSchemaAtPath.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          parentSchemaAtPath.router,
-        )
-      : null;
+  /**
+   * Memoised, because these arrays are PROPS that end up in a dependency list.
+   *
+   * `getRouterPattern` parses into a fresh array on every call, and both are
+   * passed down to `RouteForm` (via the add and change popovers), whose
+   * `useEffect(..., [defaultValue, routePattern])` calls `setParams` with a
+   * freshly built object. Unstable in, unstable out: the effect re-ran every
+   * render and its own `setParams` caused the next one.
+   *
+   * The code here is unchanged from `main` — this is a latent loop that only
+   * needed something to re-render this component often enough to enter it, which
+   * `.jsonValues()` entry loading duly provided. Verified load-bearing: reverting
+   * this memo alone brings the crash back on a 121-entry record.
+   */
+  const routePattern = React.useMemo(
+    () =>
+      isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      "data" in schemaAtPath &&
+      schemaAtPath.data.type === "record" &&
+      schemaAtPath.data.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            schemaAtPath.data.router,
+          )
+        : null,
+    [schemaAtPath, srcFolder, moduleFilePath],
+  );
+  const parentRoutePattern = React.useMemo(
+    () =>
+      isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      parentSchemaAtPath &&
+      parentSchemaAtPath.type === "record" &&
+      parentSchemaAtPath.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            parentSchemaAtPath.router,
+          )
+        : null,
+    [path, maybeParentPath, parentSchemaAtPath, srcFolder, moduleFilePath],
+  );
   const isParentFixedRoute =
     parentRoutePattern?.every((part) => part.type === "literal") || false;
   const canParentDelete =
