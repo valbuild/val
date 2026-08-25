@@ -1,11 +1,4 @@
-import {
-  CircleDot,
-  Cloud,
-  ExternalLink,
-  GitBranch,
-  Info,
-  Terminal,
-} from "lucide-react";
+import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import {
@@ -13,7 +6,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../designSystem/tooltip";
-import { ShellBreakpoint } from "./types";
+import { DeploymentsStatus } from "./Deployments";
+import { ShellBreakpoint, ShellDeployment } from "./types";
 
 export type SaveState = "saved" | "saving" | "error";
 
@@ -25,13 +19,22 @@ export type StatusBarProps = {
   onAutoSaveChange: (autoSave: boolean) => void;
   /** From `config.gitBranch`; hidden when Val is not in a git checkout. */
   branch?: string;
-  /** No provider supplies this yet, so the link is hidden without it. */
-  repositoryUrl?: string;
+  /** Publishes in flight or recently finished. Hidden when there is no feed. */
+  deployments?: ShellDeployment[];
+  deploymentsOpen?: boolean;
+  onDeploymentsOpenChange?: (open: boolean) => void;
+  onDismissDeployment?: (commitSha: string) => void;
 };
 
 /**
  * The floating bottom status bar: everything about *where* changes go, and
  * nothing about the content itself.
+ *
+ * It is read left to right as a pipeline. The left is what you have set up
+ * and rarely touch — auto save, the branch you are writing to. The right is
+ * what is happening to your work right now — the build, the environment, and
+ * whether the last keystroke made it to disk. The rightmost slot is the one
+ * that changes most often, so that is where the save state sits.
  *
  * Hidden on mobile, where the same information moves into the status sheet
  * behind the bottom bar's info button rather than eating a permanent row.
@@ -43,7 +46,10 @@ export function StatusBar({
   autoSave,
   onAutoSaveChange,
   branch,
-  repositoryUrl,
+  deployments,
+  deploymentsOpen = false,
+  onDeploymentsOpenChange,
+  onDismissDeployment,
 }: StatusBarProps) {
   return (
     <footer
@@ -53,17 +59,6 @@ export function StatusBar({
         breakpoint === "desktop" ? "left-[4.75rem]" : "left-3",
       )}
     >
-      <SaveIndicator saveState={saveState} breakpoint={breakpoint} />
-      <Divider />
-      {isDevMode && (
-        <>
-          <span className="inline-flex items-center gap-1.5">
-            <Terminal size={13} className="text-fg-secondary-alt" />
-            Dev mode
-          </span>
-          <Divider />
-        </>
-      )}
       <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
         <Checkbox
           checked={autoSave}
@@ -82,28 +77,37 @@ export function StatusBar({
           </TooltipContent>
         </Tooltip>
       </label>
+      {branch && (
+        <>
+          <Divider />
+          <span className="inline-flex items-center gap-1.5 font-mono">
+            <GitBranch size={13} className="text-fg-secondary-alt" />
+            {branch}
+          </span>
+        </>
+      )}
       <div className="ml-auto flex items-center gap-3">
-        {branch && (
+        {deployments !== undefined && (
           <>
-            <span className="inline-flex items-center gap-1.5 font-mono">
-              <GitBranch size={13} className="text-fg-secondary-alt" />
-              {branch}
-            </span>
-            {repositoryUrl && <Divider />}
+            <DeploymentsStatus
+              deployments={deployments}
+              open={deploymentsOpen}
+              onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
+              onDismiss={onDismissDeployment ?? (() => undefined)}
+            />
+            <Divider />
           </>
         )}
-        {repositoryUrl && (
-          <a
-            href={repositoryUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 hover:text-fg-primary"
-          >
-            <span className="hidden md:inline">View on GitHub</span>
-            <span className="md:hidden">GitHub</span>
-            <ExternalLink size={12} />
-          </a>
+        {isDevMode && (
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <Terminal size={13} className="text-fg-secondary-alt" />
+              Dev mode
+            </span>
+            <Divider />
+          </>
         )}
+        <SaveIndicator saveState={saveState} breakpoint={breakpoint} />
       </div>
     </footer>
   );

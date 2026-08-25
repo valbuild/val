@@ -3,6 +3,13 @@ export type { ShellProps } from "./Shell";
 export { LeftRail, RAIL_ITEMS } from "./LeftRail";
 export { TopBar, PublishButton } from "./TopBar";
 export { StatusBar } from "./StatusBar";
+export {
+  DeploymentsStatus,
+  DeploymentsList,
+  DeploymentRows,
+  summarizeDeployments,
+} from "./Deployments";
+export type { DeploymentSummary } from "./Deployments";
 export { FloatingPanel } from "./FloatingPanel";
 export {
   OverlayMenuLauncher,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EditorCanvas, EmptyEditorState, PageEditor } from "./EditorCanvas";
@@ -53,6 +53,8 @@ export type ShellProps = {
   isLoading?: boolean;
   /** Show a load failure in the nav panels instead of content. */
   loadError?: string;
+  /** Open the deployments list on mount, as a publish would. */
+  initialDeploymentsOpen?: boolean;
 };
 
 /**
@@ -75,6 +77,7 @@ export function Shell({
   publishState = "idle",
   isLoading = false,
   loadError,
+  initialDeploymentsOpen = false,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
@@ -88,6 +91,42 @@ export function Shell({
     initialSelectionId ? findSelection(data, initialSelectionId) : null,
   );
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
+  const [deploymentsOpen, setDeploymentsOpen] = useState(
+    initialDeploymentsOpen,
+  );
+  const [dismissedDeployments, setDismissedDeployments] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const dismissDeployment = useCallback((commitSha: string) => {
+    setDismissedDeployments((current) => new Set(current).add(commitSha));
+  }, []);
+  const deployments = useMemo(
+    () =>
+      data.deployments?.filter(
+        (deployment) => !dismissedDeployments.has(deployment.commitSha),
+      ),
+    [data.deployments, dismissedDeployments],
+  );
+
+  // A publish is the one thing here that finishes somewhere else, so the list
+  // opens itself when a commit Val has not seen before shows up. The first
+  // feed after mount is history rather than news: opening on it would pop a
+  // panel at someone who has not published anything.
+  const seenCommits = useRef<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (data.deployments === undefined) {
+      return;
+    }
+    const commits = new Set(data.deployments.map((d) => d.commitSha));
+    const seen = seenCommits.current;
+    seenCommits.current = commits;
+    if (seen === null) {
+      return;
+    }
+    if (data.deployments.some((d) => !seen.has(d.commitSha))) {
+      setDeploymentsOpen(true);
+    }
+  }, [data.deployments]);
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
@@ -199,7 +238,10 @@ export function Shell({
           autoSave={autoSave}
           onAutoSaveChange={setAutoSave}
           branch={data.branch}
-          repositoryUrl={data.repositoryUrl}
+          deployments={deployments}
+          deploymentsOpen={deploymentsOpen}
+          onDeploymentsOpenChange={setDeploymentsOpen}
+          onDismissDeployment={dismissDeployment}
         />
       )}
 
@@ -292,6 +334,8 @@ export function Shell({
           autoSave={autoSave}
           onAutoSaveChange={setAutoSave}
           branch={data.branch}
+          deployments={deployments}
+          onDismissDeployment={dismissDeployment}
           onSignOut={() => undefined}
           onClose={closePanel}
           navSwitcher={navSwitcher}

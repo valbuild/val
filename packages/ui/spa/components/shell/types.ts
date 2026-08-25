@@ -139,11 +139,6 @@ export type ShellData = {
   projectName: string;
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
-  /**
-   * Link for "View on GitHub". No provider supplies this yet, so the status
-   * bar omits the link unless a caller passes one.
-   */
-  repositoryUrl?: string;
   pages: ShellPage[];
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];
@@ -167,4 +162,34 @@ export type ShellData = {
   user?: { name: string; initials: string; email?: string };
   /** Changes Publish would ship. */
   pendingChanges?: number;
+  /**
+   * Publishes and what happened to them after they left Val. Absent when the
+   * project has no deployment feed, which hides the status bar's deploy item
+   * entirely rather than showing an item that can never say anything.
+   */
+  deployments?: ShellDeployment[];
+};
+
+/**
+ * One publish, tracked from the commit Val made to the site going live.
+ *
+ * Mirrors `ValEnrichedDeployment`: Val owns the commit, the host owns the
+ * deployment, and the two are joined on the commit sha.
+ */
+export type ShellDeployment = {
+  /** Commit the publish created. Identifies the deployment everywhere. */
+  commitSha: string;
+  /**
+   * `created` is a commit Val has made but no deployment has claimed yet,
+   * so it reads as queued rather than as a state of its own.
+   */
+  state: "created" | "pending" | "success" | "failure" | "error";
+  /** Val's commit message. Null when only the deployment is known. */
+  message: string | null;
+  /** Who published, when known. */
+  author?: string;
+  /** Human-readable relative time, e.g. "2 minutes ago". */
+  timestamp: string;
+  /** True once Val has seen this commit serving the live site. */
+  isLive: boolean;
 };

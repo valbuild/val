@@ -3,6 +3,7 @@ import {
   ShellChatMessage,
   ShellData,
   ShellDataModule,
+  ShellDeployment,
   ShellExternalPage,
   ShellMediaGallery,
   ShellNotification,
@@ -321,10 +322,36 @@ export const mockChatSuggestions: string[] = [
   "Suggest sections",
 ];
 
+export const mockDeployments: ShellDeployment[] = [
+  {
+    commitSha: "9f21c4ae0b7d1e5a",
+    state: "pending",
+    message: "Update hero copy and pricing table",
+    author: "Fredrik Ekholdt",
+    timestamp: "just now",
+    isLive: false,
+  },
+  {
+    commitSha: "3ab77c1902ef4d88",
+    state: "success",
+    message: "Add case study: Northwind",
+    author: "Ida Sørensen",
+    timestamp: "12 minutes ago",
+    isLive: true,
+  },
+  {
+    commitSha: "c05e9182aab34f60",
+    state: "failure",
+    message: "Swap footer links",
+    author: "Fredrik Ekholdt",
+    timestamp: "1 hour ago",
+    isLive: false,
+  },
+];
+
 export const mockShellData: ShellData = {
   projectName: "val-demo-project",
   branch: "main",
-  repositoryUrl: "https://github.com/valbuild/val",
   pages: mockPages,
   externalPages: mockExternalPages,
   media: mockMedia,
@@ -332,6 +359,7 @@ export const mockShellData: ShellData = {
   notifications: mockNotifications,
   activity: mockActivity,
   validationErrors: mockValidationErrors,
+  deployments: mockDeployments,
   chat: mockChat,
   chatSuggestions: mockChatSuggestions,
   user: {
@@ -351,5 +379,6 @@ export const emptyShellData: ShellData = {
   notifications: [],
   activity: [],
   validationErrors: [],
+  deployments: [],
   chat: [],
 };

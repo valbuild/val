@@ -4,7 +4,8 @@ import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
 import { Avatar } from "./Avatar";
-import { ShellBreakpoint } from "./types";
+import { DeploymentRows } from "./Deployments";
+import { ShellBreakpoint, ShellDeployment } from "./types";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -16,6 +17,9 @@ export type SettingsPanelProps = {
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
   branch?: string;
+  /** Publishes in flight or recently finished. Absent when there is no feed. */
+  deployments?: ShellDeployment[];
+  onDismissDeployment?: (commitSha: string) => void;
   onSignOut: () => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
@@ -25,8 +29,8 @@ export type SettingsPanelProps = {
 /**
  * Account and workspace settings.
  *
- * Also where Auto save and Dev mode live on mobile, since the status bar is
- * not shown there.
+ * Also where Auto save, Dev mode and the deployment feed live on mobile,
+ * since the status bar is not shown there.
  */
 export function SettingsPanel({
   breakpoint,
@@ -38,6 +42,8 @@ export function SettingsPanel({
   autoSave,
   onAutoSaveChange,
   branch,
+  deployments,
+  onDismissDeployment,
   onSignOut,
   onClose,
   navSwitcher,
@@ -116,6 +122,18 @@ export function SettingsPanel({
             </div>
           )}
         </div>
+
+        {deployments !== undefined && (
+          <>
+            <PanelSectionLabel divided>Deployments</PanelSectionLabel>
+            <div className="pt-1">
+              <DeploymentRows
+                deployments={deployments}
+                onDismiss={onDismissDeployment ?? (() => undefined)}
+              />
+            </div>
+          </>
+        )}
 
         <div className="px-4 pt-4">
           <button

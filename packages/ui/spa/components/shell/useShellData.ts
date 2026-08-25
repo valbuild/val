@@ -5,7 +5,9 @@ import {
   useCommittedPatches,
   useCurrentPatchIds,
   useCurrentProfile,
+  useDeployments,
   usePatchSets,
+  useProfilesByAuthorId,
   useShallowModulesAtPaths,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
@@ -14,6 +16,7 @@ import { ShellData, ShellMediaGallery } from "./types";
 import {
   toActivity,
   toDataModules,
+  toDeployments,
   toExternalPages,
   toShellPages,
   toValidationErrors,
@@ -44,6 +47,21 @@ export function useShellData(): ShellDataState {
   const patchSets = usePatchSets();
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
+  const { deployments, observedCommitShas } = useDeployments();
+  const profilesByAuthorId = useProfilesByAuthorId();
+
+  // Relative times are computed once per feed change rather than per render,
+  // so a row does not silently disagree with the one above it.
+  const shellDeployments = useMemo(
+    () =>
+      toDeployments(
+        deployments,
+        observedCommitShas,
+        profilesByAuthorId,
+        Date.now(),
+      ),
+    [deployments, observedCommitShas, profilesByAuthorId],
+  );
 
   const navData = navMenu.status === "success" ? navMenu.data : undefined;
 
@@ -108,6 +126,7 @@ export function useShellData(): ShellDataState {
             : undefined,
         chatSuggestions: config?.ai?.chat?.suggestions,
         pendingChanges: currentPatchIds.length - committedPatchIds.size,
+        deployments: shellDeployments,
         user: profile
           ? {
               name: profile.fullName,
@@ -129,5 +148,6 @@ export function useShellData(): ShellDataState {
     modulesWithDrafts,
     currentPatchIds,
     committedPatchIds,
+    shellDeployments,
   ]);
 }

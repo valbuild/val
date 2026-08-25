@@ -4,7 +4,12 @@ import { Shell } from "../Shell";
 import { PublishState } from "../TopBar";
 import { SaveState } from "../StatusBar";
 import { ShellPanel } from "../types";
-import { emptyShellData, mockShellData } from "../mockShellData";
+import {
+  emptyShellData,
+  mockDeployments,
+  mockShellData,
+} from "../mockShellData";
+import { ShellDeployment } from "../types";
 
 /**
  * The whole shell in one story.
@@ -73,6 +78,16 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Include validation errors, which block publishing",
     },
+    deployments: {
+      control: "select",
+      options: ["mixed", "building", "failed", "live", "none", "hidden"],
+      description:
+        "Deployment feed behind the status bar's deploy item. `hidden` is a project with no feed at all.",
+    },
+    deploymentsOpen: {
+      control: "boolean",
+      description: "Open the deployments list on mount, as a publish does",
+    },
   },
 };
 export default meta;
@@ -88,7 +103,42 @@ type HarnessProps = {
   isLoading: boolean;
   loadError: string;
   withValidationErrors: boolean;
+  deployments: DeploymentsFixture;
+  deploymentsOpen: boolean;
 };
+
+type DeploymentsFixture =
+  | "mixed"
+  | "building"
+  | "failed"
+  | "live"
+  | "none"
+  | "hidden";
+
+/**
+ * The feed each fixture stands for.
+ *
+ * The status bar only ever summarises one thing, so each fixture is the
+ * smallest feed that produces a different summary.
+ */
+function deploymentsFor(
+  fixture: DeploymentsFixture,
+): ShellDeployment[] | undefined {
+  switch (fixture) {
+    case "hidden":
+      return undefined;
+    case "none":
+      return [];
+    case "mixed":
+      return mockDeployments;
+    case "building":
+      return mockDeployments.filter((d) => d.state === "pending");
+    case "failed":
+      return mockDeployments.filter((d) => d.state === "failure");
+    case "live":
+      return mockDeployments.filter((d) => d.state === "success");
+  }
+}
 
 /**
  * Owns the theme so the Settings panel's own theme switch works inside the
@@ -106,13 +156,18 @@ function ShellHarness({
   isLoading,
   loadError,
   withValidationErrors,
+  deployments,
+  deploymentsOpen,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   const base = empty ? emptyShellData : mockShellData;
-  const data = withValidationErrors ? base : { ...base, validationErrors: [] };
+  const withErrors = withValidationErrors
+    ? base
+    : { ...base, validationErrors: [] };
+  const data = { ...withErrors, deployments: deploymentsFor(deployments) };
   return (
     <Shell
-      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}`}
+      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
@@ -124,6 +179,7 @@ function ShellHarness({
       saveState={saveState}
       isLoading={isLoading}
       loadError={loadError || undefined}
+      initialDeploymentsOpen={deploymentsOpen}
     />
   );
 }
@@ -143,6 +199,8 @@ export const Default: Story = {
     isLoading: false,
     loadError: "",
     withValidationErrors: false,
+    deployments: "live",
+    deploymentsOpen: false,
   },
 };
 
@@ -256,4 +314,63 @@ export const LightMode: Story = {
 /** A brand new project: every list empty, nothing to publish. */
 export const EmptyProject: Story = {
   args: { ...Default.args, empty: true, openPanel: "pages" },
+};
+
+/**
+ * Straight after Publish: the list opens itself, because the build finishes
+ * somewhere Val is not. Closing it leaves the summary in the status bar, which
+ * is how you get back to it.
+ */
+export const JustPublished: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    deployments: "mixed",
+    deploymentsOpen: true,
+  },
+};
+
+/** The same feed with the list closed: one line in the corner, still building. */
+export const Building: Story = {
+  args: { ...Default.args, selectionId: "home", deployments: "building" },
+};
+
+/**
+ * A build that failed. The only red on the bar, and the only state that says
+ * something the editor has to act on.
+ */
+export const BuildFailed: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    deployments: "failed",
+    deploymentsOpen: true,
+  },
+};
+
+/** Nothing published yet: the list explains what will show up here. */
+export const NothingPublishedYet: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    deployments: "none",
+    deploymentsOpen: true,
+  },
+};
+
+/**
+ * A project with no deployment feed at all. The deploy item is gone rather
+ * than sitting there saying nothing.
+ */
+export const NoDeploymentFeed: Story = {
+  args: { ...Default.args, selectionId: "home", deployments: "hidden" },
+};
+
+/** On mobile the status bar is gone, so the feed lives in Settings. */
+export const DeploymentsOnMobile: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "settings",
+    deployments: "mixed",
+  },
 };
