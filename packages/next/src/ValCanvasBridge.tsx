@@ -153,6 +153,28 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
         setPicking(message.picking);
         return;
       }
+      if (message.type === "sourceUpdate") {
+        /**
+         * Handed straight to the listener the page already has.
+         *
+         * `ValNextProvider` listens for this event on its own window to make an
+         * inline edit visible behind the overlay; the only thing different here
+         * is that the edit was made in another window. Re-dispatching rather
+         * than reaching into the store keeps one path into the page — including
+         * the `router.refresh()` it throttles behind it, which is what brings a
+         * server component's own re-read across.
+         */
+        window.dispatchEvent(
+          new CustomEvent("val-event", {
+            detail: {
+              type: "source-update",
+              moduleFilePath: message.moduleFilePath,
+              source: message.source,
+            },
+          }),
+        );
+        return;
+      }
       setHighlighted(message.path);
       if (message.path !== null && message.scrollIntoView) {
         const target = findByPath(message.path);

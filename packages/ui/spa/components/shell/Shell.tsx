@@ -27,7 +27,7 @@ import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
-import { StatusBar, SaveState } from "./StatusBar";
+import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { useShellBreakpoint } from "./useShellBreakpoint";
@@ -73,6 +73,8 @@ export type ShellProps = {
   initialSearchOpen?: boolean;
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
+  /** How Val is running. See `StatusBarProps`. */
+  mode?: StatusBarProps["mode"];
   saveState?: SaveState;
   /** Number of changes Publish would ship. */
   pendingChanges?: number;
@@ -164,6 +166,7 @@ export function Shell({
   initialSearchOpen = false,
   theme,
   onThemeChange,
+  mode,
   saveState = "saved",
   pendingChanges = 12,
   publishState = "idle",
@@ -275,9 +278,16 @@ export function Shell({
 
   // The canvas is only offered where it would work: a page whose route Val
   // resolves, and only once the running site has reported what is on it.
+  /**
+   * Whether the canvas is on offer.
+   *
+   * Any page, not only one Val resolves. The canvas is a browser pointed at a
+   * URL: it can show a route Val knows nothing about just as well, and with the
+   * route bar it can be pointed anywhere. What a tracked route adds is the
+   * content on it — the fields view — and that gates itself on having any.
+   */
   const canCanvas =
     selection?.kind === "page" &&
-    selection.isTracked === true &&
     (renderCanvas !== undefined || canvasPage !== undefined);
   const toggleCanvas = useCallback(() => setIsCanvasOpen((open) => !open), []);
   // Closing puts the module editor back, so the way out lands where the way
@@ -310,9 +320,9 @@ export function Shell({
       }
       onSelectionChange?.(next);
       setChatTarget(null);
-      // The canvas belongs to the page it was opened on, and a page Val does
-      // not track has nothing to put on it.
-      if (next.kind !== "page" || next.isTracked !== true) {
+      // The canvas is a view of a page, so it closes when the selection is not
+      // one. Moving between pages keeps it open — that is the point of it.
+      if (next.kind !== "page") {
         setIsCanvasOpen(false);
         setCanvasView("normal");
       }
@@ -424,7 +434,7 @@ export function Shell({
         <StatusBar
           breakpoint={breakpoint}
           saveState={saveState}
-          isDevMode={isDevMode}
+          mode={mode}
           autoSave={autoSave}
           onAutoSaveChange={setAutoSave}
           branch={data.branch}

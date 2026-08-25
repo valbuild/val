@@ -20,7 +20,7 @@
  * the frame's URL is scoped to exactly the one document that needs it.
  */
 
-import type { SourcePath } from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -99,6 +99,29 @@ export type ValCanvasStudioMessage =
       scrollIntoView?: boolean;
     }
   | {
+      /**
+       * A module's source moved, so the page should re-render with it.
+       *
+       * The page already knows how to do this — it is what makes an inline edit
+       * visible behind the overlay — but it learns about it from a CustomEvent
+       * on its own window, and the studio is in a different window. So the
+       * update is relayed and the bridge re-dispatches it where the page is
+       * listening.
+       *
+       * Without it the canvas is only correct immediately after a load: a
+       * server component re-reads content when the page is requested, so
+       * everything typed since then is invisible until a reload.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "sourceUpdate";
+      moduleFilePath: ModuleFilePath;
+      /**
+       * The whole module source. `unknown` because the page's own types are the
+       * ones that give it meaning; nothing in between should be interpreting it.
+       */
+      source: unknown;
+    }
+  | {
       val: typeof VAL_CANVAS_MESSAGE;
       type: "setPicking";
       /**
@@ -135,7 +158,8 @@ export function isValCanvasStudioMessage(
   return (
     message.type === "rescan" ||
     message.type === "highlight" ||
-    message.type === "setPicking"
+    message.type === "setPicking" ||
+    message.type === "sourceUpdate"
   );
 }
 

@@ -113,14 +113,27 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [navigation],
   );
 
+  /**
+   * The editor for what the route points at.
+   *
+   * The *route*, not the selection's own path. A selection is a row in the
+   * navigation, and a row is a whole module; the route can be deeper —
+   * `?p="image"` inside it, which is what a deep link, a search result, a
+   * validation error and a pick on the canvas all produce. Rendering the row's
+   * path instead opened the module every time and quietly ignored the rest of
+   * the route, so every one of those landed on the right module and the wrong
+   * place in it.
+   */
   const renderEditor = useCallback(
     (selection: ShellSelection) => (
       <Module
-        path={selection.sourcePath as SourcePath}
+        path={
+          (navigation.currentSourcePath || selection.sourcePath) as SourcePath
+        }
         showModuleGalleryChild={null}
       />
     ),
-    [],
+    [navigation.currentSourcePath],
   );
 
   /**
@@ -284,6 +297,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       data={data}
       theme={theme === "light" ? "light" : "dark"}
       onThemeChange={setTheme}
+      mode={mode}
       selectionId={overrideEditor ? null : selectionId}
       onSelectionChange={onSelectionChange}
       renderEditor={renderEditor}

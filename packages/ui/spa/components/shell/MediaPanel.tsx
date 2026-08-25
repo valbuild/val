@@ -91,7 +91,10 @@ export function MediaPanel({
             <PanelRow
               key={gallery.id}
               selected={selectedId === gallery.id}
-              title={gallery.directory}
+              // The module, because that is what the row opens and what
+              // identifies it; the directory is already on the row as its
+              // label and its meta.
+              title={gallery.moduleFilePath}
               onClick={() => onSelect(gallery)}
               leading={
                 gallery.mediaType === "images" ? (
@@ -101,6 +104,7 @@ export function MediaPanel({
                 )
               }
               label={gallery.name}
+              meta={gallery.directory}
               trailing={
                 <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
                   {gallery.itemCount}

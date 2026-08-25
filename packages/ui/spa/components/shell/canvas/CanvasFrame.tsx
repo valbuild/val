@@ -9,6 +9,7 @@ import {
 } from "@valbuild/shared/internal";
 import { SourcePath } from "@valbuild/core";
 import { cn } from "../../designSystem/cn";
+import { useValSourceUpdates } from "../../../stores/react/ValOverlayEmitter";
 
 /**
  * How the frame is currently doing.
@@ -169,6 +170,27 @@ export function CanvasFrame({
       frameRef.current.src = enableUrl;
     }
   }, [frameSrc]);
+
+  /**
+   * Relay every edit into the frame.
+   *
+   * Only once the page has said it is there and in draft mode: before that
+   * there is nothing listening, and a page that is not rendering draft content
+   * would not know what to do with the update anyway.
+   *
+   * This is what makes the canvas keep up with typing. The page's own copy of
+   * the content came from the server when it was requested, so without a relay
+   * the canvas is only correct for the instant after it loads.
+   */
+  const isLive = state.status === "ready" && state.draftMode;
+  useValSourceUpdates(isLive, (moduleFilePath, source) => {
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "sourceUpdate",
+      moduleFilePath,
+      source,
+    });
+  });
 
   const blocked =
     (state.status === "ready" && !state.draftMode) ||

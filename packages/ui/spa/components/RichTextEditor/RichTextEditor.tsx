@@ -101,10 +101,19 @@ function LinkPickerOverlay({
   return (
     <div
       ref={overlayRef}
+      /*
+       * `z-window`, not a number of its own.
+       *
+       * This is a floating piece of the *editor*, so it belongs on the scale
+       * with everything else that floats: above the content it is attached to,
+       * below the app's own chrome. It used to be `z-[60]`, which beat every
+       * token on that scale — so the shell's floating panels, rail and bars all
+       * rendered underneath a link toolbar.
+       */
       className={
         isCatalog
-          ? `${positionClass} z-[60] flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
-          : `${positionClass} z-[60] flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
+          ? `${positionClass} z-window flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
+          : `${positionClass} z-window flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
       }
       style={{
         left: state.anchorRect.left,

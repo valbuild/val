@@ -1,4 +1,4 @@
-import { Braces, FileText, Image } from "lucide-react";
+import { Braces, FileText, Image, Settings } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Tooltip,
@@ -20,7 +20,9 @@ export type RailItem = {
  *
  * Settings is not one of them: the account button at the foot of the rail
  * opens the same panel, and two controls that do the same thing in one strip
- * of four icons is one too many.
+ * of four icons is one too many. Where there is no account — running against
+ * the working copy on disk, where there is no session — a cog takes its place
+ * at the foot of the rail rather than being added here.
  *
  * External pages are not a top-level destination either — they live at the
  * bottom of the Pages panel, because that is where someone looks for "the
@@ -81,13 +83,22 @@ export function LeftRail({
           <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
       ))}
-      {user && (
-        <div className="mt-auto shrink-0">
+      {/*
+       * The foot of the rail: the account, or a cog where there is no account.
+       *
+       * Settings is not only about the person signed in — the theme, dev mode,
+       * auto save and the branch all live there — so hiding the account button
+       * on a local checkout hid the whole panel with it, and there was no way
+       * to reach it at all.
+       */}
+      <div className="mt-auto shrink-0">
+        {user ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 aria-label={`Account: ${user.name}`}
+                aria-current={openPanel === "settings" ? "true" : undefined}
                 onClick={() => onSelect("settings")}
                 className="relative grid place-items-center w-8 h-8 rounded-full"
               >
@@ -99,8 +110,31 @@ export function LeftRail({
             </TooltipTrigger>
             <TooltipContent side="right">{user.name}</TooltipContent>
           </Tooltip>
-        </div>
-      )}
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Settings"
+                aria-current={openPanel === "settings" ? "true" : undefined}
+                onClick={() => onSelect("settings")}
+                className={cn(
+                  "relative grid place-items-center w-8 h-8 rounded-md transition-colors",
+                  openPanel === "settings"
+                    ? "bg-bg-float-raised text-fg-primary"
+                    : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+                )}
+              >
+                <Settings size={17} />
+                {hasDraftChanges && (
+                  <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Settings</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </nav>
   );
 }
