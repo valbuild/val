@@ -298,6 +298,18 @@ function headPatchId(): string | null {
   return last;
 }
 
+/**
+ * Tell every subscriber what the chain is now.
+ *
+ * The WHOLE chain, not the ids that just changed: `useStatus` handles a `patches`
+ * message by REPLACING `stat.data.patches` with what the message carries, so
+ * sending only the new id would announce that every other patch had vanished.
+ * Anything that adds to or removes from the chain has to call this.
+ */
+function broadcastChain(): void {
+  broadcast({ type: "patches", patches: [...state.patches.keys()] });
+}
+
 function broadcast(message: unknown): void {
   const payload = JSON.stringify(message);
   for (const socket of sockets) {
@@ -453,7 +465,7 @@ const savePatch: Handler = async (req, res) => {
     parentPatchId: body.parentPatchId ?? null,
     applied: null,
   });
-  broadcast({ type: "patches", patches: [body.patchId] });
+  broadcastChain();
   json(res, 200, { patchId: body.patchId });
 };
 
@@ -465,6 +477,7 @@ const deletePatches: Handler = async (req, res) => {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
   }
+  broadcastChain();
   // Every id comes back as deleted, including ones that were already gone: a
   // patch someone else removed first is absent either way, and reporting that
   // as a failure would make an ordinary discard look broken.
@@ -684,6 +697,9 @@ const commit: Handler = async (req, res) => {
   state.commits.push(record);
   state.headCommitSha = commitSha;
   broadcast({ type: "commit", commit: record });
+  // The patches are still in the chain, now applied. Announced so a second
+  // editor's Studio learns they were published rather than still pending.
+  broadcastChain();
   json(res, 200, {
     updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
     commit: commitSha,
@@ -814,7 +830,13 @@ const controlPlane: Handler = async (req, res, url) => {
       json(res, 400, { message: "path is required" });
       return;
     }
-    json(res, 200, { content: state.repoOverlay.get(key) ?? null });
+    const overlaid = state.repoOverlay.get(key);
+    json(res, 200, {
+      // Text only: this endpoint exists for asserting on committed source, and
+      // an image's bytes are stored base64 — handing those back as `content`
+      // would be neither readable nor safe to compare.
+      content: overlaid && overlaid.encoding === "utf8" ? overlaid.value : null,
+    });
     return;
   }
   if (action === "deployment" && req.method === "POST") {

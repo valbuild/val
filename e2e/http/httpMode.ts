@@ -23,16 +23,20 @@ const INTAKE_TIMEOUT = 60_000;
 
 const MOCK_BASE = `http://localhost:${MOCK_CONTENT_PORT}`;
 
-/**
- * The two people the mock knows about. Ids match its `/profiles` reply, because
- * the Studio shows the name that endpoint returns for the id in the session.
- */
-export const USERS = {
-  ada: { profileId: "profile-ada", fullName: "Ada Lovelace" },
-  linus: { profileId: "profile-linus", fullName: "Linus Pauling" },
-} as const;
+/** Which of the mock's two editors a test is acting as. */
+export type UserKey = "ada" | "linus";
 
-export type UserKey = keyof typeof USERS;
+/**
+ * The profile ids of the mock's two editors.
+ *
+ * These are the `sub` of the session cookie and the `authorId` on every patch, and
+ * they have to match the ids in the mock's `/profiles` reply — that is where the
+ * Studio gets the name it shows next to a change.
+ */
+export const USERS: Record<UserKey, { profileId: string }> = {
+  ada: { profileId: "profile-ada" },
+  linus: { profileId: "profile-linus" },
+};
 
 /**
  * A signed `val_session` cookie for one profile.
@@ -274,15 +278,6 @@ export const mock = {
     });
   },
 };
-
-/** Wait until the mock is holding `count` patches. */
-export async function expectPatchCount(count: number): Promise<void> {
-  await expect
-    .poll(async () => (await mock.state()).patches.length, {
-      message: `the content service never held ${count} patch(es)`,
-    })
-    .toBe(count);
-}
 
 // #endregion
 
