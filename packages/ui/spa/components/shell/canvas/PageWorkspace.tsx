@@ -169,6 +169,15 @@ export function PageWorkspace({
   // not mean "I want to edit this".
   const isPicking = view === "fields";
 
+  /**
+   * Clears the floating rail, which the narrowed column now reaches under.
+   *
+   * Inline because `md:px-6` lives in a media query and would otherwise win
+   * over any `pl-*` utility regardless of class order.
+   */
+  const railPadding =
+    breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
+
   const moduleColumn = (
     <div className="h-full overflow-y-auto">
       {/*
@@ -177,16 +186,12 @@ export function PageWorkspace({
        * which clips the editor on both sides instead of scrolling it.
        */}
       <div
-        style={{
-          maxWidth: CANVAS_MAX_WIDTH,
-          // Clears the floating rail, which the narrowed column now reaches
-          // under. Inline because `md:px-6` lives in a media query and would
-          // otherwise win over any `pl-*` utility regardless of class order.
-          ...(breakpoint === "desktop" && open
-            ? { paddingLeft: "5.5rem" }
-            : {}),
-        }}
-        className="w-full mx-auto px-4 md:px-6 pt-20 desktop:pt-24 pb-24"
+        style={{ maxWidth: CANVAS_MAX_WIDTH, ...railPadding }}
+        className={cn(
+          "w-full mx-auto px-4 md:px-6 pb-24",
+          // With the canvas open the switch above supplies the top gap.
+          open ? "pt-1" : "pt-20 desktop:pt-24",
+        )}
       >
         {children}
       </div>
@@ -194,10 +199,7 @@ export function PageWorkspace({
   );
 
   const fieldsColumn = page && (
-    <div
-      style={breakpoint === "desktop" ? { paddingLeft: "5.5rem" } : undefined}
-      className="h-full pt-16 pb-14"
-    >
+    <div style={railPadding} className="h-full pb-14">
       <FieldsPanel
         page={page}
         selectedFieldId={selectedFieldId}
@@ -207,6 +209,31 @@ export function PageWorkspace({
         attachedFieldIds={attachedFieldIds}
         isDevMode={isDevMode}
       />
+    </div>
+  );
+
+  /**
+   * The column, with the switch that decides what is in it.
+   *
+   * The switch sits at the top of the column rather than on the canvas,
+   * because the column is what it changes — and it stays in exactly the same
+   * place in both views, so the control does not move out from under you at
+   * the moment the thing below it is swapped.
+   */
+  const column = (
+    <div className="flex h-full min-h-0 flex-col">
+      {open && (
+        <div style={railPadding} className="shrink-0 px-4 md:px-6 pt-20 pb-2.5">
+          <ViewToggle
+            view={view}
+            onChange={onViewChange}
+            fieldCount={page ? Object.keys(page.fields).length : undefined}
+          />
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        {view === "fields" && open ? fieldsColumn : moduleColumn}
+      </div>
     </div>
   );
 
@@ -241,17 +268,14 @@ export function PageWorkspace({
         </div>
       </CanvasViewport>
 
-      <div className="absolute top-3 right-3 flex items-center gap-1.5">
-        <ViewToggle view={view} onChange={onViewChange} />
-        <button
-          type="button"
-          aria-label="Close canvas"
-          onClick={onCloseCanvas}
-          className="grid h-8 w-8 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary shadow-lg hover:text-fg-primary"
-        >
-          <X size={15} />
-        </button>
-      </div>
+      <button
+        type="button"
+        aria-label="Close canvas"
+        onClick={onCloseCanvas}
+        className="absolute top-3 right-3 grid h-8 w-8 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary shadow-lg hover:text-fg-primary"
+      >
+        <X size={15} />
+      </button>
 
       <CanvasToolbar
         className="absolute bottom-3 left-1/2 -translate-x-1/2"
@@ -281,9 +305,7 @@ export function PageWorkspace({
             !open && "overflow-x-hidden",
           )}
         >
-          <div className="h-full w-full shrink-0 snap-start">
-            {view === "fields" && open ? fieldsColumn : moduleColumn}
-          </div>
+          <div className="h-full w-full shrink-0 snap-start">{column}</div>
           {open && (
             <div className="h-full w-full shrink-0 snap-start p-3 pt-16 pb-14">
               {canvasPane}
@@ -303,7 +325,7 @@ export function PageWorkspace({
         }}
         className="relative h-full min-w-0 shrink-0"
       >
-        {view === "fields" && open ? fieldsColumn : moduleColumn}
+        {column}
       </div>
       {/*
        * Scales up as it arrives, so it reads as the page being placed beside
@@ -333,22 +355,23 @@ export function PageWorkspace({
  * Normal view or the fields Val found on the page.
  *
  * Two labelled states rather than one button that toggles, so the control
- * says which view you are in as well as where you can go. It sits on the
- * canvas because it is the canvas that changes — the column beside it
- * follows.
+ * says which view you are in as well as where you can go.
  */
 function ViewToggle({
   view,
   onChange,
+  fieldCount,
 }: {
   view: CanvasView;
   onChange: (view: CanvasView) => void;
+  /** How many fields the page reported. Shown on the Fields tab. */
+  fieldCount?: number;
 }) {
   return (
     <div
       role="tablist"
       aria-label="Canvas view"
-      className="flex gap-0.5 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg"
+      className="inline-flex gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5"
     >
       {(
         [
@@ -365,12 +388,17 @@ function ViewToggle({
           className={cn(
             "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
             view === value
-              ? "bg-bg-float-raised font-medium text-fg-primary"
+              ? "bg-bg-float-raised font-medium text-fg-primary shadow-sm"
               : "text-fg-secondary hover:text-fg-primary",
           )}
         >
           <Icon size={12} />
           {label}
+          {value === "fields" && fieldCount !== undefined && (
+            <span className="tabular-nums text-fg-secondary-alt">
+              {fieldCount}
+            </span>
+          )}
         </button>
       ))}
     </div>

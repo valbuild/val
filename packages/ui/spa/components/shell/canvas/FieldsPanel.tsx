@@ -79,18 +79,13 @@ export function FieldsPanel({
     }
   }, [selectedFieldId]);
 
-  const fieldCount = Object.keys(page.fields).length;
-
   return (
     <div className="flex h-full flex-col bg-bg-float">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border-float px-4">
-        <span className="text-[0.8125rem] font-semibold tracking-tight">
-          Fields
-        </span>
-        <span className="text-[0.6875rem] text-fg-secondary-alt tabular-nums">
-          {fieldCount}
-        </span>
-      </div>
+      {/*
+       * No title row: the switch above the column already says Fields, and
+       * carries the count. A second heading saying the same word twice in
+       * 40 pixels is noise.
+       */}
       <div className="shrink-0 border-b border-border-float px-3 py-2">
         <PanelFilterInput
           value={query}
