@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
@@ -9,6 +9,11 @@ import { PublishState } from "./TopBar";
 import { ShellData, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { useContentSearch } from "./useContentSearch";
+import {
+  ShellUrlState,
+  useShellUrlState,
+  useWriteShellUrlState,
+} from "./useShellUrlState";
 import { Module } from "../Module";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
@@ -90,6 +95,22 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
   const contentSearch = useContentSearch(searchQuery);
+
+  /**
+   * The view state, from the URL and back into it.
+   *
+   * Read once on mount — that is what a link restores — and written back as it
+   * changes, so the address bar is always a link to what is on screen.
+   */
+  const urlState = useShellUrlState();
+  const [viewState, setViewState] = useState<
+    Omit<ShellUrlState, "canvasRoute">
+  >(() => ({
+    panel: urlState.initial.panel,
+    canvasOpen: urlState.initial.canvasOpen,
+    canvasView: urlState.initial.canvasView,
+    canvasTransform: urlState.initial.canvasTransform,
+  }));
   const { isPublishing } = usePublishSummary();
 
   const data: ShellData =
@@ -166,12 +187,43 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * page in the navigation takes the canvas there too, which is what picking a
    * page means.
    */
-  const [typedRoute, setTypedRoute] = useState<string | null>(null);
+  const [typedRoute, setTypedRoute] = useState<string | null>(
+    urlState.initial.canvasRoute,
+  );
+  // Cleared when the selection moves, but not on the first render: a link that
+  // named a route meant it, and the selection it arrives with is the one the
+  // route was saved beside.
+  const isFirstSelection = useRef(true);
   useEffect(() => {
+    if (isFirstSelection.current) {
+      isFirstSelection.current = false;
+      return;
+    }
     setTypedRoute(null);
   }, [selectedPageUrl]);
 
   const canvasUrl = typedRoute ?? selectedPageUrl;
+
+  /**
+   * The URL, kept in step with the view.
+   *
+   * The typed route is only recorded when it differs from the selected page's
+   * own: otherwise every link would carry a route that says nothing the route
+   * it is already on does not.
+   */
+  useWriteShellUrlState(
+    urlState.write,
+    useMemo(
+      (): ShellUrlState => ({
+        ...viewState,
+        canvasRoute:
+          typedRoute !== null && typedRoute !== selectedPageUrl
+            ? typedRoute
+            : null,
+      }),
+      [viewState, typedRoute, selectedPageUrl],
+    ),
+  );
 
   /** The routes Val resolves, for the address bar's suggestions. */
   const canvasRoutes = useMemo(() => {
@@ -400,6 +452,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       canvasRoute={canvasUrl ?? undefined}
       onCanvasRouteChange={setTypedRoute}
       canvasRoutes={canvasRoutes}
+      initialPanel={urlState.initial.panel}
+      initialCanvasOpen={urlState.initial.canvasOpen}
+      initialCanvasView={urlState.initial.canvasView}
+      initialCanvasTransform={urlState.initial.canvasTransform}
+      onViewStateChange={setViewState}
       onPreview={openPreviewTab}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}

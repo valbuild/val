@@ -14,7 +14,7 @@ import {
   PageWorkspace,
   PageWorkspaceProps,
 } from "./canvas/PageWorkspace";
-import { CanvasPageData } from "./canvas/types";
+import { CanvasPageData, CanvasTransform } from "./canvas/types";
 import {
   GlobalSearch,
   SearchResult,
@@ -109,6 +109,21 @@ export type ShellProps = {
   canvasRoute?: PageWorkspaceProps["canvasRoute"];
   onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
   canvasRoutes?: PageWorkspaceProps["canvasRoutes"];
+  /** Where a link left the canvas looking. See `PageWorkspaceProps`. */
+  initialCanvasTransform?: PageWorkspaceProps["initialTransform"];
+  /**
+   * Reported whenever the view state changes, so it can be put in the URL.
+   *
+   * One callback for all of it rather than one per thing, because they are one
+   * answer to one question — where am I looking — and a link that carries half
+   * of it restores the wrong view.
+   */
+  onViewStateChange?: (state: {
+    panel: ShellPanel | null;
+    canvasOpen: boolean;
+    canvasView: CanvasView;
+    canvasTransform: CanvasTransform | null;
+  }) => void;
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -197,6 +212,8 @@ export function Shell({
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
+  initialCanvasTransform,
+  onViewStateChange,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
   skipTransition,
@@ -244,6 +261,18 @@ export function Shell({
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
+  // The canvas's own position, kept here only so it can be reported outward
+  // with the rest of the view state — the canvas owns it.
+  const [canvasTransform, setCanvasTransform] =
+    useState<CanvasTransform | null>(initialCanvasTransform ?? null);
+  useEffect(() => {
+    onViewStateChange?.({
+      panel: openPanel,
+      canvasOpen: isCanvasOpen,
+      canvasView,
+      canvasTransform,
+    });
+  }, [onViewStateChange, openPanel, isCanvasOpen, canvasView, canvasTransform]);
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
@@ -391,6 +420,8 @@ export function Shell({
         canvasRoute={canCanvas ? canvasRoute : undefined}
         onCanvasRouteChange={onCanvasRouteChange}
         canvasRoutes={canvasRoutes}
+        initialTransform={initialCanvasTransform}
+        onTransformChange={setCanvasTransform}
         isCanvasOpen={isCanvasOpen && canCanvas}
         onCloseCanvas={closeCanvas}
         view={canvasView}

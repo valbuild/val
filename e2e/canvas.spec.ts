@@ -257,6 +257,82 @@ test.describe("the canvas", () => {
       .toContain(picked!.split(",")[0]);
   });
 
+  /**
+   * The canvas, as a link.
+   *
+   * "The third card down, zoom out a bit" is the thing a link is supposed to
+   * replace, so the position is part of what a link carries — and the position
+   * is the part that is easy to get wrong: the canvas is mounted closed and
+   * opens a moment later, and the fit that follows will happily overwrite
+   * exactly what the link was carrying.
+   */
+  test("carries its state in the URL, and restores it", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+
+    const enable = studio.getByRole("button", {
+      name: /Turn on preview mode/,
+    });
+    await expect(enable).toBeVisible({ timeout: 25000 });
+    await enable.click();
+    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    await expect(fieldsTab).toBeVisible({ timeout: 30000 });
+    await fieldsTab.click();
+
+    // Move the zoom off the fitted default, so restoring it proves something.
+    await studio.getByRole("button", { name: "Zoom in" }).click();
+    await studio.getByRole("button", { name: "Zoom in" }).click();
+    const zoom = studio.locator("text=/^\\d+%$/").first();
+    await expect(zoom).toBeVisible();
+    // Settled: the zoom animates the canvas's own transform, and reading it
+    // mid-change gives a number that is about to be replaced.
+    await expect
+      .poll(async () => zoom.textContent(), { timeout: 5000 })
+      .not.toBe("100%");
+    const zoomed = await zoom.textContent();
+
+    /**
+     * The URL says all of it, and says it once.
+     *
+     * Polled because the write is throttled: panning produces a value per
+     * frame, and a `replaceState` per frame is both wasteful and, in some
+     * browsers, rate limited into dropping the ones that matter. The URL only
+     * has to be right by the time someone copies it.
+     *
+     * `p` belongs to the route, so carrying it as studio state as well would
+     * name the module path twice.
+     */
+    await expect
+      .poll(() => decodeURIComponent(page.url()), {
+        message: "the view state never reached the URL",
+        timeout: 10000,
+      })
+      .toMatch(/canvas-view=fields/);
+    const url = page.url();
+    const decoded = decodeURIComponent(url);
+    expect(decoded).toContain("canvas=1");
+    expect(decoded).toMatch(/canvas-at=[\d.]+,-?\d+,-?\d+/);
+    expect(decoded.match(/[?&]p=/g)).toHaveLength(1);
+
+    // And a fresh page on that URL is the same view.
+    const restored = await page.context().newPage();
+    await restored.goto(url);
+    const restoredStudio = restored.locator("#val-shadow-root");
+    await expect(
+      restoredStudio.getByText("On this page"),
+      "the link did not restore the canvas in its fields view",
+    ).toBeVisible({ timeout: 30000 });
+    await expect(
+      restoredStudio.locator(`text=${zoomed}`).first(),
+      "the link restored the canvas but not where it was looking",
+    ).toBeVisible({ timeout: 10000 });
+    await restored.close();
+  });
+
   test("is not offered for content that is not on a route", async ({
     page,
   }) => {

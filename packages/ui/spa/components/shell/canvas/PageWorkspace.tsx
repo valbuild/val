@@ -107,6 +107,15 @@ export type PageWorkspaceProps = {
   onCanvasRouteChange?: (route: string) => void;
   /** Routes Val tracks, offered as suggestions in the address bar. */
   canvasRoutes?: readonly string[];
+  /**
+   * Where the canvas was left looking, from a link.
+   *
+   * Applied instead of fitting the page: a link that says where to look should
+   * not be overruled by the canvas's own idea of a good default.
+   */
+  initialTransform?: CanvasTransform | null;
+  /** Reported as the canvas is panned and zoomed, so a link can carry it. */
+  onTransformChange?: (transform: CanvasTransform) => void;
   isCanvasOpen: boolean;
   onCloseCanvas: () => void;
   view: CanvasView;
@@ -176,6 +185,8 @@ export function PageWorkspace({
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
+  initialTransform,
+  onTransformChange,
   isCanvasOpen,
   onCloseCanvas,
   view,
@@ -203,11 +214,14 @@ export function PageWorkspace({
       : properties.map((p) => `${p} ${OPEN_MS}ms ${OPEN_EASE}`).join(", ");
 
   const [device, setDevice] = useState<CanvasDevice>("desktop");
-  const [transform, setTransform] = useState<CanvasTransform>({
-    scale: 1,
-    x: 0,
-    y: 0,
-  });
+  const [transform, setTransform] = useState<CanvasTransform>(
+    () => initialTransform ?? { scale: 1, x: 0, y: 0 },
+  );
+  // Reported on every change, including the fit: the fitted position is a
+  // position, and a link copied without touching anything should restore it.
+  useEffect(() => {
+    onTransformChange?.(transform);
+  }, [transform, onTransformChange]);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
   const [pane, setPane] = useState<WorkspacePane>("editor");
@@ -339,7 +353,9 @@ export function PageWorkspace({
   // or two after mount — measuring too early fits to a page a tenth of its
   // real size. A ResizeObserver waits for the height to actually arrive, and
   // the flag stops it re-fitting afterwards and fighting the user's zoom.
-  const [needsFit, setNeedsFit] = useState(true);
+  // A link that names a position has already answered the question fitting
+  // exists to answer, so it is not overruled by one.
+  const [needsFit, setNeedsFit] = useState(initialTransform == null);
   useEffect(() => {
     if (!needsFit || !open) return;
     const pageEl = pageRef.current;
@@ -356,10 +372,25 @@ export function PageWorkspace({
     return () => observer.disconnect();
   }, [needsFit, fit, open]);
 
-  // Opening the canvas, and switching device, both change the box the page
-  // has to fit into. The column also finishes moving a third of a second
-  // after the click, and the observer above catches that too.
-  useEffect(() => setNeedsFit(true), [device, open]);
+  /**
+   * Opening the canvas, and switching device, both change the box the page has
+   * to fit into. The column also finishes moving a third of a second after the
+   * click, and the observer above catches that too.
+   *
+   * The exception is the first opening when a link named a position. The canvas
+   * is mounted closed and opens a moment later once the data has loaded, so
+   * without this the fit that follows would overwrite exactly the thing the
+   * link was carrying — and the link would look like it had not worked.
+   */
+  const honoredInitialTransform = useRef(initialTransform == null);
+  useEffect(() => {
+    if (!honoredInitialTransform.current) {
+      if (!open) return;
+      honoredInitialTransform.current = true;
+      return;
+    }
+    setNeedsFit(true);
+  }, [device, open]);
 
   const reload = useCallback(() => {
     setReloadKey((key) => key + 1);

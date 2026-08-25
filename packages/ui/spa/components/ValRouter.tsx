@@ -48,6 +48,19 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
+/**
+ * Query params a route builds for itself, and which must not be carried.
+ *
+ * `p` is the module path — it is part of the source path the route is built
+ * from, not a separate piece of state — so carrying it appends the previous
+ * page's path to the next one's and the URL ends up naming two.
+ *
+ * `error-field` belongs to the errors view: carrying it would mean the fields
+ * from one visit followed you to the next, which is how a view ends up showing
+ * errors nobody asked about.
+ */
+const ROUTE_OWNED_PARAMS = ["p", "error-field"];
+
 const STUDIO_PATH_ATTR = "data-val-studio-path";
 
 function findStudioPathTarget(
@@ -223,14 +236,29 @@ export function ValRouter({
         : isErrors
           ? VAL_ERRORS_ROUTE + errorFieldsQuery
           : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
-      // Preserve `?session=` across in-studio navigations. Without this every
-      // sidebar/compare/errors click would strip the AI chat session id from
-      // the URL. URL only — useAI does not re-read this after mount, so chat
-      // state is intentionally not affected by navigations.
-      //
+      /**
+       * Carry the studio's own state across the navigation.
+       *
+       * A navigation replaces the whole URL, so anything the studio had put in
+       * the query — the AI session, which canvas is open and where it is
+       * looking — is gone unless it is carried. Everything is carried except
+       * the params a route owns, which are rebuilt above for the route being
+       * navigated to.
+       *
+       * Generic rather than a list of names, because the alternative is that
+       * every new piece of studio state has to remember to add itself here,
+       * and the failure when it forgets is silent: a link that looks right and
+       * restores half of what it should.
+       */
+      const carried = new URLSearchParams(
+        typeof window === "undefined" ? "" : window.location.search,
+      );
+      for (const owned of ROUTE_OWNED_PARAMS) {
+        carried.delete(owned);
+      }
       // In overlay mode the host page URL has no `?session=`, so fall back to
-      // sessionStorage so AI navigate_to (and overlay→studio nav generally)
-      // brings the active chat along to the studio.
+      // sessionStorage: AI navigate_to (and overlay→studio nav generally)
+      // should bring the active chat along to the studio.
       let sid: string | null = sessionParam;
       if (overlay && sid == null) {
         try {
@@ -239,8 +267,14 @@ export function ValRouter({
           sid = null;
         }
       }
-      const finalTo = sid
-        ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}session=${encodeURIComponent(sid)}`
+      if (sid) {
+        carried.set("session", sid);
+      } else {
+        carried.delete("session");
+      }
+      const carriedQuery = carried.toString();
+      const finalTo = carriedQuery
+        ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}${carriedQuery}`
         : navigateTo;
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
