@@ -216,14 +216,24 @@ test.describe("the canvas", () => {
     ).toBeVisible({ timeout: 30000 });
     await fieldsTab.click();
 
-    // The reported fields, by their real paths — not a fixed list.
+    /**
+     * The reported fields, as real editable fields.
+     *
+     * Located by the `title`, which carries the whole source path: the visible
+     * label is the field's own name, and a page can have several fields called
+     * the same thing in different modules.
+     */
     await expect(studio.getByText("On this page")).toBeVisible();
-    const contentRow = studio.getByRole("button", {
-      name: /page\.val\.ts.*"content"/,
-    });
-    await expect(contentRow).toBeVisible();
+    const contentRow = studio
+      .locator("[title$='.\"content\"']")
+      .filter({ hasText: "content" })
+      .first();
+    await expect(
+      contentRow,
+      "the fields column did not render the reported fields",
+    ).toBeVisible();
 
-    // Picking from the list opens that field in the editor.
+    // Picking from the column opens that field in the editor.
     await contentRow.click();
     await expect
       .poll(() => decodeURIComponent(page.url()), {

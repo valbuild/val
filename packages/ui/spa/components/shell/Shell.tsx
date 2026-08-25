@@ -105,6 +105,7 @@ export type ShellProps = {
   /** What the running page reported finding on itself. See `PageWorkspace`. */
   canvasPaths?: PageWorkspaceProps["canvasPaths"];
   onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
+  selectedCanvasPath?: PageWorkspaceProps["selectedCanvasPath"];
   /** The canvas's address bar. See `PageWorkspaceProps`. */
   canvasRoute?: PageWorkspaceProps["canvasRoute"];
   onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
@@ -211,6 +212,7 @@ export function Shell({
   renderCanvas,
   canvasPaths,
   onSelectCanvasPath,
+  selectedCanvasPath,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -420,6 +422,7 @@ export function Shell({
         renderCanvas={canCanvas ? renderCanvas : undefined}
         canvasPaths={canCanvas ? canvasPaths : undefined}
         onSelectCanvasPath={onSelectCanvasPath}
+        selectedCanvasPath={selectedCanvasPath}
         canvasRoute={canCanvas ? canvasRoute : undefined}
         onCanvasRouteChange={onCanvasRouteChange}
         canvasRoutes={canvasRoutes}

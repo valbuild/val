@@ -20,7 +20,7 @@ import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
 import { FieldsPanel } from "./FieldsPanel";
-import { CanvasPathList } from "./CanvasPathList";
+import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { SourcePath } from "@valbuild/core";
@@ -97,6 +97,8 @@ export type PageWorkspaceProps = {
   canvasPaths?: readonly SourcePath[];
   /** Open one of those paths in the editor. */
   onSelectCanvasPath?: (path: SourcePath) => void;
+  /** The path the editor is on, highlighted in the fields column to match. */
+  selectedCanvasPath?: SourcePath | null;
   /**
    * The route the canvas is showing, and how to change it.
    *
@@ -182,6 +184,7 @@ export function PageWorkspace({
   renderCanvas,
   canvasPaths,
   onSelectCanvasPath,
+  selectedCanvasPath,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -540,8 +543,9 @@ export function PageWorkspace({
 
   const pathsColumn = !page && reportedPaths.length > 0 && (
     <div style={railPadding} className="h-full pb-14">
-      <CanvasPathList
+      <CanvasFields
         paths={reportedPaths}
+        selectedPath={selectedCanvasPath}
         onSelect={onSelectCanvasPath}
         isDevMode={isDevMode}
       />

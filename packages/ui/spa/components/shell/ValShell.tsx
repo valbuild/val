@@ -465,6 +465,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       renderCanvas={renderCanvas}
       canvasPaths={canvasPaths}
       onSelectCanvasPath={openPath}
+      selectedCanvasPath={
+        (navigation.currentSourcePath as SourcePath | "") || null
+      }
       canvasRoute={canvasUrl ?? undefined}
       onCanvasRouteChange={setTypedRoute}
       canvasRoutes={canvasRoutes}
