@@ -1,5 +1,13 @@
 import { defineConfig } from "@playwright/test";
 import { existsSync } from "node:fs";
+import {
+  MOCK_API_KEY,
+  MOCK_CONTENT_PORT,
+  MOCK_INITIAL_COMMIT,
+  MOCK_PROJECT,
+  MOCK_SECRET,
+  HTTP_APP_PORT,
+} from "./e2e/http/config";
 
 const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
@@ -23,6 +31,18 @@ const PREINSTALLED_CHROMIUM =
  *
  * `reuseExistingServer` so a developer with servers already up does not wait for
  * two more, and so a failing test can be re-run against the same processes.
+ *
+ * ## And two more, for `http` mode
+ *
+ * Everything under `e2e/http/` needs the app running in proxy mode against a
+ * content service, which `fs` mode has no equivalent of: publishing as a git
+ * commit, patches marked applied instead of deleted, deployment and build events
+ * arriving over a WebSocket. So a mock content host (`e2e/mock-content-host`) and
+ * a second `next dev` configured to talk to it come up alongside the other two.
+ *
+ * They start on every run rather than only when the `http` project is selected —
+ * Playwright's `webServer` is global, with no per-project form — but `next dev`
+ * compiles lazily, so an FS-only run pays for a process, not a build.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -45,6 +65,9 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      // The `fs`-mode suites. `e2e/http/` is excluded because those tests need
+      // the other app, on the other port.
+      testIgnore: "http/**",
       use: {
         launchOptions: {
           /**
@@ -56,6 +79,19 @@ export default defineConfig({
            * runner, and leaving it out made it unrunnable in the sandbox — so it
            * is used when it exists and Playwright resolves its own otherwise.
            */
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      name: "chromium-http",
+      testMatch: "http/**/*.spec.ts",
+      use: {
+        baseURL: `http://localhost:${HTTP_APP_PORT}`,
+        launchOptions: {
           ...(existsSync(PREINSTALLED_CHROMIUM)
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
@@ -79,6 +115,47 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 180_000,
       cwd: "./examples/next",
+    },
+    {
+      // The fake content.val.build. Must be up before the app below: the app
+      // asks it for patches on the first `/stat`.
+      command: "pnpm exec tsx e2e/mock-content-host/server.ts",
+      url: `http://localhost:${MOCK_CONTENT_PORT}/__test__/ping`,
+      reuseExistingServer: true,
+      timeout: 60_000,
+      cwd: ".",
+      env: {
+        MOCK_CONTENT_PORT: String(MOCK_CONTENT_PORT),
+        MOCK_CONTENT_API_KEY: MOCK_API_KEY,
+        MOCK_CONTENT_PROJECT: MOCK_PROJECT,
+        MOCK_CONTENT_REPO_ROOT: process.cwd(),
+        MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
+      },
+    },
+    {
+      /**
+       * The same example app, in proxy mode.
+       *
+       * `initHandlerOptions` picks proxy mode from the environment alone —
+       * `VAL_API_KEY` and `VAL_SECRET` present means `http` — so this needs no
+       * product code and no second config file. `NEXT_DIST_DIR` keeps its build
+       * output away from the `fs`-mode server's.
+       */
+      command: `pnpm exec next dev -p ${HTTP_APP_PORT}`,
+      url: `http://localhost:${HTTP_APP_PORT}`,
+      reuseExistingServer: true,
+      timeout: 180_000,
+      cwd: "./examples/next",
+      env: {
+        NEXT_DIST_DIR: ".next-http",
+        VAL_API_KEY: MOCK_API_KEY,
+        VAL_SECRET: MOCK_SECRET,
+        VAL_PROJECT: MOCK_PROJECT,
+        VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+        VAL_GIT_BRANCH: "main",
+        VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+        VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+      },
     },
   ],
 });

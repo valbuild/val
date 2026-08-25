@@ -23,4 +23,7 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
+  // A gallery backed by Val's remote file host. See content/remoteImages.val.ts
+  // for why this is a gallery and not a single remote image field.
+  { def: () => import("./content/remoteImages.val") },
 ]);

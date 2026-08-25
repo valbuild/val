@@ -1,5 +1,7 @@
 node_modules/
 .next
+# The e2e suite's proxy-mode dev server, which needs a distDir of its own.
+.next-http
 dist
 tsconfig.tsbuildinfo
 .envrc
