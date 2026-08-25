@@ -80,6 +80,7 @@ module.exports = {
         "fg-error-on-surface": "var(--fg-error-on-surface)",
         "bg-page-selection": "var(--bg-page-selection)",
         "bg-page-selection-fill": "var(--bg-page-selection-fill)",
+        "bg-page-selection-soft": "var(--bg-page-selection-soft)",
         "bg-canvas": "var(--bg-canvas)",
         "bg-surface": "var(--bg-surface)",
         "bg-float": "var(--bg-float)",

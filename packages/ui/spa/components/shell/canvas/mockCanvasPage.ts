@@ -1,4 +1,4 @@
-import { CanvasChatMessage, CanvasField, CanvasPageData } from "./types";
+import { CanvasField, CanvasPageData } from "./types";
 
 /**
  * A page to put on the canvas.
@@ -129,11 +129,3 @@ export const mockCanvasPage: CanvasPageData = {
   ],
   fields: Object.fromEntries(FIELDS.map((f) => [f.id, f])),
 };
-
-export const mockCanvasChat: CanvasChatMessage[] = [
-  {
-    id: "c1",
-    role: "assistant",
-    text: "I can see the whole page. Pick anything on the canvas and I will work on it — or just tell me what you want changed.",
-  },
-];

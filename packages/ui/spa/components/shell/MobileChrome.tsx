@@ -1,4 +1,4 @@
-import { Eye, Info } from "lucide-react";
+import { Columns2, Eye, Info } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { PublishButton } from "./TopBar";
 import { RAIL_ITEMS } from "./LeftRail";
@@ -53,11 +53,16 @@ export function MobileBottomBar({
   onPreview,
   onPublish,
   onOpenStatus,
+  onToggleCanvas,
+  isCanvasOpen,
 }: {
   pendingChanges: number;
   onPreview: () => void;
   onPublish: () => void;
   onOpenStatus: () => void;
+  /** Absent when the selection has no route Val can put on a canvas. */
+  onToggleCanvas?: () => void;
+  isCanvasOpen?: boolean;
 }) {
   return (
     <div className="absolute z-full bottom-0 inset-x-0 flex items-center gap-2 px-3 py-2.5 bg-bg-float border-t border-border-float">
@@ -69,6 +74,22 @@ export function MobileBottomBar({
       >
         <Info size={16} />
       </button>
+      {onToggleCanvas && (
+        <button
+          type="button"
+          onClick={onToggleCanvas}
+          aria-label="Canvas"
+          aria-pressed={isCanvasOpen}
+          className={cn(
+            "grid place-items-center w-9 h-9 shrink-0 rounded-md border border-border-float",
+            isCanvasOpen
+              ? "bg-bg-float-raised text-fg-primary"
+              : "text-fg-secondary",
+          )}
+        >
+          <Columns2 size={16} />
+        </button>
+      )}
       <button
         type="button"
         onClick={onPreview}

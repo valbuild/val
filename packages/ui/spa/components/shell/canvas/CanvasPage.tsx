@@ -24,7 +24,11 @@ export function CanvasPage({
   selectedFieldId: string | null;
   attachedFieldIds: readonly string[];
   onSelectField: (fieldId: string) => void;
-  /** In select mode every editable node advertises itself on hover. */
+  /**
+   * In the fields view every editable node carries a resting outline, so the
+   * page shows what Val found on it at a glance rather than one hover at a
+   * time.
+   */
   isSelectMode: boolean;
 }) {
   const value = (id: string) => page.fields[id]?.value ?? "";
@@ -44,17 +48,21 @@ export function CanvasPage({
     <Tag
       data-field-id={id}
       onClick={(event: React.MouseEvent) => {
+        // In the normal view the click belongs to the page — a link, a
+        // button, whatever the customer built — so it is left alone.
+        if (!isSelectMode) return;
         event.stopPropagation();
         onSelectField(id);
       }}
       className={cn(
-        "relative cursor-pointer transition-shadow",
+        "relative transition-shadow",
+        // Outside the fields view the page is a page: it is read and clicked
+        // through, so nothing advertises itself as editable.
         isSelectMode &&
-          "hover:shadow-[0_0_0_2px_var(--bg-page-selection)] rounded-[2px]",
-        selectedFieldId === id &&
-          "shadow-[0_0_0_2px_var(--bg-page-selection)] rounded-[2px]",
-        attachedFieldIds.includes(id) &&
-          "shadow-[0_0_0_2px_var(--bg-page-selection)] rounded-[2px]",
+          "cursor-pointer rounded-[2px] shadow-[0_0_0_1px_var(--bg-page-selection-soft)] hover:shadow-[0_0_0_2px_var(--bg-page-selection)]",
+        isSelectMode &&
+          (selectedFieldId === id || attachedFieldIds.includes(id)) &&
+          "shadow-[0_0_0_2px_var(--bg-page-selection)]",
         className,
       )}
     >

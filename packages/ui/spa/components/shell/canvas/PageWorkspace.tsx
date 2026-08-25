@@ -1,0 +1,378 @@
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ListTree, MousePointerSquareDashed, X } from "lucide-react";
+import { cn } from "../../designSystem/cn";
+import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
+import { CanvasPage } from "./CanvasPage";
+import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
+import { FieldsPanel } from "./FieldsPanel";
+import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
+import { ShellBreakpoint } from "../types";
+import {
+  CANVAS_DEVICE_WIDTHS,
+  CanvasDevice,
+  CanvasPageData,
+  CanvasTransform,
+} from "./types";
+
+/**
+ * What the canvas is showing, and therefore what the column beside it holds.
+ *
+ * `normal` is the page as a visitor sees it: links work, nothing is outlined,
+ * and the column keeps the module editor. `fields` is the page as Val sees
+ * it: every element it tracks is outlined, and the column swaps to the fields
+ * actually found on the page. One control drives both, because they are one
+ * idea — whether you are looking at the page or at its content.
+ */
+export type CanvasView = "normal" | "fields";
+
+export type PageWorkspaceProps = {
+  /** The module editor for the current selection. Shown when it is on. */
+  children: ReactNode;
+  breakpoint: ShellBreakpoint;
+  /** The page on the canvas. Absent when the selection has no tracked route. */
+  page?: CanvasPageData;
+  isCanvasOpen: boolean;
+  onCloseCanvas: () => void;
+  view: CanvasView;
+  onViewChange: (view: CanvasView) => void;
+  isDevMode?: boolean;
+  /** Hand a field to the assistant, which opens the AI panel. */
+  onAttachToChat?: (fieldId: string, label: string) => void;
+  /** Skips the entrance transition — for screenshots and for tests. */
+  skipTransition?: boolean;
+};
+
+/** Width the module column settles at once the canvas is beside it. */
+const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
+/** Long enough to follow the column across, short enough not to wait. */
+const OPEN_MS = 320;
+const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+
+/**
+ * The editor, with a canvas that can join it.
+ *
+ * Closed, this is exactly the shell's editor: one centred column, unchanged.
+ * Opening the canvas does not replace that column with a different screen —
+ * it narrows it and puts the page beside it, so what you were editing is
+ * still the thing in front of you. That is the whole point of adding rather
+ * than switching: there is no "back", because you never left.
+ *
+ * On a phone there is no room to put two things side by side, so the same
+ * two regions become panes that snap horizontally — editor first, canvas
+ * second — which keeps both reachable without either being cramped.
+ */
+export function PageWorkspace({
+  children,
+  breakpoint,
+  page,
+  isCanvasOpen,
+  onCloseCanvas,
+  view,
+  onViewChange,
+  isDevMode,
+  onAttachToChat,
+  skipTransition,
+}: PageWorkspaceProps) {
+  const isPhone = breakpoint === "mobile";
+  const reducedMotion = usePrefersReducedMotion();
+  const open = isCanvasOpen && page !== undefined;
+
+  const ease = (properties: string[]) =>
+    reducedMotion || skipTransition
+      ? undefined
+      : properties.map((p) => `${p} ${OPEN_MS}ms ${OPEN_EASE}`).join(", ");
+
+  const [device, setDevice] = useState<CanvasDevice>("desktop");
+  const [transform, setTransform] = useState<CanvasTransform>({
+    scale: 1,
+    x: 0,
+    y: 0,
+  });
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const paneScrollRef = useRef<HTMLDivElement>(null);
+
+  const pageWidth = CANVAS_DEVICE_WIDTHS[device];
+
+  const fit = useCallback(() => {
+    const viewport = viewportRef.current?.getBoundingClientRect();
+    const height = pageRef.current?.offsetHeight;
+    if (!viewport || !height) return;
+    setTransform(
+      fitTransform(
+        { width: pageWidth, height },
+        { width: viewport.width, height: viewport.height },
+      ),
+    );
+  }, [pageWidth]);
+
+  // Fitting needs the page's laid-out height, which is not known for a frame
+  // or two after mount — measuring too early fits to a page a tenth of its
+  // real size. A ResizeObserver waits for the height to actually arrive, and
+  // the flag stops it re-fitting afterwards and fighting the user's zoom.
+  const [needsFit, setNeedsFit] = useState(true);
+  useEffect(() => {
+    if (!needsFit || !open) return;
+    const pageEl = pageRef.current;
+    const viewportEl = viewportRef.current;
+    if (!pageEl || !viewportEl) return;
+    const attempt = () => {
+      if (pageEl.offsetHeight === 0 || viewportEl.clientHeight === 0) return;
+      fit();
+    };
+    const observer = new ResizeObserver(attempt);
+    observer.observe(pageEl);
+    observer.observe(viewportEl);
+    attempt();
+    return () => observer.disconnect();
+  }, [needsFit, fit, open]);
+
+  // Opening the canvas, and switching device, both change the box the page
+  // has to fit into. The column also finishes moving a third of a second
+  // after the click, and the observer above catches that too.
+  useEffect(() => setNeedsFit(true), [device, open]);
+
+  const setTransformByUser = useCallback((next: CanvasTransform) => {
+    setNeedsFit(false);
+    setTransform(next);
+  }, []);
+
+  // The phone's panes are a scroll container, so moving between them is a
+  // scroll — which keeps the swipe and the button doing the same thing.
+  useEffect(() => {
+    if (!isPhone) return;
+    const container = paneScrollRef.current;
+    if (!container) return;
+    container.scrollTo({
+      left: open ? container.clientWidth : 0,
+      behavior: skipTransition ? "auto" : "smooth",
+    });
+  }, [open, isPhone, skipTransition]);
+
+  const attachField = useCallback(
+    (fieldId: string) => {
+      setAttachedFieldIds((current) =>
+        current.includes(fieldId) ? current : [...current, fieldId],
+      );
+      const field = page?.fields[fieldId];
+      if (field) onAttachToChat?.(field.id, field.label);
+    },
+    [page, onAttachToChat],
+  );
+
+  // Only the fields view is a picking surface. In the normal view the page is
+  // there to be read and clicked through like a page, so a click on it does
+  // not mean "I want to edit this".
+  const isPicking = view === "fields";
+
+  const moduleColumn = (
+    <div className="h-full overflow-y-auto">
+      {/*
+       * `w-full` matters: without a definite width the box shrink-to-fits its
+       * content, and `mx-auto` then centres a box wider than the column —
+       * which clips the editor on both sides instead of scrolling it.
+       */}
+      <div
+        style={{
+          maxWidth: CANVAS_MAX_WIDTH,
+          // Clears the floating rail, which the narrowed column now reaches
+          // under. Inline because `md:px-6` lives in a media query and would
+          // otherwise win over any `pl-*` utility regardless of class order.
+          ...(breakpoint === "desktop" && open
+            ? { paddingLeft: "5.5rem" }
+            : {}),
+        }}
+        className="w-full mx-auto px-4 md:px-6 pt-20 desktop:pt-24 pb-24"
+      >
+        {children}
+      </div>
+    </div>
+  );
+
+  const fieldsColumn = page && (
+    <div
+      style={breakpoint === "desktop" ? { paddingLeft: "5.5rem" } : undefined}
+      className="h-full pt-16 pb-14"
+    >
+      <FieldsPanel
+        page={page}
+        selectedFieldId={selectedFieldId}
+        onSelectField={setSelectedFieldId}
+        onChangeField={() => undefined}
+        onAttachField={attachField}
+        attachedFieldIds={attachedFieldIds}
+        isDevMode={isDevMode}
+      />
+    </div>
+  );
+
+  const canvasPane = page && (
+    <div
+      className={cn(
+        "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",
+      )}
+    >
+      <CanvasViewport
+        ref={viewportRef}
+        pageWidth={pageWidth}
+        transform={transform}
+        onTransformChange={setTransformByUser}
+        className="h-full"
+      >
+        <div
+          ref={pageRef}
+          className="shadow-2xl"
+          onClick={() => setSelectedFieldId(null)}
+        >
+          <CanvasPage
+            page={page}
+            device={device}
+            selectedFieldId={isPicking ? selectedFieldId : null}
+            attachedFieldIds={isPicking ? attachedFieldIds : []}
+            onSelectField={(fieldId) => {
+              if (isPicking) setSelectedFieldId(fieldId);
+            }}
+            isSelectMode={isPicking}
+          />
+        </div>
+      </CanvasViewport>
+
+      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+        <ViewToggle view={view} onChange={onViewChange} />
+        <button
+          type="button"
+          aria-label="Close canvas"
+          onClick={onCloseCanvas}
+          className="grid h-8 w-8 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary shadow-lg hover:text-fg-primary"
+        >
+          <X size={15} />
+        </button>
+      </div>
+
+      <CanvasToolbar
+        className="absolute bottom-3 left-1/2 -translate-x-1/2"
+        device={device}
+        onDeviceChange={setDevice}
+        scale={transform.scale}
+        onZoomIn={() => {
+          setNeedsFit(false);
+          setTransform((t) => ({ ...t, scale: clampScale(t.scale * 1.2) }));
+        }}
+        onZoomOut={() => {
+          setNeedsFit(false);
+          setTransform((t) => ({ ...t, scale: clampScale(t.scale / 1.2) }));
+        }}
+        onFit={() => setNeedsFit(true)}
+      />
+    </div>
+  );
+
+  if (isPhone) {
+    return (
+      <div className="absolute inset-0 bg-bg-canvas">
+        <div
+          ref={paneScrollRef}
+          className={cn(
+            "flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain",
+            !open && "overflow-x-hidden",
+          )}
+        >
+          <div className="h-full w-full shrink-0 snap-start">
+            {view === "fields" && open ? fieldsColumn : moduleColumn}
+          </div>
+          {open && (
+            <div className="h-full w-full shrink-0 snap-start p-3 pt-16 pb-14">
+              {canvasPane}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-0 flex overflow-hidden bg-bg-canvas">
+      <div
+        style={{
+          width: open ? COLUMN_WIDTH : "100%",
+          transition: ease(["width"]),
+        }}
+        className="relative h-full min-w-0 shrink-0"
+      >
+        {view === "fields" && open ? fieldsColumn : moduleColumn}
+      </div>
+      {/*
+       * Scales up as it arrives, so it reads as the page being placed beside
+       * the editor rather than sliding in from off screen.
+       *
+       * `invisible` rather than only `opacity-0` when closed: a transparent
+       * pane is still in the accessibility tree and still in the tab order,
+       * so the canvas controls would be reachable on a page that has no
+       * canvas open. `visibility` takes both away and still transitions.
+       */}
+      <div
+        style={{ transition: ease(["opacity", "transform"]) }}
+        className={cn(
+          "min-w-0 flex-1 pt-20 pb-14 pr-3",
+          open
+            ? "scale-100 opacity-100"
+            : "invisible pointer-events-none scale-95 opacity-0",
+        )}
+      >
+        {canvasPane}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Normal view or the fields Val found on the page.
+ *
+ * Two labelled states rather than one button that toggles, so the control
+ * says which view you are in as well as where you can go. It sits on the
+ * canvas because it is the canvas that changes — the column beside it
+ * follows.
+ */
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: CanvasView;
+  onChange: (view: CanvasView) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Canvas view"
+      className="flex gap-0.5 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg"
+    >
+      {(
+        [
+          ["normal", "Normal", MousePointerSquareDashed],
+          ["fields", "Fields", ListTree],
+        ] as const
+      ).map(([value, label, Icon]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={view === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
+            view === value
+              ? "bg-bg-float-raised font-medium text-fg-primary"
+              : "text-fg-secondary hover:text-fg-primary",
+          )}
+        >
+          <Icon size={12} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}

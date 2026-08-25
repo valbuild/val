@@ -2,7 +2,6 @@ import {
   Maximize2,
   Minus,
   Monitor,
-  MousePointerSquareDashed,
   Plus,
   Smartphone,
   Tablet,
@@ -17,8 +16,11 @@ const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
 };
 
 /**
- * The canvas's own controls: what width the page is shown at, how far it is
- * zoomed, and whether clicking picks elements or pans.
+ * The canvas's own controls: what width the page is shown at and how far it
+ * is zoomed.
+ *
+ * Whether clicking picks elements is not here — that follows from which view
+ * the canvas is in, and putting it in two places would let them disagree.
  *
  * Floats over the canvas rather than sitting above it, so the canvas keeps
  * the full height — the same reasoning as the shell's other bars.
@@ -30,8 +32,6 @@ export function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onFit,
-  isSelectMode,
-  onSelectModeChange,
   className,
 }: {
   device: CanvasDevice;
@@ -40,8 +40,6 @@ export function CanvasToolbar({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
-  isSelectMode: boolean;
-  onSelectModeChange: (value: boolean) => void;
   className?: string;
 }) {
   return (
@@ -51,21 +49,6 @@ export function CanvasToolbar({
         className,
       )}
     >
-      <button
-        type="button"
-        aria-label="Select elements"
-        aria-pressed={isSelectMode}
-        onClick={() => onSelectModeChange(!isSelectMode)}
-        className={cn(
-          "grid h-7 w-7 place-items-center rounded-md",
-          isSelectMode
-            ? "bg-bg-float-raised text-fg-primary"
-            : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-        )}
-      >
-        <MousePointerSquareDashed size={15} />
-      </button>
-      <Divider />
       {(Object.keys(DEVICE_ICON) as CanvasDevice[]).map((option) => {
         const Icon = DEVICE_ICON[option];
         return (

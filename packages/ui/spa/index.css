@@ -92,6 +92,11 @@
        which contrast.test.ts holds this to. */
     --bg-page-selection: var(--colors-brand-green-600);
     --bg-page-selection-fill: rgba(7, 148, 85, 0.12);
+    /* The resting outline on every field the canvas found. Every element on
+       the page carries one at once, so it is the same hue held well back —
+       enough to see the shape of what is editable, not enough to redraw the
+       customer's page in green. */
+    --bg-page-selection-soft: rgba(7, 148, 85, 0.4);
 
     --radius: 0.5rem;
 

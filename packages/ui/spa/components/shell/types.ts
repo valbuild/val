@@ -19,6 +19,14 @@ export type ShellPage = {
   errorCount?: number;
   /** Whether the page has unpublished changes. */
   hasDraft?: boolean;
+  /**
+   * Whether Val tracks this route well enough to put it on a canvas.
+   *
+   * Only a route Val resolves — a `next-app-router` page, not an arbitrary
+   * URL — can report the fields on it, so the canvas button appears only
+   * where it would actually work.
+   */
+  isTracked?: boolean;
   /** Child pages. */
   children?: ShellPage[];
 };

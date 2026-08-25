@@ -74,11 +74,20 @@ const docsPages: ShellPage[] = [
   errorCount: i === 6 ? 2 : undefined,
 }));
 
+// `isTracked` is what gates the canvas: a route Val resolves can report what
+// is on it, an arbitrary path cannot. Most pages here are tracked; the legal
+// pages deliberately are not, so the shell can be checked in both states.
 export const mockPages: ShellPage[] = [
-  { id: "home", name: "Home", urlPath: "/", hasDraft: true },
-  { id: "about", name: "About", urlPath: "/about" },
-  { id: "product", name: "Product", urlPath: "/product" },
-  { id: "pricing", name: "Pricing", urlPath: "/pricing", hasDraft: true },
+  { id: "home", name: "Home", urlPath: "/", hasDraft: true, isTracked: true },
+  { id: "about", name: "About", urlPath: "/about", isTracked: true },
+  { id: "product", name: "Product", urlPath: "/product", isTracked: true },
+  {
+    id: "pricing",
+    name: "Pricing",
+    urlPath: "/pricing",
+    hasDraft: true,
+    isTracked: true,
+  },
   {
     id: "features",
     name: "Features",
@@ -103,9 +112,14 @@ export const mockPages: ShellPage[] = [
     children: caseStudies,
   },
   { id: "docs", name: "Docs", urlPath: "/docs", children: docsPages },
-  { id: "changelog", name: "Changelog", urlPath: "/changelog" },
-  { id: "careers", name: "Careers", urlPath: "/careers" },
-  { id: "contact", name: "Contact", urlPath: "/contact" },
+  {
+    id: "changelog",
+    name: "Changelog",
+    urlPath: "/changelog",
+    isTracked: true,
+  },
+  { id: "careers", name: "Careers", urlPath: "/careers", isTracked: true },
+  { id: "contact", name: "Contact", urlPath: "/contact", isTracked: true },
   { id: "privacy", name: "Privacy policy", urlPath: "/legal/privacy" },
   { id: "terms", name: "Terms of service", urlPath: "/legal/terms" },
   { id: "cookies", name: "Cookie policy", urlPath: "/legal/cookies" },

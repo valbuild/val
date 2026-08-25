@@ -57,25 +57,3 @@ export type CanvasTransform = {
   x: number;
   y: number;
 };
-
-/**
- * An element the user picked on the canvas and handed to the assistant.
- *
- * Kept separate from the current selection: you attach several, then write a
- * message about them, and the selection moves on in the meantime.
- */
-export type CanvasChatAttachment = {
-  fieldId: string;
-  label: string;
-};
-
-export type CanvasChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  /** Fields that were attached to this message when it was sent. */
-  attachments?: CanvasChatAttachment[];
-};
-
-/** Which pane a phone is showing. Chat sits left of the canvas, as in Lovable. */
-export type CanvasPane = "chat" | "canvas";

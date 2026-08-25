@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bell,
+  Columns2,
   Eye,
   Loader2,
   Menu,
@@ -30,6 +31,14 @@ export type TopBarProps = {
   user?: { name: string; initials: string };
   onOpenSearch: () => void;
   onPreview: () => void;
+  /**
+   * Opens the canvas beside the editor.
+   *
+   * `undefined` means the current selection has no route Val can put on a
+   * canvas, and the button is not shown — an inert one would be worse.
+   */
+  onToggleCanvas?: () => void;
+  isCanvasOpen?: boolean;
   onPublish: () => void;
   /** Number of changes Publish would ship. 0 disables the button. */
   pendingChanges: number;
@@ -62,6 +71,8 @@ export function TopBar({
   user,
   onOpenSearch,
   onPreview,
+  onToggleCanvas,
+  isCanvasOpen,
   onPublish,
   pendingChanges,
   publishState = "idle",
@@ -110,6 +121,23 @@ export function TopBar({
                 (draft)
               </span>
             </button>
+            {onToggleCanvas && (
+              <button
+                type="button"
+                aria-label="Canvas"
+                aria-pressed={isCanvasOpen}
+                onClick={onToggleCanvas}
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium border",
+                  isCanvasOpen
+                    ? "border-border-float bg-bg-float-raised text-fg-primary"
+                    : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+                )}
+              >
+                <Columns2 size={14} />
+                <span className="hidden md:inline">Canvas</span>
+              </button>
+            )}
             {validationErrorCount > 0 && onShowErrors && (
               <ValidationErrorPill
                 count={validationErrorCount}

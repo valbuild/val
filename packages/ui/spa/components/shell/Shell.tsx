@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
-import { EditorCanvas, EmptyEditorState, PageEditor } from "./EditorCanvas";
+import { EmptyEditorState, PageEditor } from "./EditorCanvas";
+import { CanvasView, PageWorkspace } from "./canvas/PageWorkspace";
+import { CanvasPageData } from "./canvas/types";
 import {
   GlobalSearch,
   SearchResult,
@@ -33,6 +35,8 @@ type Selection = {
   urlPath: string;
   sourcePath: string;
   hasDraft?: boolean;
+  /** True when Val resolves this route and can therefore put it on a canvas. */
+  isTracked?: boolean;
 };
 
 export type ShellProps = {
@@ -55,6 +59,19 @@ export type ShellProps = {
   loadError?: string;
   /** Open the deployments list on mount, as a publish would. */
   initialDeploymentsOpen?: boolean;
+  /**
+   * The page to put on the canvas.
+   *
+   * One page rather than a lookup, because the canvas is fed by the running
+   * site reporting what is on the route it is currently showing — not by
+   * something the shell can know up front.
+   */
+  canvasPage?: CanvasPageData;
+  /** Open the canvas on mount. */
+  initialCanvasOpen?: boolean;
+  initialCanvasView?: CanvasView;
+  /** Skips the canvas entrance transition — for screenshots and for tests. */
+  skipTransition?: boolean;
 };
 
 /**
@@ -78,6 +95,10 @@ export function Shell({
   isLoading = false,
   loadError,
   initialDeploymentsOpen = false,
+  canvasPage,
+  initialCanvasOpen = false,
+  initialCanvasView = "normal",
+  skipTransition,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
@@ -91,6 +112,8 @@ export function Shell({
     initialSelectionId ? findSelection(data, initialSelectionId) : null,
   );
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
+  const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
+  const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
@@ -148,6 +171,28 @@ export function Shell({
     [notifications],
   );
 
+  // The canvas is only offered where it would work: a page whose route Val
+  // resolves, and only once the running site has reported what is on it.
+  const canCanvas =
+    selection?.kind === "page" &&
+    selection.isTracked === true &&
+    canvasPage !== undefined;
+  const toggleCanvas = useCallback(() => setIsCanvasOpen((open) => !open), []);
+  // Closing puts the module editor back, so the way out lands where the way
+  // in started rather than on whichever view you happened to end on.
+  const closeCanvas = useCallback(() => {
+    setIsCanvasOpen(false);
+    setCanvasView("normal");
+  }, []);
+  // Picking a field on the canvas points the assistant at it. It is the same
+  // act as selecting one in the panel, so it opens the assistant rather than
+  // silently arming it.
+  const [chatTarget, setChatTarget] = useState<string | null>(null);
+  const attachToChat = useCallback((_fieldId: string, label: string) => {
+    setChatTarget(label);
+    setOpenPanel("ai");
+  }, []);
+
   const closePanel = useCallback(() => setOpenPanel(null), []);
   const togglePanel = useCallback((panel: ShellPanel) => {
     setOpenPanel((current) => (current === panel ? null : panel));
@@ -157,6 +202,13 @@ export function Shell({
   const select = useCallback(
     (next: Selection) => {
       setSelection(next);
+      setChatTarget(null);
+      // The canvas belongs to the page it was opened on, and a page Val does
+      // not track has nothing to put on it.
+      if (next.kind !== "page" || next.isTracked !== true) {
+        setIsCanvasOpen(false);
+        setCanvasView("normal");
+      }
       if (breakpoint === "mobile") setOpenPanel(null);
     },
     [breakpoint],
@@ -183,7 +235,17 @@ export function Shell({
       className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
       style={{ height: "100svh" }}
     >
-      <EditorCanvas>
+      <PageWorkspace
+        breakpoint={breakpoint}
+        page={canCanvas ? canvasPage : undefined}
+        isCanvasOpen={isCanvasOpen && canCanvas}
+        onCloseCanvas={closeCanvas}
+        view={canvasView}
+        onViewChange={setCanvasView}
+        isDevMode={isDevMode}
+        onAttachToChat={attachToChat}
+        skipTransition={skipTransition}
+      >
         {selection === null ? (
           <EmptyEditorState />
         ) : (
@@ -195,7 +257,7 @@ export function Shell({
             hasDraft={selection.hasDraft}
           />
         )}
-      </EditorCanvas>
+      </PageWorkspace>
 
       {breakpoint === "desktop" && (
         <LeftRail
@@ -220,6 +282,8 @@ export function Shell({
         // here too would put the same avatar in two corners of one screen.
         user={breakpoint === "desktop" ? undefined : data.user}
         onPreview={() => undefined}
+        onToggleCanvas={canCanvas ? toggleCanvas : undefined}
+        isCanvasOpen={isCanvasOpen}
         onPublish={() => undefined}
         pendingChanges={pendingChanges}
         publishState={
@@ -235,6 +299,8 @@ export function Shell({
         <MobileBottomBar
           pendingChanges={pendingChanges}
           onPreview={() => undefined}
+          onToggleCanvas={canCanvas ? toggleCanvas : undefined}
+          isCanvasOpen={isCanvasOpen}
           onPublish={() => undefined}
           onOpenStatus={() => setOpenPanel("settings")}
         />
@@ -371,7 +437,7 @@ export function Shell({
           breakpoint={breakpoint}
           messages={chat}
           suggestions={data.chatSuggestions}
-          context={selection ? selection.title : "this project"}
+          context={chatTarget ?? (selection ? selection.title : "this project")}
           onSend={(text) =>
             setChat((current) => [
               ...current,
@@ -430,6 +496,7 @@ function findSelection(data: ShellData, id: string): Selection | null {
           urlPath: page.urlPath,
           sourcePath: `/content/pages.val.ts?p="${page.urlPath}"`,
           hasDraft: page.hasDraft,
+          isTracked: page.isTracked,
         };
       }
       const child = fromPages(page.children ?? []);

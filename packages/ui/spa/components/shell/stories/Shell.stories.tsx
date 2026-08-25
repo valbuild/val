@@ -10,6 +10,8 @@ import {
   mockShellData,
 } from "../mockShellData";
 import { ShellDeployment } from "../types";
+import { CanvasView } from "../canvas/PageWorkspace";
+import { mockCanvasPage } from "../canvas/mockCanvasPage";
 
 /**
  * The whole shell in one story.
@@ -93,6 +95,17 @@ const meta: Meta<typeof ShellHarness> = {
       description:
         "Run a publish: a new commit appears after a moment, builds, goes live, and the list closes itself",
     },
+    canvasOpen: {
+      control: "boolean",
+      description:
+        "Open the canvas beside the editor. Only offered on a Val-tracked page.",
+    },
+    canvasView: {
+      control: "inline-radio",
+      options: ["normal", "fields"],
+      description:
+        "Normal shows the page as a visitor sees it; Fields swaps the module column for the fields found on the page",
+    },
   },
 };
 export default meta;
@@ -111,6 +124,8 @@ type HarnessProps = {
   deployments: DeploymentsFixture;
   deploymentsOpen: boolean;
   simulatePublish: boolean;
+  canvasOpen: boolean;
+  canvasView: CanvasView;
 };
 
 type DeploymentsFixture =
@@ -165,6 +180,8 @@ function ShellHarness({
   deployments,
   deploymentsOpen,
   simulatePublish,
+  canvasOpen,
+  canvasView,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   const base = empty ? emptyShellData : mockShellData;
@@ -179,7 +196,7 @@ function ShellHarness({
   };
   return (
     <Shell
-      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}`}
+      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
@@ -192,6 +209,10 @@ function ShellHarness({
       isLoading={isLoading}
       loadError={loadError || undefined}
       initialDeploymentsOpen={deploymentsOpen}
+      canvasPage={mockCanvasPage}
+      initialCanvasOpen={canvasOpen}
+      initialCanvasView={canvasView}
+      skipTransition
     />
   );
 }
@@ -250,6 +271,8 @@ export const Default: Story = {
     deployments: "live",
     deploymentsOpen: false,
     simulatePublish: false,
+    canvasOpen: false,
+    canvasView: "normal",
   },
 };
 
@@ -436,4 +459,58 @@ export const PublishRoundTrip: Story = {
     deployments: "live",
     simulatePublish: true,
   },
+};
+
+/**
+ * The default: a page opens in the module editor, exactly as before. The
+ * Canvas button in the top bar is the only sign the canvas exists.
+ */
+export const PageWithCanvasAvailable: Story = {
+  args: { ...Default.args, selectionId: "home" },
+};
+
+/**
+ * Canvas added. The module editor does not go anywhere — it narrows, and the
+ * page arrives beside it. Links on the page work; nothing is outlined,
+ * because in this view the page is for reading, not for aiming at.
+ */
+export const CanvasNormalView: Story = {
+  args: { ...Default.args, selectionId: "home", canvasOpen: true },
+};
+
+/**
+ * The switch on the canvas: the module column is swapped for the fields Val
+ * actually found on the page, and every one of them is outlined over there.
+ * Clicking either side selects in both.
+ */
+export const CanvasFieldsView: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    canvasOpen: true,
+    canvasView: "fields",
+  },
+};
+
+/** The canvas with the Pages panel open over it — panels still float. */
+export const CanvasWithPanelOpen: Story = {
+  args: {
+    ...Default.args,
+    selectionId: "home",
+    canvasOpen: true,
+    openPanel: "pages",
+  },
+};
+
+/**
+ * A page Val does not track. There is no Canvas button at all, rather than
+ * one that opens something empty.
+ */
+export const PageWithoutTrackedRoute: Story = {
+  args: { ...Default.args, selectionId: "privacy" },
+};
+
+/** On a phone the two halves are panes you swipe between, canvas second. */
+export const CanvasOnMobile: Story = {
+  args: { ...Default.args, selectionId: "home", canvasOpen: true },
 };
