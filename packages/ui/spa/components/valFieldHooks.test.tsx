@@ -11,7 +11,7 @@ import {
   type ModuleFilePath,
   type SourcePath,
 } from "@valbuild/core";
-import { useRef, type ReactNode } from "react";
+import React, { useRef, type ReactNode } from "react";
 import { createSystem, type System } from "../stores/createSystem";
 import { ValSystemProvider } from "../stores/react/SystemContext";
 import {
@@ -24,6 +24,25 @@ import {
   useSourceAtPath,
 } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
+import { ImageField } from "./fields/ImageField";
+import { FileField } from "./fields/FileField";
+import { ValFieldProvider } from "./ValFieldProvider";
+import { ValRemoteProvider } from "./ValRemoteProvider";
+import { ValPortalProvider } from "./ValPortalProvider";
+import { ValThemeProvider } from "./ValThemeProvider";
+
+/**
+ * The field components reach `createValSystem`, which reaches the validation
+ * worker bridge, which is `new Worker(new URL(..., import.meta.url))` — syntax
+ * jest cannot parse. Mocked at the seam rather than not testing these
+ * components: nothing under test here validates anything.
+ */
+jest.mock("../validation/schemaValidationBridge", () => ({
+  createSchemaValidationBridge: () => ({
+    validate: async () => ({ errors: false }),
+    dispose: () => {},
+  }),
+}));
 
 /**
  * The hooks a field actually renders through, tested against a real system.
@@ -727,3 +746,180 @@ describe("useHasUnsavedFrom", () => {
     system.dispose();
   });
 });
+
+/**
+ * Media FIELDS render at all, which they did not.
+ *
+ * `ImageField` and `FileField` each had a `useMemo` below their `loading` /
+ * `not-found` / wrong-type guards. A field whose value is `null` — an
+ * `s.image().nullable()` nothing has uploaded to yet — took an early return on
+ * its first render and ran more hooks on its second, so React threw "Rendered
+ * more hooks than during the previous render" from inside `useMemo` and the
+ * Studio showed a stack trace instead of the field.
+ *
+ * Asserted as a render, because that is the whole failure: there is no wrong
+ * VALUE to check. It reaches the components through `AnyField`, the way the
+ * Studio does, so a future hook added below a guard fails here too.
+ */
+describe("media fields with no value", () => {
+  const mediaProject = () => {
+    const { c, s } = initVal();
+    return [
+      c.define(
+        "/media.val.ts",
+        s.object({
+          image: s.image().nullable(),
+          imageInDir: s.image({ directory: "/public/test/fields" }).nullable(),
+          file: s.file().nullable(),
+        }),
+        { image: null, imageInDir: null, file: null },
+      ),
+    ];
+  };
+
+  for (const field of ["image", "imageInDir", "file"]) {
+    it(`renders ${field} without throwing when it is null`, async () => {
+      const system = makeSystem();
+      const path = `/media.val.ts?p="${field}"` as SourcePath;
+
+      /**
+       * Mounted BEFORE the project arrives, which is the whole point.
+       *
+       * The crash needs the transition: the first render takes the `loading`
+       * guard's early return and runs fewer hooks, then the schema lands and the
+       * next render reaches the hooks below it. Receiving first and rendering
+       * once never takes the early return, so it cannot fail — which is exactly
+       * what an earlier version of this test did, and it passed with the bug
+       * reintroduced.
+       */
+      system.host.receive(mediaProject());
+      const view = (config?: Record<string, never>) => (
+        <MediaHarness system={system} config={config}>
+          <CaughtRenderError>
+            <MediaFieldUnderTest path={path} />
+          </CaughtRenderError>
+        </MediaHarness>
+      );
+      // No config: both components hit `if (config === undefined) return
+      // <FieldLoading/>` and run FEWER hooks.
+      const { rerender } = render(view(undefined));
+      // Config arrives — as it really does, from an effect in `useValConfig` —
+      // and now the hooks below that guard run. That is the render that threw
+      // "Rendered more hooks than during the previous render".
+      await act(async () => {
+        rerender(view({}));
+      });
+      // A THIRD render, and it is not padding. `useValConfig` keeps the config in
+      // a REF that an effect populates, so the render where config arrives still
+      // sees `undefined` and takes the guard again; the ref is only visible to
+      // the render after that. In the Studio that render comes from any later
+      // source or validation change — here it is asked for directly.
+      await act(async () => {
+        rerender(view({}));
+      });
+
+      expect(screen.getByTestId("render-error").textContent).toBe("none");
+      expect(screen.getByTestId("mounted").textContent).toBe("mounted");
+      system.dispose();
+    });
+  }
+});
+
+/**
+ * Records a render error instead of letting it escape as console noise.
+ *
+ * Needed because that is exactly how the bug presented: React throws during
+ * render, jsdom reports it as an uncaught error, and a test asserting on the DOM
+ * still finds whatever was committed before the throw. Without this the test
+ * passed with the bug reintroduced — verified.
+ */
+class CaughtRenderError extends React.Component<
+  { children: ReactNode },
+  { message: string | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { message: null };
+  }
+  static getDerivedStateFromError(error: unknown) {
+    return { message: error instanceof Error ? error.message : String(error) };
+  }
+  render() {
+    return (
+      <>
+        <span data-testid="render-error">{this.state.message ?? "none"}</span>
+        {this.state.message === null ? this.props.children : null}
+      </>
+    );
+  }
+}
+
+/**
+ * The providers `ImageField` and `FileField` read from, beyond the system.
+ *
+ * They reach for remote-file settings, the portal container and the app config,
+ * each of which throws when used outside its provider. Supplied as the Studio
+ * supplies them, with remote files INACTIVE — the local upload path is the one
+ * under test, and a remote one would need a project and a token.
+ */
+function MediaHarness({
+  system,
+  children,
+  config,
+}: {
+  system: System;
+  children: ReactNode;
+  /**
+   * `undefined` makes both field components take their `config === undefined`
+   * early return, which is the transition the hook-order bug needs — see the
+   * test below.
+   */
+  config?: Record<string, never>;
+}) {
+  return (
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme="light" setTheme={() => {}} config={undefined}>
+        <ValRemoteProvider remoteFiles={{ status: "not-asked" }}>
+          <ValPortalProvider>
+            <ValFieldProvider
+              config={config}
+              getDirectFileUploadSettings={async () => ({
+                status: "success",
+                data: {
+                  nonce: null,
+                  baseUrl: "/api/val/upload",
+                  contentBaseUrl: null,
+                  contentAuthNonce: null,
+                },
+              })}
+            >
+              {children}
+            </ValFieldProvider>
+          </ValPortalProvider>
+        </ValRemoteProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
+  );
+}
+
+/**
+ * A probe that mounts the real field component for the schema at `path`.
+ *
+ * Deliberately not `AnyField`: that pulls in the whole field tree and a failure
+ * anywhere in it would read as this bug. This renders the two components the bug
+ * was in and nothing else.
+ */
+function MediaFieldUnderTest({ path }: { path: SourcePath }) {
+  const schema = useSchemaAtPath(path);
+  return (
+    <div>
+      <span data-testid="mounted">mounted</span>
+      {schema.status === "success" && schema.data.type === "image" && (
+        <ImageField path={path} />
+      )}
+      {schema.status === "success" && schema.data.type === "file" && (
+        <FileField path={path} />
+      )}
+    </div>
+  );
+}

@@ -18,4 +18,9 @@ export default modules(config, [
   // the shape the store benchmark measures against, in an app that really builds
   // and really validates. Small on purpose; see scripts/handbook-fixture.mjs.
   { def: () => import("./content/handbook.val") },
+  // The media upload paths: a gallery in a non-default directory, a files
+  // gallery, and single image/file fields. See content/mediaFixtures.val.ts.
+  { def: () => import("./content/mediaFixtures.val") },
+  { def: () => import("./content/fileGallery.val") },
+  { def: () => import("./content/mediaFields.val") },
 ]);
