@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { SourcePath } from "@valbuild/core";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
-import { Shell, ShellSelection } from "./Shell";
+import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellValidationError } from "./types";
@@ -95,6 +95,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [data, navigation.currentSourcePath],
   );
 
+  // The selection itself, for the things that need more than its id: the
+  // canvas needs the URL the page is on.
+  const selection = useMemo(
+    () => (selectionId === null ? null : findShellSelection(data, selectionId)),
+    [data, selectionId],
+  );
+
   // The router is the single source of truth for what is open, so a selection
   // is a navigation rather than a state change: a reload lands where you were.
   const onSelectionChange = useCallback(
@@ -113,6 +120,53 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     ),
     [],
   );
+
+  /**
+   * The page the canvas is currently on, if it is on one.
+   *
+   * Only a page selection has a URL to show, and only one Val resolves — the
+   * canvas is a view of a route, so a data module or a gallery has nothing to
+   * put on it.
+   */
+  const canvasUrl =
+    selection?.kind === "page" && selection.isTracked === true
+      ? selection.urlPath
+      : null;
+
+  /**
+   * The running site, in a frame.
+   *
+   * The site itself rather than a reconstruction of it: the studio is served
+   * from the same origin as the app, so the frame renders the real route with
+   * the real components — which is the only version of the page worth looking
+   * at. It also means the frame inherits Val's own cookie, so it renders in
+   * whatever mode the app is already in rather than needing a mode of its own.
+   *
+   * `key` on the URL because a frame does not navigate when its `src` changes
+   * in place as reliably as it remounts, and a canvas showing the previous
+   * page is worse than one showing nothing.
+   *
+   * The frame is not yet wired to the editor: selecting a field does not
+   * highlight it here, and editing does not update it live. Both need the page
+   * to report what is on it, which is the next piece of work rather than
+   * something to fake in the meantime.
+   */
+  const renderCanvas = useMemo(() => {
+    if (canvasUrl === null) return undefined;
+    return ({ width, height }: { width: number; height: number }) => (
+      <iframe
+        key={canvasUrl}
+        src={canvasUrl}
+        title={`Preview of ${canvasUrl}`}
+        style={{ width, height, border: "none", background: "white" }}
+        // The frame is our own app on our own origin, so it needs no
+        // sandboxing beyond what the browser already applies; naming the
+        // referrer policy keeps it from leaking the studio's URL outward if
+        // the page ever follows a link off-site.
+        referrerPolicy="same-origin"
+      />
+    );
+  }, [canvasUrl]);
 
   const onSelectValidationError = useCallback(
     (error: ShellValidationError) => {
@@ -180,6 +234,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       pendingChanges={data.pendingChanges ?? 0}
       isLoading={state.status === "loading"}
       loadError={state.status === "error" ? state.error : undefined}
+      renderCanvas={renderCanvas}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onSignOut={onSignOut}

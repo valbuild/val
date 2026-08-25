@@ -16,6 +16,7 @@ import { FieldsPanel } from "./FieldsPanel";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { ShellBreakpoint } from "../types";
 import {
+  CANVAS_DEVICE_HEIGHTS,
   CANVAS_DEVICE_WIDTHS,
   CanvasDevice,
   CanvasPageData,
@@ -37,8 +38,27 @@ export type PageWorkspaceProps = {
   /** The module editor for the current selection. Shown when it is on. */
   children: ReactNode;
   breakpoint: ShellBreakpoint;
-  /** The page on the canvas. Absent when the selection has no tracked route. */
+  /**
+   * The fields Val found on the page.
+   *
+   * Drives the fields view and the demo page in Storybook. Absent in the app
+   * until the running site can report what is on the route it is showing —
+   * without it the canvas still works, it just only offers the normal view.
+   */
   page?: CanvasPageData;
+  /**
+   * What to put on the canvas, at the size the device switch asks for.
+   *
+   * The app passes the running site itself; Storybook passes nothing and gets
+   * the demo page built from `page`. A function rather than a node because the
+   * device switch is owned here: the page has to be re-laid-out at the new
+   * width, and something that was handed over already sized could not follow.
+   */
+  renderCanvas?: (viewport: {
+    device: CanvasDevice;
+    width: number;
+    height: number;
+  }) => ReactNode;
   isCanvasOpen: boolean;
   onCloseCanvas: () => void;
   view: CanvasView;
@@ -82,6 +102,7 @@ export function PageWorkspace({
   children,
   breakpoint,
   page,
+  renderCanvas,
   isCanvasOpen,
   onCloseCanvas,
   view,
@@ -92,7 +113,16 @@ export function PageWorkspace({
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
-  const open = isCanvasOpen && page !== undefined;
+  /**
+   * Whether there is a canvas to open at all.
+   *
+   * Either source is enough: the app supplies the running page through
+   * `renderCanvas`, Storybook supplies the demo page through `page`. Requiring
+   * `page` specifically is what kept the app's canvas from ever opening — the
+   * button appeared, the frame mounted, and the column never moved.
+   */
+  const hasCanvas = page !== undefined || renderCanvas !== undefined;
+  const open = isCanvasOpen && hasCanvas;
 
   const ease = (properties: string[]) =>
     reducedMotion || skipTransition
@@ -235,6 +265,31 @@ export function PageWorkspace({
   const railPadding =
     breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
 
+  /**
+   * The switch that decides what the column holds.
+   *
+   * Only offered when there is something to switch to: the fields view is a
+   * list of what Val found on the page, so without that list there is one view
+   * and a control with a single option.
+   */
+  const viewToggle = page ? (
+    <ViewToggle
+      view={view}
+      onChange={onViewChange}
+      fieldCount={Object.keys(page.fields).length}
+      animate={!reducedMotion}
+    />
+  ) : null;
+
+  /**
+   * Whether the row above the column is there to clear the floating top bar.
+   *
+   * With the canvas open the switch normally supplies that gap, so the column
+   * itself does not — but when there is no switch nothing does, and the editor
+   * starts underneath the top bar.
+   */
+  const columnHasHeaderRow = open && !isPhone && viewToggle !== null;
+
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
     // field into view, so the id has to be on the element that actually
@@ -252,8 +307,9 @@ export function PageWorkspace({
         style={{ maxWidth: CANVAS_MAX_WIDTH, ...railPadding }}
         className={cn(
           "w-full mx-auto px-4 md:px-6 pb-24",
-          // With the canvas open the switch above supplies the top gap.
-          open ? "pt-1" : "pt-20 desktop:pt-24",
+          // The switch above supplies the top gap when it is there; without it
+          // the column has to clear the top bar itself.
+          columnHasHeaderRow ? "pt-1" : "pt-20 desktop:pt-24",
         )}
       >
         {children}
@@ -283,29 +339,22 @@ export function PageWorkspace({
    * place in both views, so the control does not move out from under you at
    * the moment the thing below it is swapped.
    */
-  const viewToggle = (
-    <ViewToggle
-      view={view}
-      onChange={onViewChange}
-      fieldCount={page ? Object.keys(page.fields).length : undefined}
-      animate={!reducedMotion}
-    />
-  );
-
   const column = (
     <div className="flex h-full min-h-0 flex-col">
-      {open && !isPhone && (
+      {columnHasHeaderRow && (
         <div style={railPadding} className="shrink-0 px-4 md:px-6 pt-20 pb-2.5">
           {viewToggle}
         </div>
       )}
       <div className="min-h-0 flex-1">
-        {view === "fields" && open ? fieldsColumn : moduleColumn}
+        {view === "fields" && open && fieldsColumn
+          ? fieldsColumn
+          : moduleColumn}
       </div>
     </div>
   );
 
-  const canvasPane = page && (
+  const canvasPane = hasCanvas && (
     <div
       className={cn(
         "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",
@@ -324,16 +373,23 @@ export function PageWorkspace({
           className="shadow-2xl"
           onClick={() => setSelectedFieldId(null)}
         >
-          <CanvasPage
-            page={page}
-            device={device}
-            selectedFieldId={isPicking ? selectedFieldId : null}
-            attachedFieldIds={isPicking ? attachedFieldIds : []}
-            onSelectField={(fieldId) => {
-              if (isPicking) setSelectedFieldId(fieldId);
-            }}
-            isSelectMode={isPicking}
-          />
+          {renderCanvas?.({
+            device,
+            width: pageWidth,
+            height: CANVAS_DEVICE_HEIGHTS[device],
+          }) ??
+            (page && (
+              <CanvasPage
+                page={page}
+                device={device}
+                selectedFieldId={isPicking ? selectedFieldId : null}
+                attachedFieldIds={isPicking ? attachedFieldIds : []}
+                onSelectField={(fieldId) => {
+                  if (isPicking) setSelectedFieldId(fieldId);
+                }}
+                isSelectMode={isPicking}
+              />
+            ))}
         </div>
       </CanvasViewport>
 

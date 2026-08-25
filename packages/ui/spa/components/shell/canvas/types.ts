@@ -50,6 +50,22 @@ export const CANVAS_DEVICE_WIDTHS: Record<CanvasDevice, number> = {
   mobile: 390,
 };
 
+/**
+ * Heights to give a page that does not have one of its own.
+ *
+ * The demo page is as tall as its content, but a real page arrives in an
+ * iframe, and an iframe has no intrinsic height — left to itself it collapses
+ * to a couple of hundred pixels regardless of what is inside it. These are the
+ * viewport heights that go with the widths above, so what the canvas shows is
+ * the page at a plausible screen size rather than at whatever an unsized frame
+ * happens to be.
+ */
+export const CANVAS_DEVICE_HEIGHTS: Record<CanvasDevice, number> = {
+  desktop: 800,
+  tablet: 1112,
+  mobile: 844,
+};
+
 /** Pan and zoom state. */
 export type CanvasTransform = {
   /** 1 = 100%. */

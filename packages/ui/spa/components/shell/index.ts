@@ -1,5 +1,6 @@
-export { Shell } from "./Shell";
-export type { ShellProps } from "./Shell";
+export { Shell, findShellSelection } from "./Shell";
+export type { ShellProps, ShellSelection } from "./Shell";
+export { ValShell } from "./ValShell";
 export { LeftRail, RAIL_ITEMS } from "./LeftRail";
 export { TopBar, PublishButton } from "./TopBar";
 export { StatusBar } from "./StatusBar";

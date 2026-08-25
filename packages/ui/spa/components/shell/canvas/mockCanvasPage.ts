@@ -38,26 +38,43 @@ function sourcePathOf(segments: (string | number)[]): string {
 }
 
 /**
- * One field, identified by the path it edits.
+ * One field: the slot it fills on the demo page, and the path it would edit.
  *
- * The id is the source path rather than a short slug, because that is what
- * identifies a field in Val: two canvases of the same page have to agree on
- * which field is which, and only the path does that.
+ * The id stays the slot name because `CanvasPage` is a fixed demo layout and
+ * its `data-field-id` attributes are what the selection layer matches on. The
+ * source path is the realistic half — it is what dev mode shows, and getting
+ * its shape wrong is how the panel comes to display paths Val could never
+ * produce.
  */
 function field(
+  id: string,
   segments: (string | number)[],
   label: string,
   type: CanvasField["type"],
   value: string,
   section: string,
 ): CanvasField {
-  const sourcePath = sourcePathOf(segments);
-  return { id: sourcePath, sourcePath, label, type, value, section };
+  return {
+    id,
+    sourcePath: sourcePathOf(segments),
+    label,
+    type,
+    value,
+    section,
+  };
 }
 
 const heroFields: CanvasField[] = [
-  field(["hero", "eyebrow"], "Eyebrow", "string", "Autumn 2026", "hero"),
   field(
+    "eyebrow",
+    ["hero", "eyebrow"],
+    "Eyebrow",
+    "string",
+    "Autumn 2026",
+    "hero",
+  ),
+  field(
+    "headline",
     ["hero", "title"],
     "Title",
     "string",
@@ -65,6 +82,7 @@ const heroFields: CanvasField[] = [
     "hero",
   ),
   field(
+    "intro",
     ["hero", "intro"],
     "Intro",
     "text",
@@ -72,13 +90,21 @@ const heroFields: CanvasField[] = [
     "hero",
   ),
   field(
+    "ctaLabel",
     ["hero", "cta", "text"],
     "Button label",
     "string",
     "Shop the collection",
     "hero",
   ),
-  field(["hero", "cta", "href"], "Button link", "link", "/shop", "hero"),
+  field(
+    "ctaHref",
+    ["hero", "cta", "href"],
+    "Button link",
+    "link",
+    "/shop",
+    "hero",
+  ),
 ];
 
 /**
@@ -104,7 +130,10 @@ const categoryFields: CanvasField[] = [
     image: "/public/val/images/accessories_g6h7i.jpg",
   },
 ].flatMap((category, index) => [
+  // `cat1Title` and friends are the demo page's slot names; the paths beside
+  // them are what an `s.array(s.object(...))` really addresses.
   field(
+    `cat${index + 1}Title`,
     ["categories", index, "title"],
     "Title",
     "string",
@@ -112,6 +141,7 @@ const categoryFields: CanvasField[] = [
     "categories",
   ),
   field(
+    `cat${index + 1}Price`,
     ["categories", index, "price"],
     "Price",
     "string",
@@ -119,6 +149,7 @@ const categoryFields: CanvasField[] = [
     "categories",
   ),
   field(
+    `cat${index + 1}Image`,
     ["categories", index, "image"],
     "Image",
     "image",
@@ -129,6 +160,7 @@ const categoryFields: CanvasField[] = [
 
 const storyFields: CanvasField[] = [
   field(
+    "storyTitle",
     ["story", "title"],
     "Title",
     "string",
@@ -136,17 +168,19 @@ const storyFields: CanvasField[] = [
     "story",
   ),
   field(
+    "storyBody",
     ["story", "body"],
     "Body",
     "richtext",
     "Every garment comes with free repairs for as long as you own it. Bring it to any of our stores, or post it to us and we will send it back mended.",
     "story",
   ),
-  field(["story", "link"], "Link", "link", "/repairs", "story"),
+  field("storyLink", ["story", "link"], "Link", "link", "/repairs", "story"),
 ];
 
 const footerFields: CanvasField[] = [
   field(
+    "footerNote",
     ["footer", "note"],
     "Note",
     "string",

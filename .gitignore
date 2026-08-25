@@ -11,8 +11,9 @@ tsconfig.tsbuildinfo
 # Git worktrees checked out inside the repo (see jest.config.js)
 .claude/worktrees/
 
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
+# Playwright. Unanchored: a run started from a package directory writes its
+# results there, not at the root, and an anchored pattern leaves those tracked.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

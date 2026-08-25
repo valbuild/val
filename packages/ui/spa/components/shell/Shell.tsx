@@ -9,7 +9,11 @@ import {
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
-import { CanvasView, PageWorkspace } from "./canvas/PageWorkspace";
+import {
+  CanvasView,
+  PageWorkspace,
+  PageWorkspaceProps,
+} from "./canvas/PageWorkspace";
 import { CanvasPageData } from "./canvas/types";
 import {
   GlobalSearch,
@@ -87,6 +91,15 @@ export type ShellProps = {
    * something the shell can know up front.
    */
   canvasPage?: CanvasPageData;
+  /**
+   * What to put on the canvas, at the size the device switch asks for.
+   *
+   * The app passes the running site; Storybook passes nothing and the demo
+   * page is built from `canvasPage` instead. Either is enough to offer the
+   * canvas — the fields view needs `canvasPage` specifically, because it is a
+   * list of what Val found on the page.
+   */
+  renderCanvas?: PageWorkspaceProps["renderCanvas"];
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -155,6 +168,7 @@ export function Shell({
   loadError,
   initialDeploymentsOpen = false,
   canvasPage,
+  renderCanvas,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
   skipTransition,
@@ -184,13 +198,13 @@ export function Shell({
   const isControlled = selectionId !== undefined;
   const [internalSelection, setInternalSelection] =
     useState<ShellSelection | null>(() =>
-      initialSelectionId ? findSelection(data, initialSelectionId) : null,
+      initialSelectionId ? findShellSelection(data, initialSelectionId) : null,
     );
   // In controlled mode the selection is a function of the id and the data, so
   // it follows both: navigation changes the id, and a reload that fills the
   // navigation in resolves an id that could not be resolved on mount.
   const controlledSelection = useMemo(
-    () => (selectionId ? findSelection(data, selectionId) : null),
+    () => (selectionId ? findShellSelection(data, selectionId) : null),
     [selectionId, data],
   );
   const selection = isControlled ? controlledSelection : internalSelection;
@@ -259,7 +273,7 @@ export function Shell({
   const canCanvas =
     selection?.kind === "page" &&
     selection.isTracked === true &&
-    canvasPage !== undefined;
+    (renderCanvas !== undefined || canvasPage !== undefined);
   const toggleCanvas = useCallback(() => setIsCanvasOpen((open) => !open), []);
   // Closing puts the module editor back, so the way out lands where the way
   // in started rather than on whichever view you happened to end on.
@@ -306,7 +320,7 @@ export function Shell({
   // lookup the initial selection uses rather than duplicating the mapping.
   const selectSearchResult = useCallback(
     (result: SearchResult) => {
-      const next = findSelection(data, result.id);
+      const next = findShellSelection(data, result.id);
       if (next) select(next);
     },
     [data, select],
@@ -326,6 +340,7 @@ export function Shell({
       <PageWorkspace
         breakpoint={breakpoint}
         page={canCanvas ? canvasPage : undefined}
+        renderCanvas={canCanvas ? renderCanvas : undefined}
         isCanvasOpen={isCanvasOpen && canCanvas}
         onCloseCanvas={closeCanvas}
         view={canvasView}
@@ -611,8 +626,17 @@ function toDataSelection(module: ShellDataModule): ShellSelection {
   };
 }
 
-/** Resolve a selection id against every kind of navigable item. */
-function findSelection(data: ShellData, id: string): ShellSelection | null {
+/**
+ * Resolve a selection id against every kind of navigable item.
+ *
+ * Exported because the app needs the same answer for more than the editor: the
+ * canvas needs the URL of the page it is on, and deriving that a second way is
+ * how the two come to disagree about what is selected.
+ */
+export function findShellSelection(
+  data: ShellData,
+  id: string,
+): ShellSelection | null {
   const fromPages = (pages: ShellData["pages"]): ShellSelection | null => {
     for (const page of pages) {
       if (page.id === id) return toPageSelection(page);
