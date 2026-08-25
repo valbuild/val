@@ -562,10 +562,24 @@ export class RenderStore {
     if (entry === undefined) {
       return { status: "needs-render" };
     }
-    // Deliberately NOT the `covers` check `get` makes. `peek` reports what is
-    // cached; a path outside the scope simply has nothing at it, which is
-    // `no-render-at-path` — the same answer as a path that genuinely has no
-    // render. `peek` cannot fetch, so it has no third thing to say.
+    /**
+     * A path the cached render was not computed FOR is `needs-render`.
+     *
+     * This used to skip the `covers` check that `get` makes, on the grounds that
+     * `peek` reports what is cached and has no third thing to say. It does have
+     * one — that is what `needs-render` is — and without it a row scrolled into
+     * view was stuck: `source:listen` returns early when a render already exists,
+     * so the scope never widened, and the reader never asked because `peek`
+     * answered `rendered` (the container's render, which does not contain that
+     * row) or `no-render-at-path`. Either way the new row showed no preview until
+     * something else in the module changed.
+     *
+     * It cannot loop: `refreshFor` puts the asked-for path in the new scope, so
+     * the next `covers` is true whatever the host returned.
+     */
+    if (!this.covers(moduleFilePath, path)) {
+      return { status: "needs-render" };
+    }
     // The container fallback, for the same reason as in `get` above — a row reads
     // the windowed render it appears in.
     const at =

@@ -307,6 +307,54 @@ describe("render is driven by demand, not by change", () => {
     expect(data.items.map(([index]) => index)).toEqual([3, 4]);
     dispose();
   });
+
+  /**
+   * SPEC: a row that scrolls into view says `needs-render`, not `rendered`.
+   *
+   * The one case where nothing else asks on the reader's behalf. A field
+   * mounting is normally what triggers the render, but `source:listen`
+   * deliberately returns early once the module has one — that is the coalescing
+   * that makes twenty mounting rows cost two renders instead of twenty — so the
+   * new row's own read is the only thing left that can widen the scope. It only
+   * reads when `peek` tells it to, and `peek` used to answer `rendered` here:
+   * the WINDOWED container render is keyed under the container, so the fallback
+   * found it, even though its `items` do not contain this row. The row then sat
+   * with no preview until something else in the module changed.
+   */
+  it("reports needs-render for a row outside the rendered scope", async () => {
+    const { sourceStore, renderStore, activity, listeners, ledger, dispose } =
+      initTestSystem();
+    const { module } = listModule(10);
+
+    await sourceStore.testReceive([module]);
+    listeners.set("/list.val.ts?p=3");
+    await ledger.has({ type: "render:result", moduleFilePath: "/list.val.ts" });
+    expect(renderStore.peek(sp("/list.val.ts?p=3")).status).toBe("rendered");
+
+    // Row 7 scrolls into view. Its listener does NOT trigger a render, so the
+    // cached one still only covers row 3.
+    const before = activity.position();
+    listeners.set("/list.val.ts?p=7");
+    expect(activity.count("host:execute-render", { since: before })).toBe(0);
+
+    expect(renderStore.peek(sp("/list.val.ts?p=7")).status).toBe(
+      "needs-render",
+    );
+
+    // And asking resolves it, in one render, without leaving row 3 behind.
+    const read = await renderStore.get(sp("/list.val.ts?p=7"));
+    expect(activity.count("host:execute-render", { since: before })).toBe(1);
+    if (read.status !== "rendered" || read.render.status !== "success") {
+      throw new Error(`expected row 7 to be covered, got ${read.status}`);
+    }
+    const data = read.render.data;
+    if (data.layout !== "list" || data.parent !== "array") {
+      throw new Error("expected an array list render");
+    }
+    expect(data.items.map(([index]) => index)).toEqual([3, 7]);
+    expect(renderStore.peek(sp("/list.val.ts?p=7")).status).toBe("rendered");
+    dispose();
+  });
 });
 
 describe("search is driven by demand, not by change", () => {
