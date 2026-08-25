@@ -1,5 +1,11 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { ListTree, MousePointerSquareDashed, X } from "lucide-react";
+import {
+  Layers,
+  ListTree,
+  MousePointerSquareDashed,
+  PanelLeft,
+  X,
+} from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 import { CanvasPage } from "./CanvasPage";
@@ -45,6 +51,11 @@ export type PageWorkspaceProps = {
 
 /** Width the module column settles at once the canvas is beside it. */
 const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
+/**
+ * Where a phone's pane content starts: below the top bar and below the strip
+ * of switches under it.
+ */
+const PHONE_STRIP_CLEARANCE = "6.75rem";
 /** Long enough to follow the column across, short enough not to wait. */
 const OPEN_MS = 320;
 const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
@@ -91,6 +102,7 @@ export function PageWorkspace({
   });
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
+  const [pane, setPane] = useState<WorkspacePane>("editor");
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -141,6 +153,10 @@ export function PageWorkspace({
     setTransform(next);
   }, []);
 
+  // Opening the canvas on a phone means going to it; closing means coming
+  // back. The switch and the swipe then agree about where you are.
+  useEffect(() => setPane(open ? "canvas" : "editor"), [open]);
+
   // The phone's panes are a scroll container, so moving between them is a
   // scroll — which keeps the swipe and the button doing the same thing.
   useEffect(() => {
@@ -148,10 +164,20 @@ export function PageWorkspace({
     const container = paneScrollRef.current;
     if (!container) return;
     container.scrollTo({
-      left: open ? container.clientWidth : 0,
+      left: pane === "canvas" && open ? container.clientWidth : 0,
       behavior: skipTransition ? "auto" : "smooth",
     });
-  }, [open, isPhone, skipTransition]);
+  }, [pane, open, isPhone, skipTransition]);
+
+  // A swipe moves the panes without going through the switch, so the switch
+  // reads the scroll position back rather than assuming it is in charge.
+  const onPaneScroll = useCallback(() => {
+    const container = paneScrollRef.current;
+    if (!container || container.clientWidth === 0) return;
+    const next: WorkspacePane =
+      container.scrollLeft > container.clientWidth / 2 ? "canvas" : "editor";
+    setPane((current) => (current === next ? current : next));
+  }, []);
 
   const attachField = useCallback(
     (fieldId: string) => {
@@ -220,15 +246,19 @@ export function PageWorkspace({
    * place in both views, so the control does not move out from under you at
    * the moment the thing below it is swapped.
    */
+  const viewToggle = (
+    <ViewToggle
+      view={view}
+      onChange={onViewChange}
+      fieldCount={page ? Object.keys(page.fields).length : undefined}
+    />
+  );
+
   const column = (
     <div className="flex h-full min-h-0 flex-col">
-      {open && (
+      {open && !isPhone && (
         <div style={railPadding} className="shrink-0 px-4 md:px-6 pt-20 pb-2.5">
-          <ViewToggle
-            view={view}
-            onChange={onViewChange}
-            fieldCount={page ? Object.keys(page.fields).length : undefined}
-          />
+          {viewToggle}
         </div>
       )}
       <div className="min-h-0 flex-1">
@@ -248,6 +278,7 @@ export function PageWorkspace({
         pageWidth={pageWidth}
         transform={transform}
         onTransformChange={setTransformByUser}
+        horizontalWheelPans={!isPhone}
         className="h-full"
       >
         <div
@@ -300,18 +331,43 @@ export function PageWorkspace({
       <div className="absolute inset-0 bg-bg-canvas">
         <div
           ref={paneScrollRef}
+          onScroll={onPaneScroll}
           className={cn(
             "flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain",
             !open && "overflow-x-hidden",
           )}
         >
-          <div className="h-full w-full shrink-0 snap-start">{column}</div>
+          {/* Both panes start below the switch strip, so the strip never
+              covers the top of either one. */}
+          <div
+            className="h-full w-full shrink-0 snap-start"
+            style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
+          >
+            {column}
+          </div>
           {open && (
-            <div className="h-full w-full shrink-0 snap-start p-3 pt-16 pb-14">
+            <div
+              style={{ paddingTop: PHONE_STRIP_CLEARANCE }}
+              className="h-full w-full shrink-0 snap-start p-3 pb-14"
+            >
               {canvasPane}
             </div>
           )}
         </div>
+        {/*
+         * Both switches ride above the panes rather than inside one of them:
+         * the pane switch has to be reachable from either side, and the view
+         * switch changes both halves at once, so neither belongs to a pane.
+         *
+         * A visible switch as well as a swipe, because a pane you can only
+         * reach by guessing that it swipes is a pane most people never find.
+         */}
+        {open && (
+          <div className="absolute inset-x-3 top-[4.5rem] flex items-center gap-2">
+            <PaneToggle pane={pane} onChange={setPane} />
+            <span className="ml-auto">{viewToggle}</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -347,6 +403,55 @@ export function PageWorkspace({
       >
         {canvasPane}
       </div>
+    </div>
+  );
+}
+
+/** Which half of the workspace a phone is showing. */
+export type WorkspacePane = "editor" | "canvas";
+
+/**
+ * The phone's editor/canvas switch.
+ *
+ * Same shape as the view switch beside it, because they are the same kind of
+ * control — one picks the pane, the other picks what is in it.
+ */
+function PaneToggle({
+  pane,
+  onChange,
+}: {
+  pane: WorkspacePane;
+  onChange: (pane: WorkspacePane) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Workspace pane"
+      className="inline-flex gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5"
+    >
+      {(
+        [
+          ["editor", "Editor", PanelLeft],
+          ["canvas", "Canvas", Layers],
+        ] as const
+      ).map(([value, label, Icon]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={pane === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
+            pane === value
+              ? "bg-bg-float-raised font-medium text-fg-primary shadow-sm"
+              : "text-fg-secondary",
+          )}
+        >
+          <Icon size={12} />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

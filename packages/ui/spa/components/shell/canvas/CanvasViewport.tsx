@@ -23,6 +23,18 @@ export type CanvasViewportProps = {
   onTransformChange: (transform: CanvasTransform) => void;
   children: ReactNode;
   className?: string;
+  /**
+   * Whether a horizontal wheel gesture pans the canvas.
+   *
+   * On a phone the canvas sits inside a pane that scrolls horizontally, and
+   * a trackpad swipe is then consumed twice — once by the pane, once by the
+   * canvas. Because the pane clamps at its ends and the canvas does not, the
+   * two disagree by a little on every swipe, and the page walks off to one
+   * side as you move back and forth. Dragging the background still pans in
+   * both directions, so nothing is lost by leaving the horizontal wheel to
+   * the pane that has somewhere to go with it.
+   */
+  horizontalWheelPans?: boolean;
 };
 
 /**
@@ -35,11 +47,19 @@ export type CanvasViewportProps = {
  *
  * Trackpad scroll pans, pinch or ctrl/cmd+scroll zooms, and dragging the
  * background pans — the conventions from every design tool, so nobody has to
- * learn this one.
+ * learn this one. `horizontalWheelPans` is the one exception, for when the
+ * canvas is inside something that scrolls sideways itself.
  */
 export const CanvasViewport = forwardRef<HTMLDivElement, CanvasViewportProps>(
   function CanvasViewport(
-    { pageWidth, transform, onTransformChange, children, className },
+    {
+      pageWidth,
+      transform,
+      onTransformChange,
+      children,
+      className,
+      horizontalWheelPans = true,
+    },
     forwardedRef,
   ) {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -74,11 +94,11 @@ export const CanvasViewport = forwardRef<HTMLDivElement, CanvasViewportProps>(
         }
         onTransformChange({
           ...transform,
-          x: transform.x - event.deltaX,
+          x: horizontalWheelPans ? transform.x - event.deltaX : transform.x,
           y: transform.y - event.deltaY,
         });
       },
-      [transform, onTransformChange],
+      [transform, onTransformChange, horizontalWheelPans],
     );
 
     useEffect(() => {
