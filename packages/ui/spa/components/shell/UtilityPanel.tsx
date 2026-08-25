@@ -3,6 +3,7 @@ import {
   Braces,
   Clock,
   FilePlus2,
+  GitCompare,
   ImagePlus,
   Sparkles,
 } from "lucide-react";
@@ -28,6 +29,18 @@ export type UtilityPanelProps = {
   onUploadMedia: () => void;
   onNewDataFile: () => void;
   onOpenAI: () => void;
+  /**
+   * Open the review view: every pending change, side by side with what it
+   * replaces.
+   *
+   * A quick action rather than a permanent control, because it is a thing you
+   * do before publishing rather than something to look at while editing — and
+   * the publish button is right there when you are ready. Absent when there is
+   * nothing to review.
+   */
+  onCompare?: () => void;
+  /** How many changes `onCompare` would show. */
+  pendingChanges?: number;
   onSelectActivity: (entry: ShellActivityEntry) => void;
   onClose: () => void;
 };
@@ -46,6 +59,8 @@ export function UtilityPanel({
   onUploadMedia,
   onNewDataFile,
   onOpenAI,
+  onCompare,
+  pendingChanges = 0,
   onSelectActivity,
   onClose,
 }: UtilityPanelProps) {
@@ -100,6 +115,15 @@ export function UtilityPanel({
           </>
         )}
         <div className="px-3 pt-3 space-y-0.5">
+          {onCompare && pendingChanges > 0 && (
+            <QuickAction
+              icon={GitCompare}
+              label={`Review ${pendingChanges} ${
+                pendingChanges === 1 ? "change" : "changes"
+              }`}
+              onClick={onCompare}
+            />
+          )}
           <QuickAction icon={FilePlus2} label="New page" onClick={onNewPage} />
           <QuickAction
             icon={ImagePlus}

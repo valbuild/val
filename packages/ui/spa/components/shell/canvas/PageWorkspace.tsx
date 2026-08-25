@@ -21,6 +21,7 @@ import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasPathList } from "./CanvasPathList";
+import { CanvasRouteBar } from "./CanvasRouteBar";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
@@ -96,6 +97,16 @@ export type PageWorkspaceProps = {
   canvasPaths?: readonly SourcePath[];
   /** Open one of those paths in the editor. */
   onSelectCanvasPath?: (path: SourcePath) => void;
+  /**
+   * The route the canvas is showing, and how to change it.
+   *
+   * Present only where the canvas is a real browser — the app. Storybook's demo
+   * page is not on a route, so it gets no address bar.
+   */
+  canvasRoute?: string;
+  onCanvasRouteChange?: (route: string) => void;
+  /** Routes Val tracks, offered as suggestions in the address bar. */
+  canvasRoutes?: readonly string[];
   isCanvasOpen: boolean;
   onCloseCanvas: () => void;
   view: CanvasView;
@@ -162,6 +173,9 @@ export function PageWorkspace({
   renderCanvas,
   canvasPaths,
   onSelectCanvasPath,
+  canvasRoute,
+  onCanvasRouteChange,
+  canvasRoutes,
   isCanvasOpen,
   onCloseCanvas,
   view,
@@ -546,12 +560,24 @@ export function PageWorkspace({
     </div>
   );
 
+  const routeBar = canvasRoute !== undefined && onCanvasRouteChange && (
+    <CanvasRouteBar
+      value={canvasRoute}
+      routes={canvasRoutes ?? []}
+      onChange={onCanvasRouteChange}
+      // Wide enough to read a real route, narrow enough to leave the page the
+      // middle of the pane.
+      className="absolute left-3 top-3 z-window w-[min(22rem,calc(100%-5rem))]"
+    />
+  );
+
   const canvasPane = hasCanvas && (
     <div
       className={cn(
         "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",
       )}
     >
+      {routeBar}
       <CanvasViewport
         ref={viewportRef}
         pageWidth={pageWidth}

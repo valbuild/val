@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 
-const VAL_COMPARE_ROUTE = "/val/compare";
+export const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
 
 type ValRouterContextValue = {

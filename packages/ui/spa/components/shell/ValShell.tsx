@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
@@ -8,6 +8,7 @@ import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
+import { useContentSearch } from "./useContentSearch";
 import { Module } from "../Module";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
@@ -17,7 +18,11 @@ import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { TransientErrorToasts } from "../TransientErrorToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
-import { VAL_ERRORS_ROUTE, useNavigation } from "../ValRouter";
+import {
+  VAL_COMPARE_ROUTE,
+  VAL_ERRORS_ROUTE,
+  useNavigation,
+} from "../ValRouter";
 import {
   useAllPatchErrors,
   useAuthenticationState,
@@ -31,6 +36,7 @@ import {
   useValMode,
 } from "../ValProvider";
 import { useValConfig } from "../ValFieldProvider";
+import { useAllValidationErrors } from "../ValErrorProvider";
 
 /**
  * The Val studio on the floating shell.
@@ -79,6 +85,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const { patchErrors } = useAllPatchErrors();
+  const validationErrors = useAllValidationErrors();
+  // The query the search overlay is showing, so the content index can answer
+  // it. Held here because the overlay is presentational and the index is not.
+  const [searchQuery, setSearchQuery] = useState("");
+  const contentSearch = useContentSearch(searchQuery);
   const { isPublishing } = usePublishSummary();
 
   const data: ShellData =
@@ -143,10 +154,39 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * canvas is a view of a route, so a data module or a gallery has nothing to
    * put on it.
    */
-  const canvasUrl =
-    selection?.kind === "page" && selection.isTracked === true
-      ? selection.urlPath
-      : null;
+  const selectedPageUrl = selection?.kind === "page" ? selection.urlPath : null;
+
+  /**
+   * A route typed into the canvas's address bar.
+   *
+   * Kept apart from the selection because the two are allowed to disagree: the
+   * canvas can be pointed at a route that has no content module at all — a
+   * page not built yet, a route Val does not track — while the editor stays on
+   * whatever is selected. Cleared whenever the selection moves, so picking a
+   * page in the navigation takes the canvas there too, which is what picking a
+   * page means.
+   */
+  const [typedRoute, setTypedRoute] = useState<string | null>(null);
+  useEffect(() => {
+    setTypedRoute(null);
+  }, [selectedPageUrl]);
+
+  const canvasUrl = typedRoute ?? selectedPageUrl;
+
+  /** The routes Val resolves, for the address bar's suggestions. */
+  const canvasRoutes = useMemo(() => {
+    const routes: string[] = [];
+    const walk = (pages: ShellData["pages"]) => {
+      for (const page of pages) {
+        // A row with no source path is a path segment, not a page: there is
+        // nothing at that URL to look at.
+        if (page.sourcePath !== undefined) routes.push(page.urlPath);
+        walk(page.children ?? []);
+      }
+    };
+    walk(data.pages);
+    return routes;
+  }, [data.pages]);
 
   /**
    * What the page says is on it.
@@ -176,6 +216,24 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     }
     return ordered;
   }, [canvasElements]);
+
+  /**
+   * Open the page in a new tab, with preview mode on.
+   *
+   * Through the enable endpoint rather than straight to the page, so the tab
+   * shows the unpublished work rather than what is live — which is the only
+   * reason to open a preview rather than the site. The endpoint sets the
+   * cookies and redirects, so the new tab lands on the page already in preview.
+   */
+  const openPreviewTab = useCallback(() => {
+    if (canvasUrl === null) return;
+    const target = new URL(canvasUrl, window.location.origin).toString();
+    window.open(
+      `/api/val/enable?redirect_to=${encodeURIComponent(target)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }, [canvasUrl]);
 
   /** Open one field, from the page or from the list beside it. */
   const openPath = useCallback(
@@ -241,15 +299,43 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     );
   }, [canvasUrl, navigation.currentSourcePath, onPick]);
 
-  const onSelectValidationError = useCallback(
-    (error: ShellValidationError) => {
-      navigation.navigate(error.id as SourcePath);
-    },
-    [navigation],
+  /**
+   * Every field with a validation error, as source paths.
+   *
+   * The errors view takes the fields it should show rather than reading them
+   * itself, because it is also used to review a subset — one module's errors,
+   * or the ones that blocked a publish. Navigating there with none shows "No
+   * errors selected", which is what happened every time the shell opened it.
+   */
+  const allValidationErrorPaths = useMemo(
+    (): SourcePath[] =>
+      validationErrors === undefined
+        ? []
+        : (Object.keys(validationErrors) as SourcePath[]),
+    [validationErrors],
   );
 
   const showErrors = useCallback(() => {
-    navigation.navigate(VAL_ERRORS_ROUTE);
+    navigation.navigate(VAL_ERRORS_ROUTE, {
+      errorFields: allValidationErrorPaths,
+    });
+  }, [navigation, allValidationErrorPaths]);
+
+  /** One module's errors, from the row in the utility panel. */
+  const onSelectValidationError = useCallback(
+    (error: ShellValidationError) => {
+      const forModule = allValidationErrorPaths.filter((path) =>
+        path.startsWith(error.id),
+      );
+      navigation.navigate(VAL_ERRORS_ROUTE, {
+        errorFields: forModule.length > 0 ? forModule : allValidationErrorPaths,
+      });
+    },
+    [navigation, allValidationErrorPaths],
+  );
+
+  const showCompare = useCallback(() => {
+    navigation.navigate(VAL_COMPARE_ROUTE);
   }, [navigation]);
 
   /**
@@ -311,8 +397,18 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       renderCanvas={renderCanvas}
       canvasPaths={canvasPaths}
       onSelectCanvasPath={openPath}
+      canvasRoute={canvasUrl ?? undefined}
+      onCanvasRouteChange={setTypedRoute}
+      canvasRoutes={canvasRoutes}
+      onPreview={openPreviewTab}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
+      onCompare={showCompare}
+      searchContentResults={contentSearch.results}
+      isSearchingContent={contentSearch.isSearching}
+      onSearchQueryChange={setSearchQuery}
+      // A content hit is a path inside a module, so it is opened directly.
+      onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
       onSignOut={onSignOut}
     />
   );

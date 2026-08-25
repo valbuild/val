@@ -105,6 +105,10 @@ export type ShellProps = {
   /** What the running page reported finding on itself. See `PageWorkspace`. */
   canvasPaths?: PageWorkspaceProps["canvasPaths"];
   onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
+  /** The canvas's address bar. See `PageWorkspaceProps`. */
+  canvasRoute?: PageWorkspaceProps["canvasRoute"];
+  onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
+  canvasRoutes?: PageWorkspaceProps["canvasRoutes"];
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -149,6 +153,19 @@ export type ShellProps = {
   onNewPage?: () => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
   onNewDataFile?: () => void;
+  /** Open the review view. Offered from the quick actions. */
+  onCompare?: () => void;
+  /** Content matches for the current query. See `GlobalSearchProps`. */
+  searchContentResults?: SearchResult[];
+  isSearchingContent?: boolean;
+  onSearchQueryChange?: (query: string) => void;
+  /**
+   * Open a search result the shell cannot resolve to a row.
+   *
+   * A content hit points at a field inside a module, which is deeper than any
+   * navigation row, so only the app can open it.
+   */
+  onOpenSearchResult?: (result: SearchResult) => void;
 };
 
 /**
@@ -177,6 +194,9 @@ export function Shell({
   renderCanvas,
   canvasPaths,
   onSelectCanvasPath,
+  canvasRoute,
+  onCanvasRouteChange,
+  canvasRoutes,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
   skipTransition,
@@ -194,6 +214,11 @@ export function Shell({
   onNewPage,
   onUploadMedia,
   onNewDataFile,
+  onCompare,
+  searchContentResults,
+  isSearchingContent,
+  onSearchQueryChange,
+  onOpenSearchResult,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
@@ -336,9 +361,14 @@ export function Shell({
   const selectSearchResult = useCallback(
     (result: SearchResult) => {
       const next = findShellSelection(data, result.id);
-      if (next) select(next);
+      if (next) {
+        select(next);
+        return;
+      }
+      // A content hit is a path inside a module, which no row can stand for.
+      onOpenSearchResult?.(result);
     },
-    [data, select],
+    [data, select, onOpenSearchResult],
   );
 
   const navSwitcher =
@@ -358,6 +388,9 @@ export function Shell({
         renderCanvas={canCanvas ? renderCanvas : undefined}
         canvasPaths={canCanvas ? canvasPaths : undefined}
         onSelectCanvasPath={onSelectCanvasPath}
+        canvasRoute={canCanvas ? canvasRoute : undefined}
+        onCanvasRouteChange={onCanvasRouteChange}
+        canvasRoutes={canvasRoutes}
         isCanvasOpen={isCanvasOpen && canCanvas}
         onCloseCanvas={closeCanvas}
         view={canvasView}
@@ -530,6 +563,8 @@ export function Shell({
           onUploadMedia={() => setOpenPanel("media")}
           onNewDataFile={onNewDataFile ?? (() => undefined)}
           onOpenAI={() => setOpenPanel("ai")}
+          onCompare={onCompare}
+          pendingChanges={pendingChanges}
           onSelectActivity={onSelectActivity ?? (() => undefined)}
           onClose={closePanel}
         />
@@ -576,6 +611,9 @@ export function Shell({
       {isSearchOpen && (
         <GlobalSearch
           results={searchResults}
+          contentResults={searchContentResults}
+          isSearchingContent={isSearchingContent}
+          onQueryChange={onSearchQueryChange}
           onSelect={(result) => {
             setIsSearchOpen(false);
             selectSearchResult(result);

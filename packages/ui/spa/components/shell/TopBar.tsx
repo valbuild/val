@@ -1,16 +1,19 @@
 import {
   AlertTriangle,
   Bell,
+  ChevronDown,
   Columns2,
   Eye,
+  Link2,
   Loader2,
+  LucideIcon,
   Menu,
   PanelRight,
   Search,
   Sparkles,
   Upload,
 } from "lucide-react";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "./Avatar";
 import { ValLogo } from "./ValLogo";
@@ -121,34 +124,11 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {!isMobile && (
           <>
-            <button
-              type="button"
-              onClick={onPreview}
-              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <Eye size={14} />
-              <span className="hidden md:inline">Preview</span>
-              <span className="hidden lg:inline text-fg-secondary-alt">
-                (draft)
-              </span>
-            </button>
-            {onToggleCanvas && (
-              <button
-                type="button"
-                aria-label="Canvas"
-                aria-pressed={isCanvasOpen}
-                onClick={onToggleCanvas}
-                className={cn(
-                  "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium border",
-                  isCanvasOpen
-                    ? "border-border-float bg-bg-float-raised text-fg-primary"
-                    : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-                )}
-              >
-                <Columns2 size={14} />
-                <span className="hidden md:inline">Canvas</span>
-              </button>
-            )}
+            <PreviewButton
+              onPreview={onPreview}
+              onToggleCanvas={onToggleCanvas}
+              isCanvasOpen={isCanvasOpen}
+            />
             {validationErrorCount > 0 && onShowErrors && (
               <ValidationErrorPill
                 count={validationErrorCount}
@@ -214,6 +194,156 @@ export function TopBar({
         )}
       </div>
     </header>
+  );
+}
+
+/**
+ * Preview, with the canvas as its other half.
+ *
+ * One control, because they are one intention — "show me the page" — that
+ * differs only in where it opens. Two buttons side by side made that a choice
+ * about chrome rather than about the page, and the canvas is the one people
+ * want most of the time, so it is the default action and the tab stays for the
+ * times it is not.
+ *
+ * Shaped like a split button: the main half acts, the caret offers the other
+ * way. The canvas half disappears when there is nothing to put on one, and the
+ * control quietly becomes an ordinary Preview button rather than offering a
+ * dead option.
+ */
+function PreviewButton({
+  onPreview,
+  onToggleCanvas,
+  isCanvasOpen,
+}: {
+  onPreview: () => void;
+  onToggleCanvas?: () => void;
+  isCanvasOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && containerRef.current?.contains(target)) {
+        return;
+      }
+      setIsOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen]);
+
+  // Without a canvas there is nothing to choose between, so there is no menu.
+  if (!onToggleCanvas) {
+    return (
+      <button
+        type="button"
+        onClick={onPreview}
+        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+      >
+        <Eye size={14} />
+        <span className="hidden md:inline">Preview</span>
+      </button>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div
+        className={cn(
+          "inline-flex items-stretch h-8 rounded-md border overflow-hidden",
+          isCanvasOpen
+            ? "border-border-float bg-bg-float-raised text-fg-primary"
+            : "border-border-float text-fg-secondary",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
+          aria-pressed={isCanvasOpen}
+          onClick={onToggleCanvas}
+          className="inline-flex items-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
+        >
+          <Columns2 size={14} />
+          <span className="hidden md:inline">Preview</span>
+        </button>
+        <span aria-hidden className="w-px self-stretch bg-border-float" />
+        <button
+          type="button"
+          aria-label="Other ways to preview"
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((open) => !open)}
+          className="grid w-6 place-items-center hover:bg-bg-float-raised hover:text-fg-primary"
+        >
+          <ChevronDown size={13} />
+        </button>
+      </div>
+      {isOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-full mt-1 w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+        >
+          <PreviewMenuItem
+            icon={Columns2}
+            label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
+            detail="Beside the editor, in the studio"
+            onClick={() => {
+              setIsOpen(false);
+              onToggleCanvas();
+            }}
+          />
+          <PreviewMenuItem
+            icon={Link2}
+            label="Open in a new tab"
+            detail="The page with your unpublished changes"
+            onClick={() => {
+              setIsOpen(false);
+              onPreview();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewMenuItem({
+  icon: Icon,
+  label,
+  detail,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+    >
+      <Icon size={14} className="mt-0.5 shrink-0" />
+      <span className="min-w-0">
+        <span className="block text-xs">{label}</span>
+        <span className="block text-[0.6875rem] text-fg-secondary-alt">
+          {detail}
+        </span>
+      </span>
+    </button>
   );
 }
 

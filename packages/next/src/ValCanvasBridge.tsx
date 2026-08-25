@@ -10,6 +10,16 @@ import {
 } from "@valbuild/shared/internal";
 
 /**
+ * The colours Val outlines its content in.
+ *
+ * Literals, not the `--bg-page-selection` tokens they mirror: this runs inside
+ * the customer's page, which has none of Val's stylesheet. If those tokens
+ * change in `packages/ui/spa/index.css`, change these too.
+ */
+const SELECTION = "#079455";
+const SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
+
+/**
  * The page's half of the canvas protocol.
  *
  * Mounted only in the studio's canvas frame. Its job is to tell the studio
@@ -231,8 +241,8 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
       dangerouslySetInnerHTML={{
         __html: [
           picking
-            ? `[data-val-path] { outline: 1px solid rgba(99,102,241,0.35); outline-offset: 1px; cursor: pointer; }
-[data-val-path]:hover { outline: 2px solid rgb(99,102,241); }`
+            ? `[data-val-path] { outline: 1px solid ${SELECTION_SOFT}; outline-offset: 1px; cursor: pointer; }
+[data-val-path]:hover { outline: 2px solid ${SELECTION}; }`
             : "",
           highlighted ? highlightRule(highlighted) : "",
         ]
@@ -267,7 +277,7 @@ function highlightRule(path: string): string {
     `[data-val-path$=${last}]`,
     `[data-val-path*=${inner}]`,
   ].join(",\n");
-  return `${selectors} { outline: 2px solid rgb(99,102,241); outline-offset: 1px; }`;
+  return `${selectors} { outline: 2px solid ${SELECTION}; outline-offset: 1px; }`;
 }
 
 function findByPath(path: string): Element | null {
