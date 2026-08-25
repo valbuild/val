@@ -152,6 +152,25 @@ test.describe("the Studio comes up and renders", () => {
 
       await openModule(page, route);
 
+      /**
+       * Wait for a PAINT, then assert on it.
+       *
+       * Intake finishing is not the same as React having rendered: on a cold
+       * `next dev` the SPA is still coming down when `__VAL_STORES__.received`
+       * flips, so reading the shadow root once right after it returned an empty
+       * string and failed a route that renders perfectly well.
+       *
+       * Polling for "something painted" rather than for the expected pattern is
+       * deliberate: if the error boundary paints instead, this proceeds
+       * immediately and the next line says so, rather than burning the whole
+       * timeout waiting for content that is never coming.
+       */
+      await expect
+        .poll(async () => (await renderedText(page)).length, {
+          timeout: 30_000,
+        })
+        .toBeGreaterThan(0);
+
       // Something is on screen, and it is not the error boundary. Checked before
       // the throw assertions so a render loop reports as "the boundary painted"
       // rather than as an empty page.
