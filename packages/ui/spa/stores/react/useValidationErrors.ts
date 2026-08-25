@@ -46,20 +46,36 @@ export function useModuleValidation(
       // Both, because they are different news and a field needs to react to
       // each: a result is new errors, an invalidation means the ones on screen
       // are about a value that has since moved.
+      //
+      // Filtered on the module, because both events carry which one they are
+      // about and this hook is about one. Not a correctness fix: `peek` returns
+      // a stored, reference-stable object, so an unrelated module's event
+      // produced an identical snapshot and `useSyncExternalStore` did not
+      // re-render. It is a fan-out fix — `ValErrorProvider` puts one of these on
+      // every field on screen, so an unfiltered subscription made every
+      // validation event cost a `getSnapshot` per mounted field.
       const offResult = val.system.validationStore.events.on(
         "validation:result",
-        onChange,
+        (event) => {
+          if (event.moduleFilePath === moduleFilePath) {
+            onChange();
+          }
+        },
       );
       const offStale = val.system.validationStore.events.on(
         "validation:invalidate",
-        onChange,
+        (event) => {
+          if (event.modules.includes(moduleFilePath)) {
+            onChange();
+          }
+        },
       );
       return () => {
         offResult();
         offStale();
       };
     },
-    [val],
+    [val, moduleFilePath],
   );
 
   /**

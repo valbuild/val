@@ -186,13 +186,15 @@ function useJsonValuesLoad(
         errors.length === 1
           ? `Could not load ${first.key} in ${first.moduleFilePath}: ${first.message}`
           : `Could not load ${errors.length} entries. First failure — ${first.key} in ${first.moduleFilePath}: ${first.message}`,
+      // Guarded on the requirements still being there: `errors` is a snapshot
+      // from this render, and a retry fired after the caller stopped needing
+      // these modules would re-fetch entries nobody is waiting for.
       retry: () => {
-        const modules = requiredRef.current;
-        if (modules !== null) {
-          for (const { moduleFilePath, key } of errors) {
-            void val?.system.sourceStore.retryEntry(moduleFilePath, key);
-          }
-          void modules;
+        if (requiredRef.current === null) {
+          return;
+        }
+        for (const { moduleFilePath, key } of errors) {
+          void val?.system.sourceStore.retryEntry(moduleFilePath, key);
         }
       },
     };
