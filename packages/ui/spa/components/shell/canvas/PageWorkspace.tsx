@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   Layers,
   ListTree,
+  LucideIcon,
   MousePointerSquareDashed,
   PanelLeft,
   X,
@@ -58,6 +59,10 @@ const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
 const PHONE_STRIP_CLEARANCE = "6.75rem";
 /** Long enough to follow the column across, short enough not to wait. */
 const OPEN_MS = 320;
+/** The switch thumb moves faster: it is a short distance and a direct answer. */
+const SWITCH_MS = 200;
+/** How long the panes have to be still before the switch reads them. */
+const PANE_SETTLE_MS = 140;
 const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
@@ -158,26 +163,52 @@ export function PageWorkspace({
   useEffect(() => setPane(open ? "canvas" : "editor"), [open]);
 
   // The phone's panes are a scroll container, so moving between them is a
-  // scroll — which keeps the swipe and the button doing the same thing.
+  // scroll — which keeps the swipe and the button doing the same thing, and
+  // means the switch slides the canvas in rather than cutting to it.
+  //
+  // The first placement is not a move anyone made, so it lands without
+  // animating; every later one glides.
+  const hasPlacedPane = useRef(false);
   useEffect(() => {
     if (!isPhone) return;
     const container = paneScrollRef.current;
     if (!container) return;
+    const smooth = hasPlacedPane.current && !skipTransition && !reducedMotion;
+    hasPlacedPane.current = true;
     container.scrollTo({
       left: pane === "canvas" && open ? container.clientWidth : 0,
-      behavior: skipTransition ? "auto" : "smooth",
+      behavior: smooth ? "smooth" : "auto",
     });
-  }, [pane, open, isPhone, skipTransition]);
+  }, [pane, open, isPhone, skipTransition, reducedMotion]);
 
-  // A swipe moves the panes without going through the switch, so the switch
-  // reads the scroll position back rather than assuming it is in charge.
+  /**
+   * A swipe moves the panes without going through the switch, so the switch
+   * reads the scroll position back rather than assuming it is in charge.
+   *
+   * Read once movement stops, not on every frame: a smooth scroll passes
+   * through the half-way mark on its way, and reacting to that would set the
+   * switch back to where it came from, which sends the scroll back after it.
+   * Waiting for the rest answers the only question worth asking — where did
+   * this end up — and cannot fight an animation still in progress.
+   */
+  const paneSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPaneScroll = useCallback(() => {
-    const container = paneScrollRef.current;
-    if (!container || container.clientWidth === 0) return;
-    const next: WorkspacePane =
-      container.scrollLeft > container.clientWidth / 2 ? "canvas" : "editor";
-    setPane((current) => (current === next ? current : next));
+    if (paneSettle.current !== null) clearTimeout(paneSettle.current);
+    paneSettle.current = setTimeout(() => {
+      paneSettle.current = null;
+      const container = paneScrollRef.current;
+      if (!container || container.clientWidth === 0) return;
+      const next: WorkspacePane =
+        container.scrollLeft > container.clientWidth / 2 ? "canvas" : "editor";
+      setPane((current) => (current === next ? current : next));
+    }, PANE_SETTLE_MS);
   }, []);
+  useEffect(
+    () => () => {
+      if (paneSettle.current !== null) clearTimeout(paneSettle.current);
+    },
+    [],
+  );
 
   const attachField = useCallback(
     (fieldId: string) => {
@@ -205,7 +236,7 @@ export function PageWorkspace({
     breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
 
   const moduleColumn = (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto scrollbar-slim">
       {/*
        * `w-full` matters: without a definite width the box shrink-to-fits its
        * content, and `mx-auto` then centres a box wider than the column —
@@ -251,6 +282,7 @@ export function PageWorkspace({
       view={view}
       onChange={onViewChange}
       fieldCount={page ? Object.keys(page.fields).length : undefined}
+      animate={!reducedMotion}
     />
   );
 
@@ -364,7 +396,11 @@ export function PageWorkspace({
          */}
         {open && (
           <div className="absolute inset-x-3 top-[4.5rem] flex items-center gap-2">
-            <PaneToggle pane={pane} onChange={setPane} />
+            <PaneToggle
+              pane={pane}
+              onChange={setPane}
+              animate={!reducedMotion}
+            />
             <span className="ml-auto">{viewToggle}</span>
           </div>
         )}
@@ -411,48 +447,109 @@ export function PageWorkspace({
 export type WorkspacePane = "editor" | "canvas";
 
 /**
+ * A two-state switch whose selected state travels between the options.
+ *
+ * The thumb moves rather than the highlight jumping, because on a phone the
+ * pane switch and the swipe do the same thing — and a control that slides
+ * says that, where one that blinks between two colours does not.
+ *
+ * Options are laid out in equal columns (`auto-cols-fr`) so the thumb can be
+ * one column wide and travel by exactly one column, whatever the labels say.
+ */
+function SegmentedControl<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  animate,
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: ReadonlyArray<{
+    value: T;
+    label: string;
+    icon: LucideIcon;
+    /** Shown after the label, held back. */
+    badge?: number;
+  }>;
+  animate: boolean;
+}) {
+  const index = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="relative inline-grid auto-cols-fr grid-flow-col rounded-md border border-border-float bg-bg-float p-0.5"
+    >
+      <span
+        aria-hidden
+        style={{
+          width: `calc((100% - 4px) / ${options.length})`,
+          transform: `translateX(${index * 100}%)`,
+          transition: animate
+            ? `transform ${SWITCH_MS}ms ${OPEN_EASE}`
+            : undefined,
+        }}
+        className="absolute inset-y-0.5 left-0.5 rounded bg-bg-float-raised shadow-sm"
+      />
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="tab"
+          aria-selected={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            // Above the thumb, which is painted behind the whole row.
+            "relative inline-flex h-7 items-center justify-center gap-1.5 rounded px-2.5 text-[0.6875rem] transition-colors",
+            value === option.value
+              ? "font-medium text-fg-primary"
+              : "text-fg-secondary hover:text-fg-primary",
+          )}
+        >
+          <option.icon size={12} />
+          {option.label}
+          {option.badge !== undefined && (
+            <span className="tabular-nums text-fg-secondary-alt">
+              {option.badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The phone's editor/canvas switch.
  *
- * Same shape as the view switch beside it, because they are the same kind of
- * control — one picks the pane, the other picks what is in it.
+ * A visible switch as well as a swipe, because a pane you can only reach by
+ * guessing that it swipes is a pane most people never find.
  */
 function PaneToggle({
   pane,
   onChange,
+  animate,
 }: {
   pane: WorkspacePane;
   onChange: (pane: WorkspacePane) => void;
+  animate: boolean;
 }) {
   return (
-    <div
-      role="tablist"
-      aria-label="Workspace pane"
-      className="inline-flex gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5"
-    >
-      {(
-        [
-          ["editor", "Editor", PanelLeft],
-          ["canvas", "Canvas", Layers],
-        ] as const
-      ).map(([value, label, Icon]) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={pane === value}
-          onClick={() => onChange(value)}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
-            pane === value
-              ? "bg-bg-float-raised font-medium text-fg-primary shadow-sm"
-              : "text-fg-secondary",
-          )}
-        >
-          <Icon size={12} />
-          {label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label="Workspace pane"
+      value={pane}
+      onChange={onChange}
+      animate={animate}
+      options={[
+        { value: "editor", label: "Editor", icon: PanelLeft },
+        { value: "canvas", label: "Canvas", icon: Layers },
+      ]}
+    />
   );
 }
 
@@ -466,46 +563,28 @@ function ViewToggle({
   view,
   onChange,
   fieldCount,
+  animate,
 }: {
   view: CanvasView;
   onChange: (view: CanvasView) => void;
   /** How many fields the page reported. Shown on the Fields tab. */
   fieldCount?: number;
+  animate: boolean;
 }) {
   return (
-    <div
-      role="tablist"
-      aria-label="Canvas view"
-      className="inline-flex gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5"
-    >
-      {(
-        [
-          ["normal", "Normal", MousePointerSquareDashed],
-          ["fields", "Fields", ListTree],
-        ] as const
-      ).map(([value, label, Icon]) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={view === value}
-          onClick={() => onChange(value)}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[0.6875rem]",
-            view === value
-              ? "bg-bg-float-raised font-medium text-fg-primary shadow-sm"
-              : "text-fg-secondary hover:text-fg-primary",
-          )}
-        >
-          <Icon size={12} />
-          {label}
-          {value === "fields" && fieldCount !== undefined && (
-            <span className="tabular-nums text-fg-secondary-alt">
-              {fieldCount}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label="Canvas view"
+      value={view}
+      onChange={onChange}
+      animate={animate}
+      options={[
+        {
+          value: "normal",
+          label: "Normal",
+          icon: MousePointerSquareDashed,
+        },
+        { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
+      ]}
+    />
   );
 }

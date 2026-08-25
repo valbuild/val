@@ -212,7 +212,6 @@ function ShellHarness({
       canvasPage={mockCanvasPage}
       initialCanvasOpen={canvasOpen}
       initialCanvasView={canvasView}
-      skipTransition
     />
   );
 }

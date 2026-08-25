@@ -261,7 +261,7 @@ export function DeploymentRows({
     );
   }
   return (
-    <ul className="max-h-64 overflow-y-auto">
+    <ul className="max-h-64 overflow-y-auto scrollbar-slim">
       {deployments.map((deployment) => (
         <DeploymentRow
           key={deployment.commitSha}

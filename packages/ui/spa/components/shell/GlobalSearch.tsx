@@ -183,7 +183,10 @@ export function GlobalSearch({
             esc
           </kbd>
         </div>
-        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto py-1.5">
+        <div
+          ref={listRef}
+          className="flex-1 min-h-0 overflow-y-auto py-1.5 scrollbar-slim"
+        >
           {matches.length === 0 ? (
             <p className="px-4 py-6 text-xs text-fg-secondary-alt">
               Nothing matches “{query}”.

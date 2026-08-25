@@ -20,7 +20,7 @@ export const CANVAS_MAX_WIDTH = 1048;
  */
 export function EditorCanvas({ children }: { children: ReactNode }) {
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-bg-canvas">
+    <div className="absolute inset-0 overflow-y-auto bg-bg-canvas scrollbar-slim">
       {/* Top and bottom padding clear the floating bars. */}
       <div
         style={{ maxWidth: CANVAS_MAX_WIDTH }}

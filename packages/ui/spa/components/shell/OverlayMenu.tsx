@@ -309,7 +309,7 @@ export function OverlayWindow({
           )}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-slim">
         {children}
       </div>
       {footer !== undefined && (

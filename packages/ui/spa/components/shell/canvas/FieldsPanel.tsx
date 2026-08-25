@@ -93,7 +93,10 @@ export function FieldsPanel({
           placeholder="Filter fields…"
         />
       </div>
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 overflow-y-auto pb-4 scrollbar-slim"
+      >
         {sections.length === 0 && (
           <p className="px-4 py-6 text-xs text-fg-secondary-alt">
             No fields match this filter.
