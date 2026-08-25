@@ -76,6 +76,16 @@ function liveResponse(
   });
 }
 
+/**
+ * Mark the mocked fetch the way Next marks the fetch it has patched. That is how
+ * ValOpsHttp knows the framework owns the live mode ttl - and that answering
+ * from the in-process cache instead would cost the page its revalidation
+ * interval. jest's mockRestore puts the original fetch back, marker and all.
+ */
+function asNextPatchedFetch() {
+  Reflect.set(globalThis.fetch, "__nextPatched", true);
+}
+
 describe("getLiveSources", () => {
   let fetchMock: jest.SpyInstance;
   let error: jest.SpyInstance;
@@ -191,6 +201,77 @@ describe("getLiveSources", () => {
     await ops.getLiveSources();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("hands the ttl to the framework fetch cache when there is one", async () => {
+    // Next only learns how often to re-render a page from the fetches performed
+    // while rendering it. Answering from our own cache means a prerendered page
+    // is built with no revalidation and never picks up live content, so when
+    // Next's fetch is there we go through it every time and let it do the
+    // caching - it serves from its Data Cache without touching the network.
+    fetchMock.mockResolvedValue(liveResponse([livePatch("Committed")]));
+    asNextPatchedFetch();
+    const ops = testOps({ ttl: 60, staleWhileRevalidate: 300 });
+
+    await ops.getLiveSources();
+    await ops.getLiveSources();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      next: { revalidate: 60 },
+    });
+  });
+
+  test("still falls back to a stale patch set when the framework owns the ttl", async () => {
+    fetchMock.mockResolvedValueOnce(liveResponse([livePatch("Committed")]));
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    asNextPatchedFetch();
+    const ops = testOps({ ttl: 60, staleWhileRevalidate: 300 });
+
+    expect((await ops.getLiveSources()).sources).toEqual({
+      [AUTHORS]: { name: "Committed" },
+    });
+    // Handing over the ttl must not hand over stale-if-error too.
+    expect((await ops.getLiveSources()).sources).toEqual({
+      [AUTHORS]: { name: "Committed" },
+    });
+  });
+
+  test("gives Val a deadline, so a hung response cannot stall the render", async () => {
+    fetchMock.mockResolvedValue(liveResponse([]));
+
+    await testOps({ ttl: 60, staleWhileRevalidate: 0 }).getLiveSources();
+
+    const { signal } = fetchMock.mock.calls[0][1];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+  });
+
+  test("repeats a persistent failure at most once per interval", async () => {
+    // One call per fetchVal per render: without this, an unreachable Val prints
+    // a line per prerendered page during a build and one per request at runtime.
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    asNextPatchedFetch();
+    const ops = testOps({ ttl: 60, staleWhileRevalidate: 0 });
+
+    await ops.getLiveSources();
+    await ops.getLiveSources();
+    await ops.getLiveSources();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports a different failure immediately", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    fetchMock.mockResolvedValue(jsonResponse({}, { ok: false, status: 503 }));
+    asNextPatchedFetch();
+    const ops = testOps({ ttl: 60, staleWhileRevalidate: 0 });
+
+    await ops.getLiveSources();
+    await ops.getLiveSources();
+
+    expect(error).toHaveBeenCalledTimes(2);
   });
 
   test("sends no-store when ttl is 0 and a revalidate hint otherwise", async () => {

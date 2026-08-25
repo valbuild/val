@@ -204,6 +204,57 @@ export type LivePatches = {
   headCommitSha: string | null;
 };
 
+/**
+ * Whether the runtime's `fetch` honours `next: { revalidate }` - i.e. whether
+ * Next has patched `globalThis.fetch`.
+ *
+ * This decides who owns the live mode ttl, and it is not really a caching
+ * question. Next derives how often to re-render a page from the fetches
+ * performed while rendering it: no fetch, no revalidation. So if we answer from
+ * our own in-process cache, a prerendered page is built with `revalidate: false`
+ * and keeps serving its build-time snapshot forever - which is exactly the gap
+ * live mode exists to close.
+ *
+ * When Next's fetch is there we therefore call it on every render and let it own
+ * the ttl (a hit is served from its Data Cache without touching the network,
+ * and still registers the interval). Our LiveCache stays on as the dedupe and
+ * the stale-if-error fallback. Outside Next nothing registers anything, so the
+ * in-process ttl is all there is and we keep using it.
+ *
+ * Feature-detected rather than sniffed from an env var, so it tracks the
+ * capability we actually depend on. If the marker ever disappears we fall back
+ * to the in-process ttl, and apps can pin the interval themselves with
+ * `export const revalidate` - which is documented either way.
+ */
+/**
+ * How long to wait for Val before giving up and rendering the deployed content.
+ *
+ * Live mode is on the render path of public pages, so an unreachable Val must
+ * degrade rather than stall: without a deadline a hung connection holds the
+ * render open until the platform kills the whole request. Generous enough not to
+ * fire on a slow-but-working response, since giving up means a visitor sees the
+ * deployed content for this render.
+ */
+const LIVE_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * How often to repeat a live mode problem that keeps happening.
+ *
+ * These are logged per call, and there is one call per fetchVal per render - so
+ * an unreachable Val would otherwise print one line per prerendered page during
+ * a build and one per request at runtime, burying everything else.
+ */
+const LIVE_ISSUE_LOG_INTERVAL_MS = 60_000;
+
+function hasFrameworkFetchCache(): boolean {
+  const fetchFn: unknown = globalThis.fetch;
+  return (
+    typeof fetchFn === "function" &&
+    "__nextPatched" in fetchFn &&
+    Reflect.get(fetchFn, "__nextPatched") === true
+  );
+}
+
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders:
     | { Authorization: string }
@@ -216,6 +267,8 @@ export class ValOpsHttp extends ValOps {
     signature: string;
     result: { sources: Sources; headCommitSha: string | null };
   } | null = null;
+  /** The last live mode problem logged - see logLiveIssue. */
+  private lastLiveIssue: { message: string; at: number } | null = null;
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
@@ -837,6 +890,31 @@ export class ValOpsHttp extends ValOps {
 
   // #region live patches
   /**
+   * Report a live mode problem, at most once per
+   * LIVE_ISSUE_LOG_INTERVAL_MS while the same one persists.
+   *
+   * Live mode never fails a render, so these messages are all the operator has
+   * to go on - which is exactly why they must not be drowned out by their own
+   * repetition. A change of message always reports immediately.
+   */
+  private logLiveIssue(message: string, level: "error" | "warn" = "error") {
+    const at = Date.now();
+    const previous = this.lastLiveIssue;
+    if (
+      previous?.message === message &&
+      at - previous.at < LIVE_ISSUE_LOG_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.lastLiveIssue = { message, at };
+    if (level === "warn") {
+      console.warn(message);
+    } else {
+      console.error(message);
+    }
+  }
+
+  /**
    * The patches that are committed to Val, but landed after the commit this
    * deploy was built from. Cached according to the live mode ttl.
    *
@@ -859,8 +937,10 @@ export class ValOpsHttp extends ValOps {
       baseSha,
       Internal.VERSION.core,
     ].join("|");
-    return this.liveCache.get(key, () =>
-      this.fetchLivePatchesUncached(baseSha),
+    return this.liveCache.get(
+      key,
+      () => this.fetchLivePatchesUncached(baseSha),
+      { alwaysFetch: this.live.ttl > 0 && hasFrameworkFetchCache() },
     );
   }
 
@@ -873,8 +953,9 @@ export class ValOpsHttp extends ValOps {
       ["base_sha", baseSha],
       ["core_version", Internal.VERSION.core ?? ""],
     ]);
-    // A no-op outside Next. Inside Next it dedupes across server instances on
-    // top of our own in-process cache.
+    // Inside Next this is both the cache and the page's revalidation interval -
+    // see hasFrameworkFetchCache. Outside Next it is ignored and our own
+    // LiveCache owns the ttl instead.
     const cacheOptions: RequestInit & { next?: { revalidate: number } } =
       this.live && this.live.ttl > 0
         ? { next: { revalidate: this.live.ttl } }
@@ -882,10 +963,17 @@ export class ValOpsHttp extends ValOps {
     try {
       const res = await fetch(
         `${this.contentUrl}/v1/${this.project}/live/patches?${searchParams.toString()}`,
-        { headers: this.authHeaders, ...cacheOptions },
+        {
+          headers: this.authHeaders,
+          // A deadline, so a hung Val cannot hold the render open. NOTE: a
+          // signal opts the request out of Next's per-render fetch memoisation
+          // but not out of its Data Cache, which is the part live mode needs.
+          signal: AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS),
+          ...cacheOptions,
+        },
       );
       if (!res.ok) {
-        console.error(
+        this.logLiveIssue(
           "Val: could not get live patches. HTTP error: " +
             res.status +
             " " +
@@ -895,7 +983,7 @@ export class ValOpsHttp extends ValOps {
       }
       const parsed = LivePatchesResponse.safeParse(await res.json());
       if (!parsed.success) {
-        console.error(
+        this.logLiveIssue(
           "Val: could not parse the live patches response. Error: " +
             fromError(parsed.error),
         );
@@ -907,7 +995,7 @@ export class ValOpsHttp extends ValOps {
       ) {
         // The response is for a different deploy than the one asking, so its
         // patches may not apply to our sources at all.
-        console.error(
+        this.logLiveIssue(
           `Val: ignoring live patches for a different commit. Expected: ${this.commitSha}, got: ${parsed.data.baseCommitSha}`,
         );
         return null;
@@ -916,8 +1004,9 @@ export class ValOpsHttp extends ValOps {
       if (degraded) {
         // Expected on a rollback or a force-push: Val cannot tell what landed
         // after a commit it does not recognise, so it returns nothing.
-        console.warn(
+        this.logLiveIssue(
           `Val: live mode is degraded (${degraded}), rendering the deployed content.`,
+          "warn",
         );
       }
       return {
@@ -933,9 +1022,9 @@ export class ValOpsHttp extends ValOps {
         })),
       };
     } catch (err) {
-      console.error(
-        "Val: could not get live patches (connection error):",
-        err instanceof Error ? err.message : JSON.stringify(err),
+      this.logLiveIssue(
+        "Val: could not get live patches (connection error): " +
+          (err instanceof Error ? err.message : JSON.stringify(err)),
       );
       return null;
     }

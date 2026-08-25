@@ -65,8 +65,17 @@ export class LiveCache<T> {
    * `fetcher` must never throw for an expected failure (a network error, a bad
    * response): return null instead, and this falls back to a stale entry. A
    * thrown error is treated the same way, but is logged as unexpected.
+   *
+   * `alwaysFetch` hands the ttl to something else - see
+   * `ValOpsHttp.fetchLivePatches`, where the framework's own fetch cache owns
+   * it. The dedupe and the stale-if-error fallback still apply, so this is
+   * "do not answer from the fresh window", not "do not cache".
    */
-  async get(key: string, fetcher: () => Promise<T | null>): Promise<T | null> {
+  async get(
+    key: string,
+    fetcher: () => Promise<T | null>,
+    opts?: { alwaysFetch?: boolean },
+  ): Promise<T | null> {
     const entry = this.entry?.key === key ? this.entry : null;
     const age = entry === null ? Infinity : this.now() - entry.fetchedAt;
 
@@ -74,7 +83,7 @@ export class LiveCache<T> {
     // branches entirely - including staleWhileRevalidate, which would otherwise
     // reintroduce exactly the staleness ttl 0 asks us not to have. The cached
     // entry is still kept for stale-if-error below.
-    if (this.ttlMs > 0) {
+    if (this.ttlMs > 0 && !opts?.alwaysFetch) {
       if (entry !== null && age < this.ttlMs) {
         return entry.value;
       }
