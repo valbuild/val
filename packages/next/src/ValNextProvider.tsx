@@ -20,6 +20,7 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
+import { floatDarkBg, floatLightBg } from "./fallbackColors";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -366,12 +367,13 @@ export const ValNextProvider = (props: {
       window.removeEventListener("val-ui-created", listener);
     };
   }, []);
-  const [backgroundColor, textColor] = React.useMemo(() => {
+  // The pill is Val's chrome floating over the customer's page, so it takes
+  // the float background rather than the studio's canvas.
+  const [backgroundColor, textColor] = React.useMemo((): [string, string] => {
     if (initTheme !== "light") {
-      return ["#0c111d", "white"];
-    } else {
-      return ["white", "black"];
+      return [floatDarkBg, "white"];
     }
+    return [floatLightBg, "black"];
   }, [initTheme]);
   const commonStyles = React.useMemo(() => {
     return {

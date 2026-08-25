@@ -1,4 +1,11 @@
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Layers,
   ListTree,
@@ -73,6 +80,26 @@ export type PageWorkspaceProps = {
 /** Width the module column settles at once the canvas is beside it. */
 const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
 /**
+ * How narrow the editor column may be dragged.
+ *
+ * Not a taste judgement: below this the field labels wrap and the rich text
+ * toolbar starts collapsing, so a column narrower than this is not an editor
+ * any more. The canvas gets the same floor for the same reason — a sliver of a
+ * page is not a preview of it.
+ */
+const MIN_COLUMN_PX = 320;
+const MIN_CANVAS_PX = 280;
+/**
+ * How wide the editor column may be dragged, as a share of the workspace.
+ *
+ * A cap rather than `container - MIN_CANVAS_PX` alone, so that on a very wide
+ * screen the editor does not grow past the width it is designed to be read at
+ * while leaving an ocean of canvas nobody asked for.
+ */
+const MAX_COLUMN_SHARE = 0.72;
+/** How far an arrow key moves the divider. */
+const KEYBOARD_STEP_PX = 24;
+/**
  * Where a phone's pane content starts: below the top bar and below the strip
  * of switches under it.
  */
@@ -142,6 +169,107 @@ export function PageWorkspace({
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const paneScrollRef = useRef<HTMLDivElement>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The split between editor and canvas.
+   *
+   * `null` means nobody has dragged it, and the column keeps its designed
+   * width — a responsive clamp, which is a better default at every screen size
+   * than any single number this could be initialised to. Once dragged it is a
+   * pixel width, because that is what the drag produces and what the person
+   * dragging is choosing.
+   */
+  const [columnPx, setColumnPx] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  // The workspace's own width, which is what the limits are relative to: the
+  // same column is reasonable on a 1600px screen and far too wide on a 900px
+  // one.
+  const [splitWidth, setSplitWidth] = useState(0);
+  useEffect(() => {
+    const el = splitRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setSplitWidth(el.clientWidth));
+    observer.observe(el);
+    setSplitWidth(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+
+  /**
+   * The range the divider may sit in, for this workspace at this width.
+   *
+   * Both ends can be impossible at once on a narrow window — there is not
+   * always room for a usable editor *and* a usable canvas — so the floor wins
+   * and the max is never allowed below it. That keeps the editor whole and lets
+   * the canvas be the thing that gets cramped, which is the right way round:
+   * the editor is what the work happens in.
+   */
+  const columnBounds = useMemo(() => {
+    if (splitWidth === 0) return { min: MIN_COLUMN_PX, max: MIN_COLUMN_PX };
+    const max = Math.max(
+      MIN_COLUMN_PX,
+      Math.min(splitWidth * MAX_COLUMN_SHARE, splitWidth - MIN_CANVAS_PX),
+    );
+    return { min: Math.min(MIN_COLUMN_PX, max), max };
+  }, [splitWidth]);
+
+  const clampColumn = useCallback(
+    (px: number) =>
+      Math.round(Math.min(columnBounds.max, Math.max(columnBounds.min, px))),
+    [columnBounds],
+  );
+
+  // A window resize can put the divider outside the range it was dragged
+  // within, so it follows the range down rather than leaving the canvas at
+  // nothing.
+  useEffect(() => {
+    if (columnPx === null) return;
+    const next = clampColumn(columnPx);
+    if (next !== columnPx) setColumnPx(next);
+  }, [columnPx, clampColumn]);
+
+  /**
+   * Dragging the divider.
+   *
+   * Pointer capture rather than window listeners: the pointer leaves the
+   * handle immediately and would otherwise be lost to whatever is underneath
+   * — including the canvas frame, which is a different document and swallows
+   * events entirely.
+   */
+  const onDividerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const container = splitRef.current;
+      if (!container) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsDragging(true);
+      const left = container.getBoundingClientRect().left;
+      const move = (moveEvent: PointerEvent) => {
+        setColumnPx(clampColumn(moveEvent.clientX - left));
+      };
+      const finish = () => {
+        setIsDragging(false);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", finish);
+        window.removeEventListener("pointercancel", finish);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+    },
+    [clampColumn],
+  );
+
+  const nudgeDivider = useCallback(
+    (delta: number) => {
+      const container = splitRef.current;
+      const current =
+        columnPx ?? container?.firstElementChild?.clientWidth ?? MIN_COLUMN_PX;
+      setColumnPx(clampColumn(current + delta));
+    },
+    [columnPx, clampColumn],
+  );
 
   const pageWidth = CANVAS_DEVICE_WIDTHS[device];
 
@@ -474,16 +602,33 @@ export function PageWorkspace({
   }
 
   return (
-    <div className="absolute inset-0 flex overflow-hidden bg-bg-canvas">
+    <div
+      ref={splitRef}
+      className="absolute inset-0 flex overflow-hidden bg-bg-canvas"
+    >
       <div
         style={{
-          width: open ? COLUMN_WIDTH : "100%",
-          transition: ease(["width"]),
+          width: open
+            ? columnPx !== null
+              ? `${columnPx}px`
+              : COLUMN_WIDTH
+            : "100%",
+          // A width being animated cannot also be dragged — the column would
+          // lag a third of a second behind the pointer — so the transition
+          // belongs to opening and closing, not to the drag.
+          transition: isDragging ? undefined : ease(["width"]),
         }}
         className="relative h-full min-w-0 shrink-0"
       >
         {column}
       </div>
+      {open && (
+        <SplitDivider
+          isDragging={isDragging}
+          onPointerDown={onDividerPointerDown}
+          onNudge={nudgeDivider}
+        />
+      )}
       {/*
        * Scales up as it arrives, so it reads as the page being placed beside
        * the editor rather than sliding in from off screen.
@@ -504,6 +649,59 @@ export function PageWorkspace({
       >
         {canvasPane}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The grab handle between the editor and the canvas.
+ *
+ * A `separator` with the keyboard behaviour that implies, not just a draggable
+ * strip: how much room the page gets against how much the editor gets is a real
+ * decision, and one that should not need a mouse to make. The hit area is wider
+ * than the line it draws, because a 1px target is a target nobody hits.
+ */
+function SplitDivider({
+  isDragging,
+  onPointerDown,
+  onNudge,
+}: {
+  isDragging: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onNudge: (delta: number) => void;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the editor and canvas"
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onNudge(-KEYBOARD_STEP_PX);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          onNudge(KEYBOARD_STEP_PX);
+        }
+      }}
+      className={cn(
+        "group relative z-10 w-3 shrink-0 cursor-col-resize self-stretch",
+        "focus-visible:outline-none",
+      )}
+    >
+      {/* The line, centred in the wider hit area. */}
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-14 left-1/2 w-px -translate-x-1/2 rounded-full",
+          "transition-colors",
+          isDragging
+            ? "bg-fg-brand-primary"
+            : "bg-border-float group-hover:bg-fg-secondary group-focus-visible:bg-fg-brand-primary",
+        )}
+      />
     </div>
   );
 }

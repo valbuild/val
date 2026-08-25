@@ -477,7 +477,6 @@ export function Shell({
           data={data.data}
           selectedId={selection?.id ?? null}
           onSelect={(module) => select(toDataSelection(module))}
-          onNewDataFile={onNewDataFile ?? (() => undefined)}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}

@@ -259,16 +259,28 @@ function dataModule(
   };
 }
 
+/**
+ * The Data panel is a tree, so the mock is a tree: modules at the top of a
+ * directory, modules nested a couple of levels down, and more than one
+ * top-level directory. A project that keeps everything in one flat `/content`
+ * would never show the panel doing its job — and it is exactly the projects
+ * that do organise their content that the tree exists for.
+ */
 export const mockDataModules: ShellDataModule[] = [
   dataModule("/content/settings.val.ts"),
   dataModule("/content/navigation.val.ts", { hasDraft: true }),
   dataModule("/content/footer.val.ts"),
-  dataModule("/content/products.val.ts", { errorCount: 3 }),
-  dataModule("/content/authors.val.ts"),
-  dataModule("/content/tags.val.ts"),
-  dataModule("/content/redirects.val.ts"),
-  dataModule("/content/featuredContent.val.ts"),
+  dataModule("/content/shop/products.val.ts", { errorCount: 3 }),
+  dataModule("/content/shop/categories.val.ts"),
+  dataModule("/content/shop/shipping/zones.val.ts"),
+  dataModule("/content/shop/shipping/rates.val.ts", { hasDraft: true }),
+  dataModule("/content/editorial/authors.val.ts"),
+  dataModule("/content/editorial/tags.val.ts"),
+  dataModule("/content/i18n/en.val.ts"),
+  dataModule("/content/i18n/nb.val.ts", { errorCount: 1 }),
   dataModule("/components/link.val.ts"),
+  dataModule("/components/callToAction.val.ts"),
+  dataModule("/schema/image.val.ts"),
 ];
 
 /**
@@ -325,9 +337,9 @@ export const mockNotifications: ShellNotification[] = [
  */
 export const mockValidationErrors: ShellValidationError[] = [
   {
-    id: "/content/products.val.ts",
+    id: "/content/shop/products.val.ts",
     title: "products",
-    detail: "/content/products.val.ts",
+    detail: "/content/shop/products.val.ts",
     count: 3,
   },
   {
@@ -465,7 +477,7 @@ export const mockSelectionIds = {
   home: mockPages[0].id,
   pricing: mockPages[3].id,
   firstBlogPost: blogPosts[0].id,
-  products: "/content/products.val.ts",
+  products: "/content/shop/products.val.ts",
   images: "/content/media.val.ts",
   instagram: mockExternalPages[0].id,
 } satisfies Record<string, string>;

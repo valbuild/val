@@ -78,6 +78,78 @@ test.describe("the canvas", () => {
     await expect(title).toHaveValue("Blog 1");
   });
 
+  /**
+   * The divider between the editor and the canvas.
+   *
+   * Both ends of its range matter and fail differently. Dragged in, the editor
+   * stops being an editor — labels wrap, the rich text toolbar collapses — so
+   * there is a floor. Dragged out, the canvas becomes a sliver that is not a
+   * preview of anything, so there is a ceiling. A divider with neither looks
+   * fine in a screenshot taken halfway along.
+   */
+  test("resizes between the editor and the canvas, within limits", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: "Canvas" }).click();
+    await expect(
+      studio.getByRole("button", { name: "Fit page to screen" }),
+    ).toBeVisible();
+
+    const divider = studio.getByRole("separator", {
+      name: "Resize the editor and canvas",
+    });
+    await expect(divider).toBeVisible();
+
+    /**
+     * Drag the divider to an absolute x, and report where it ended up.
+     *
+     * The position is polled rather than read once: the release is a React
+     * state change, so reading immediately after `mouse.up` can catch the
+     * pre-commit position and report that nothing moved.
+     */
+    const dividerX = async (): Promise<number> =>
+      (await divider.boundingBox())!.x;
+    const dragTo = async (x: number): Promise<number> => {
+      const from = await dividerX();
+      const box = await divider.boundingBox();
+      const y = box!.y + box!.height / 2;
+      await page.mouse.move(box!.x + box!.width / 2, y);
+      await page.mouse.down();
+      await page.mouse.move(x, y, { steps: 10 });
+      await page.mouse.up();
+      // Settled: two reads in a row that agree, and not the position it
+      // started from unless the drag was genuinely refused by a limit.
+      await expect
+        .poll(async () => Math.round(await dividerX()), { timeout: 5000 })
+        .not.toBe(Math.round(from));
+      return dividerX();
+    };
+
+    const start = (await divider.boundingBox())!.x;
+
+    // Out: the editor gets wider, and the divider follows the pointer.
+    const wider = await dragTo(start + 240);
+    expect(wider).toBeGreaterThan(start + 180);
+
+    // Further than there is room for: it stops, leaving the canvas usable.
+    const viewport = page.viewportSize();
+    expect(viewport, "no viewport to measure against").toBeTruthy();
+    const capped = await dragTo(viewport!.width + 500);
+    expect(capped).toBeLessThan(viewport!.width - 200);
+
+    // And back in past the floor: the editor keeps a usable width.
+    const floored = await dragTo(0);
+    expect(floored).toBeGreaterThan(200);
+
+    // The editor is still an editor at every stop along the way.
+    await expect(studio.locator("input").first()).toHaveValue("Blog 1");
+  });
+
   test("is not offered for content that is not on a route", async ({
     page,
   }) => {
