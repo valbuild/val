@@ -804,6 +804,55 @@ export class SourceStore {
     return { status: "module-loading" };
   }
 
+  /**
+   * Put a patched, substituted module back where its parts belong.
+   *
+   * The inverse of {@link substitutedSource}: source keeps its markers, and the
+   * content of a loaded entry goes back into `jsonEntries`. Without this split, a
+   * patched module would carry entry content INLINE — and since
+   * `substituteJsonEntries` only substitutes where a marker still stands, that
+   * content would then shadow the entry map and quietly become the truth, which
+   * is a different module shape than the one the server has.
+   *
+   * A key the patch REMOVED loses its entry content too. A key the patch ADDED is
+   * left inline, which is correct: a newly added record key is ordinary content
+   * until `--fix` extracts it to a `*.val.json`.
+   */
+  private storePatched(
+    moduleFilePath: ModuleFilePath,
+    raw: Json,
+    patched: Json,
+  ): void {
+    const entries = this.jsonEntries.get(moduleFilePath);
+    if (
+      entries === undefined ||
+      entries.size === 0 ||
+      !isJsonObject(patched) ||
+      !isJsonObject(raw)
+    ) {
+      this.sources[moduleFilePath] = patched;
+      return;
+    }
+    const nextSource: Record<string, Json> = { ...patched };
+    for (const key of [...entries.keys()]) {
+      if (!(key in nextSource)) {
+        entries.delete(key);
+        continue;
+      }
+      // Only a key that was SUBSTITUTED gets split back out. One that holds
+      // ordinary content in source was never the entry map's to begin with.
+      if (!Internal.isJson(raw[key])) {
+        continue;
+      }
+      entries.set(key, nextSource[key]);
+      nextSource[key] = raw[key];
+    }
+    this.sources[moduleFilePath] = nextSource;
+    // The substitution cache is keyed on the source object it was built from,
+    // and that object is now a different one — but the revision this patch is
+    // about to bump is what invalidates it, so nothing to clear here.
+  }
+
   private async loadEntry(
     moduleFilePath: ModuleFilePath,
     key: string,
@@ -1483,8 +1532,26 @@ export class SourceStore {
       paths: SourcePath[];
     }[] = [];
     for (const { record, origin, creatorFieldId } of entries) {
-      const current = this.sources[record.moduleFilePath];
-      if (current === undefined) {
+      const raw = this.sources[record.moduleFilePath];
+      /**
+       * Applied to the SUBSTITUTED module, not the raw one.
+       *
+       * Raw source holds `.jsonValues()` markers; the entry content lives in
+       * `jsonEntries` and is only stitched in on read. Applying to raw meant a
+       * patch at `["/a", "title"]` was applied to `{_type: "json"}`, which has no
+       * `title` — so every edit INSIDE an entry failed with "Cannot replace
+       * object element which does not exist".
+       *
+       * That was survivable while a failed apply was only invisible: the patch
+       * still reached the server, which applies it to the backing `*.val.json`
+       * correctly, so the edit came back on reload. It stopped being survivable
+       * when an unapplicable patch started being deleted.
+       */
+      const current =
+        raw === undefined
+          ? undefined
+          : this.substitutedSource(record.moduleFilePath, raw);
+      if (current === undefined || raw === undefined) {
         // The module is not loaded, so there is nothing to apply the patch to
         // yet. Not a failure: `receive()` rebuilds from base + chain, so this
         // patch lands as soon as the module arrives.
@@ -1509,7 +1576,7 @@ export class SourceStore {
         patchableOps,
       );
       if (result.isOk(res)) {
-        this.sources[record.moduleFilePath] = res.value;
+        this.storePatched(record.moduleFilePath, raw, res.value);
         this.bump(record.moduleFilePath);
         success.push(record.patchId);
         changedModules.add(record.moduleFilePath);

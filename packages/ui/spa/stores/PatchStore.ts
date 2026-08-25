@@ -166,6 +166,42 @@ export class PatchStore {
    */
   private verifying = new Set<PatchId>();
   /**
+   * Is a publish in flight? Injected, because only `createSystem` knows.
+   *
+   * `/save` in `fs` mode DELETES the patches it published, so a stat poll landing
+   * between the server committing and this client running `forgetPublished` sees
+   * them gone from a chain that still holds them. Reconciling then confirms they
+   * are absent — correctly — and drops them, rebuilding source from a base that
+   * has not been promoted yet: every published field visibly reverts.
+   *
+   * There is nothing to reconcile during a publish anyway; the publish path
+   * settles the chain itself.
+   */
+  private publishInFlight: () => boolean = () => false;
+  /**
+   * The `baseSha` the last stat named, so a MOVE can be noticed.
+   *
+   * A discard leaves the base where it is; a publish makes a commit and moves it.
+   * That is the only signal available for telling "someone deleted this" from
+   * "someone published this", and they need opposite handling: a discarded
+   * patch's effect must come out of source, a published one's must stay because
+   * it is in the base now.
+   */
+  private lastBaseSha: string | null = null;
+  /**
+   * Patches this client has published, which `appliedAt` cannot tell us.
+   *
+   * `appliedAt` comes from the server and is only ever seen on a record FETCHED
+   * after its commit. A record this client created keeps `appliedAt: undefined`
+   * forever, and in `http` mode a published patch stays in the chain — so a
+   * shipped file went on being served from `?patch_id=...` until a reload.
+   *
+   * A separate set rather than a synthesised `appliedAt`, because the publish
+   * seam does not return a commit sha and inventing one would put a lie in a
+   * field other code reads.
+   */
+  private publishedIds = new Set<PatchId>();
+  /**
    * Bumped whenever the chain or its data changes.
    *
    * A monotonic counter rather than a hash, for the same reason the module
@@ -184,6 +220,11 @@ export class PatchStore {
   private parentRefSource: () => ParentRef | null = () => null;
 
   /** See {@link parentRefSource}. */
+  /** See {@link publishInFlight}. */
+  setPublishInFlight(isPublishing: () => boolean): void {
+    this.publishInFlight = isPublishing;
+  }
+
   setParentRefSource(source: () => ParentRef | null): void {
     this.parentRefSource = source;
   }
@@ -207,7 +248,15 @@ export class PatchStore {
    */
   listenTo(stat: StatStore, source: SourceStore): () => void {
     const offStat = stat.events.on("stat:receive", (event) => {
-      void this.onStatPatchIds(event.patches);
+      const baseSha = stat.currentBaseSha();
+      const baseMoved =
+        this.lastBaseSha !== null &&
+        baseSha !== null &&
+        baseSha !== this.lastBaseSha;
+      if (baseSha !== null) {
+        this.lastBaseSha = baseSha;
+      }
+      void this.onStatPatchIds(event.patches, baseMoved);
     });
     const offApply = source.events.on("source:patch-apply", (event) => {
       for (const patchId of event.success) {
@@ -247,7 +296,10 @@ export class PatchStore {
    * removed-and-restored, because a patch that turns out to exist must not have
    * its value flicker out of source and back.
    */
-  private async onStatPatchIds(patchIds: PatchId[]): Promise<void> {
+  private async onStatPatchIds(
+    patchIds: PatchId[],
+    baseMoved = false,
+  ): Promise<void> {
     const announced = new Set(patchIds);
     for (const patchId of patchIds) {
       if (!this.originById.has(patchId)) {
@@ -266,6 +318,7 @@ export class PatchStore {
      */
     void this.reconcileVanished(
       tail.filter((patchId) => !this.pendingIds.has(patchId)),
+      baseMoved,
     );
 
     const missing = patchIds.filter(
@@ -326,7 +379,11 @@ export class PatchStore {
    * chain when it hears `patch:drop`. Removing the id alone would leave the
    * deleted edit on screen with nothing left in the chain to explain it.
    */
-  private async reconcileVanished(patchIds: PatchId[]): Promise<void> {
+  private async reconcileVanished(
+    patchIds: PatchId[],
+    baseMoved: boolean,
+  ): Promise<void> {
+    if (this.publishInFlight()) return;
     const ask = patchIds.filter((patchId) => !this.verifying.has(patchId));
     if (ask.length === 0) return;
     for (const patchId of ask) {
@@ -352,7 +409,17 @@ export class PatchStore {
           !this.pendingIds.has(patchId),
       );
       if (gone.length > 0) {
-        this.drop(gone);
+        if (baseMoved) {
+          /**
+           * The base moved, so these were PUBLISHED, not discarded — by another
+           * session, or by this one in a window this client did not see. Their
+           * effect is in the base now, so it has to stay on screen: `drop`
+           * rebuilds the module without them and every published field reverts.
+           */
+          this.forgetPublished(gone);
+        } else {
+          this.drop(gone);
+        }
       }
     } finally {
       for (const patchId of ask) {
@@ -634,6 +701,23 @@ export class PatchStore {
    * whole would silently mark an unsaved patch saved — the one bookkeeping error
    * here that loses an edit without any error appearing anywhere.
    */
+  /**
+   * These have shipped. See {@link publishedIds}.
+   *
+   * Called on a successful publish in BOTH modes: in `fs` the patches are
+   * forgotten immediately afterwards and this is redundant, in `http` they stay
+   * in the chain and this is the only thing that knows.
+   */
+  markPublished(patchIds: readonly PatchId[]): void {
+    let changed = false;
+    for (const patchId of patchIds) {
+      if (this.publishedIds.has(patchId)) continue;
+      this.publishedIds.add(patchId);
+      changed = true;
+    }
+    if (changed) this.bump();
+  }
+
   markSaved(patchIds: readonly PatchId[]): void {
     const saved: PatchId[] = [];
     for (const patchId of patchIds) {
@@ -708,6 +792,7 @@ export class PatchStore {
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
       this.publishErrorById.delete(patchId);
+      this.publishedIds.delete(patchId);
       dropped.push(patchId);
     }
     if (dropped.length === 0) return;
@@ -926,8 +1011,9 @@ export class PatchStore {
     for (const patchId of this.ordered) {
       const record = this.dataById.get(patchId);
       if (record === undefined) continue;
-      // Shipped: the bytes are at the committed path now.
-      if (record.appliedAt) continue;
+      // Shipped: the bytes are at the committed path now. Either the server
+      // told us (`appliedAt`, on a fetched record) or we published it ourselves.
+      if (record.appliedAt || this.publishedIds.has(patchId)) continue;
       for (const op of record.patch) {
         if (op.op === "file") {
           // Later wins: if two unpublished patches touch one file, the newest is

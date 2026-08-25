@@ -1,4 +1,4 @@
-import { initVal } from "@valbuild/core";
+import { initVal, Internal } from "@valbuild/core";
 import { initTestSystem, mfp } from "./testSystem";
 
 /**
@@ -196,6 +196,82 @@ describe("reading a `.jsonValues()` record", () => {
     const read = await sourceStore.get('/blogs.val.ts?p="/nope"', null);
 
     expect(read.status).toBe("absent");
+    dispose();
+  });
+});
+
+describe("editing inside a `.jsonValues()` entry", () => {
+  /**
+   * A patch into loaded entry content has to APPLY.
+   *
+   * `applyEntries` applies against `this.sources[module]`, which still holds the
+   * `.jsonValues()` MARKERS — the entry content lives in `jsonEntries` and is
+   * only stitched in on read. So a `replace` at `["/a", "title"]` was applied to
+   * `{_type: "json"}`, which has no `title`, and failed with "Cannot replace
+   * object element which does not exist".
+   *
+   * That was survivable while a failed apply was merely invisible: the patch
+   * still reached the server, which applies it to the backing `*.val.json`
+   * correctly, so it came back right after a reload. It stopped being survivable
+   * when an unapplicable patch started being deleted — then the edit was gone.
+   *
+   * Nothing caught it because every test here only READ entry content.
+   */
+  it("applies an edit to a loaded entry", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    // Loaded first: an edit into an entry nobody has opened is a different case.
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+
+    const read = await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("Alpha edited");
+    dispose();
+  });
+
+  /** And the module's own source keeps its marker, so the invariant holds. */
+  it("leaves the marker in source and the content in the entry", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+
+    // `peek` of the module root substitutes, so it shows the edit...
+    const peeked = sourceStore.peek("/blogs.val.ts" as never);
+    if (peeked.status !== "ready") {
+      throw new Error(`expected ready, got ${peeked.status}`);
+    }
+    const data = peeked.data as Record<string, { title?: string }>;
+    expect(data["/a"].title).toBe("Alpha edited");
+    // ...and the OTHER entry is still an unloaded marker, not inlined by the
+    // round trip through the patched object.
+    expect(Internal.isJson(data["/b"])).toBe(true);
+    dispose();
+  });
+
+  /** An edit to the record itself still works: it is not entry content. */
+  it("applies an edit to the record around the entries", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "remove", path: ["/b"] },
+    ]);
+
+    const read = await sourceStore.get("/blogs.val.ts?p=", null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(Object.keys(read.data as Record<string, unknown>)).toEqual(["/a"]);
     dispose();
   });
 });

@@ -405,3 +405,85 @@ test.describe("reordering an array by dragging", () => {
     await expect.poll(() => chainLength(page)).toBe(0);
   });
 });
+
+/**
+ * Editing a field INSIDE a `.jsonValues()` entry.
+ *
+ * The gap this closes: every `.jsonValues()` test read entry content, and none
+ * edited it. So nothing noticed that `applyEntries` applied patches against the
+ * RAW module source — which still holds the entry markers, entry content being
+ * stitched in only on read. A `replace` at `["/support/getting-started", "title"]`
+ * was therefore applied to `{_type: "json"}`, failed with "Cannot replace object
+ * element which does not exist", and the edit never appeared.
+ *
+ * It was survivable while a failed apply was merely invisible — the patch still
+ * reached the server, which applies it to the backing `*.val.json` correctly, so
+ * the edit came back after a reload. It stopped being survivable the moment an
+ * unapplicable patch started being deleted: then the edit was destroyed, with a
+ * console message insisting the content did not have the path it plainly had.
+ *
+ * Driven through the UI on the real route a user reported, because the store-level
+ * test cannot see the console error or the field.
+ */
+test.describe("a field inside a jsonValues entry", () => {
+  const ROUTE =
+    "/val/~/app/support/[slug]/page.val.ts?p=%22/support/getting-started%22";
+  const TITLE =
+    '/app/support/[slug]/page.val.ts?p="/support/getting-started"."title"';
+
+  test("applies the edit, and does not discard the patch", async ({ page }) => {
+    // Anything claiming a patch could not be applied is a failure here: the
+    // module is fully loaded and the path exists.
+    const refused: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (/cannot be applied|Cannot replace|discarding a patch/.test(text)) {
+        refused.push(text.slice(0, 200));
+      }
+    });
+
+    await openStudio(page, ROUTE);
+    const studio = page.locator("#val-shadow-root");
+    const field = studio
+      .locator("input:not([type=file]):not([disabled])")
+      .first();
+    await expect(field).toBeVisible();
+
+    const typed = `Edited by e2e ${Date.now()}`;
+    await field.fill(typed);
+    await field.blur();
+
+    // The store has it, which is what a failed apply would deny.
+    await expect
+      .poll(
+        () =>
+          page.evaluate((path) => {
+            const peek = (
+              window as unknown as {
+                __VAL_STORES__: {
+                  system: {
+                    sourceStore: {
+                      peek(p: string): { status: string; data?: unknown };
+                    };
+                  };
+                };
+              }
+            ).__VAL_STORES__.system.sourceStore.peek(path);
+            return peek.status === "ready" ? peek.data : peek.status;
+          }, TITLE),
+        { timeout: 20_000 },
+      )
+      .toBe(typed);
+
+    // And the patch is still there — an unapplicable one is deleted, so a
+    // surviving chain is the other half of the claim.
+    await expect.poll(() => chainLength(page)).toBeGreaterThan(0);
+    expect(
+      refused,
+      "the apply refused a patch it should have accepted",
+    ).toEqual([]);
+
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(0);
+  });
+});

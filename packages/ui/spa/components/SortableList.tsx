@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   DndContext,
   DragOverlay,
@@ -183,6 +189,18 @@ export function SortableList({
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
+  /**
+   * The render's items by index, built once per render of the list.
+   *
+   * `items` is `[index, value][]` — a windowed render is a SHORTER array, so a
+   * row has to be found by its index rather than read at a position. Doing that
+   * with `find` per row is O(n) per row and therefore O(n²) for a full list,
+   * which is the case with the most rows on screen.
+   */
+  const renderByIndex = useMemo(
+    () => new Map(render?.items ?? []),
+    [render?.items],
+  );
   return (
     <SortableContainer
       source={source}
@@ -196,10 +214,10 @@ export function SortableList({
           renderLayout={render?.layout}
           render={
             /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            /* Looked up by index rather than by position: a render computed for
-               a subset of paths carries only those items, so items[n] would be
-               a different row. See ListArrayRender. */
-            render?.items.find(([index]) => index === id - 1)?.[1]
+            /* By index, not by position: a render computed for a subset of paths
+               carries only those items, so items[n] would be a different row.
+               See ListArrayRender, and `renderByIndex` for why it is a Map. */
+            renderByIndex.get(id - 1)
           }
           path={path}
           onClick={onClick}

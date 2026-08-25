@@ -405,83 +405,123 @@ export function createSystem(options: SystemOptions): System {
    * and one answer, which is what they wanted anyway.
    */
   let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
+  // See `PatchStore.publishInFlight`: a stat landing mid-publish would otherwise
+  // reconcile away the patches `/save` has just deleted server-side.
+  patchStore.setPublishInFlight(() => publishing);
 
   /**
-   * Ids already actioned by {@link discardUnapplicable}, so one bad patch is
-   * reported once.
+   * How many times each patch has been through {@link discardUnapplicable}.
    *
-   * A failed apply is re-reported on every replay that reaches it, and the
-   * server delete is a round trip that can fail — without this, a project with
-   * one unapplicable patch and no discard seam would print an error and issue a
-   * DELETE on every intake for the rest of the session.
+   * Not a "seen" set that silences it forever, which is what this was. A patch
+   * can come BACK — the delete can fail, or a `PUT` already in flight can land
+   * after it — and a patch in the chain that cannot apply holds the head at
+   * `partial` and blocks every later save to its module. So a returning patch is
+   * handled again, and the count is only there to stop an unbounded argument with
+   * a server that will not let go.
    */
-  const unapplicableSeen = new Set<PatchId>();
+  const unapplicableAttempts = new Map<PatchId, number>();
+  const UNAPPLICABLE_ATTEMPTS = 3;
 
   /**
-   * Delete patches the apply refused, and say why in enough detail to be
-   * actionable. See the `source:patch-apply` listener below for the reasoning.
+   * Act on patches the apply refused. See the `source:patch-apply` listener.
    */
   async function discardUnapplicable(
     failed: readonly { patchId: PatchId; message: string }[],
   ): Promise<void> {
-    const fresh = failed.filter(
-      ({ patchId }) => !unapplicableSeen.has(patchId),
-    );
-    if (fresh.length === 0) return;
-    for (const { patchId } of fresh) {
-      unapplicableSeen.add(patchId);
-    }
-    const ids = fresh.map(({ patchId }) => patchId);
-    // Read BEFORE the drop: `drop` forgets the record, and the record is what
-    // makes the log worth printing.
-    const records = patchStore.recordsFor(ids);
-    for (const { patchId, message } of fresh) {
-      const record = records.find((candidate) => candidate.patchId === patchId);
+    const toDelete: PatchId[] = [];
+    for (const { patchId, message } of failed) {
+      const record = patchStore.recordsFor([patchId])[0];
+      const moduleFilePath = record?.moduleFilePath;
+      /**
+       * "Cannot apply" is not reliably permanent, and assuming it was destroyed
+       * a real edit.
+       *
+       * A module with `.jsonValues()` entries still unloaded is the case that
+       * proved it: entry content is stitched in on read, so a patch INTO an entry
+       * nobody has loaded fails against a marker — and would succeed once the
+       * entry arrives. Reported, never deleted.
+       */
+      const uncertain =
+        moduleFilePath !== undefined &&
+        sourceStore.hasUnloadedEntries(moduleFilePath);
+      const attempts = (unapplicableAttempts.get(patchId) ?? 0) + 1;
+      unapplicableAttempts.set(patchId, attempts);
+
       console.error(
-        "Val: discarding a patch that cannot be applied. " +
-          "If you see this often, please report it — it means a patch is being " +
-          "generated that does not fit the source it targets.",
+        uncertain
+          ? "Val: a patch could not be applied, and this module still has " +
+              "unloaded .jsonValues() entries — so it may apply once they " +
+              "arrive. Keeping it. If the edit never appears, please report this."
+          : "Val: discarding a patch that cannot be applied. If you see this " +
+              "often, please report it — it means a patch is being generated " +
+              "that does not fit the source it targets.",
         {
           patchId,
           reason: message,
-          module: record?.moduleFilePath ?? "(record already gone)",
-          // The ops, not a count: which op and which path is the whole diagnosis.
+          module: moduleFilePath ?? "(record already gone)",
+          // The ops, not a count: which op at which path is the diagnosis.
           ops: record?.patch?.map((op) => ({
             op: op.op,
             path: "path" in op ? op.path : undefined,
           })),
           origin: patchStore.originOf(patchId),
           savedOnServer: !patchStore.isPending(patchId),
-          chainLength: patchStore.allRecords().length,
+          attempt: attempts,
         },
       );
+      if (uncertain) continue;
+      if (attempts > UNAPPLICABLE_ATTEMPTS) {
+        console.error(
+          "Val: giving up on deleting an unapplicable patch — it keeps coming " +
+            "back. It is out of this session's chain so it cannot block saving, " +
+            "but it is still on the server.",
+          { patchId, attempts },
+        );
+        patchStore.drop([patchId]);
+        continue;
+      }
+      toDelete.push(patchId);
     }
+    if (toDelete.length === 0) return;
+
+    /**
+     * Dropped locally FIRST, and synchronously.
+     *
+     * `PatchSync` drains what the chain holds, so taking the patch out now is
+     * what stops it being offered to `PUT /patches` at all. The delete below is
+     * for the case where that race was already lost.
+     *
+     * Not conditional on the delete succeeding: whatever the server says, a
+     * chain holding a patch that can never apply keeps the head `partial` and
+     * blocks every later save to its module.
+     */
+    patchStore.drop(toDelete);
+    status.reportError(
+      toDelete.length === 1
+        ? "An edit could not be applied and has been discarded."
+        : `${toDelete.length} edits could not be applied and have been discarded.`,
+      "This usually means a patch was generated that does not fit the content it " +
+        "targets. The browser console has the failing operation.",
+    );
     if (options.discardPatches === undefined) {
-      // Still dropped locally: an unapplicable patch in the chain blocks every
-      // later save to its module, so leaving it is not the safer option. It will
-      // be back on the next reload, and the log above is what explains that.
+      // Local-only: it will be back on the next reload, and the log says so.
       console.error(
         "Val: cannot delete the patch on the server — this system has no " +
           "discard seam. It will return on the next reload.",
-        { patchIds: ids },
+        { patchIds: toDelete },
       );
-      patchStore.drop(ids);
       return;
     }
-    const res = await options.discardPatches(ids);
+    const res = await options.discardPatches(toDelete);
     if (res.status === "error") {
+      // Left for the next round: if the patch is still on the server it will be
+      // announced again, fail again, and be attempted again — which is what the
+      // attempt counter bounds.
       console.error(
         "Val: could not delete an unapplicable patch on the server.",
-        { patchIds: ids, error: res.message },
+        { patchIds: toDelete, error: res.message },
       );
-      // Dropped locally anyway, for the same reason as above.
-      patchStore.drop(ids);
-      return;
     }
-    // The ids the SERVER says it deleted, plus the ones it did not: the local
-    // drop is not conditional on the delete succeeding, because the chain cannot
-    // keep a patch that will never apply.
-    patchStore.drop(ids);
   }
 
   const unsubscribe = [
@@ -865,6 +905,10 @@ export function createSystem(options: SystemOptions): System {
           };
         }
 
+        // Recorded before the mode split, because it is true in both: these
+        // patches are in a commit now. `filePatchIds` needs it in `http` mode,
+        // where the chain keeps them — see `PatchStore.publishedIds`.
+        patchStore.markPublished(patchIds);
         if (mode === "fs") {
           // ORDER MATTERS, and this is the whole reason both methods exist.
           // Promote first: the patched value becomes the base, so when the chain
