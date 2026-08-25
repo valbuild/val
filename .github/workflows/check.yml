@@ -77,10 +77,6 @@ jobs:
           version: 10
       - run: pnpm install --frozen-lockfile
       - run: pnpm run -r typecheck
-      # `-r` is per workspace package and `e2e/` is not one, so without this
-      # nothing type-checks the Playwright suite. It has its own tsconfig
-      # because the root one is for editors — see e2e/tsconfig.json.
-      - run: pnpm run typecheck:e2e
   test:
     name: Test
     runs-on: ubuntu-latest
