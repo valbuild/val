@@ -54,6 +54,15 @@ const reps = Number(flag("reps", "5"));
 // others are diagnostic — see bench/README.md.
 const sizes = flag("size", "screen").split(",");
 const jsonOut = flag("json", null);
+/**
+ * The patch-chain table is opt-in, because 10,000 patches twice over is most of
+ * the run's wall clock and answers a question the other tables do not ask.
+ * `--chain-depths 1,10,100` narrows it.
+ */
+const wantChain = args.includes("--chain");
+const chainDepths = flag("chain-depths", "1,10,100,1000,10000")
+  .split(",")
+  .map(Number);
 
 function sh(cmd, cmdArgs, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -344,6 +353,23 @@ const seam = await evaluate(
   "window.valBench.runWorkerSeam(" + reps + ", " + JSON.stringify(sizes) + ")",
 );
 
+// --- 3e. the patch chain (opt-in) -------------------------------------------
+let chain = [];
+if (wantChain) {
+  process.stderr.write(
+    "measuring patch-chain depth (" + chainDepths.join(",") + ")...\n",
+  );
+  // Fewer reps than the other tables, deliberately: a repetition at depth
+  // 10,000 builds 10,000 patches, and the columns this table is read for are
+  // marginal costs whose spread is narrow. The range is printed, so a reader can
+  // see whether three was enough.
+  chain = await evaluate(
+    "window.valBench.runPatchChain(3, " +
+      JSON.stringify(chainDepths) +
+      ', ["small","big"], "small")',
+  );
+}
+
 ws.close();
 chrome.kill("SIGKILL");
 server.close();
@@ -621,10 +647,110 @@ for (const [name, note] of Object.entries(payload.notes)) {
 }
 console.log("");
 
+// --- the patch chain -------------------------------------------------------
+/**
+ * Read this table DOWN each column, not across.
+ *
+ * `build` is expected to climb with depth and is not a defect: it is what
+ * adopting a chain the server already had costs, paid once. The four columns
+ * after `next` are the ones that decide whether the system is usable at depth —
+ * each is a marginal cost measured after one further patch, so a flat column
+ * means the cost is in the edit and not in the history behind it.
+ *
+ * A column that climbs linearly with depth means something re-walks the chain on
+ * every read. That is the failure this table exists to catch, and none of the
+ * four is supposed to show it.
+ */
+if (chain.length > 0) {
+  console.log("");
+  console.log("patch-chain depth: what history costs the NEXT edit");
+  console.log(
+    "  " +
+      "payload".padEnd(8) +
+      "depth".padStart(7) +
+      "build".padStart(10) +
+      "  |" +
+      "next".padStart(8) +
+      "source".padStart(8) +
+      "valid".padStart(8) +
+      "search".padStart(8) +
+      "sets".padStart(8) +
+      "   chain  hits  sets",
+  );
+  for (const payloadKind of ["small", "big"]) {
+    for (const row of chain.filter((r) => r.payload === payloadKind)) {
+      if (row.samples.length === 0) continue;
+      const col = (key) => median(row.samples.map((sample) => sample[key]));
+      const last = row.samples[row.samples.length - 1];
+      console.log(
+        "  " +
+          payloadKind.padEnd(8) +
+          String(row.depth).padStart(7) +
+          fmt(col("buildMs")).padStart(10) +
+          "  |" +
+          fmt(col("nextPatchMs")).padStart(8) +
+          fmt(col("sourceMs")).padStart(8) +
+          fmt(col("validateMs")).padStart(8) +
+          fmt(col("searchMs")).padStart(8) +
+          fmt(col("patchSetsMs")).padStart(8) +
+          "   " +
+          String(last.chainLength).padStart(5) +
+          String(last.searchHits).padStart(6) +
+          String(last.patchSetCount).padStart(6),
+      );
+    }
+  }
+  console.log(
+    "  `build` is N creates plus N applies - the once-per-session cost, and the\n" +
+      "  only column meant to grow. `next` and the four reads after it are\n" +
+      "  MARGINAL: taken after one further patch, with each read warmed first, so\n" +
+      "  they measure an edit at that depth rather than first-time indexing.\n" +
+      "  `chain` proves the depth, `hits` and `sets` that the reads answered.",
+  );
+  const flat = (key) => {
+    const small = chain.filter(
+      (r) => r.payload === "small" && r.samples.length,
+    );
+    if (small.length < 2) return null;
+    const first = median(small[0].samples.map((x) => x[key]));
+    const last = median(small[small.length - 1].samples.map((x) => x[key]));
+    return {
+      first,
+      last,
+      depths: [small[0].depth, small[small.length - 1].depth],
+    };
+  };
+  for (const key of ["sourceMs", "validateMs", "searchMs", "patchSetsMs"]) {
+    const f = flat(key);
+    if (f === null) continue;
+    // Printed rather than asserted: this is a benchmark, and a threshold here
+    // would fail on a noisy machine for a system that is fine.
+    const label = key.replace(/Ms$/, "");
+    console.log(
+      "  " +
+        label.padEnd(10) +
+        "depth " +
+        f.depths[0] +
+        " -> " +
+        f.depths[1] +
+        ": " +
+        fmt(f.first) +
+        " -> " +
+        fmt(f.last) +
+        " ms" +
+        (f.first > 0 ? "  (" + (f.last / f.first).toFixed(1) + "x)" : ""),
+    );
+  }
+}
+
 if (jsonOut) {
   writeFileSync(
     jsonOut,
-    JSON.stringify({ ...payload, memory, react: reactRows, seam }, null, 2),
+    JSON.stringify(
+      { ...payload, memory, react: reactRows, seam, chain },
+      null,
+      2,
+    ),
   );
   console.log("raw samples -> " + jsonOut);
 }

@@ -12,6 +12,12 @@ import {
   runSeam,
   type SeamResult,
 } from "./workerSeamScenarios";
+import {
+  CHAIN_DEPTHS,
+  runPatchChain,
+  type ChainResult,
+  type PatchPayload,
+} from "./patchChainScenarios";
 
 /**
  * The browser entry point.
@@ -51,12 +57,30 @@ declare global {
         repetitions?: number,
         sizes?: string[],
       ): Promise<{ probeFloorMs: number; results: SeamResult[] }>;
+      /**
+       * What a deep patch chain costs the NEXT edit. Not "which system" and not
+       * "which realm": whether history behind an edit makes the edit expensive.
+       */
+      runPatchChain(
+        repetitions?: number,
+        depths?: number[],
+        payloads?: PatchPayload[],
+        size?: string,
+      ): Promise<ChainResult[]>;
     };
   }
 }
 
 window.valBench = {
   buildForMemory,
+  async runPatchChain(
+    repetitions = 3,
+    depths = CHAIN_DEPTHS,
+    payloads = ["small", "big"],
+    size = "small",
+  ) {
+    return runPatchChain(repetitions, depths, payloads, size);
+  },
   async runWorkerSeam(repetitions = 5, sizes = Object.keys(SIZES)) {
     // The floor first, on an idle page: a block reading at the probe's own
     // resolution means "nothing longer than this happened", and a reader cannot

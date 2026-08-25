@@ -251,6 +251,87 @@ belongs to whoever picks up the search index.
 Note it also flips that row's verdict: at 1.7 ms there would be nothing left to
 move to a worker.
 
+## Patch-chain depth: what history costs the next edit
+
+```bash
+node packages/ui/spa/bench/run.mjs --chain                        # 1,10,100,1000,10000
+node packages/ui/spa/bench/run.mjs --chain --chain-depths 1,10,100
+```
+
+Opt-in, because building 10,000 patches twice over is most of the run's wall
+clock. It answers one question the other tables do not ask: **once the chain is
+deep, is the next edit still cheap?**
+
+Adopting a deep chain is allowed to be slow — it happens once, when a session
+picks up patches the server already had. What must not be slow is everything
+after it. So `build` is reported separately from five marginal costs, each
+measured after one FURTHER patch, with every read warmed first (`system.search`
+builds the index on its first call and `getPatchSets` rebuilds rather than
+appends on its first; measuring either cold would report first-time work as
+though it were the cost of an edit).
+
+Chromium 141, 4 cores, `small` project, median of 3:
+
+| payload | depth | build | next | source | valid | search | sets | patch sets |
+| ------- | ----: | ----: | ---: | -----: | ----: | -----: | ---: | ---------: |
+| small   |     1 |  0.10 | 0.10 |   0.00 |  0.00 |   0.20 | 0.00 |          1 |
+| small   |    10 |  0.30 | 0.10 |   0.00 |  0.00 |   0.20 | 0.00 |         10 |
+| small   |   100 |  3.40 | 0.10 |   0.00 |  0.00 |   0.30 | 0.00 |         23 |
+| small   |  1000 |  43.3 | 0.20 |   0.00 |  0.10 |   0.30 | 0.20 |         23 |
+| small   | 10000 |  2959 | 1.00 |   0.00 |  0.10 |   0.40 | 1.30 |         23 |
+| big     |     1 |  0.10 | 0.00 |   0.00 |  0.00 |   0.20 | 0.00 |          1 |
+| big     |    10 |  0.10 | 0.00 |   0.00 |  0.00 |   0.20 | 0.00 |         10 |
+| big     |   100 |  1.40 | 0.10 |   0.00 |  0.00 |   0.30 | 0.00 |         23 |
+| big     |  1000 |  48.1 | 0.20 |   0.00 |  0.00 |   0.40 | 0.20 |         23 |
+| big     | 10000 |  2898 | 0.70 |   0.00 |  0.10 |   0.40 | 1.50 |         23 |
+
+All times in ms. `big` is a ~2 KB value per patch; `small` is a short string.
+
+### What it says
+
+**Source and validation are flat, and that is the load-bearing result.** Reading
+the value at a path costs the same with 10,000 patches behind it as with one, and
+so does validating the module the patch touched — both at or below the 0.1 ms
+timer resolution throughout. Neither read consults the chain: source holds the
+applied result and a patch mutates it forward, so history is not in the path of a
+read. That is the property the design was for, and it holds at a depth nobody
+should ever reach.
+
+**Search is flat too** (0.2 → 0.4 ms). A patch marks its module stale and the
+next query reindexes that one module, so the query cost tracks the SIZE of what
+changed rather than the length of the chain.
+
+**Patch sets is the one read that scales with history** — 0.20 ms at depth 1,000
+to 1.30 ms at 10,000, roughly linear in chain length. That is inherent to what it
+computes: grouping is over the chain, so a longer chain is more to group, and
+`PatchSetChain`'s prefix test makes it an append rather than a rebuild but cannot
+make it independent of depth. 1.3 ms for a review-UI read at 10,000 patches is
+not a problem; it is noted because it is the only column with a slope, and a
+future change that turns it superlinear should be visible against this row.
+
+**The marginal patch itself grows mildly**: 0.1 ms at depth 1 to ~0.8 ms at
+10,000. Sub-linear over a 10,000x range, and it is what makes `build` what it is
+— 2.9 s to adopt 10,000 patches is N creates whose individual cost is itself
+drifting up, not a quadratic blow-up. Worth knowing rather than worth fixing at
+this depth: at a realistic 100 pending patches the whole adoption is 3.4 ms.
+
+**Payload size barely matters.** The `big` rows track the `small` ones at every
+depth — 2 KB per patch against a short string changes nothing measurable. So the
+cost that does exist is traversing history, not copying values, which is what
+says where to look if one of these columns ever moves.
+
+### What it cannot see
+
+No server: `build` is N `createPatch` calls, which is create-plus-apply and close
+to what adoption costs, but a real adoption receives records over `/patches`.
+Nothing here measures the network.
+
+`sets` saturates at 23 because the chain is spread across `mountedPaths`, which is
+23 entries wide for the `small` project — deeper chains wrap and re-edit those
+paths. So the patch-set COUNT stops growing while the chain keeps growing, which
+is what isolates the `patch sets` column as chain traversal rather than set
+count. A run that wanted to scale the set count too would need a wider project.
+
 ## What is deliberately not measured
 
 - **`PUT /patches`.** Wired (`PatchSync`), but deliberately not configured here:
