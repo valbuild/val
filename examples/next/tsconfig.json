@@ -24,6 +24,13 @@
       "_/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "//": "`.next-http/types` is the second dev server's generated types: the e2e suite runs one `next dev` in fs mode and one in proxy mode, and the second needs its own distDir. Listed here so `next dev` does not rewrite (and reformat) this file on every http-mode run.",
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next-http/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }
