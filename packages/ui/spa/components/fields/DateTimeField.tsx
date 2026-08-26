@@ -29,7 +29,6 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import { formatLocalDay } from "../../utils/localDay";
 
 const TZ_STORAGE_KEY = "val:datetime:tz";
@@ -424,7 +423,6 @@ export function DateTimeField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <DateTimeFieldPure
         value={currentValue}
         onChange={(iso) => {

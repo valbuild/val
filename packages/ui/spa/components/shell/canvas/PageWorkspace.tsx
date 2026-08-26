@@ -538,6 +538,15 @@ export function PageWorkspace({
     breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
 
   /**
+   * Whether the close button spells out what it does.
+   *
+   * Only where the canvas is a region beside the editor. On a phone it is a
+   * pane of its own, narrow enough that a labelled button starts competing
+   * with the page for the top of the frame.
+   */
+  const showExitLabel = !isPhone;
+
+  /**
    * The switch that decides what the column holds.
    *
    * Only offered when there is something to switch to: the fields view is a
@@ -712,13 +721,30 @@ export function PageWorkspace({
         </div>
       </CanvasViewport>
 
+      {/*
+       * Leaving the canvas, said as well as drawn.
+       *
+       * An X in the corner of a pane is ambiguous — it could close the page,
+       * the studio, or the thing the page is showing — and this one does
+       * something worth being sure about. Where there is room the word is
+       * there; on a phone, where the canvas is a pane you swipe back out of,
+       * the icon alone keeps the page's corner clear.
+       */}
       <button
         type="button"
-        aria-label="Close canvas"
+        aria-label="Exit Preview"
         onClick={onCloseCanvas}
-        className="absolute top-3 right-3 grid h-8 w-8 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary shadow-lg hover:text-fg-primary"
+        className={cn(
+          "absolute top-3 right-3 inline-flex h-8 items-center gap-1.5 rounded-md",
+          "border border-border-float bg-bg-float text-fg-secondary shadow-lg",
+          "hover:text-fg-primary",
+          showExitLabel ? "pl-2.5 pr-3" : "w-8 justify-center",
+        )}
       >
         <X size={15} />
+        {showExitLabel && (
+          <span className="text-xs font-medium">Exit Preview</span>
+        )}
       </button>
 
       <CanvasToolbar

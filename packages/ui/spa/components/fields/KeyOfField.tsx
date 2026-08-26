@@ -37,7 +37,6 @@ import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
 
 export type KeyPreview = {
@@ -277,7 +276,6 @@ export function KeyOfField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <KeySelector
           keys={keys ?? []}

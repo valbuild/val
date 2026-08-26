@@ -14,6 +14,7 @@ import {
   AccordionItem,
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
+import { FieldErrorsOwned } from "./FieldErrorsOwner";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
 import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
@@ -247,7 +248,9 @@ export function Field({
           }
         >
           <AccordionItem value={"open"} className="w-full border-b-0">
-            <AccordionContent>{children}</AccordionContent>
+            <AccordionContent>
+              <FieldErrorsOwned>{children}</FieldErrorsOwned>
+            </AccordionContent>
           </AccordionItem>
         </Accordion>
       )}

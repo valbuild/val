@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   ChevronDown,
   ChevronRight,
@@ -50,11 +50,14 @@ const HEADER_FORM = "\u0000header";
  */
 function NewPageButton({
   routes,
+  currentPage,
   isOpen,
   onOpenChange,
   onSubmit,
 }: {
   routes: AvailableRoute[];
+  /** The page the editor is on, so the form starts on its route. */
+  currentPage?: { moduleFilePath: ModuleFilePath; urlPath: string };
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
@@ -82,6 +85,7 @@ function NewPageButton({
         <div className="absolute right-0 top-full z-window mt-1 w-[17rem] rounded-md border border-border-float bg-bg-float shadow-lg">
           <NewPageForm
             routes={routes}
+            currentPage={currentPage}
             onSubmit={onSubmit}
             onCancel={() => onOpenChange(false)}
           />
@@ -121,6 +125,16 @@ export type PagesPanelProps = {
   loadError?: string;
   onRetryLoad?: () => void;
 };
+
+/** The row with this id, anywhere in the tree. */
+function findPage(pages: ShellPage[], id: string): ShellPage | undefined {
+  for (const page of pages) {
+    if (page.id === id) return page;
+    const found = findPage(page.children ?? [], id);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 /** Pages whose name or URL matches the query, keeping ancestors of matches. */
 function filterPages(pages: ShellPage[], query: string): ShellPage[] {
@@ -249,6 +263,24 @@ export function PagesPanel({
     });
   };
 
+  /**
+   * The page the editor is on, as the New page form wants it.
+   *
+   * From the selected row rather than passed in, because the row is where both
+   * halves already are: its URL, and — inside its source path — the module the
+   * router put it in. A row that is only a path segment (`/blogs`, which exists
+   * because `/blogs/why-val` does) has no module of its own, so it names no
+   * route and the form falls back to the head of the list.
+   */
+  const currentPage = useMemo(() => {
+    const page = selectedId === null ? undefined : findPage(pages, selectedId);
+    if (!page?.sourcePath) return undefined;
+    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
+      page.sourcePath as SourcePath,
+    );
+    return { moduleFilePath, urlPath: page.urlPath };
+  }, [pages, selectedId]);
+
   /** Whether the New page form is open. */
   const [openForm, setOpenForm] = useState<string | null>(null);
   const submitNewPage = useCallback(
@@ -323,6 +355,7 @@ export function PagesPanel({
         newPage ? (
           <NewPageButton
             routes={newPage.routes}
+            currentPage={currentPage}
             isOpen={openForm === HEADER_FORM}
             onOpenChange={(open) => setOpenForm(open ? HEADER_FORM : null)}
             onSubmit={submitNewPage}

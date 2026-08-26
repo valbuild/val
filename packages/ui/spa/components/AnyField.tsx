@@ -16,6 +16,8 @@ import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
+import { ValidationErrors } from "./ValidationError";
+import { useFieldErrorsOwned } from "./FieldErrorsOwner";
 
 export type ErrorDisplay = "default" | "compact" | "none";
 
@@ -155,5 +157,32 @@ export function AnyField({
       </div>
     );
   }
-  return <>{leaf}</>;
+  return (
+    <>
+      {leaf}
+      {/*
+       * The errors, when nothing above is already showing them.
+       *
+       * A field inside an object has a `Field` wrapper that puts them under the
+       * labelled row, which is the right place and where they should stay. A
+       * field opened on its own — the module editor, the canvas's fields column —
+       * has no wrapper, so without this it would show none at all.
+       *
+       * The leaves used to render their own copy unconditionally, which is what
+       * put the same message above the input and below it. See
+       * `FieldErrorsOwner`.
+       */}
+      {errorDisplay === "default" && <UnownedFieldErrors path={path} />}
+    </>
+  );
+}
+
+function UnownedFieldErrors({ path }: { path: SourcePath }) {
+  // A component of its own so the hook is not called for a leaf whose errors
+  // are somebody else's business.
+  const owned = useFieldErrorsOwned();
+  if (owned) {
+    return null;
+  }
+  return <ValidationErrors path={path} />;
 }

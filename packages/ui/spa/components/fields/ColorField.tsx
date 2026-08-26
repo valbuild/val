@@ -19,7 +19,6 @@ import {
   useShallowSourceAtPath,
 } from "../ValFieldProvider";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 
 /**
  * The transparency checkerboard shown behind a swatch. Inlined rather than put
@@ -273,7 +272,6 @@ export function ColorField({
   const schema = schemaAtPath.data;
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <ColorFieldPure
         value={sourceAtPath.data}
         onChange={(next) => {

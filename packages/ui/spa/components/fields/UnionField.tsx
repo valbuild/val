@@ -31,7 +31,6 @@ import { useEffect, useRef } from "react";
 import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
-import { ValidationErrors } from "../../components/ValidationError";
 import { isJsonArray } from "../../utils/isJsonArray";
 
 function isStringUnion(
@@ -108,7 +107,6 @@ export function UnionField({
     }
     const stringUnionContent = (
       <div id={path}>
-        <ValidationErrors path={path} />
         <SelectField
           path={path}
           source={source}
@@ -154,7 +152,6 @@ export function UnionField({
     }
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <ObjectUnionField
           path={path}
           schema={schemaAtPath.data}

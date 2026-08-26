@@ -74,7 +74,7 @@ test.describe("the canvas", () => {
 
     // Closing puts the editor back at full width, and leaves it on the same
     // page: the way out lands where the way in started.
-    await studio.getByRole("button", { name: "Close canvas" }).click();
+    await studio.getByRole("button", { name: "Exit Preview" }).click();
     await expect(title).toHaveValue("Blog 1");
   });
 
@@ -387,6 +387,77 @@ test.describe("the canvas", () => {
   });
 
   /**
+   * Opening the canvas from a screen that is not a page.
+   *
+   * The compare and errors views are not on a route at all, and neither is a
+   * data module — so the canvas opens on the site's root rather than on whatever
+   * page happened to be open before. It used to remember the last page, which
+   * made sense while the canvas stayed open across a non-page selection; it does
+   * not stay open any more, so remembering produced a canvas opening on a page
+   * you had left, from a screen with no relationship to it.
+   */
+  test("opens on the root from a view that is not a page", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    // On a page first, so "the root" is not just the default it started at.
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+    await expect(studio.getByLabel("Canvas route")).toHaveValue(
+      "/blogs/blog1",
+      { timeout: 30000 },
+    );
+
+    // Off to a module that is not on a route.
+    await openStudio(page, "/val/~/content/authors.val.ts");
+    await expect(studio.getByText("Theodor René Carlsen")).toBeVisible({
+      timeout: 30000,
+    });
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+    await expect(
+      studio.getByLabel("Canvas route"),
+      "the canvas opened on a page that is not the one being edited",
+    ).toHaveValue("/", { timeout: 30000 });
+  });
+
+  /**
+   * Leaving the page for a view that is not one.
+   *
+   * The errors view is the whole editor column and is not on a route, so a
+   * canvas left open beside it is showing a page you are no longer editing —
+   * and in the fields view it is worse than stale, because the column IS the
+   * page's fields and the view you asked for would not appear at all.
+   *
+   * Reached through the error pill rather than a URL, because the transition is
+   * the thing being tested: a fresh load of the errors view has no canvas to
+   * close.
+   */
+  test("leaves the canvas when the errors view is opened", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+    await expect(studio.getByLabel("Canvas route")).toHaveValue(
+      "/blogs/blog1",
+      { timeout: 30000 },
+    );
+
+    // The example app has content errors of its own, which is what puts the
+    // pill in the top bar.
+    await studio
+      .getByRole("button", { name: /\d+ validation errors?/ })
+      .click();
+
+    await expect(
+      studio.getByRole("button", { name: "Exit Preview" }),
+      "the canvas stayed open beside a view that is not a page",
+    ).not.toBeVisible();
+  });
+
+  /**
    * The address bar's suggestions, clicked rather than typed.
    *
    * Worth its own test because it broke in a way that looked like nothing at
@@ -425,6 +496,21 @@ test.describe("the canvas", () => {
       route,
       "pressing a suggestion did not move the canvas",
     ).toHaveValue("/blogs/blog2");
+
+    /**
+     * And the editor follows, because Val knows this route.
+     *
+     * The two used to come apart: the frame moved and `p` stayed on whatever
+     * page was open, so the fields beside the canvas were a different page's —
+     * which reads as the bar having picked the wrong route rather than as the
+     * canvas and the editor having disagreed.
+     */
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("p"), {
+        message: "the editor did not follow the route that was picked",
+        timeout: 15000,
+      })
+      .toBe('"/blogs/blog2"');
     await expect
       .poll(() => canvasFrameUrls(page).join(" "), {
         message: "the frame did not follow the route that was picked",

@@ -209,30 +209,21 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
-   * The route the canvas follows the selection to.
+   * The route the canvas opens on.
    *
-   * A page selection is a router entry, and a route pointing anywhere inside
-   * one resolves back to that entry — see `resolveSelectionId` — so "on a route,
-   * or somewhere under one" is exactly a page selection.
+   * A page selection is a router entry, and a route pointing anywhere inside one
+   * resolves back to that entry — see `resolveSelectionId` — so "on a route, or
+   * somewhere under one" is exactly a page selection, and there the canvas opens
+   * on that page.
    *
-   * Anything else leaves the canvas where it is, and the root is where it
-   * starts. Editing a settings module or a gallery is precisely when watching
-   * the page that renders it is worth having, so a selection that is not a page
-   * must not yank the canvas away from the page you opened it to watch; and
-   * before any page has been opened the canvas still has to show something,
-   * because it is a browser and a browser opens somewhere.
-   *
-   * The last route is kept in a ref rather than in state because it is derived:
-   * it changes exactly when `selectedPageRoute` does, so putting it in state
-   * would re-render to reach a value this render already knows.
+   * Everywhere else it opens on the root: a data module, a gallery, the compare
+   * view, the errors view, nothing selected at all. This used to remember the
+   * last page instead, which made sense while the canvas stayed open across a
+   * non-page selection — but it does not any more (see `Shell`), so what
+   * remembering produced was a canvas opening on a page you had left, from a
+   * screen with no relationship to it.
    */
-  const selectedPageRoute =
-    selection?.kind === "page" ? selection.urlPath : null;
-  const lastPageRoute = useRef("/");
-  if (selectedPageRoute !== null) {
-    lastPageRoute.current = selectedPageRoute;
-  }
-  const selectedRoute = selectedPageRoute ?? lastPageRoute.current;
+  const selectedRoute = selection?.kind === "page" ? selection.urlPath : "/";
 
   /**
    * A route typed into the canvas's address bar.
@@ -284,32 +275,71 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /** The routes Val resolves, for the address bar's suggestions. */
-  const canvasRoutes = useMemo(() => {
-    /**
-     * Deduplicated and sorted, both of which matter.
-     *
-     * Two rows can resolve to the same URL — a router entry and a folder row
-     * that stands for it — and the walk would then list it twice. A duplicate is
-     * not merely untidy: the address bar keys its options by route, so two
-     * options with the same key make React reuse one of them for the other's
-     * handler, and picking a route can commit its neighbour.
-     *
-     * Sorted because insertion order is tree order, which puts `/blogs/blog1`
-     * and `/blogs/blog-2` in whatever order the router happened to enumerate
-     * them. A list you are scanning for a URL should be in URL order.
-     */
-    const routes = new Set<string>();
+  /**
+   * Every route Val resolves, and the module behind it.
+   *
+   * One walk for both, because the address bar needs both answers about the same
+   * row: which routes to offer, and — when one is picked — what to open in the
+   * editor.
+   */
+  const routeSourcePaths = useMemo(() => {
+    const byRoute = new Map<string, SourcePath>();
     const walk = (pages: ShellData["pages"]) => {
       for (const page of pages) {
-        // A row with no source path is a path segment, not a page: there is
-        // nothing at that URL to look at.
-        if (page.sourcePath !== undefined) routes.add(page.urlPath);
+        if (page.sourcePath !== undefined) {
+          // First wins: two rows can resolve to the same URL, and the shallower
+          // one is the page rather than a nested re-statement of it.
+          if (!byRoute.has(page.urlPath)) {
+            byRoute.set(page.urlPath, page.sourcePath as SourcePath);
+          }
+        }
         walk(page.children ?? []);
       }
     };
     walk(data.pages);
-    return Array.from(routes).sort((a, b) => a.localeCompare(b));
+    return byRoute;
   }, [data.pages]);
+
+  /**
+   * Point the canvas somewhere, and follow it when Val knows the route.
+   *
+   * The editor used to stay where it was: picking `/blogs/blog-7` in the address
+   * bar moved the frame and left `p` on whichever page was open, so the fields
+   * beside the canvas were a different page's — which reads as the bar having
+   * picked the wrong route rather than as the two having come apart.
+   *
+   * Only for a route Val resolves. Typing a path with no content module behind
+   * it is a deliberate use of the bar — looking at a page that does not exist
+   * yet — and there is nothing to open for it.
+   */
+  const onCanvasRouteChange = useCallback(
+    (route: string) => {
+      setTypedRoute(route);
+      const sourcePath = routeSourcePaths.get(route);
+      if (sourcePath !== undefined) {
+        navigation.navigate(sourcePath);
+      }
+    },
+    [routeSourcePaths, navigation],
+  );
+
+  /**
+   * The routes the address bar offers, in URL order.
+   *
+   * From the map above, so they are deduplicated by construction. A duplicate is
+   * not merely untidy: the bar keys its options by route, so two options with
+   * the same key make React reuse one of them for the other's handler, and
+   * picking a route can commit its neighbour.
+   *
+   * Sorted because the map is in tree order, which puts `/blogs/blog1` and
+   * `/blogs/blog-2` in whatever order the router happened to enumerate them. A
+   * list you are scanning for a URL should be in URL order.
+   */
+  const canvasRoutes = useMemo(
+    () =>
+      Array.from(routeSourcePaths.keys()).sort((a, b) => a.localeCompare(b)),
+    [routeSourcePaths],
+  );
 
   /**
    * What the page says is on it.
@@ -606,7 +636,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       onSelectCanvasPath={openPath}
       selectedCanvasPath={focusedPath}
       canvasRoute={canvasUrl}
-      onCanvasRouteChange={setTypedRoute}
+      onCanvasRouteChange={onCanvasRouteChange}
       canvasRoutes={canvasRoutes}
       initialPanel={urlState.initial.panel}
       initialCanvasOpen={urlState.initial.canvasOpen}

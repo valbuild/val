@@ -11,7 +11,6 @@ import {
 } from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 
 export function NumberField({
   path,
@@ -63,7 +62,6 @@ export function NumberField({
   const source = sourceAtPath.data;
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <Input
         inputMode="numeric"
         value={source || 0}

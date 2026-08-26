@@ -16,7 +16,6 @@ import { FieldNotFound } from "../FieldNotFound";
 import { FieldSchemaError } from "../FieldSchemaError";
 import { FieldSchemaMismatchError } from "../FieldSchemaMismatchError";
 import { FieldSourceError } from "../FieldSourceError";
-import { ValidationErrors } from "../ValidationError";
 import {
   useValConfig,
   useSchemaAtPath,
@@ -342,7 +341,6 @@ export function FileField({
       : null;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       {missingModules.length > 0 && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {missingModules.length === 1
