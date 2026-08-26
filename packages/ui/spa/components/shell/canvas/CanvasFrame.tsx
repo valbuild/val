@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import {
   isValCanvasPageMessage,
   VAL_CANVAS_MESSAGE,
@@ -291,9 +291,10 @@ function PreviewBlocked({
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-fg-secondary">
           {unreachable
-            ? "The page loaded but did not report back. It may be an older version of Val, or preview mode may have been turned off elsewhere."
+            ? "The page loaded but did not report back. It may be an older version of Val, preview mode may have been turned off elsewhere, or the app may not be wired up yet."
             : "Without preview mode the canvas shows the published page, and nothing on it can be selected or edited."}
         </p>
+        {unreachable && <SetupInstructions />}
         <div className="mt-4 flex items-center justify-center gap-2">
           <button
             type="button"
@@ -320,5 +321,89 @@ function PreviewBlocked({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What a DEVELOPER needs when the page never answers.
+ *
+ * The most likely cause of silence is not a fault at all — it is an app that has
+ * not been wired up: no `ValProvider` in the root layout, or one that is not
+ * above the page being previewed. That is a five-line fix and completely opaque
+ * from this side of the iframe, so the answer is worth having on screen.
+ *
+ * Folded away, and that is the whole design of it. Most people looking at this
+ * panel are editors, for whom a code snippet is noise and slightly alarming;
+ * the developer they will ask is the one who needs it. A `details` gives both
+ * audiences the right thing without a mode switch, and it is native, so it
+ * needs no state and cannot get stuck open.
+ */
+function SetupInstructions() {
+  return (
+    <details className="group mt-3 text-left">
+      <summary className="cursor-pointer list-none text-xs text-fg-secondary-alt hover:text-fg-primary [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-1">
+          <ChevronRight
+            size={12}
+            // `group-open`, not an arbitrary `details[open] &`: the standard
+            // variant is what the config is certain to generate.
+            className="transition-transform group-open:rotate-90"
+            aria-hidden
+          />
+          Setup instructions
+        </span>
+      </summary>
+      <div className="mt-2 rounded-md border border-border-float bg-bg-secondary p-3">
+        <p className="text-xs leading-relaxed text-fg-secondary">
+          The canvas talks to the page through Val&apos;s provider. If it never
+          answers, check that:
+        </p>
+        <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-fg-secondary">
+          <li>
+            <code className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.6875rem] text-fg-primary">
+              ValProvider
+            </code>{" "}
+            is in the ROOT layout —{" "}
+            <code className="font-mono">app/layout.tsx</code> — and therefore
+            above every page it should preview. A provider inside a route group
+            does not cover the pages outside it.
+          </li>
+          <li>
+            <code className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.6875rem] text-fg-primary">
+              ValModulesClient
+            </code>{" "}
+            is rendered inside it, so the editor can read your schemas.
+          </li>
+          <li>
+            The API route exists at{" "}
+            <code className="font-mono">
+              app/(val)/api/val/[[...val]]/route.ts
+            </code>
+            , since preview mode is turned on through it.
+          </li>
+          <li>
+            The page is not served from a different origin than the studio: the
+            canvas and the page have to be able to talk to each other.
+          </li>
+          <li>
+            <code className="font-mono">@valbuild/next</code> and{" "}
+            <code className="font-mono">@valbuild/core</code> are on the same
+            version, in the app and in the editor.
+          </li>
+        </ol>
+        <p className="mt-2 text-xs leading-relaxed text-fg-secondary-alt">
+          The setup guide has the whole layout:{" "}
+          <a
+            href="https://github.com/valbuild/val/blob/main/packages/next/MANUAL_CONFIGURATION.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-fg-primary"
+          >
+            manual configuration
+          </a>
+          .
+        </p>
+      </div>
+    </details>
   );
 }

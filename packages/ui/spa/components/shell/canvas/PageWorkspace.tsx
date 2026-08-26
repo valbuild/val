@@ -575,6 +575,17 @@ export function PageWorkspace({
    * starts underneath the top bar.
    */
   const columnHasHeaderRow = open && !isPhone && viewToggle !== null;
+  /**
+   * Whether the column has to clear the shell's floating top bar itself.
+   *
+   * Something above it usually does: the switch row on desktop, and on a phone
+   * with the canvas open the pane's own `PHONE_STRIP_CLEARANCE`, which is sized
+   * for the top bar AND the strip of switches under it. The phone case was
+   * missing, so the column added its own 80px on top of that 108px — 188px of
+   * emptiness above the first field, with the switches sitting in the middle of
+   * it.
+   */
+  const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
 
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
@@ -603,9 +614,10 @@ export function PageWorkspace({
         style={{ maxWidth: CANVAS_MAX_WIDTH, ...railPadding }}
         className={cn(
           "w-full mx-auto px-4 md:px-6 pb-24",
-          // The switch above supplies the top gap when it is there; without it
-          // the column has to clear the top bar itself.
-          columnHasHeaderRow ? "pt-1" : "pt-20 desktop:pt-24",
+          // See `columnClearsTopBar`: whatever is above the column supplies the
+          // gap where there is one, and only where there is nothing does the
+          // column pay for it.
+          columnClearsTopBar ? "pt-20 desktop:pt-24" : "pt-1",
         )}
       >
         {children}
@@ -811,15 +823,20 @@ export function PageWorkspace({
          */}
         {open && (
           <div className="absolute inset-x-3 top-[4.5rem] flex items-center gap-2">
-            <PaneToggle
-              pane={pane}
-              onChange={setPane}
-              animate={!reducedMotion}
-            />
-            {/* The view switch picks what the editor pane holds, so it
-                appears on that pane — the same place it sits on desktop,
-                at the top of the column it changes. */}
-            {pane === "editor" && <span className="ml-auto">{viewToggle}</span>}
+            {/*
+             * What the pane HOLDS on the left, which pane you are LOOKING at on
+             * the right — the reading order the desktop layout already has: the
+             * view switch sits at the top of the column it changes, and the
+             * canvas is the thing off to the right.
+             */}
+            {pane === "editor" && viewToggle}
+            <span className="ml-auto">
+              <PaneToggle
+                pane={pane}
+                onChange={setPane}
+                animate={!reducedMotion}
+              />
+            </span>
           </div>
         )}
       </div>

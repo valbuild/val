@@ -51,9 +51,14 @@ export function PendingChangesGate({
        * above, because `display: contents` has no box to style — and the node
        * has to be `contents` so this gate cannot change the editor's layout.
        */}
+      {/*
+       * No height of its own: this wrapper sits inside whatever layout the
+       * editor already has, and imposing `h-full` on it made it a box the
+       * column had to size around.
+       */}
       <div
         className={cn(
-          "h-full transition-opacity duration-200",
+          "transition-opacity duration-200",
           ready ? "opacity-100" : "opacity-60",
         )}
       >
