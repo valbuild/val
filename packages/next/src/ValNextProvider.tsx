@@ -23,6 +23,7 @@ import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import { isValCanvasFrame } from "@valbuild/shared/internal";
 import { ValCanvasBridge } from "./ValCanvasBridge";
+import { shouldSafetyRefresh } from "./safetyRefresh";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -35,6 +36,33 @@ import { ValCanvasBridge } from "./ValCanvasBridge";
  * about batching for its own sake.
  */
 const REFRESH_INTERVAL_MS = 500;
+
+/**
+ * How often the page re-reads the server on its own, without being told to.
+ *
+ * A safety net for a race no amount of care on this side can close. An edit is
+ * applied to the client store immediately and saved to the server
+ * asynchronously, so `router.refresh()` fired on the edit can reach a server
+ * that has not written the patch yet: the RSC payload comes back with the old
+ * content, the counter has already been cleared, and nothing schedules another
+ * look. What you see is a canvas that flickered and did not change — which is
+ * indistinguishable from an edit that did not work.
+ *
+ * The honest fix would be for the page to know when its patch has been
+ * persisted, and it has no way to ask. So it asks again a little later instead.
+ */
+const SAFETY_REFRESH_MS = 10_000;
+
+/**
+ * How long after an edit the safety net keeps looking.
+ *
+ * The reason to stop is that this is a whole-route request: in development Next
+ * re-renders (and sometimes recompiles) the page for every one, and a preview
+ * nobody is editing has nothing to catch up on. So the net is armed by editing
+ * and disarms itself when the editing stops — long enough after the last
+ * keystroke that any write still in flight has certainly landed.
+ */
+const SAFETY_REFRESH_WINDOW_MS = 30_000;
 
 /**
  * Fired on this window when an edit has been applied to the client store.
@@ -114,9 +142,19 @@ export const ValNextProvider = (props: {
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
   const [isRefreshing, startTransition] = React.useTransition();
+  /**
+   * The same answer as `isRefreshing`, readable from the refresh effect.
+   *
+   * The effect must not be rebuilt every time a refresh starts and ends — it
+   * owns the timers and the "when did we last edit" bookkeeping, and tearing
+   * that down mid-flurry loses it. A ref updated on render is the value without
+   * the dependency.
+   */
+  const isRefreshingRef = React.useRef(false);
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const pathname = usePathname();
+  isRefreshingRef.current = isRefreshing;
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("val-provider:pathname", {
@@ -172,6 +210,10 @@ export const ValNextProvider = (props: {
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastRefreshAt = 0;
+    /** When an edit last landed here. 0 means this page has never been edited. */
+    let lastEditAt = 0;
+    /** Whether a safety tick was skipped because nobody was looking. */
+    let missedWhileHidden = false;
     const refresh = () => {
       rerenderCounterRef.current = 0;
       lastRefreshAt = Date.now();
@@ -190,6 +232,7 @@ export const ValNextProvider = (props: {
       }
     };
     const onEdit = () => {
+      lastEditAt = Date.now();
       if (timer !== null) return;
       timer = setTimeout(tick, 0);
     };
@@ -198,9 +241,50 @@ export const ValNextProvider = (props: {
     // incremented in the same places today, but the poll is what made this
     // correct regardless of who bumped it.
     const interval = setInterval(tick, REFRESH_INTERVAL_MS);
+
+    /**
+     * The safety net: look again, whether or not anything told us to.
+     *
+     * The reasons not to are in `shouldSafetyRefresh`, where they can be tested.
+     * `hidden` is the one this side has to remember something about: a skipped
+     * tick is worth one look when the tab comes back.
+     */
+    const safetyTick = () => {
+      if (document.hidden) {
+        missedWhileHidden = true;
+        return;
+      }
+      const go = shouldSafetyRefresh({
+        now: Date.now(),
+        lastEditAt,
+        lastRefreshAt,
+        hidden: false,
+        isRefreshing: isRefreshingRef.current,
+        windowMs: SAFETY_REFRESH_WINDOW_MS,
+        minIntervalMs: REFRESH_INTERVAL_MS,
+      });
+      if (go) refresh();
+    };
+    const safety = setInterval(safetyTick, SAFETY_REFRESH_MS);
+    /**
+     * Coming back to the tab is worth one look.
+     *
+     * Otherwise a background tab skips its ticks and then has to wait out a
+     * whole interval on return — which is exactly the moment someone is looking
+     * at the page to see whether their edit took.
+     */
+    const onVisibilityChange = () => {
+      if (document.hidden || !missedWhileHidden) return;
+      missedWhileHidden = false;
+      safetyTick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       window.removeEventListener(VAL_EDIT_LANDED, onEdit);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       clearInterval(interval);
+      clearInterval(safety);
       if (timer !== null) clearTimeout(timer);
     };
   }, [mountOverlay, props.disableRefresh]);

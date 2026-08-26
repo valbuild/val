@@ -96,3 +96,21 @@ a fresh element each time or the probe never runs again.
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## The canvas can refresh before the server has the edit
+
+An edit is applied to the client store the moment you type it and written to the
+server asynchronously. `router.refresh()` fired on the edit therefore races the
+write: the RSC payload can come back rendered from content that does not include
+the patch yet. The canvas flickers and does not change — which looks exactly like
+an edit that did not work.
+
+The page has no way to ask whether its patch has been persisted, so it cannot be
+closed properly from this side. `ValNextProvider` asks again instead: a safety
+refresh every 10s while editing is recent (`SAFETY_REFRESH_MS`,
+`SAFETY_REFRESH_WINDOW_MS`). `shouldSafetyRefresh` holds the reasons to skip —
+never edited, editing long over, tab hidden, refresh in flight — because each one
+is a whole-route request avoided, and in development that is a page re-render.
+
+If you find yourself adding a refresh somewhere, check whether this net already
+covers it.
