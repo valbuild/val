@@ -1,14 +1,13 @@
 import { SourcePath } from "@valbuild/core";
-import { useGetNavPath, useSchemaAtPath } from "./ValFieldProvider";
+import { useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
-import { Fragment, useCallback, useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { FieldPatchAuthors } from "./FieldPatchAuthors";
-import { useNavigation } from "./ValRouter";
 import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
@@ -19,7 +18,6 @@ import { cn } from "./designSystem/cn";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
@@ -48,24 +46,22 @@ import { ModuleGallery } from "./fields/ModuleGallery";
 export function Module({
   path,
   showModuleGalleryChild,
+  hideHeader,
 }: {
   path: SourcePath;
   showModuleGalleryChild: SourcePath | null;
+  /**
+   * Drop the breadcrumb and the title.
+   *
+   * For the canvas, where the page itself is on screen beside the fields: the
+   * breadcrumb repeats what the address bar says, and its title repeats the
+   * page's own heading. The record tools stay — they are the only way to add an
+   * item, and they navigate nowhere.
+   */
+  hideHeader?: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
-  const { navigate } = useNavigation();
-  /**
-   * ON DEMAND, not subscribed — see `useGetNavPath`.
-   *
-   * This read `useAllSources()` + `useSchemas()`, which are whole-PROJECT
-   * subscriptions, for data only `onNavigate` below ever looked at. Opening a
-   * `.jsonValues()` record loads its entries one request each, and every one of
-   * those bumped the project's source revision, so this component and its whole
-   * subtree re-rendered once per entry: 348 renders on a 121-entry record,
-   * against 4 once it reads on demand instead.
-   */
-  const getNavPath = useGetNavPath();
   const validationErrors = useValidationErrors(path);
   const pendingPatchesRes = usePendingPatches(path);
   const hasPendingPatches = pendingPatchesRes
@@ -84,21 +80,6 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
-  const onNavigate = useCallback(
-    (path: SourcePath) => {
-      const navPath = getNavPath(path);
-      if (navPath) {
-        navigate(navPath);
-      } else {
-        // Both "schemas are not in yet" and "no schema at this path" land here.
-        // Navigating to the raw path is the same fallback as before; it is the
-        // caller's own click, so refusing to move is worse than moving
-        // imprecisely.
-        navigate(path);
-      }
-    },
-    [getNavPath, navigate],
-  );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -158,12 +139,8 @@ export function Module({
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left overflow-hidden">
-        {parts.length > 1 && (
-          <ModuleBreadcrumb
-            init={init}
-            onNavigate={onNavigate}
-            portalContainer={portalContainer}
-          />
+        {parts.length > 1 && !hideHeader && (
+          <ModuleBreadcrumb init={init} portalContainer={portalContainer} />
         )}
         <div
           className={cn({
@@ -172,7 +149,7 @@ export function Module({
           })}
         >
           <div className="flex gap-4 justify-between items-center min-h-6 text-xl">
-            {!showNumber && (
+            {!showNumber && !hideHeader && (
               <div className="min-w-0 flex-1">
                 {isParentRouter ? (
                   <UrlPathBreadcrumb
@@ -189,7 +166,7 @@ export function Module({
                 )}
               </div>
             )}
-            {showNumber && (
+            {showNumber && !hideHeader && (
               <span className="shrink-0">#{Number(last.text)}</span>
             )}
             {!isMediaGallery && (
@@ -205,7 +182,7 @@ export function Module({
               </div>
             )}
           </div>
-          {keyDescription && (
+          {keyDescription && !hideHeader && (
             <div className="text-sm text-fg-tertiary">{keyDescription}</div>
           )}
           {keyErrors.length > 0 && (
@@ -259,13 +236,25 @@ function Home() {
 // Max visible items before showing ellipsis (first + ellipsis + last N)
 const MAX_VISIBLE_ITEMS = 3;
 
+/**
+ * Where this module sits, as a trail — read, not clicked.
+ *
+ * The segments used to navigate, and the useful destinations were already in the
+ * navigation panel: what the trail actually offered was the module ROOT, which
+ * for a router is a record of every URL and for anything else is the module you
+ * just came from. Clicking a page's own name took you to a record view of the
+ * whole router, with the canvas still open beside it showing a page you were no
+ * longer editing.
+ *
+ * So it says where you are and stops there. The collapsed middle is still a
+ * menu, because a long path has to be readable, but its items do not navigate
+ * either.
+ */
 function ModuleBreadcrumb({
   init,
-  onNavigate,
   portalContainer,
 }: {
   init: ReturnType<typeof splitIntoInitAndLastParts>;
-  onNavigate: (path: SourcePath) => void;
   portalContainer: HTMLElement | null;
 }) {
   const shouldCollapse = init.length > MAX_VISIBLE_ITEMS;
@@ -278,13 +267,7 @@ function ModuleBreadcrumb({
       <BreadcrumbList className="flex-nowrap text-fg-quaternary">
         {visibleStart.map((part, i) => (
           <Fragment key={`start-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
+            <BreadcrumbItem className="shrink-0">{part.text}</BreadcrumbItem>
             <BreadcrumbSeparator className="shrink-0" />
           </Fragment>
         ))}
@@ -298,10 +281,7 @@ function ModuleBreadcrumb({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" container={portalContainer}>
                   {collapsed.map((part, i) => (
-                    <DropdownMenuItem
-                      key={i}
-                      onClick={() => onNavigate(part.sourcePath)}
-                    >
+                    <DropdownMenuItem key={i} disabled>
                       {part.text}
                     </DropdownMenuItem>
                   ))}
@@ -314,13 +294,7 @@ function ModuleBreadcrumb({
 
         {visibleEnd.map((part, i) => (
           <Fragment key={`end-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
+            <BreadcrumbItem className="shrink-0">{part.text}</BreadcrumbItem>
             {i < visibleEnd.length - 1 && (
               <BreadcrumbSeparator className="shrink-0" />
             )}

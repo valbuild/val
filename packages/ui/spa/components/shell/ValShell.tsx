@@ -200,9 +200,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           (navigation.currentSourcePath || selection.sourcePath) as SourcePath
         }
         showModuleGalleryChild={null}
+        // No breadcrumb or title beside the canvas: the address bar says which
+        // route this is and the page itself carries its own heading.
+        hideHeader={viewState.canvasOpen}
       />
     ),
-    [navigation.currentSourcePath],
+    [navigation.currentSourcePath, viewState.canvasOpen],
   );
 
   /**
@@ -282,17 +285,30 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   /** The routes Val resolves, for the address bar's suggestions. */
   const canvasRoutes = useMemo(() => {
-    const routes: string[] = [];
+    /**
+     * Deduplicated and sorted, both of which matter.
+     *
+     * Two rows can resolve to the same URL — a router entry and a folder row
+     * that stands for it — and the walk would then list it twice. A duplicate is
+     * not merely untidy: the address bar keys its options by route, so two
+     * options with the same key make React reuse one of them for the other's
+     * handler, and picking a route can commit its neighbour.
+     *
+     * Sorted because insertion order is tree order, which puts `/blogs/blog1`
+     * and `/blogs/blog-2` in whatever order the router happened to enumerate
+     * them. A list you are scanning for a URL should be in URL order.
+     */
+    const routes = new Set<string>();
     const walk = (pages: ShellData["pages"]) => {
       for (const page of pages) {
         // A row with no source path is a path segment, not a page: there is
         // nothing at that URL to look at.
-        if (page.sourcePath !== undefined) routes.push(page.urlPath);
+        if (page.sourcePath !== undefined) routes.add(page.urlPath);
         walk(page.children ?? []);
       }
     };
     walk(data.pages);
-    return routes;
+    return Array.from(routes).sort((a, b) => a.localeCompare(b));
   }, [data.pages]);
 
   /**
@@ -442,12 +458,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       reloadKey,
       isPicking,
       onRequestReload,
+      onRefreshingChange,
     }: {
       width: number;
       height: number;
       reloadKey: number;
       isPicking: boolean;
       onRequestReload: () => void;
+      onRefreshingChange: (isRefreshing: boolean) => void;
     }) => (
       <CanvasFrame
         url={canvasUrl}
@@ -462,9 +480,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onElements={setCanvasElements}
         onPick={onPick}
         onRequestReload={onRequestReload}
+        onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, navigation.currentSourcePath, onPick]);
+  }, [canvasUrl, focusedPath, onPick]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -537,12 +556,33 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
-  // The compare and errors views are not a selection: they are the whole
-  // editor column, and they have no row in the navigation to be selected.
+  /**
+   * Something in the editor column that is not a selection.
+   *
+   * The compare and errors views are the whole column and have no row in the
+   * navigation to be selected. A module the navigation has no row for is the
+   * third case: a router's own module root is a record of every URL under it,
+   * which is not a page and so not a row — and the shell showed "no item
+   * selected" for it, which is why the header's link appeared to go nowhere.
+   * It is a real module and renders like any other record, so it renders.
+   */
+  const unlistedModulePath =
+    !navigation.isCompareView &&
+    !navigation.isErrorsView &&
+    selectionId === null &&
+    navigation.currentSourcePath
+      ? (navigation.currentSourcePath as SourcePath)
+      : null;
   const overrideEditor = navigation.isCompareView ? (
     <CompareView />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
+  ) : unlistedModulePath ? (
+    <Module
+      path={unlistedModulePath}
+      showModuleGalleryChild={null}
+      hideHeader={viewState.canvasOpen}
+    />
   ) : null;
 
   return (

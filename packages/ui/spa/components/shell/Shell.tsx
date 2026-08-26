@@ -386,6 +386,31 @@ export function Shell({
     setOpenPanel("ai");
   }, []);
 
+  /**
+   * Anything that is not a page leaves the canvas.
+   *
+   * The canvas is still offered everywhere — the Preview button does not come
+   * and go with the selection — but landing on something that is not on a route
+   * means the canvas is showing a page you are no longer editing. In the fields
+   * view it is worse than stale: the editor column IS the page's fields, so the
+   * module you navigated to does not appear at all and the navigation looks like
+   * it did nothing.
+   *
+   * Here rather than in `select` below, because a selection is not the only way
+   * to move: a breadcrumb, a deep link and a validation error all change the
+   * route without going through the navigation panels, and the router module
+   * root — which no row stands for — was reachable from the header.
+   *
+   * Not while the navigation is still loading, where nothing resolves to a row
+   * yet and a link that asked for the canvas would have it shut immediately.
+   */
+  useEffect(() => {
+    if (isLoading) return;
+    if (selection?.kind === "page") return;
+    setIsCanvasOpen(false);
+    setCanvasView("normal");
+  }, [isLoading, selection?.kind]);
+
   const closePanel = useCallback(() => setOpenPanel(null), []);
   const togglePanel = useCallback((panel: ShellPanel) => {
     setOpenPanel((current) => (current === panel ? null : panel));
@@ -401,21 +426,6 @@ export function Shell({
       }
       onSelectionChange?.(next);
       setChatTarget(null);
-      /**
-       * Picking something that is not a page leaves the canvas.
-       *
-       * The canvas is still offered everywhere — the Preview button does not
-       * come and go with the selection — but *choosing* a data module or a media
-       * file is choosing to go and edit that thing, and the canvas was in the
-       * way of it: in the fields view the editor column is the page's fields, so
-       * the module that was just picked did not appear at all, and the
-       * navigation looked like it had done nothing. Moving between pages keeps
-       * the canvas, which is the point of it.
-       */
-      if (next.kind !== "page") {
-        setIsCanvasOpen(false);
-        setCanvasView("normal");
-      }
       if (breakpoint === "mobile") setOpenPanel(null);
     },
     [breakpoint, isControlled, onSelectionChange],

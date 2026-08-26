@@ -20,6 +20,14 @@ import { useDismissOnOutsidePointer } from "../useDismissOnOutsidePointer";
  * Autocomplete comes from the routes Val tracks, because those are the ones it
  * can say anything about — but it is a suggestion, not a constraint.
  */
+/**
+ * How many routes the list shows at once.
+ *
+ * Enough that a project's pages are usually all there, few enough that the list
+ * stays a list. Whatever is left over is counted at the bottom.
+ */
+const MAX_SUGGESTIONS = 12;
+
 export function CanvasRouteBar({
   value,
   routes,
@@ -45,13 +53,43 @@ export function CanvasRouteBar({
     if (!isOpen) setDraft(value);
   }, [value, isOpen]);
 
+  /**
+   * The routes worth offering, best first.
+   *
+   * Ranked rather than filtered, because a plain `includes` puts the answer
+   * anywhere: typing `/blogs/blog-3` matches both `/blogs/blog-3` and
+   * `/blogs/blog-32`, and if the longer one happens to come first in the tree
+   * then the highlighted option — the one Enter takes — is not the route that
+   * was typed. Exact first, then routes that START with what was typed, then
+   * the rest.
+   */
   const suggestions = useMemo(() => {
     const q = draft.trim().toLowerCase();
-    const matching = q
-      ? routes.filter((route) => route.toLowerCase().includes(q))
-      : routes;
-    return matching.slice(0, 8);
+    if (!q) return routes.slice(0, MAX_SUGGESTIONS);
+    const rank = (route: string): number => {
+      const candidate = route.toLowerCase();
+      if (candidate === q) return 0;
+      if (candidate.startsWith(q)) return 1;
+      return 2;
+    };
+    return (
+      routes
+        .filter((route) => route.toLowerCase().includes(q))
+        .map((route, index) => ({ route, index, rank: rank(route) }))
+        // Ties keep the order they came in, which is the sorted route order.
+        .sort((a, b) => a.rank - b.rank || a.index - b.index)
+        .slice(0, MAX_SUGGESTIONS)
+        .map((entry) => entry.route)
+    );
   }, [routes, draft]);
+
+  const hiddenCount = useMemo(() => {
+    const q = draft.trim().toLowerCase();
+    const total = q
+      ? routes.filter((route) => route.toLowerCase().includes(q)).length
+      : routes.length;
+    return Math.max(0, total - suggestions.length);
+  }, [routes, draft, suggestions.length]);
 
   useEffect(() => setActiveIndex(0), [draft]);
 
@@ -137,7 +175,10 @@ export function CanvasRouteBar({
           className="absolute left-0 right-0 top-full z-window mt-1 max-h-56 overflow-y-auto rounded-md border border-border-float bg-bg-float py-1 shadow-lg scrollbar-slim"
         >
           {suggestions.map((route, index) => (
-            <li key={route}>
+            // Keyed by position as well as by route: two options with the same
+            // key make React reuse one of them for the other's handler, which
+            // is how picking a route came to commit its neighbour.
+            <li key={`${index}-${route}`}>
               <button
                 type="button"
                 role="option"
@@ -160,6 +201,16 @@ export function CanvasRouteBar({
               </button>
             </li>
           ))}
+          {hiddenCount > 0 && (
+            // Said rather than silently dropped: a route missing from a list
+            // that looks complete reads as Val not knowing about it.
+            <li
+              aria-hidden
+              className="px-2.5 py-1 text-[0.625rem] text-fg-secondary-alt"
+            >
+              {hiddenCount} more — keep typing to narrow
+            </li>
+          )}
         </ul>
       )}
     </div>

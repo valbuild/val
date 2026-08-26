@@ -27,6 +27,25 @@ import { ValCanvasBridge } from "./ValCanvasBridge";
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
+/**
+ * The floor between server re-renders.
+ *
+ * `router.refresh()` re-requests the whole route — Next has no per-module
+ * invalidation — so this is about not queueing a request per keystroke, not
+ * about batching for its own sake.
+ */
+const REFRESH_INTERVAL_MS = 500;
+
+/**
+ * Fired on this window when an edit has been applied to the client store.
+ *
+ * The refresh loop listens for it so it can start the round trip immediately
+ * rather than on its next tick. A DOM event rather than state, because the
+ * counter it accompanies is a ref and the loop lives in an effect that must not
+ * be torn down and rebuilt per keystroke.
+ */
+const VAL_EDIT_LANDED = "val-edit-landed";
+
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
@@ -94,7 +113,7 @@ export const ValNextProvider = (props: {
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
-  const [, startTransition] = React.useTransition();
+  const [isRefreshing, startTransition] = React.useTransition();
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const pathname = usePathname();
@@ -134,22 +153,55 @@ export const ValNextProvider = (props: {
     }
   }, [props.suspend]);
 
+  /**
+   * Re-render the server tree when an edit lands, then at most every 500ms.
+   *
+   * Leading edge, which is the whole point. This polled every 500ms and only
+   * refreshed on the tick, so a keystroke waited up to half a second before the
+   * round trip even began — pure dead time on top of a request that is already
+   * the slow part in development. Refreshing on arrival and *then* enforcing the
+   * gap keeps the same ceiling on requests while removing the wait.
+   *
+   * Still a counter rather than a boolean: edits that arrive during the gap have
+   * to be picked up by the next refresh, and the count is what says whether
+   * there are any.
+   */
   React.useEffect(() => {
-    if (!mountOverlay) {
+    if (!mountOverlay || props.disableRefresh) {
       return;
     }
-    const interval = setInterval(() => {
-      if (rerenderCounterRef.current > 0) {
-        if (!props.disableRefresh) {
-          rerenderCounterRef.current = 0;
-          startTransition(() => {
-            router.refresh();
-          });
-        }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastRefreshAt = 0;
+    const refresh = () => {
+      rerenderCounterRef.current = 0;
+      lastRefreshAt = Date.now();
+      startTransition(() => {
+        router.refresh();
+      });
+    };
+    const tick = () => {
+      timer = null;
+      if (rerenderCounterRef.current === 0) return;
+      const since = Date.now() - lastRefreshAt;
+      if (since >= REFRESH_INTERVAL_MS) {
+        refresh();
+      } else {
+        timer = setTimeout(tick, REFRESH_INTERVAL_MS - since);
       }
-    }, 500);
+    };
+    const onEdit = () => {
+      if (timer !== null) return;
+      timer = setTimeout(tick, 0);
+    };
+    window.addEventListener(VAL_EDIT_LANDED, onEdit);
+    // A backstop for the counter being bumped without the event — the two are
+    // incremented in the same places today, but the poll is what made this
+    // correct regardless of who bumped it.
+    const interval = setInterval(tick, REFRESH_INTERVAL_MS);
     return () => {
+      window.removeEventListener(VAL_EDIT_LANDED, onEdit);
       clearInterval(interval);
+      if (timer !== null) clearTimeout(timer);
     };
   }, [mountOverlay, props.disableRefresh]);
 
@@ -257,6 +309,7 @@ export const ValNextProvider = (props: {
           setDraftMode((prev) => {
             if (prev !== res.json.draftMode) {
               rerenderCounterRef.current++;
+              window.dispatchEvent(new Event(VAL_EDIT_LANDED));
               return res.json.draftMode;
             }
             return prev;
@@ -311,6 +364,7 @@ export const ValNextProvider = (props: {
                 valStore.update(moduleFilePath as ModuleFilePath, source);
                 if (!props.disableRefresh) {
                   rerenderCounterRef.current++;
+                  window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }
               } else {
                 console.error("Val: invalid event detail", event.detail);
@@ -501,7 +555,10 @@ ${prefixStyles(commonStyles)}
        * The studio draws the rest.
        */}
       {mountOverlay && isCanvas && (
-        <ValCanvasBridge draftMode={draftMode === true} />
+        <ValCanvasBridge
+          draftMode={draftMode === true}
+          isRefreshing={isRefreshing}
+        />
       )}
       {/**
        * This iframe is used to enable or disable draft mode.

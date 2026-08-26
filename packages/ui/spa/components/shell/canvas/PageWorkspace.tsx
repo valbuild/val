@@ -86,6 +86,15 @@ export type PageWorkspaceProps = {
     isPicking: boolean;
     /** Ask for the page again, as the reload control does. */
     onRequestReload: () => void;
+    /**
+     * Report that the page is re-rendering because of an edit.
+     *
+     * Only the page knows: its client store updates at once, and anything
+     * rendered on the server changes only after a `router.refresh()` and its
+     * round trip. Unsaid, the gap between typing and the canvas changing looks
+     * like the canvas being stuck rather than busy.
+     */
+    onRefreshingChange: (isRefreshing: boolean) => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -504,6 +513,15 @@ export function PageWorkspace({
    * page normally while still being able to select a piece of it.
    */
   const [isPicking, setIsPicking] = useState(view === "fields");
+  /**
+   * Whether the page is re-rendering because of an edit.
+   *
+   * Reported by the page, because only it knows: an edit updates its client
+   * store at once, and anything rendered on the server changes only after a
+   * `router.refresh()` and its round trip. Without saying so, the gap between
+   * typing and the canvas changing looks like the canvas being stuck.
+   */
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const lastView = useRef(view);
   if (lastView.current !== view) {
     lastView.current = view;
@@ -592,7 +610,6 @@ export function PageWorkspace({
         paths={reportedPaths}
         selectedPath={selectedCanvasPath}
         onSelect={onSelectCanvasPath}
-        isDevMode={isDevMode}
       />
     </div>
   );
@@ -678,6 +695,7 @@ export function PageWorkspace({
             reloadKey,
             isPicking,
             onRequestReload: reload,
+            onRefreshingChange: setIsRefreshing,
           }) ??
             (page && (
               <CanvasPage
@@ -721,6 +739,7 @@ export function PageWorkspace({
         // paths, so a click on it has nothing to open.
         isPicking={isPicking}
         onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
+        isRefreshing={isRefreshing}
         // Only where reloading means something. The demo page renders from
         // data that is already live, so it has nothing to fetch again.
         onReload={renderCanvas && reload}

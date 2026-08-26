@@ -31,14 +31,11 @@ export function CanvasFields({
   paths,
   selectedPath,
   onSelect,
-  isDevMode,
 }: {
   paths: readonly SourcePath[];
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
-  /** Show the full source path under each field. */
-  isDevMode?: boolean;
 }) {
   const [query, setQuery] = useState("");
 
@@ -118,7 +115,6 @@ export function CanvasFields({
                     path={path}
                     selected={selectedPath === path}
                     onSelect={onSelect}
-                    isDevMode={isDevMode}
                   />
                 ))}
               </div>
@@ -142,12 +138,10 @@ function CanvasFieldRow({
   path,
   selected,
   onSelect,
-  isDevMode,
 }: {
   path: SourcePath;
   selected: boolean;
   onSelect?: (path: SourcePath) => void;
-  isDevMode?: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   return (
@@ -182,11 +176,6 @@ function CanvasFieldRow({
         // `compact`, because this column is a third of the workspace at most:
         // the field has to be the editor, not the editor's full layout.
         <AnyField path={path} schema={schemaAtPath.data} compact />
-      )}
-      {isDevMode && (
-        <p className="mt-1.5 max-w-full truncate font-mono text-[0.625rem] text-fg-secondary-alt">
-          {path}
-        </p>
       )}
     </div>
   );

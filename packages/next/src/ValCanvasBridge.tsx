@@ -39,7 +39,21 @@ const RESCAN_INTERVAL_MS = 5000;
  * Nothing here is visible on the customer's own site — this component is not
  * mounted there at all.
  */
-export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
+export function ValCanvasBridge({
+  draftMode,
+  isRefreshing,
+}: {
+  draftMode: boolean;
+  /**
+   * Whether the server tree is being re-rendered because of an edit.
+   *
+   * Relayed to the studio so the canvas can say it is working. An edit updates
+   * the client store at once but a server component only changes after a
+   * `router.refresh()` and its round trip, which in development is long enough
+   * that the canvas looked stuck rather than busy.
+   */
+  isRefreshing?: boolean;
+}) {
   const [picking, setPicking] = React.useState(false);
   const [highlighted, setHighlighted] = React.useState<string | null>(null);
   // Kept in a ref as well, because the capture-phase click listener below is
@@ -123,6 +137,16 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
     lastPosted.current = serialized;
     post(message);
   }, [post]);
+
+  // Relayed as it changes, not polled: the studio only has to know the two
+  // edges, and a message per render would be a message per keystroke.
+  React.useEffect(() => {
+    post({
+      val: VAL_CANVAS_MESSAGE,
+      type: "refreshing",
+      pending: isRefreshing === true,
+    });
+  }, [post, isRefreshing]);
 
   // Announce the frame, and say whether it is actually showing draft content.
   React.useEffect(() => {

@@ -54,6 +54,8 @@ export type CanvasFrameProps = {
   onPick?: (paths: SourcePath[]) => void;
   /** Ask for the page again — used when enabling preview needs a reload. */
   onRequestReload: () => void;
+  /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
+  onRefreshingChange?: (isRefreshing: boolean) => void;
 };
 
 /**
@@ -82,6 +84,7 @@ export function CanvasFrame({
   onElements,
   onPick,
   onRequestReload,
+  onRefreshingChange,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
@@ -101,7 +104,8 @@ export function CanvasFrame({
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
     setState({ status: "waiting" });
-  }, [frameSrc, reloadKey]);
+    onRefreshingChange?.(false);
+  }, [frameSrc, reloadKey, onRefreshingChange]);
 
   useEffect(() => {
     if (state.status !== "waiting") return;
@@ -125,13 +129,15 @@ export function CanvasFrame({
         setIsEnabling(false);
       } else if (message.type === "elements") {
         onElements?.(message.elements);
+      } else if (message.type === "refreshing") {
+        onRefreshingChange?.(message.pending);
       } else {
         onPick?.(message.paths);
       }
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick]);
+  }, [onElements, onPick, onRefreshingChange]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.

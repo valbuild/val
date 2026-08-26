@@ -408,10 +408,11 @@ test.describe("the canvas", () => {
     const route = studio.getByLabel("Canvas route");
     await expect(route).toHaveValue("/blogs/blog1", { timeout: 30000 });
     await route.click();
-    // Widened on purpose: the list filters on what is in the bar, so the route
-    // the canvas is already on matches only itself and there would be nothing
-    // to pick that would move anything.
-    await route.fill("/blogs/blog");
+    // Narrowed to the route being picked. The list filters on what is in the
+    // bar, so the route the canvas is already on matches only itself and there
+    // would be nothing to pick; and a broad filter can match more routes than
+    // the list shows at once, which is a different thing from a broken list.
+    await route.fill("/blogs/blog2");
 
     const suggestion = studio.getByRole("option", { name: "/blogs/blog2" });
     await expect(

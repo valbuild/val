@@ -41,6 +41,7 @@ export function CanvasToolbar({
   isPicking,
   onPickingChange,
   onReload,
+  isRefreshing,
   className,
 }: {
   device: CanvasDevice;
@@ -67,6 +68,15 @@ export function CanvasToolbar({
    * page is rendered from data that is already live.
    */
   onReload?: () => void;
+  /**
+   * The page is re-rendering because of an edit.
+   *
+   * Shown on the reload button rather than as a control of its own: what is
+   * happening IS a reload — the page is fetching itself again because the
+   * content changed — so the button that does it by hand is the honest place to
+   * say it is happening by itself.
+   */
+  isRefreshing?: boolean;
   className?: string;
 }) {
   return (
@@ -157,11 +167,22 @@ export function CanvasToolbar({
           <Divider />
           <button
             type="button"
-            aria-label="Reload the page"
+            aria-label={isRefreshing ? "Updating the page" : "Reload the page"}
+            title={
+              isRefreshing
+                ? "The page is re-rendering with your change"
+                : "Reload the page"
+            }
             onClick={onReload}
-            className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              isRefreshing ? "text-fg-brand-primary" : "text-fg-secondary",
+            )}
           >
-            <RotateCw size={13} />
+            <RotateCw
+              size={13}
+              className={cn(isRefreshing && "animate-spin")}
+            />
           </button>
         </>
       )}

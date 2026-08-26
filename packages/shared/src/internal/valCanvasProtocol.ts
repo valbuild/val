@@ -82,6 +82,20 @@ export type ValCanvasPageMessage =
       type: "clicked";
       /** The paths on the element that was clicked. */
       paths: SourcePath[];
+    }
+  | {
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "refreshing";
+      /**
+       * Whether the page is re-rendering because of an edit.
+       *
+       * An edit reaches the page in two steps of very different cost: the
+       * client store updates at once, and anything rendered on the SERVER waits
+       * for a `router.refresh()` and its round trip — which in development is
+       * long enough to look like nothing happened. The studio cannot see that
+       * from outside, so the page says so and the canvas can show it is working.
+       */
+      pending: boolean;
     };
 
 /** What the studio tells the page. */
@@ -144,7 +158,8 @@ export function isValCanvasPageMessage(
   return (
     message.type === "ready" ||
     message.type === "elements" ||
-    message.type === "clicked"
+    message.type === "clicked" ||
+    message.type === "refreshing"
   );
 }
 
