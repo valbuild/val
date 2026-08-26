@@ -15,9 +15,13 @@ export type FilesOptions = {
   /**
    * The directory where files should be stored.
    * Must start with "/public" (e.g., "/public/val/files")
-   * @default "/public/val"
+   *
+   * Required, and deliberately so: it decides where every uploaded file in this
+   * collection lands, and it used to default to "/public/val" — which meant a
+   * collection that had simply not said where it wanted its files silently shared
+   * a directory with every other one.
    */
-  directory?: "/public" | `/public/${string}`;
+  directory: "/public" | `/public/${string}`;
   /**
    * Whether remote files are allowed
    * @default false
@@ -60,7 +64,7 @@ export const files = (
   Schema<string>,
   Record<string, FilesEntryMetadata>
 > => {
-  const directory = options.directory ?? "/public/val";
+  const directory = options.directory;
   const itemSchema = new ObjectSchema<FilesItemProps, FilesItemSrc>(
     { mimeType: new StringSchema({}, false) },
     false,
