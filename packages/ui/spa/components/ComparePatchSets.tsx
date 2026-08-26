@@ -21,6 +21,7 @@ import {
   Save,
   Undo2,
   User,
+  Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
@@ -152,6 +153,20 @@ export function CompareLoading() {
       aria-live="polite"
       aria-label="Loading changes"
     >
+      {/*
+       * Said as well as drawn.
+       *
+       * The skeleton alone reads as "something will appear here", which is not
+       * the same as knowing that the comparison is being built — and building it
+       * is the slow part on a long chain. Shown only before the FIRST result:
+       * afterwards the previous comparison stays on screen while a new one
+       * computes, because swapping to a placeholder for content that is still
+       * accurate is the flicker this whole file is careful about.
+       */}
+      <p className="flex items-center gap-2 text-sm text-fg-secondary">
+        <Loader2 size={14} className="animate-spin" aria-hidden />
+        Building the comparison…
+      </p>
       {[0, 1].map((i) => (
         <section
           key={i}
