@@ -67,12 +67,28 @@ function writeChain(length: number, baseSha: string): string[] {
   return written;
 }
 
+/** Remove every patch on disk, fabricated or otherwise. */
+function clearPatches(): void {
+  rmSync(PATCHES_DIR, { recursive: true, force: true });
+}
+
 test.describe("a long patch chain", () => {
   let written: string[] = [];
 
   test.beforeAll(async ({ request }) => {
-    // The chain has to be rooted at the base the server is actually on, or every
-    // patch in it is refused as belonging to a different base.
+    /**
+     * An EMPTY chain first, and this is not tidiness.
+     *
+     * The fabricated chain is rooted at `head`, so a patch another spec left
+     * behind is overwritten by the first link of this one — and its remaining
+     * directories stay on disk with parents that no longer exist. The server
+     * then resolves a chain that applies to nothing, and this spec fails
+     * reporting that the store loaded no patches, which is true and says nothing
+     * about the code under test.
+     */
+    clearPatches();
+    // Rooted at the base the server is actually on, or every patch in it is
+    // refused as belonging to a different one.
     const listed = await request.get("/api/val/patches");
     expect(listed.ok(), "could not read the current base").toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
@@ -83,6 +99,9 @@ test.describe("a long patch chain", () => {
     for (const dir of written) {
       rmSync(dir, { recursive: true, force: true });
     }
+    // And the directory itself: six hundred patches left for the next spec make
+    // its failure somebody else's puzzle.
+    clearPatches();
   });
 
   test("loads every patch, in requests the server accepts", async ({
@@ -151,6 +170,7 @@ test.describe("a patch fetch the server refuses", () => {
   let written: string[] = [];
 
   test.beforeAll(async ({ request }) => {
+    clearPatches();
     const listed = await request.get("/api/val/patches");
     expect(listed.ok()).toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
@@ -161,6 +181,7 @@ test.describe("a patch fetch the server refuses", () => {
     for (const dir of written) {
       rmSync(dir, { recursive: true, force: true });
     }
+    clearPatches();
   });
 
   test("is reported to the user, not only to the console", async ({ page }) => {
