@@ -27,6 +27,7 @@ export function CodeEditor({
   language,
   value,
   onChange,
+  onBlur,
   autoFocus,
   placeholder,
   options,
@@ -37,6 +38,8 @@ export function CodeEditor({
   options?: BasicSetupOptions;
   value: string;
   onChange: (value: string) => void;
+  /** Also called on blur, for a caller holding an unwritten edit. */
+  onBlur?: () => void;
   autoFocus?: boolean;
   className?: string;
 }) {
@@ -116,6 +119,7 @@ export function CodeEditor({
         }}
         onBlur={() => {
           setFocused(false);
+          onBlur?.();
         }}
         theme={theme}
         placeholder={placeholder}

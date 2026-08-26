@@ -74,6 +74,13 @@ export function RichTextField({
    * still typing".
    */
   const hasUnsentEditRef = useRef(false);
+  /**
+   * The document as of the last keystroke, captured eagerly.
+   *
+   * Read by the unmount flush below, which cannot ask the editor for it — by
+   * then the editor may already be gone.
+   */
+  const pendingDocRef = useRef<EditorDocument | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const {
@@ -347,25 +354,52 @@ export function RichTextField({
     }
 
     hasUnsentEditRef.current = true;
+    // Captured now, not in the timer: the unmount flush needs a document that
+    // does not depend on the editor still being mounted.
+    pendingDocRef.current = editorRef.current?.getDocument() ?? null;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      const doc = editorRef.current?.getDocument();
-      if (!doc) return;
-
-      const patch = createRichTextPatch(patchPath, doc);
-      sourceRef.current = doc;
-      addPatch(patch, "richtext");
-      // Cleared only once the patch exists: from here `clientSideOnly` is what
-      // keeps the server's document out until this one has been saved.
-      hasUnsentEditRef.current = false;
+      debounceTimerRef.current = null;
+      writePendingRef.current();
     }, DEBOUNCE_MS);
-  }, [patchPath, addPatch]);
+  }, []);
 
-  // A pending keystroke that never became a patch is not a reason to keep
-  // blocking updates once this field is gone.
+  /**
+   * Write whatever was typed, now.
+   *
+   * In a ref because the unmount cleanup below runs after the last render and
+   * must use the current `patchPath` and `addPatch`, not the ones it closed over
+   * when it was attached.
+   */
+  const writePendingRef = useRef<() => void>(() => undefined);
+  writePendingRef.current = () => {
+    const doc = pendingDocRef.current ?? editorRef.current?.getDocument();
+    if (!doc) return;
+    pendingDocRef.current = null;
+    const patch = createRichTextPatch(patchPath, doc);
+    sourceRef.current = doc;
+    addPatch(patch, "richtext");
+    // Cleared only once the patch exists: from here `clientSideOnly` is what
+    // keeps the server's document out until this one has been saved.
+    hasUnsentEditRef.current = false;
+  };
+
+  /**
+   * An edit still inside the debounce window when the field goes away is
+   * WRITTEN, not dropped.
+   *
+   * This used to clear the timer and forget it, which loses the last thing
+   * typed — navigating away, closing the canvas, or switching page mid-sentence
+   * silently threw those characters out. The window is short, so the loss looked
+   * random, which is the worst way for it to look.
+   */
   useEffect(
     () => () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+        writePendingRef.current();
+      }
       hasUnsentEditRef.current = false;
     },
     [],

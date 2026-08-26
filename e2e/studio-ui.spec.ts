@@ -168,6 +168,53 @@ test.describe("the Studio, through its own UI", () => {
   });
 
   /**
+   * A word typed a character at a time is ONE patch.
+   *
+   * `fill()` above sets the value in one event, which is exactly the case that
+   * hid this: a field wrote a patch per keystroke, so a paragraph left a few
+   * hundred patches in the chain — enough to slow every stat, make the publish
+   * a wall of one-character diffs, and eventually to break the request that
+   * reads the chain back (see `planPatchIdQuery`). It also made a validation
+   * error appear and clear mid-word, jumping everything below the field.
+   */
+  test("types a word a key at a time and writes one patch", async ({
+    page,
+  }) => {
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
+    await expect.poll(() => fieldValues(page)).toContain("Generic");
+
+    const before = await chainLength(page);
+    const title = studio
+      .locator("input")
+      .filter({ hasNot: page.locator("[type=file]") })
+      .first();
+    await title.click();
+    await title.fill("");
+    // Slower than a debounce window would coalesce by accident, so passing
+    // means the writes were actually collapsed rather than merely fast.
+    for (const key of "Typed".split("")) {
+      await title.press(key);
+      await page.waitForTimeout(60);
+    }
+    await title.blur();
+
+    await expect(title).toHaveValue("Typed");
+    await expect
+      .poll(() => chainLength(page), {
+        message: "typing produced no patch at all",
+      })
+      .toBeGreaterThan(before);
+    // Five keystrokes, and the value cleared first: one patch, not six.
+    expect(await chainLength(page)).toBe(before + 1);
+
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(before);
+  });
+
+  /**
    * The publish gate, which is `usePublishSummary` over `system.publish`.
    *
    * In `fs` mode the button says "Save" and publishing writes the `.val.ts`

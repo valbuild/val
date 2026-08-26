@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
 import { CodeEditor } from "../CodeEditor";
 import { ReadonlyGuard } from "./ReadonlyGuard";
+import { useDebouncedFieldWrite } from "./useDebouncedFieldWrite";
 
 export function StringField({
   path,
@@ -35,16 +36,41 @@ export function StringField({
   const sourceAtPath = useShallowSourceAtPath(path, "string", creatorId);
   const { patchPath, addPatch } = useAddPatch(path, creatorId);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
+  /**
+   * One patch per PAUSE in typing, not per keystroke.
+   *
+   * The input is unaffected — `currentValue` is local state and still updates on
+   * every keystroke. What waits is the write, because each write is a patch in
+   * the chain, a source rebuild, and a wake for every listener on the module. A
+   * paragraph typed here used to leave a patch per character behind it.
+   * See `useDebouncedFieldWrite`.
+   */
+  const write = useDebouncedFieldWrite<string>((value) => {
+    addPatch([{ op: "replace", path: patchPath, value }], type);
+  });
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
   useEffect(() => {
+    /**
+     * Not while a keystroke is still unwritten.
+     *
+     * Between a keystroke and its patch the source still holds the PRE-edit
+     * value, so taking it would put back the character just typed. The same
+     * guard the rich text field needs, for the same window — it is merely wider
+     * now that the write is debounced.
+     */
+    if (write.hasPending()) {
+      return;
+    }
     if (maybeClientSideOnly === false) {
       setCurrentValue(
         typeof maybeSourceData === "string" ? maybeSourceData : null,
       );
     }
-  }, [maybeSourceData, maybeClientSideOnly]);
+    // `write` is deliberately not a dependency: it is stable, and re-running
+    // this when a pending edit changes is exactly what the guard prevents.
+  }, [maybeSourceData, maybeClientSideOnly, write]);
   const renderAtPath = useRenderOverrideAtPath(path);
   const [renderAsTextarea, setRenderAsTextarea] = useState(false);
   const [renderAsCodeLanguage, setRenderAsCodeLanguage] = useState<
@@ -108,17 +134,9 @@ export function StringField({
           defaultValue={currentValue || ""}
           onChange={(ev) => {
             setCurrentValue(ev.target.value);
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: ev.target.value,
-                },
-              ],
-              type,
-            );
+            write.push(ev.target.value);
           }}
+          onBlur={write.flush}
         />
       </div>
     );
@@ -131,17 +149,9 @@ export function StringField({
           autoFocus={autoFocus}
           onChange={(value) => {
             setCurrentValue(value);
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: value,
-                },
-              ],
-              type,
-            );
+            write.push(value);
           }}
+          onBlur={write.flush}
         />
       </div>
     );
@@ -154,17 +164,9 @@ export function StringField({
           value={currentValue || ""}
           onChange={(ev) => {
             setCurrentValue(ev.target.value);
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: ev.target.value,
-                },
-              ],
-              type,
-            );
+            write.push(ev.target.value);
           }}
+          onBlur={write.flush}
         />
       </div>
     );
