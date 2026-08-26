@@ -314,10 +314,20 @@ export class PatchStore {
    * removed-and-restored, because a patch that turns out to exist must not have
    * its value flicker out of source and back.
    */
+  /**
+   * Whether a stat has ever arrived.
+   *
+   * Distinct from "the chain is empty": before the first stat this client does
+   * not know whether there are pending changes at all, and a field rendered then
+   * may be about to move. See {@link chainSettled}.
+   */
+  private statSeen = false;
+
   private async onStatPatchIds(
     patchIds: PatchId[],
     baseMoved = false,
   ): Promise<void> {
+    this.statSeen = true;
     const announced = new Set(patchIds);
     for (const patchId of patchIds) {
       if (!this.originById.has(patchId)) {
@@ -964,6 +974,31 @@ export class PatchStore {
    * {@link StoreBus} — so making them await would buy nothing and would make
    * the apply/emit ordering in {@link SourceStore} impossible to guarantee.
    */
+  /**
+   * Whether every patch the server has announced is loaded and applied.
+   *
+   * False before the first stat, and false while any announced patch's ops are
+   * still on their way. A patch that FAILED counts as settled: its effect is
+   * never going to arrive, and something else is already telling the user about
+   * it — waiting on it would mean waiting forever.
+   *
+   * What this is for: an editor must not be shown published content in an
+   * editable field while the pending change to it is still in flight. Typing
+   * over what looks like a stale value produces a "fix" for something that was
+   * never wrong, and the patch lands underneath it a moment later.
+   */
+  chainSettled(): boolean {
+    if (!this.statSeen) return false;
+    for (const patchId of this.ordered) {
+      if (this.failedById.has(patchId)) continue;
+      if (!this.dataById.has(patchId)) return false;
+      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * The last patch in the chain.
    *

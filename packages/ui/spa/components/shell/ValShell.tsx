@@ -42,6 +42,7 @@ import {
   useProfilesByAuthorId,
   usePublishCount,
   usePublishSummary,
+  useInitialPatchesApplied,
   useValMode,
 } from "../ValProvider";
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
@@ -135,6 +136,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     canvasTransform: urlState.initial.canvasTransform,
   }));
   const { isPublishing } = usePublishSummary();
+  /**
+   * Whether the fields can be trusted yet.
+   *
+   * Latched once — see `useInitialPatchesApplied`: on the first paint a field
+   * may be showing published content while the pending change to it is still on
+   * its way, and an editor typing over that "fixes" something that was never
+   * wrong.
+   */
+  const pendingChangesLoaded = useInitialPatchesApplied();
 
   /**
    * Back and forward, for the canvas.
@@ -737,6 +747,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           : undefined
       }
       aiEnabled={isAIChatEnabled}
+      // Held until the first load's patches are in — see `PendingChangesGate`.
+      pendingChangesLoaded={pendingChangesLoaded}
       aiUnavailable={
         aiConnectionError
           ? {

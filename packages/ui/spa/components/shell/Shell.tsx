@@ -25,6 +25,7 @@ import {
 import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
 import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
+import { PendingChangesGate } from "./PendingChangesGate";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
@@ -224,6 +225,15 @@ export type ShellProps = {
    * affordance.
    */
   aiEnabled?: boolean;
+  /**
+   * Whether the server's pending changes have been applied yet.
+   *
+   * Absent means yes, which is what a story or a preview wants. The shell holds
+   * the fields — dimmed and inert — while this is false: see
+   * `PendingChangesGate` for why showing an editable field that is about to
+   * change under the editor is worse than showing nothing.
+   */
+  pendingChangesLoaded?: boolean;
   onSelectValidationError?: (error: ShellValidationError) => void;
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
@@ -295,6 +305,7 @@ export function Shell({
   accountError,
   aiUnavailable,
   aiEnabled = false,
+  pendingChangesLoaded = true,
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
@@ -590,16 +601,26 @@ export function Shell({
           editorOverride
         ) : selection === null ? (
           <EmptyEditorState />
-        ) : renderEditor ? (
-          renderEditor(selection)
         ) : (
-          <PageEditor
-            title={selection.title}
-            urlPath={selection.urlPath}
-            sourcePath={selection.sourcePath}
-            isDevMode={isDevMode}
-            hasDraft={selection.hasDraft}
-          />
+          /*
+           * Held until the server's pending changes have landed — see
+           * `PendingChangesGate`. Around the fields only: the compare and errors
+           * views above are their own thing, and neither offers a field to type
+           * the wrong value into.
+           */
+          <PendingChangesGate ready={pendingChangesLoaded}>
+            {renderEditor ? (
+              renderEditor(selection)
+            ) : (
+              <PageEditor
+                title={selection.title}
+                urlPath={selection.urlPath}
+                sourcePath={selection.sourcePath}
+                isDevMode={isDevMode}
+                hasDraft={selection.hasDraft}
+              />
+            )}
+          </PendingChangesGate>
         )}
       </PageWorkspace>
 

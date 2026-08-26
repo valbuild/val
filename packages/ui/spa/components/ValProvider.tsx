@@ -1198,6 +1198,37 @@ export function usePendingClientSidePatchIds(): PatchId[] {
 }
 
 /**
+ * Whether the editor has caught up with the server's pending changes, ONCE.
+ *
+ * Latched: it flips false → true when the first stat's patches have all been
+ * loaded and applied, and never goes back. Later fetches are not this — by then
+ * the editor holds a value and a field showing it is showing the truth, so
+ * dimming the whole editor every time a patch arrives from another tab would be
+ * a flicker with no information in it.
+ *
+ * What it is for: on the first paint a field can be showing PUBLISHED content
+ * while a pending change to it is still in flight. Typing over that produces a
+ * "fix" for something that was never wrong, and the real value lands underneath
+ * it a moment later. So the fields are held — dimmed and inert — until this is
+ * true.
+ */
+export function useInitialPatchesApplied(): boolean {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const [settled, setSettled] = useState(false);
+  const ready =
+    settled ||
+    (val !== null &&
+      // `void`, not a dependency: the version is the wake-up, the store is the
+      // answer.
+      (void chainVersion, val.system.patchStore.chainSettled()));
+  useEffect(() => {
+    if (ready) setSettled(true);
+  }, [ready]);
+  return ready;
+}
+
+/**
  * Every patch in the chain, in order.
  *
  * The engine assembled this from three id lists and de-duplicated the overlap;
