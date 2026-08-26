@@ -400,10 +400,21 @@ export function Shell({
       }
       onSelectionChange?.(next);
       setChatTarget(null);
-      // The canvas stays open across every kind of selection. It used to close
-      // on anything that was not a page, which is backwards: a settings module
-      // or a media file is content a page renders, so watching a page while you
-      // change one is the reason to have the two side by side.
+      /**
+       * Picking something that is not a page leaves the canvas.
+       *
+       * The canvas is still offered everywhere — the Preview button does not
+       * come and go with the selection — but *choosing* a data module or a media
+       * file is choosing to go and edit that thing, and the canvas was in the
+       * way of it: in the fields view the editor column is the page's fields, so
+       * the module that was just picked did not appear at all, and the
+       * navigation looked like it had done nothing. Moving between pages keeps
+       * the canvas, which is the point of it.
+       */
+      if (next.kind !== "page") {
+        setIsCanvasOpen(false);
+        setCanvasView("normal");
+      }
       if (breakpoint === "mobile") setOpenPanel(null);
     },
     [breakpoint, isControlled, onSelectionChange],

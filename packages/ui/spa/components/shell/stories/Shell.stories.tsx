@@ -624,10 +624,12 @@ export const CanvasNotReported: Story = {
 /**
  * A data module, with the canvas open on the root.
  *
- * The canvas is not a property of the selection: a settings module or a shared
- * record is content some page renders, so watching a page while changing one is
- * the reason to have the two side by side. With no page selected the canvas
- * shows the site's root, and the address bar takes it anywhere else.
+ * The canvas is offered everywhere — the Preview button does not come and go
+ * with the selection — so a link can put it beside anything, and with no page
+ * selected it shows the site's root. *Picking* a data module in the navigation
+ * is a different act, and closes it: that is a decision to go and edit the
+ * module, and in the fields view the canvas was covering the very thing that
+ * was just picked.
  */
 export const CanvasOnADataModule: Story = {
   args: {

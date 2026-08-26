@@ -1,5 +1,14 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
+import {
+  chainLength,
+  clearPatchChain,
+  closeNavPanel,
+  discardAll,
+  expandRow,
+  openNavPanel,
+  openSiteMap,
+  openStudio,
+} from "./studio";
 
 /**
  * Media: `s.images()`, `s.files()`, `s.image()` and `s.file()`.
@@ -105,6 +114,56 @@ test.describe("the Media section", () => {
     await expect(
       studio.getByTitle("/content/fileGallery.val.ts"),
     ).toBeVisible();
+  });
+
+  /**
+   * Opening one file, which is where source paths were being built by hand.
+   *
+   * A gallery is a record keyed by file path, so its keys contain dots — and a
+   * module path segment has to be JSON-quoted. Two hand-rolled path builders
+   * appended the raw key at the module root, which parses as one segment right
+   * up until the key has a `.` in it: `?p=/public/test/subdir/red-8x8_bfbd0.png`
+   * splits into `/public/test/subdir/red-8x8_bfbd0` and `png`, and the studio
+   * reported the module as not found. Every other key in the project — object
+   * fields, ordinary record keys, route keys — has no dot, so nothing else ever
+   * showed it.
+   *
+   * The canvas closing is the other half: picking a file is a decision to go and
+   * edit it, and in the fields view the canvas column was covering the thing
+   * that had just been picked.
+   */
+  test("opens one file, and leaves the canvas to do it", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "/");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+    await expect(
+      studio.getByRole("button", { name: "Fit page to screen" }),
+    ).toBeVisible();
+
+    await openNavPanel(page, "Media");
+    await studio.getByTitle("/content/mediaFixtures.val.ts").click();
+    const file = studio.getByRole("button", { name: /red-8x8_/ });
+    await expect(file).toBeVisible({ timeout: 30000 });
+    await file.click();
+
+    // The key, quoted: a `p` that splits into two segments resolves to nothing.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("p"), {
+        message: "the file's module path never reached the URL",
+        timeout: 10000,
+      })
+      .toBe('"/public/test/subdir/red-8x8_bfbd0.png"');
+
+    await expect(
+      studio.getByText(/not found/i),
+      "the file's path did not resolve to anything",
+    ).toHaveCount(0);
+    await expect(
+      studio.getByRole("button", { name: "Fit page to screen" }),
+      "the canvas stayed open over the file that was just picked",
+    ).toHaveCount(0);
   });
 });
 

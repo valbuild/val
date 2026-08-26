@@ -15,7 +15,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
   SerializedSchema,
@@ -62,6 +61,7 @@ import {
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
+import { concatModulePath } from "../utils/sourcePath";
 
 export type { AITool };
 
@@ -2115,21 +2115,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
-}
-
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
 }
 
 type AuthorId = string;

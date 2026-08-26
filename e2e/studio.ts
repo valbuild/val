@@ -87,8 +87,26 @@ export async function chainLength(page: Page): Promise<number> {
   });
 }
 
-/** Throw away every patch the page holds, and wait for the store to agree. */
+/**
+ * Throw away every patch the page holds, and wait for the store to agree.
+ *
+ * Looped rather than one pass over a snapshot of the ids. A write is debounced,
+ * so one can land between reading the ids and the discard returning — leaving a
+ * patch the discard never knew about, and a chain that never reaches zero. The
+ * test that typed the value is not usually the one that fails: the leftover
+ * patch is still there when the next spec asserts on the chain, so the failure
+ * lands somewhere unrelated and only when the timing happens to line up.
+ */
 export async function discardAll(page: Page): Promise<void> {
+  await expect
+    .poll(async () => {
+      await discardOnce(page);
+      return chainLength(page);
+    })
+    .toBe(0);
+}
+
+async function discardOnce(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const bag = window as unknown as {
       __VAL_STORES__: {
@@ -106,7 +124,6 @@ export async function discardAll(page: Page): Promise<void> {
       throw new Error(`could not discard: ${res.message ?? res.status}`);
     }
   });
-  await expect.poll(() => chainLength(page)).toBe(0);
 }
 
 /**
