@@ -76,6 +76,10 @@ export type TopBarProps = {
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
   /**
+   * The preview URL, so "Open in a new tab" is a link. See `PreviewButton`.
+   */
+  previewHref?: string;
+  /**
    * Whether this project has an assistant. See `ShellProps.aiEnabled`.
    *
    * Absent hides the button rather than disabling it: it is the only thing in
@@ -115,6 +119,7 @@ export function TopBar({
   accountError,
   isLoading,
   aiEnabled = false,
+  previewHref,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -149,6 +154,7 @@ export function TopBar({
           <>
             <PreviewButton
               onPreview={onPreview}
+              previewHref={previewHref}
               onToggleCanvas={onToggleCanvas}
               isCanvasOpen={isCanvasOpen}
             />
@@ -250,6 +256,7 @@ export function TopBar({
  */
 export function PreviewButton({
   onPreview,
+  previewHref,
   onToggleCanvas,
   isCanvasOpen,
   className,
@@ -257,6 +264,13 @@ export function PreviewButton({
   alwaysShowLabel,
 }: {
   onPreview: () => void;
+  /**
+   * The preview URL, when the shell can name one.
+   *
+   * Turns "Open in a new tab" into a real link — see `PreviewMenuItem`. Absent
+   * falls back to `onPreview`, which is what the stories use.
+   */
+  previewHref?: string;
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
   /** For the mobile bar, where this shares a row with Publish. */
@@ -365,9 +379,16 @@ export function PreviewButton({
             icon={Link2}
             label="Open in a new tab"
             detail="The page with your unpublished changes"
+            /*
+             * An `href` where there is one, so this behaves like a link: middle
+             * click, modifier click, and "Copy link address" — which is the
+             * point, because the link turns preview ON for whoever opens it and
+             * is therefore worth sending to someone.
+             */
+            href={previewHref}
             onClick={() => {
               setIsOpen(false);
-              onPreview();
+              if (previewHref === undefined) onPreview();
             }}
           />
         </div>
@@ -381,19 +402,19 @@ function PreviewMenuItem({
   label,
   detail,
   onClick,
+  href,
 }: {
   icon: LucideIcon;
   label: string;
   detail: string;
   onClick: () => void;
+  /** Renders the item as a link. See "Open in a new tab" above. */
+  href?: string;
 }) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-    >
+  const shared =
+    "flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
+  const inner = (
+    <>
       <Icon size={14} className="mt-0.5 shrink-0" />
       <span className="min-w-0">
         <span className="block text-xs">{label}</span>
@@ -401,6 +422,25 @@ function PreviewMenuItem({
           {detail}
         </span>
       </span>
+    </>
+  );
+  if (href !== undefined) {
+    return (
+      <a
+        role="menuitem"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClick}
+        className={shared}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <button type="button" role="menuitem" onClick={onClick} className={shared}>
+      {inner}
     </button>
   );
 }

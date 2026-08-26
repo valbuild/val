@@ -5,6 +5,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
@@ -1031,41 +1032,7 @@ function MediaEntryThumbnail({
               : undefined
           }
         />
-        {hotspot && (
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              top: `${hotspot.y * 100}%`,
-              left: `${hotspot.x * 100}%`,
-              transform: "translate(-50%, -50%)",
-              zIndex: 10,
-            }}
-          >
-            <div
-              style={{
-                width: "14px",
-                height: "14px",
-                borderRadius: "50%",
-                border: "1.5px solid white",
-                boxShadow:
-                  "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "3px",
-                height: "3px",
-                borderRadius: "50%",
-                backgroundColor: "white",
-                boxShadow: "0 0 2px rgba(0,0,0,0.5)",
-              }}
-            />
-          </div>
-        )}
+        {hotspot && <HotspotMarker hotspot={hotspot} size="sm" />}
       </div>
       {hotspot && (
         <div className="mt-1 text-xs text-fg-tertiary">

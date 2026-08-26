@@ -9,6 +9,7 @@ import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { useContentSearch } from "./useContentSearch";
 import {
+  parseShellUrlState,
   ShellUrlState,
   useShellUrlState,
   useWriteShellUrlState,
@@ -134,6 +135,35 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     canvasTransform: urlState.initial.canvasTransform,
   }));
   const { isPublishing } = usePublishSummary();
+
+  /**
+   * Back and forward, for the canvas.
+   *
+   * Opening or closing the canvas pushes a history entry — see
+   * `useWriteShellUrlState` — so the button has to actually take you there. The
+   * URL is re-parsed on `popstate` and handed to the shell as a state to adopt;
+   * `epoch` is what marks it as a command rather than as the URL becoming a
+   * controlled prop, which would fight every move the user makes.
+   */
+  const [restoreViewState, setRestoreViewState] = useState<{
+    epoch: number;
+    panel: ShellUrlState["panel"];
+    canvasOpen: boolean;
+    canvasView: ShellUrlState["canvasView"];
+  }>();
+  useEffect(() => {
+    const listener = () => {
+      const state = parseShellUrlState(window.location.search);
+      setRestoreViewState((previous) => ({
+        epoch: (previous?.epoch ?? 0) + 1,
+        panel: state.panel,
+        canvasOpen: state.canvasOpen,
+        canvasView: state.canvasView,
+      }));
+    };
+    window.addEventListener("popstate", listener);
+    return () => window.removeEventListener("popstate", listener);
+  }, []);
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
@@ -392,14 +422,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * reason to open a preview rather than the site. The endpoint sets the
    * cookies and redirects, so the new tab lands on the page already in preview.
    */
-  const openPreviewTab = useCallback(() => {
+  const previewHref = useMemo(() => {
     const target = new URL(canvasUrl, window.location.origin).toString();
-    window.open(
-      `/api/val/enable?redirect_to=${encodeURIComponent(target)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    return `/api/val/enable?redirect_to=${encodeURIComponent(target)}`;
   }, [canvasUrl]);
+  const openPreviewTab = useCallback(() => {
+    window.open(previewHref, "_blank", "noopener,noreferrer");
+  }, [previewHref]);
 
   /**
    * A thumbnail URL for a file in a gallery.
@@ -517,10 +546,18 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         height={height}
         reloadKey={reloadKey}
         isPicking={isPicking}
-        // The field being edited is the one the route points at, so the
-        // outline on the page follows the editor without a second source of
-        // truth for "what is selected".
-        highlightedPath={focusedPath}
+        /*
+         * The field being edited is the one the route points at, so the outline
+         * on the page follows the editor without a second source of truth for
+         * "what is selected".
+         *
+         * Only while SELECTING, though. Turning select mode off drops the
+         * resting outlines on every editable node, and the one on the selected
+         * field used to stay behind — a single box floating on a page that is
+         * otherwise back to being a page. Leaving the mode means leaving all of
+         * it.
+         */
+        highlightedPath={isPicking ? focusedPath : null}
         onElements={setCanvasElements}
         onPick={onPick}
         onRequestReload={onRequestReload}
@@ -671,11 +708,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialPanel={urlState.initial.panel}
       initialCanvasOpen={urlState.initial.canvasOpen}
       initialCanvasView={urlState.initial.canvasView}
+      restoreViewState={restoreViewState}
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
       onNewPage={addPage}
       onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
+      // Also as an href, so the menu item is a link that can be copied. The URL
+      // enables preview and redirects, so it is worth sending to someone.
+      previewHref={previewHref}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onCompare={showCompare}

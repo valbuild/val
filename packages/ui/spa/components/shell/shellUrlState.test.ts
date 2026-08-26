@@ -1,4 +1,9 @@
-import { applyShellUrlState, parseShellUrlState } from "./useShellUrlState";
+import {
+  applyShellUrlState,
+  historyModeFor,
+  parseShellUrlState,
+  type ShellUrlState,
+} from "./useShellUrlState";
 
 /**
  * The view state, in and out of a URL.
@@ -106,5 +111,82 @@ describe("the shell's URL state", () => {
       canvasTransform: { scale: 0.5612345, x: -120.7, y: 40.2 },
     });
     expect(written).toContain("canvas-at=0.56%2C-121%2C40");
+  });
+});
+
+/**
+ * Which view changes are places you can come back to.
+ *
+ * Everything in the shell's URL used to be written with `replaceState`, on the
+ * grounds that chrome is not history — which is right for a panel and wrong for
+ * the canvas: closing it left no way back to the page you were looking at, and
+ * the back button instead took you out of the module.
+ */
+describe("history for a view change", () => {
+  const state = (over: Partial<ShellUrlState> = {}): ShellUrlState => ({
+    panel: null,
+    canvasOpen: false,
+    canvasRoute: null,
+    canvasView: "normal",
+    canvasTransform: null,
+    ...over,
+  });
+
+  /**
+   * The case that made this compare against the URL rather than against the last
+   * state written: a link opens the canvas, the editor closes it, and that is
+   * the FIRST write of the session. Classified against a tracked "previous" it
+   * had nothing to compare to and went in as a replace — so the back button
+   * left the studio instead of reopening the canvas.
+   */
+  test("closing a canvas a link opened is a place, even as the first write", () => {
+    expect(historyModeFor(state({ canvasOpen: true }), state())).toBe("push");
+  });
+
+  /**
+   * And the write that follows a back is not. The shell adopts the state the
+   * entry names and reports it, which produces a write of what the URL already
+   * says — an entry there would be a duplicate the user has to press through.
+   */
+  test("re-writing what the URL already says replaces", () => {
+    const open = state({ canvasOpen: true });
+    expect(
+      historyModeFor(open, {
+        ...open,
+        canvasTransform: { scale: 1.2, x: 4, y: 8 },
+      }),
+    ).toBe("replace");
+  });
+
+  test("opening the canvas is a place", () => {
+    expect(historyModeFor(state(), state({ canvasOpen: true }))).toBe("push");
+  });
+
+  test("a panel is not", () => {
+    expect(historyModeFor(state(), state({ panel: "pages" }))).toBe("replace");
+  });
+
+  test("panning the canvas is not, however many times it moves", () => {
+    const open = state({ canvasOpen: true });
+    for (const at of [1, 2, 3]) {
+      expect(
+        historyModeFor(
+          open,
+          state({
+            canvasOpen: true,
+            canvasTransform: { scale: at, x: at, y: at },
+          }),
+        ),
+      ).toBe("replace");
+    }
+  });
+
+  test("switching the canvas view is not: the canvas is still open", () => {
+    expect(
+      historyModeFor(
+        state({ canvasOpen: true }),
+        state({ canvasOpen: true, canvasView: "fields" }),
+      ),
+    ).toBe("replace");
   });
 });

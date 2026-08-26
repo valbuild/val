@@ -61,6 +61,7 @@ export function MobileNavSwitcher({
 export function MobileBottomBar({
   pendingChanges,
   onPreview,
+  previewHref,
   onPublish,
   publishSlot,
   onOpenStatus,
@@ -70,6 +71,8 @@ export function MobileBottomBar({
 }: {
   pendingChanges: number;
   onPreview: () => void;
+  /** The preview URL, so "Open in a new tab" is a link. See `PreviewButton`. */
+  previewHref?: string;
   onPublish: () => void;
   /** The real publish control, when there is one. See `TopBarProps`. */
   publishSlot?: ReactNode;
@@ -115,6 +118,7 @@ export function MobileBottomBar({
        */}
       <PreviewButton
         onPreview={onPreview}
+        previewHref={previewHref}
         onToggleCanvas={onToggleCanvas}
         isCanvasOpen={isCanvasOpen}
         menuPlacement="above"

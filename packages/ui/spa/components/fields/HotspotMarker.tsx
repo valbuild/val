@@ -13,25 +13,45 @@
  */
 export function HotspotMarker({
   hotspot,
+  size = "md",
 }: {
   hotspot: { x: number; y: number };
+  /**
+   * `sm` for a thumbnail, where a 20px ring covers most of the picture.
+   *
+   * A prop rather than a third hand-written copy: the compare view had one, and
+   * it drifted — a raw `zIndex: 10` and its own numbers, so it could stop
+   * matching the field's without anyone noticing.
+   */
+  size?: "sm" | "md";
 }) {
+  const ring = size === "sm" ? 14 : 20;
+  const dot = size === "sm" ? 3 : 4;
+  const stroke = size === "sm" ? 1.5 : 2;
   return (
     <div
-      className="pointer-events-none absolute"
+      /*
+       * `z-hover`: above the image it is drawn on, and nothing else.
+       *
+       * It was a raw `zIndex: 10`, which on the shell's scale is above every
+       * floating panel — so the focal point of an image in the editor column
+       * showed through the Pages and Settings panels, a ring and a dot hovering
+       * over unrelated UI. Nothing here needs to beat anything but the photo.
+       * See the `zIndex` scale in `tailwind.config.js`.
+       */
+      className="pointer-events-none absolute z-hover"
       style={{
         top: `${hotspot.y * 100}%`,
         left: `${hotspot.x * 100}%`,
         transform: "translate(-50%, -50%)",
-        zIndex: 10,
       }}
     >
       <div
         style={{
-          width: "20px",
-          height: "20px",
+          width: `${ring}px`,
+          height: `${ring}px`,
           borderRadius: "50%",
-          border: "2px solid white",
+          border: `${stroke}px solid white`,
           boxShadow:
             "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
         }}
@@ -42,8 +62,8 @@ export function HotspotMarker({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          width: "4px",
-          height: "4px",
+          width: `${dot}px`,
+          height: `${dot}px`,
           borderRadius: "50%",
           backgroundColor: "white",
           boxShadow: "0 0 2px rgba(0,0,0,0.5)",

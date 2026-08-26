@@ -135,6 +135,25 @@ export type ShellProps = {
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
+  /**
+   * A view state to ADOPT, from outside. The back button, and nothing else.
+   *
+   * The shell owns this state after mount — see `onViewStateChange` — so it
+   * cannot be handed the URL's version on every render without fighting the user
+   * every time they move something. `epoch` is what makes this a command rather
+   * than a value: it changes only when something outside deliberately says
+   * "you are here now", which today means a `popstate`.
+   *
+   * Without it, pushing a history entry for the canvas would put the URL back
+   * and leave the screen where it was — a back button that appears to do
+   * nothing, which is worse than one that does nothing.
+   */
+  restoreViewState?: {
+    epoch: number;
+    panel: ShellPanel | null;
+    canvasOpen: boolean;
+    canvasView: CanvasView;
+  };
   /** Skips the canvas entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
   /**
@@ -168,6 +187,14 @@ export type ShellProps = {
    */
   publishSlot?: ReactNode;
   onPreview?: () => void;
+  /**
+   * The preview URL, when the shell can name one.
+   *
+   * Makes "Open in a new tab" a real link rather than a `window.open` call, so
+   * it can be middle-clicked and — the point — copied. The link enables preview
+   * for whoever opens it, which is what makes it worth sending to someone.
+   */
+  previewHref?: string;
   onSignOut?: () => void;
   /** Open the full validation-errors view. Falls back to the utility panel. */
   onShowErrors?: () => void;
@@ -253,6 +280,7 @@ export function Shell({
   onViewStateChange,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
+  restoreViewState,
   skipTransition,
   selectionId,
   onSelectionChange,
@@ -261,6 +289,7 @@ export function Shell({
   onPublish,
   publishSlot,
   onPreview,
+  previewHref,
   onSignOut,
   onShowErrors,
   accountError,
@@ -305,6 +334,21 @@ export function Shell({
   // with the rest of the view state — the canvas owns it.
   const [canvasTransform, setCanvasTransform] =
     useState<CanvasTransform | null>(initialCanvasTransform ?? null);
+  /**
+   * Adopt a state the history says we are in. Keyed on the epoch alone: the
+   * values are what to become, and re-running on them would make this a
+   * controlled prop.
+   */
+  const restoreEpoch = restoreViewState?.epoch;
+  const restoreRef = useRef(restoreViewState);
+  restoreRef.current = restoreViewState;
+  useEffect(() => {
+    const restore = restoreRef.current;
+    if (restore === undefined) return;
+    setOpenPanel(restore.panel);
+    setIsCanvasOpen(restore.canvasOpen);
+    setCanvasView(restore.canvasView);
+  }, [restoreEpoch]);
   useEffect(() => {
     onViewStateChange?.({
       panel: openPanel,
@@ -594,6 +638,7 @@ export function Shell({
         isLoading={isLoading}
         aiEnabled={aiEnabled}
         onPreview={onPreview ?? (() => undefined)}
+        previewHref={previewHref}
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
         onPublish={onPublish ?? (() => undefined)}
@@ -612,6 +657,7 @@ export function Shell({
         <MobileBottomBar
           pendingChanges={pendingChanges}
           onPreview={onPreview ?? (() => undefined)}
+          previewHref={previewHref}
           onToggleCanvas={canCanvas ? toggleCanvas : undefined}
           isCanvasOpen={isCanvasOpen}
           onPublish={onPublish ?? (() => undefined)}

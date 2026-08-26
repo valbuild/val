@@ -122,19 +122,52 @@ export function applyShellUrlState(
 }
 
 /**
- * Keep the shell's view state in the URL, and read it back on load.
+ * How a write should affect history.
  *
- * `replaceState`, never `pushState`: opening a panel or nudging the zoom is not
- * a place in history, and making it one turns the back button into an undo for
- * chrome rather than a way back to the last thing you were editing.
+ * `replace` for chrome — a panel, a zoom nudge — because making those places in
+ * history turns the back button into an undo for furniture. `push` for opening
+ * or closing the canvas, which IS somewhere you were: leaving it and pressing
+ * back should put it back, and with a replace there was nothing to go back to.
+ */
+export type HistoryMode = "push" | "replace";
+
+/**
+ * Whether writing this state is a place in history.
+ *
+ * Only the canvas is. Everything else here is furniture — which panel is open,
+ * where the canvas is panned — and a history entry per nudge turns the back
+ * button into an undo for chrome rather than a way back to what you were
+ * editing. Opening and closing the canvas is different in kind: it is the
+ * difference between looking at the page and looking at the fields, and leaving
+ * it used to be unreturnable.
+ *
+ * Compared against what the URL CURRENTLY says, not against the last state this
+ * session wrote, and the difference is not academic. Tracking the last write
+ * makes the first one of a session unclassifiable — and the first write is
+ * exactly the one that closes a canvas a link opened, so it went in as a replace
+ * and the back button then left the studio altogether. Reading the URL also
+ * makes the write after a `popstate` a replace for free: the URL already says
+ * what the shell has just adopted, so there is no entry to push.
+ */
+export function historyModeFor(
+  current: ShellUrlState,
+  next: ShellUrlState,
+): HistoryMode {
+  return current.canvasOpen === next.canvasOpen ? "replace" : "push";
+}
+
+/**
+ * Keep the shell's view state in the URL, and read it back on load.
  *
  * The initial value is read once. It is what a link restores, and after that
  * the shell owns the state — re-reading would fight the user every time they
- * moved anything.
+ * moved anything. Coming BACK is the exception, and it is not a re-read: see
+ * `parseShellUrlState` in `ValShell`'s popstate listener, which tells the shell
+ * to adopt a state rather than merging one.
  */
 export function useShellUrlState(): {
   initial: ShellUrlState;
-  write: (state: ShellUrlState) => void;
+  write: (state: ShellUrlState, history?: HistoryMode) => void;
 } {
   const [initial] = useState<ShellUrlState>(() =>
     parseShellUrlState(
@@ -142,18 +175,25 @@ export function useShellUrlState(): {
     ),
   );
 
-  const write = useCallback((state: ShellUrlState) => {
-    if (typeof window === "undefined") return;
-    const search = applyShellUrlState(window.location.search, state);
-    const target = `${window.location.pathname}${search}${window.location.hash}`;
-    if (
-      target ===
-      `${window.location.pathname}${window.location.search}${window.location.hash}`
-    ) {
-      return;
-    }
-    window.history.replaceState(null, "", target);
-  }, []);
+  const write = useCallback(
+    (state: ShellUrlState, history: HistoryMode = "replace") => {
+      if (typeof window === "undefined") return;
+      const search = applyShellUrlState(window.location.search, state);
+      const target = `${window.location.pathname}${search}${window.location.hash}`;
+      if (
+        target ===
+        `${window.location.pathname}${window.location.search}${window.location.hash}`
+      ) {
+        return;
+      }
+      if (history === "push") {
+        window.history.pushState(null, "", target);
+      } else {
+        window.history.replaceState(null, "", target);
+      }
+    },
+    [],
+  );
 
   return { initial, write };
 }
@@ -167,12 +207,19 @@ export function useShellUrlState(): {
  * right when someone comes to copy it.
  */
 export function useWriteShellUrlState(
-  write: (state: ShellUrlState) => void,
+  write: (state: ShellUrlState, history?: HistoryMode) => void,
   state: ShellUrlState,
 ): void {
   const serialized = useMemo(() => JSON.stringify(state), [state]);
   useEffect(() => {
-    const timer = setTimeout(() => write(JSON.parse(serialized)), 250);
+    const timer = setTimeout(() => {
+      const next = JSON.parse(serialized) as ShellUrlState;
+      const current =
+        typeof window === "undefined"
+          ? next
+          : parseShellUrlState(window.location.search);
+      write(next, historyModeFor(current, next));
+    }, 250);
     return () => clearTimeout(timer);
   }, [serialized, write]);
 }

@@ -76,10 +76,6 @@ export function FilePropertiesModal({
     onFileRename?.(fileIndex, newFilename);
   };
 
-  const handleOpenInNewTab = () => {
-    window.open(file.url, "_blank", "noopener,noreferrer");
-  };
-
   const isImage = file.metadata.mimeType.startsWith("image/");
 
   return (
@@ -215,14 +211,23 @@ export function FilePropertiesModal({
 
         {/* Actions */}
         <div className="mt-4 flex items-center gap-2 border-t border-border-secondary pt-4">
-          <button
-            type="button"
-            onClick={handleOpenInNewTab}
+          {/*
+           * An anchor, not a button calling `window.open`.
+           *
+           * Same behaviour on a click, and it also does what a link does: a
+           * middle click, a modifier click, and — the reason this changed —
+           * "Copy link address", so the file's URL can be pasted somewhere.
+           * `window.open` gives none of that away.
+           */}
+          <a
+            href={file.url}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
           >
             <ExternalLink className="h-4 w-4" />
             Open in New Tab
-          </button>
+          </a>
           {file.sourcePath &&
             file.patchesByAuthorIds &&
             Object.keys(file.patchesByAuthorIds).length > 0 && (
