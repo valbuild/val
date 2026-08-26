@@ -13,36 +13,41 @@
 @tailwind utilities;
 
 @layer base {
-  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude */
+  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude.
+     `[data-mode="light"]` is listed here rather than in a block of its own so
+     light is declared exactly once: a subtree can opt back into light even
+     when an ancestor is dark, which is what the theme switch inside the shell
+     needs (and what a light region nested in a dark host page needs). */
   :host,
-  :root {
+  :root,
+  *[data-mode="light"] {
     --colors-base-white: #ffffff;
 
-    --colors-gray-light-mode-gray-100: #f2f4f7;
-    --colors-gray-light-mode-gray-200: #e4e7ec;
-    --colors-gray-light-mode-gray-300: #d0d5dd;
-    --colors-gray-light-mode-gray-400: #98a2b3;
-    --colors-gray-light-mode-gray-500: #697586;
-    --colors-gray-light-mode-gray-600: #475467;
-    --colors-gray-light-mode-gray-700: #344054;
-    --colors-gray-light-mode-gray-800: #182230;
-    --colors-gray-light-mode-gray-900: #101828;
-    --colors-gray-light-mode-gray-950: #0c111d;
-    --colors-gray-light-mode-gray-50: #f9fafb;
-    --colors-gray-light-mode-gray-25: #fcfcfd;
+    --colors-gray-light-mode-gray-100: #f4f4f5;
+    --colors-gray-light-mode-gray-200: #e8e8ea;
+    --colors-gray-light-mode-gray-300: #ccccd2;
+    --colors-gray-light-mode-gray-400: #86868f;
+    --colors-gray-light-mode-gray-500: #6b6b74;
+    --colors-gray-light-mode-gray-600: #52525a;
+    --colors-gray-light-mode-gray-700: #3f3f46;
+    --colors-gray-light-mode-gray-800: #27272a;
+    --colors-gray-light-mode-gray-900: #18181b;
+    --colors-gray-light-mode-gray-950: #09090b;
+    --colors-gray-light-mode-gray-50: #fafafa;
+    --colors-gray-light-mode-gray-25: #fcfcfc;
 
     --colors-gray-dark-mode-gray-25: #fafafa;
-    --colors-gray-dark-mode-gray-50: #f5f5f6;
-    --colors-gray-dark-mode-gray-100: #f0f1f1;
-    --colors-gray-dark-mode-gray-200: #ececed;
-    --colors-gray-dark-mode-gray-300: #cecfd2;
-    --colors-gray-dark-mode-gray-400: #94969c;
-    --colors-gray-dark-mode-gray-500: #85888e;
-    --colors-gray-dark-mode-gray-600: #51525c;
-    --colors-gray-dark-mode-gray-700: #333741;
-    --colors-gray-dark-mode-gray-800: #25282f;
-    --colors-gray-dark-mode-gray-900: #161b26;
-    --colors-gray-dark-mode-gray-950: #0c111d;
+    --colors-gray-dark-mode-gray-50: #f5f5f5;
+    --colors-gray-dark-mode-gray-100: #f0f0f1;
+    --colors-gray-dark-mode-gray-200: #e4e4e7;
+    --colors-gray-dark-mode-gray-300: #d6d6da;
+    --colors-gray-dark-mode-gray-400: #a3a3ab;
+    --colors-gray-dark-mode-gray-500: #90909a;
+    --colors-gray-dark-mode-gray-600: #52525a;
+    --colors-gray-dark-mode-gray-700: #36363d;
+    --colors-gray-dark-mode-gray-800: #1e1e22;
+    --colors-gray-dark-mode-gray-900: #131316;
+    --colors-gray-dark-mode-gray-950: #08080a;
 
     --colors-warning-yellow-25: #fffcf5;
     --colors-warning-yellow-50: #fffaeb;
@@ -78,6 +83,20 @@
     --colors-error-red-800: #560009;
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
+
+    /* Drawn on top of the user's own page, not on a Val surface, so these
+       are declared once and never flip with the theme: the page underneath
+       does not follow Val's theme, and a token that inverts would go pale on
+       a light site or muddy on a dark one. green-600 is the step that clears
+       3:1 against both white and black — green-500 is only 2.76:1 on white,
+       which contrast.test.ts holds this to. */
+    --bg-page-selection: var(--colors-brand-green-600);
+    --bg-page-selection-fill: rgba(7, 148, 85, 0.12);
+    /* The resting outline on every field the canvas found. Every element on
+       the page carries one at once, so it is the same hue held well back —
+       enough to see the shape of what is editable, not enough to redraw the
+       customer's page in green. */
+    --bg-page-selection-soft: rgba(7, 148, 85, 0.4);
 
     --radius: 0.5rem;
 
@@ -127,8 +146,8 @@
     /* Warning secondary: filled accent (rail, icon, pill) */
     --bg-warning-secondary: var(--colors-warning-yellow-500);
     --bg-warning-secondary-hover: var(--colors-warning-yellow-600);
-    --fg-warning-secondary: var(--colors-warning-yellow-50);
-    --fg-warning-secondary-alt: var(--colors-warning-yellow-100);
+    --fg-warning-secondary: var(--colors-warning-yellow-950);
+    --fg-warning-secondary-alt: var(--colors-warning-yellow-900);
     --border-warning-secondary: var(--colors-warning-yellow-600);
 
     /* Error colors */
@@ -144,6 +163,21 @@
     --fg-error-secondary: var(--colors-error-red-500);
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
+
+    /* Error text sitting directly on a normal surface. The
+       `fg-error-secondary` pair above is only legible against a tinted error
+       background, so icons and inline error copy need their own value. */
+    --fg-error-on-surface: var(--colors-error-red-500);
+
+    /* Shell surfaces: the canvas the editor sits on, and the floating
+       surfaces (rail, panels, bars) that hover above it. In light mode the
+       canvas is tinted and floating surfaces are white; in dark mode the
+       relationship inverts. */
+    --bg-canvas: var(--colors-gray-light-mode-gray-50);
+    --bg-surface: var(--colors-base-white);
+    --bg-float: var(--colors-base-white);
+    --bg-float-raised: var(--colors-gray-light-mode-gray-100);
+    --border-float: var(--colors-gray-light-mode-gray-300);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
@@ -215,6 +249,20 @@
     --fg-error-secondary: var(--colors-error-red-500);
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
+
+    /* Error text on a normal surface: red-500 is too dim against the dark
+       canvas, so this lightens rather than mirroring the light value. */
+    --fg-error-on-surface: var(--colors-error-red-300);
+
+    /* Shell surfaces. Four steps up from the canvas: the canvas is darkest,
+       the editor's own field surfaces sit just above it, and the floating
+       chrome is lifted one step further so a panel reads as hovering rather
+       than as part of the page. */
+    --bg-canvas: var(--colors-gray-dark-mode-gray-950);
+    --bg-surface: var(--colors-gray-dark-mode-gray-900);
+    --bg-float: var(--colors-gray-dark-mode-gray-900);
+    --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
+    --border-float: var(--colors-gray-dark-mode-gray-700);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
@@ -297,6 +345,40 @@
 }
 
 @layer components {
+  /*
+   * A scrollbar that belongs to Val rather than to the operating system.
+   *
+   * The default one is drawn by the platform, so on a Mac set to "always show
+   * scrollbars" it is a wide light bar that sits inside a dark floating panel
+   * looking like part of someone else's application. This is the same
+   * scrollbar, restyled: thin, on the panel's own border colour, over a
+   * transparent track. It still takes layout width, which is what we want —
+   * an overlay bar appearing and disappearing would shift the text under it.
+   */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-primary) transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track,
+  .scrollbar-slim::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--border-primary);
+    border-radius: 9999px;
+    /* A transparent border clipped to the content box is how a webkit thumb
+       gets padding: it insets the bar without narrowing the hit target. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb:hover {
+    background-color: var(--fg-secondary-alt);
+  }
+
   /* ProseMirror base styles (from prosemirror-view/style/prosemirror.css) */
   .ProseMirror {
     position: relative;

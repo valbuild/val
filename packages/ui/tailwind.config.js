@@ -24,6 +24,12 @@ module.exports = {
       serif: ["Space Grotesk", "sans-serif"],
     },
     extend: {
+      screens: {
+        // The floating shell layout switches to its full desktop chrome
+        // (permanent left rail) at 1200px, which sits between Tailwind's
+        // `lg` (1024px) and `xl` (1280px).
+        desktop: "1200px",
+      },
       colors: {
         "bg-selection": "var(--bg-selection)",
         "text-selection": "var(--text-selection)",
@@ -71,6 +77,15 @@ module.exports = {
         "border-error-secondary": "var(--border-error-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
+        "fg-error-on-surface": "var(--fg-error-on-surface)",
+        "bg-page-selection": "var(--bg-page-selection)",
+        "bg-page-selection-fill": "var(--bg-page-selection-fill)",
+        "bg-page-selection-soft": "var(--bg-page-selection-soft)",
+        "bg-canvas": "var(--bg-canvas)",
+        "bg-surface": "var(--bg-surface)",
+        "bg-float": "var(--bg-float)",
+        "bg-float-raised": "var(--bg-float-raised)",
+        "border-float": "var(--border-float)",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

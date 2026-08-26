@@ -68,6 +68,16 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import {
+  OverlayDock,
+  OverlayMenuDivider,
+  OverlayMenuLauncher,
+} from "./shell/OverlayMenu";
+import { ValLogo } from "./shell/ValLogo";
+import {
+  useLockBodyScroll,
+  useVisualViewport,
+} from "./shell/useVisualViewport";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
@@ -399,7 +409,7 @@ export function ValOverlay(props: ValOverlayProps) {
               "cursor-pointer",
               "rounded-sm",
               "transition-all duration-150 ease-in-out",
-              "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
+              "border-2 border-bg-page-selection bg-bg-page-selection-fill",
             )}
             style={maxRect(
               {
@@ -441,9 +451,9 @@ export function ValOverlay(props: ValOverlayProps) {
               className={cn(
                 "absolute z-[8997] pointer-events-none",
                 "rounded-sm",
-                "border-2 border-bg-brand-primary",
+                "border-2 border-bg-page-selection",
                 "transition-opacity duration-200 ease-out",
-                allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
+                allBoundingBoxesVisible ? "opacity-70" : "opacity-0",
               )}
               style={maxRect(
                 {
@@ -510,6 +520,10 @@ function Window({
   const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && editMode !== null);
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
 
   useEffect(() => {
@@ -691,11 +705,15 @@ function Window({
 
   return (
     <div
-      className={classNames("fixed top-0 left-0 z-[8998]", {
-        hidden: editMode === null,
-        "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
-        "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
-      })}
+      className={classNames(
+        "fixed top-0 left-0",
+        isMobile ? "z-[9001]" : "z-[8998]",
+        {
+          hidden: editMode === null,
+          "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
+          "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
+        },
+      )}
     >
       <div
         className={classNames("fixed top-0 left-0", {
@@ -711,32 +729,31 @@ function Window({
       ></div>
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
-          {
-            "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
-              isMobile,
-          },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
-        style={{
-          top: windowPos.y,
-          left: windowPos.x,
-          ...(!isMobile && windowSize.width > 0
-            ? {
-                width: windowSize.width,
-                height: windowSize.height,
+        style={
+          isMobile
+            ? // Pinned to the visual viewport, not the layout viewport: with
+              // the keyboard up those are different rectangles and only this
+              // one is the part of the screen the user can see.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
+            : {
+                top: windowPos.y,
+                left: windowPos.x,
+                ...(windowSize.width > 0
+                  ? { width: windowSize.width, height: windowSize.height }
+                  : { maxWidth: "640px" }),
               }
-            : !isMobile
-              ? { maxWidth: "640px" }
-              : {}),
-        }}
+        }
       >
         {/* Header bar - for dragging on desktop, shows close button on mobile */}
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             {
               "cursor-grab active:cursor-grabbing": !isMobile,
             },
@@ -748,8 +765,8 @@ function Window({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">
-            Edit Content
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            Edit content
           </div>
           <div className="flex justify-center">
             {!isMobile && (
@@ -760,7 +777,7 @@ function Window({
             {isMobile && (
               <button
                 onClick={handleClose}
-                className="p-1 rounded hover:bg-bg-secondary transition-colors"
+                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary transition-colors"
                 aria-label="Close"
               >
                 <X size={18} />
@@ -930,6 +947,10 @@ function ChatWindow({
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && isOpen);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1024,19 +1045,22 @@ function ChatWindow({
 
   return (
     <div
-      className="fixed top-0 left-0 z-[8999]"
+      className={cn("fixed top-0 left-0", isMobile ? "z-[9001]" : "z-[8999]")}
       style={!isOpen ? { display: "none" } : undefined}
     >
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
-          { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
         style={
           isMobile
-            ? { top: 16, left: 16 }
+            ? // See the edit window: with the keyboard open the chat input has
+              // to sit above it, which only the visual viewport can tell us.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
             : {
                 top: windowPos.y,
                 left: windowPos.x,
@@ -1047,8 +1071,7 @@ function ChatWindow({
       >
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             { "cursor-grab active:cursor-grabbing": !isMobile },
           )}
           onMouseDown={(ev) => {
@@ -1058,7 +1081,9 @@ function ChatWindow({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">AI Chat</div>
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            AI assistant
+          </div>
           <div className="flex justify-center">
             {!isMobile && (
               <GripHorizontal size={16} className="text-fg-secondary" />
@@ -1144,9 +1169,12 @@ function ChatWindow({
 // menu is exactly icon + padding + border tall: an inline icon sits on the text
 // baseline, which adds descender space that varies with the inherited
 // line-height and makes the buttons different heights
+// Kept in step with OverlayMenuButton: the overlay's own buttons and the ones
+// rendered inside its windows have to look like the same control.
 const buttonClassName =
-  "inline-flex items-center justify-center p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
-const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
+  "inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors disabled:text-fg-disabled disabled:pointer-events-none";
+const buttonInactiveClassName =
+  "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
 
 function WindowField({
   path: path,
@@ -1352,6 +1380,16 @@ function ValMenu({
                   : dropZone === "val-menu-left-top"
                     ? "bottom"
                     : "top";
+  // The launcher grows from the edge it is docked to, and it needs the dock
+  // without the drop-zone prefix.
+  const launcherDock = dropZone.replace("val-menu-", "") as OverlayDock;
+  // Collapsed, the circle still has to say whether there is work outstanding.
+  const launcherStatus: "none" | "changes" | "errors" =
+    validationErrorCount > 0
+      ? "errors"
+      : patchIds.length > 0
+        ? "changes"
+        : "none";
   const allDropZones: DropZones[] = [
     "val-menu-left-top",
     "val-menu-left-center",
@@ -1367,14 +1405,14 @@ function ValMenu({
       {/* See ValNextProvider: this same snippet is used there  */}
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <AnimatedClock size={16} />
           </div>
         </div>
       )}
       {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <a
               href={urlOf("/api/val/authorize", {
                 redirect_to: window.location.href,
@@ -1393,15 +1431,12 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2 items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
         >
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
@@ -1465,15 +1500,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <div
-            className={classNames("self-stretch border-border-primary", {
-              // a horizontal rule in the vertical menu, a vertical rule in the
-              // horizontal one - otherwise it is an invisible element that
-              // only eats gap
-              "border-t": dir === "vertical",
-              "border-l": dir === "horizontal",
-            })}
-          ></div>
+          <OverlayMenuDivider orientation={dir} />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton
@@ -1611,7 +1638,7 @@ function ValMenu({
               </div>
             </PopoverContent>
           </Popover>
-        </div>
+        </OverlayMenuLauncher>
       </AnimateHeight>
       <AnimateHeight
         isOpen={
@@ -1620,15 +1647,12 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary text-fg-primary gap-2 justify-center items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
         >
           <MenuButton
             label="Enable preview mode"
@@ -1663,10 +1687,15 @@ function ValMenu({
             icon={<X size={16} />}
             onClick={() => disableOverlay()}
           />
-        </div>
+        </OverlayMenuLauncher>
       </AnimateHeight>
     </div>
   );
+}
+
+/** The Val mark, sized for the collapsed launcher. */
+function ValMark() {
+  return <ValLogo className="h-6" />;
 }
 
 function useValRouterSourcePathFromCurrentPathname() {
@@ -1764,9 +1793,12 @@ function PendingChangesBadge({
         "absolute -top-2 -right-2 inline-flex justify-center items-center px-1 h-4 min-w-[1rem] text-[9px] font-medium leading-none rounded-full tabular-nums",
         // ring in the menu background color so the badge reads as a separate
         // dot on top of the button instead of blending into it
-        "ring-2 ring-bg-primary",
+        "ring-2 ring-bg-float",
         {
-          "bg-bg-brand-primary text-fg-brand-primary": !isError,
+          // A pending-change count is information, not a warning: it inverts to
+          // the foreground colour rather than spending the brand hue on it.
+          // Validation errors stay red, because they block publishing.
+          "bg-fg-primary text-bg-float": !isError,
           "bg-bg-error-primary text-fg-error-primary": isError,
         },
       )}
@@ -1804,8 +1836,7 @@ const MenuButton = React.forwardRef<
     ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
-      "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
-        active,
+      "bg-bg-float-raised text-fg-primary": active,
       [buttonInactiveClassName]: !active,
     });
 
