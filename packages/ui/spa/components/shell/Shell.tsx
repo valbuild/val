@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ModuleFilePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
@@ -168,7 +169,8 @@ export type ShellProps = {
   onShowErrors?: () => void;
   onSelectValidationError?: (error: ShellValidationError) => void;
   onSelectActivity?: (entry: ShellActivityEntry) => void;
-  onNewPage?: () => void;
+  /** Create a page under a route. See `PagesPanelProps`. */
+  onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
   /** Open the review view. Offered from the quick actions. */
   onCompare?: () => void;
@@ -571,6 +573,9 @@ export function Shell({
             if (next) select(next);
           }}
           onNewPage={onNewPage ?? (() => undefined)}
+          // Only where a route accepts one. A project of static routes has no
+          // key to invent, so there is nothing for a New page button to do.
+          newPage={onNewPage ? data.newPage : undefined}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}
@@ -645,7 +650,11 @@ export function Shell({
           activity={data.activity}
           validationErrors={data.validationErrors}
           onSelectValidationError={onSelectValidationError ?? (() => undefined)}
-          onNewPage={onNewPage ?? (() => undefined)}
+          // Both quick actions are shortcuts to the panel that owns the flow:
+          // the route picker and the gallery picker live there, and a second
+          // copy of either would be a second set of rules for what a URL or a
+          // directory may be.
+          onNewPage={() => setOpenPanel("pages")}
           onUploadMedia={() => setOpenPanel("media")}
           destinations={destinations}
           onOpenAI={() => setOpenPanel("ai")}

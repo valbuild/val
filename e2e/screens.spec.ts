@@ -78,6 +78,15 @@ test("the shell", async ({ page }) => {
   await shot(page, "06-search-content");
   await page.keyboard.press("Escape");
 
+  // The New page form, with the routes that accept one.
+  await openNavPanel(page, "Pages");
+  await page.waitForTimeout(1200);
+  await studio.getByRole("button", { name: "New page" }).first().click();
+  await page.waitForTimeout(1000);
+  await shot(page, "06b-new-page");
+  // Escape closes the panel with the form, so there is nothing left to close.
+  await page.keyboard.press("Escape");
+
   // Quick actions.
   await studio.getByRole("button", { name: "Quick actions" }).click();
   await page.waitForTimeout(1200);

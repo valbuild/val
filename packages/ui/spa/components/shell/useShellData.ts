@@ -24,6 +24,7 @@ import {
   directoryName,
   countKeys,
   toMediaFiles,
+  collectNewPageRoutes,
 } from "./shellDataMapping";
 
 export type ShellDataState =
@@ -95,6 +96,13 @@ export function useShellData(): ShellDataState {
     if (navMenu.status === "error") {
       return { status: "error", error: navMenu.error };
     }
+    const collected = navData?.sitemap
+      ? collectNewPageRoutes(navData.sitemap)
+      : null;
+    const newPageRoutes =
+      collected && collected.routes.length > 0
+        ? { routes: collected.routes }
+        : undefined;
     const recordData = records.status === "success" ? records.data : null;
     const externalRecord = externalPath ? recordData?.[0] : undefined;
     const mediaRecords = recordData?.slice(externalPath ? 1 : 0) ?? [];
@@ -108,6 +116,10 @@ export function useShellData(): ShellDataState {
         pages: navData?.sitemap
           ? toShellPages(navData.sitemap, modulesWithDrafts)
           : [],
+        // Absent rather than empty when nothing accepts a page, so the shell
+        // hides the New page buttons instead of opening a form that can only
+        // say no.
+        newPage: newPageRoutes,
         externalPages: toExternalPages(externalRecord),
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({

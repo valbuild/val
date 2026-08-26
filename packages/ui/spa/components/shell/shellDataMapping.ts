@@ -1,5 +1,7 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
+import { AvailableRoute } from "../NavMenu/NewPageForm";
+import { routePatternToString } from "../NavMenu/SitemapItem";
 import { ValEnrichedDeployment } from "../../utils/mergeCommitsAndDeployments";
 import {
   ShellActivityEntry,
@@ -318,4 +320,57 @@ export function availableDestinations(
   if (data.media.length > 0) available.push("media");
   if (data.data.length > 0) available.push("data");
   return available;
+}
+
+/**
+ * Where a new page can go.
+ *
+ * `NewPageForm` already knows how to build a URL from a route pattern — static
+ * segments as chips, dynamic ones as inputs, catch-alls, optional segments that
+ * mean the base route, the schema author's own description of a key — so this
+ * only has to find the routes to hand it. A route accepts children when its
+ * pattern has a dynamic segment in it, a flag set upstream by
+ * `transformSitemapNode`.
+ *
+ * `existingUrls` is every URL the tree currently has, which is what lets the
+ * form say "a page with this path already exists" — including a collision with a
+ * page under a different route, which a route's own sibling list would miss.
+ */
+export function collectNewPageRoutes(root: SitemapItem): {
+  routes: AvailableRoute[];
+  existingUrls: string[];
+} {
+  const routes = new Map<string, AvailableRoute>();
+  const existingUrls: string[] = [];
+
+  const walk = (item: SitemapItem) => {
+    if (item.sourcePath || item.children.length === 0) {
+      existingUrls.push(item.urlPath);
+    }
+    if (item.canAddChild && item.moduleFilePath && item.routePattern) {
+      const patternString = routePatternToString(item.routePattern);
+      const key = `${item.moduleFilePath}::${patternString}`;
+      if (!routes.has(key)) {
+        routes.set(key, {
+          moduleFilePath: item.moduleFilePath,
+          routePattern: item.routePattern,
+          patternString,
+          // Filled in below, once every URL is known.
+          existingKeys: [],
+          keyDescription: item.keyDescription,
+        });
+      }
+    }
+    for (const child of item.children) {
+      walk(child);
+    }
+  };
+  walk(root);
+
+  return {
+    routes: Array.from(routes.values()).map(
+      (route): AvailableRoute => ({ ...route, existingKeys: existingUrls }),
+    ),
+    existingUrls,
+  };
 }

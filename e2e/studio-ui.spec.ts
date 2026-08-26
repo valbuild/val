@@ -487,3 +487,61 @@ test.describe("a field inside a jsonValues entry", () => {
     await expect.poll(() => chainLength(page)).toBe(0);
   });
 });
+
+/**
+ * Creating a page, which needs to say which route.
+ *
+ * A project can have several routers that accept one — `/blogs/[blog]`,
+ * `/generic/[[...path]]`, `/support/[slug]` — so a New page button that does not
+ * ask cannot know where the page goes. It also used to not ask because it did
+ * nothing at all: `onNewPage` was never passed, exactly like the media upload.
+ *
+ * The form itself is the classic nav menu's, reused rather than rebuilt: it
+ * already knows that a literal segment is a chip, a `[param]` is an input, and
+ * a `[[...path]]` may be left blank to mean the base route.
+ */
+test.describe("creating a page", () => {
+  test("asks which route, and opens the page it made", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Pages");
+
+    await studio.getByRole("button", { name: "New page" }).first().click();
+    // More than one router accepts a page in this project, so the form has to
+    // offer the choice rather than pick for you.
+    const route = studio.getByLabel("Route");
+    await expect(
+      route,
+      "the form did not offer the routes that accept a page",
+    ).toBeVisible();
+
+    const slug = `e2e-${Date.now()}`;
+    // The dynamic segment of whichever route is selected first.
+    const input = studio.locator("form input").first();
+    await input.fill(slug);
+    await studio.getByRole("button", { name: "Create" }).click();
+
+    // It opens what it made: creating a page and being left on the list is a
+    // step nobody wants.
+    await expect
+      .poll(() => decodeURIComponent(page.url()), { timeout: 20000 })
+      .toContain(slug);
+    await expect.poll(() => chainLength(page)).toBeGreaterThan(0);
+
+    await discardAll(page);
+  });
+
+  test("says when the path is already taken", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Pages");
+    await studio.getByRole("button", { name: "New page" }).first().click();
+
+    // A path that exists in the example app's blog router.
+    const input = studio.locator("form input").first();
+    await input.fill("blog1");
+    await expect(
+      studio.getByText(/already exists/i),
+      "the form let an existing path through",
+    ).toBeVisible();
+    await expect(studio.getByRole("button", { name: "Create" })).toBeDisabled();
+  });
+});

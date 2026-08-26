@@ -1,3 +1,5 @@
+import { AvailableRoute } from "../NavMenu/NewPageForm";
+
 /**
  * Types for the floating shell layout.
  *
@@ -86,6 +88,20 @@ export type ShellMediaFile = {
   ref: string;
   /** Where the entry lives, for opening it in the editor. */
   sourcePath: string;
+};
+
+/**
+ * The routes a new page can be created under.
+ *
+ * `AvailableRoute` is the classic nav menu's type and `NewPageForm` is its form:
+ * both already handle several routes at once, dynamic and catch-all segments,
+ * optional segments and the schema author's description of a key. Reusing them
+ * is the point — a second implementation of "what a route pattern means" would
+ * be a second set of rules for what a URL may look like.
+ */
+export type ShellNewPageRoutes = {
+  /** Every route in the project that accepts a new page. */
+  routes: AvailableRoute[];
 };
 
 /** A non-router val module, shown under Data. */
@@ -203,6 +219,15 @@ export type ShellData = {
    */
   hasRouters: boolean;
   pages: ShellPage[];
+  /**
+   * Where a new page can go.
+   *
+   * Absent when the project has no route that accepts one — every router is
+   * static, so there is no key to invent — which is what hides the New page
+   * buttons rather than offering a form that can only say "no routes accept new
+   * pages". See `collectNewPageRoutes`.
+   */
+  newPage?: ShellNewPageRoutes;
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];
   data: ShellDataModule[];

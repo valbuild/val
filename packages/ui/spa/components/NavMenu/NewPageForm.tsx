@@ -161,7 +161,7 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
       </div>
 
       {alreadyExists && (
-        <p className="text-xs text-fg-error">
+        <p className="text-xs text-fg-error-on-surface">
           A page with this path already exists
         </p>
       )}
@@ -311,7 +311,9 @@ function RoutePatternInputs({
               }}
             />
             {error && (
-              <span className="mt-0.5 text-[10px] text-fg-error">{error}</span>
+              <span className="mt-0.5 text-[10px] text-fg-error-on-surface">
+                {error}
+              </span>
             )}
           </span>
         );
@@ -416,6 +418,7 @@ function RouteSelect({
 
   return (
     <select
+      aria-label="Route"
       className={cn(
         "w-full h-8 px-2 rounded-md bg-bg-primary border border-border-primary",
         "font-mono text-xs text-fg-primary",

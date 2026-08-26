@@ -1,3 +1,4 @@
+import { ModuleFilePath } from "@valbuild/core";
 import {
   ShellActivityEntry,
   ShellChatMessage,
@@ -7,6 +8,7 @@ import {
   ShellExternalPage,
   ShellMediaFile,
   ShellMediaGallery,
+  ShellNewPageRoutes,
   ShellNotification,
   ShellPage,
   ShellValidationError,
@@ -506,11 +508,46 @@ export const mockDeployments: ShellDeployment[] = [
   },
 ];
 
+/**
+ * Two routes that accept a page, which is the case worth looking at.
+ *
+ * One dynamic segment and one with two, so the form's route picker has something
+ * to pick between and its inputs have something to lay out. `existingKeys`
+ * carries the URLs already in `mockPages`, so the "already exists" state is
+ * reachable by typing `why-we-built-val` into the blog route.
+ */
+const mockNewPageRoutes: ShellNewPageRoutes = {
+  routes: [
+    {
+      moduleFilePath: "/app/blogs/[blog]/page.val.ts" as ModuleFilePath,
+      routePattern: [
+        { type: "literal", name: "blogs" },
+        { type: "string-param", paramName: "blog", optional: false },
+      ],
+      patternString: "/blogs/[blog]",
+      existingKeys: blogPosts.map((post) => post.urlPath),
+      keyDescription: "URL slug: lowercase, words separated by hyphens.",
+    },
+    {
+      moduleFilePath:
+        "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+      routePattern: [
+        { type: "literal", name: "shop" },
+        { type: "string-param", paramName: "category", optional: false },
+        { type: "string-param", paramName: "product", optional: false },
+      ],
+      patternString: "/shop/[category]/[product]",
+      existingKeys: [],
+    },
+  ],
+};
+
 export const mockShellData: ShellData = {
   projectName: "val-demo-project",
   branch: "main",
   hasRouters: true,
   pages: mockPages,
+  newPage: mockNewPageRoutes,
   externalPages: mockExternalPages,
   media: mockMedia,
   data: mockDataModules,

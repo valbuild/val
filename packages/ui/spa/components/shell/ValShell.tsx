@@ -16,6 +16,7 @@ import {
 } from "./useShellUrlState";
 import { Module } from "../Module";
 import { useRequestUpload } from "../UploadRequest";
+import { useAddPage } from "../useAddPage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -364,6 +365,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * metadata entry and the file op as one patch — so the upload stays there
    * rather than existing twice. See `UploadRequest`.
    */
+  /**
+   * Create a page, and open it.
+   *
+   * The same write the classic nav menu does — one `add` op at the new URL key,
+   * with a value shaped by the router's item schema — so the two entry points
+   * cannot come to disagree about what an empty page is. See `useAddPage`.
+   */
+  const addPage = useAddPage();
+
   const requestUpload = useRequestUpload();
   const uploadInto = useCallback(
     (gallery: ShellMediaGallery) => {
@@ -563,6 +573,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialCanvasView={urlState.initial.canvasView}
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
+      onNewPage={addPage}
       onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
       onShowErrors={showErrors}

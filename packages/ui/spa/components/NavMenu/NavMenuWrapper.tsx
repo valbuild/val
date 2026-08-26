@@ -1,18 +1,8 @@
-import { useCallback, useMemo } from "react";
-import {
-  Internal,
-  ModuleFilePath,
-  ModulePath,
-  SourcePath,
-  ValidationError,
-} from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
+import { useMemo } from "react";
+import { Internal, SourcePath, ValidationError } from "@valbuild/core";
 import { NavMenu } from "./NavMenu";
 import { useNavMenuData } from "./useNavMenuData";
-import { useSchemas } from "../ValFieldProvider";
-import { useAddModuleFilePatch } from "../ValProvider";
-import { useNavigation } from "../ValRouter";
-import { emptyOf } from "../fields/emptyOf";
+import { useAddPage } from "../useAddPage";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { NavMenuData, SitemapItem, ExplorerItem } from "./types";
 
@@ -113,52 +103,9 @@ function enrichNavMenuData(
  */
 export function NavMenuWrapper() {
   const navMenuData = useNavMenuData();
-  const { addModuleFilePatch } = useAddModuleFilePatch();
-  const schemas = useSchemas();
-  const { navigate } = useNavigation();
   const allValidationErrors = useAllValidationErrors();
 
-  const handleAddPage = useCallback(
-    (moduleFilePath: ModuleFilePath, urlPath: string) => {
-      // Get the schema for this module
-      if (schemas.status !== "success") {
-        console.error("Schemas not loaded");
-        return;
-      }
-      const schema = schemas.data[moduleFilePath];
-      if (!schema || schema.type !== "record") {
-        console.error("Schema not found or not a record", {
-          moduleFilePath,
-          schema,
-        });
-        return;
-      }
-
-      // Create the patch to add the new page
-      const newPatchPath = Internal.createPatchPath("" as ModulePath).concat(
-        urlPath,
-      );
-      addModuleFilePatch(
-        moduleFilePath,
-        [
-          {
-            op: "add",
-            path: newPatchPath,
-            value: emptyOf(schema.item) as JSONValue,
-          },
-        ],
-        "record",
-      );
-
-      // Navigate to the new page
-      const sourcePath = Internal.joinModuleFilePathAndModulePath(
-        moduleFilePath,
-        Internal.patchPathToModulePath(newPatchPath),
-      ) as SourcePath;
-      navigate(sourcePath);
-    },
-    [addModuleFilePatch, schemas, navigate],
-  );
+  const handleAddPage = useAddPage();
 
   const enrichedData = useMemo(() => {
     if (navMenuData.status !== "success") return null;
