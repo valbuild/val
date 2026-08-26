@@ -114,3 +114,61 @@ is a whole-route request avoided, and in development that is a page re-render.
 
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
+
+## `suspend` is three waits, and a route only gets one chance
+
+`suspend` on `ValProvider` exists for one situation: a route that exists only in
+an uncommitted patch. `useValRoute` returns `null` both for "no answer yet" and
+"no such route", the page turns `null` into `notFound()`, and that is terminal —
+so a route is not like a field. A field that resolves too early flashes stale
+text; a route that resolves too early is a 404 nothing later can undo.
+
+Three things have to be true before the answer is trustworthy, and each was
+independently wrong:
+
+1. **Draft mode must be KNOWN.** `draftMode` is `null` until `/draft/stat`
+   answers, and the reader that turns a selector into content treats `null` as
+   off. So a render that got through while it was unknown resolved against
+   committed source. Fixed: the gate waits on `draftModeReady` first.
+2. **The draft sources must have arrived — or be known not to be coming.** The
+   editor only sends modules it has patches for; an unedited module has no draft
+   to send. The page could not tell "not sent yet" from "nothing to send", so it
+   waited out `waitForLoad`'s 10s timeout once per unedited module it reads.
+   `/blogs/[blog]` also reads the authors module, so a new blog page sat on its
+   loading fallback for tens of seconds. Fixed: the editor sends `sourcesSynced`
+   when it has handed over everything it holds.
+3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
+   sets `suspendActive` in an effect, so the SSR and hydration renders never
+   consult it — and hydration is where `notFound()` is called. **This one is not
+   fixed.**
+
+### Why (3) is not just a bug
+
+It used to work, by exactly the mechanism that would fix it. Before `a4c09b2e`
+("Fix suspend to no longer require async layout") the prop was the answer rather
+than a request:
+
+```tsx
+<ValProvider config={config} suspend={await isValEnabled()}>
+```
+
+That made `suspend` true during SSR, so the first render suspended and the route
+did not 404 — the old doc comment said so in as many words. It was traded away
+because reading `cookies()` server-side forces an async layout and opts every
+route into dynamic rendering, which is a real cost to pay on every visitor for
+something only editors need. The replacement reads `document.cookie` in an
+effect, which is cheap, static — and always too late for a route.
+
+So the fix is not new work, it is choosing which cost to pay, and it belongs to
+whoever owns the public API. The type already allows it (`suspend?: boolean`
+accepts `await isValEnabled()`); what is missing is the provider honouring the
+value it is given instead of always starting from `false`.
+
+### Where this is pinned
+
+`packages/next/src/client/useValRoute.draft.test.tsx` — seven fast tests, one
+per state, including the two that differ ONLY in whether the gate was on for the
+deciding render. Prefer adding here over an e2e: every state above shows up in a
+browser as either a 404 or a loading fallback, so an e2e cannot tell them apart.
+`e2e/uncommitted-routes.spec.ts` covers the whole path end to end, and its
+single-module case is `test.fixme` for (3).
