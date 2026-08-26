@@ -547,6 +547,30 @@ export function createSystem(options: SystemOptions): System {
      * `StatusStore` errors are sticky until dismissed, which is the property a
      * rejection needs.
      */
+    /**
+     * The chain could not be READ, which is as bad as it not saving.
+     *
+     * Stat names the pending patches, so the editor knows they exist; without
+     * their ops it renders published content instead. Nothing on screen
+     * distinguishes that from the edits having been discarded, so it cannot be
+     * left to the console — this is the one signal an editor has that what they
+     * are looking at is not what the project holds.
+     *
+     * Sticky until dismissed, like every `StatusStore` error, and de-duplicated
+     * by message there, so a retry loop that keeps failing says it once.
+     */
+    patchStore.events.on("patch:fetch-failed", (event) => {
+      status.reportError(
+        // Deliberately count-free, so the message is STABLE: `StatusStore`
+        // de-duplicates by message, and a retry loop that fails on a different
+        // number of patches each round would otherwise stack a fresh toast per
+        // round. The count belongs to the occurrence, so it goes in the details.
+        "Unpublished changes could not be loaded.",
+        `${event.patches.length} ${
+          event.patches.length === 1 ? "change is" : "changes are"
+        } affected: ${event.message} Until this succeeds, the editor shows published content for the fields they touch.`,
+      );
+    }),
     patchSync.events.on("patch:save-rejected", (event) => {
       status.reportError(
         event.patches.length === 1

@@ -23,9 +23,27 @@ import type { ParentRef } from "@valbuild/shared/internal";
  * async one on purpose: this is genuinely a network call in the app, and the
  * `external-partial` head only exists because it can be in flight.
  */
-export type FetchPatches = (
-  patchIds: PatchId[],
-) => Promise<{ patches: PatchRecord[]; errors?: Record<PatchId, string> }>;
+export type FetchPatches = (patchIds: PatchId[]) => Promise<{
+  patches: PatchRecord[];
+  /**
+   * Per patch: why THIS patch could not be read.
+   *
+   * An id in here is kept in the chain — see `reconcileVanished`, which treats
+   * "I could not read it" as evidence of nothing.
+   */
+  errors?: Record<PatchId, string>;
+  /**
+   * The REQUEST failed, so nothing was read.
+   *
+   * Separate from `errors` because it is one thing that went wrong rather than
+   * N, and because it is the case worth telling the user about: a chain that
+   * cannot be loaded means the editor is showing published content while
+   * pending changes exist, which looks exactly like changes having been lost.
+   * `errors` should still name every requested id, so nothing concludes the
+   * patches are gone.
+   */
+  error?: string;
+}>;
 
 export type CreatePatchId = () => PatchId;
 
@@ -336,6 +354,13 @@ export class PatchStore {
     // ids" would be unable to tell that from five fetches otherwise.
     this.activity.work("patch:fetch", undefined, missing.length);
     const res = await this.fetchPatches(missing);
+    if (res.error !== undefined) {
+      this.events.emit({
+        type: "patch:fetch-failed",
+        patches: missing,
+        message: res.error,
+      });
+    }
     const received: PatchId[] = [];
     for (const record of res.patches) {
       this.fetching.delete(record.patchId);
@@ -392,6 +417,13 @@ export class PatchStore {
     this.activity.work("patch:verify-vanished", undefined, ask.length);
     try {
       const res = await this.fetchPatches(ask);
+      if (res.error !== undefined) {
+        this.events.emit({
+          type: "patch:fetch-failed",
+          patches: ask,
+          message: res.error,
+        });
+      }
       const held = new Set<PatchId>();
       for (const record of res.patches) {
         held.add(record.patchId);

@@ -233,6 +233,16 @@ export type SystemEvent =
   | { type: "stat:receive"; patches: PatchId[] }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }
+  /**
+   * `GET /patches` itself failed, so these ids have no data.
+   *
+   * Distinct from a per-patch error: the chain is announced but unreadable, so
+   * the editor is showing published content while pending changes exist. Nothing
+   * else in the system can tell the difference between that and the changes
+   * having been lost, which is why this is reported to the user rather than
+   * retried quietly. See `FetchPatches`.
+   */
+  | { type: "patch:fetch-failed"; patches: PatchId[]; message: string }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
   /**

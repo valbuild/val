@@ -1,3 +1,4 @@
+import { chunkPatchIdsForDelete, planPatchIdQuery } from "./patchesQuery";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
@@ -184,13 +185,15 @@ export function createValSystem(
         }
       : {}),
     fetchPatches: async (patchIds) => {
+      // The ids we actually want, not the whole table — until there are more of
+      // them than a URL can carry, which is what `planPatchIdQuery` decides. The
+      // engine asks for everything because it keeps a whole-project map; this
+      // store is asked for specific ids by `StatStore` and can usually say so.
+      const askFor = planPatchIdQuery(patchIds);
       const res = await client("/patches", "GET", {
         query: {
           exclude_patch_ops: false,
-          // The ids we actually want, not the whole table. The engine asks for
-          // everything because it keeps a whole-project map; this store is asked
-          // for specific ids by `StatStore` and can say so.
-          patch_id: patchIds,
+          patch_id: askFor,
         },
       });
       if (res.status !== 200) {
@@ -200,12 +203,24 @@ export function createValSystem(
             : `GET /patches failed with status ${res.status ?? "network"}`;
         return {
           patches: [],
+          // Per id AND once for the request: the per-id entries are what keeps
+          // `reconcileVanished` from reading a failed request as "these patches
+          // are gone", and `error` is what reaches the user — a failure to load
+          // pending changes is not something to leave in the console.
           errors: Object.fromEntries(patchIds.map((id) => [id, message])),
+          error: message,
         };
       }
       const patches: PatchRecord[] = [];
       const errors: Record<PatchId, string> = {};
+      // When the filter was dropped the response holds every patch the server
+      // has, so the ones nobody asked for are skipped here rather than handed
+      // back as if they had been requested.
+      const wanted = new Set<PatchId>(patchIds);
       for (const patch of res.json.patches) {
+        if (askFor === undefined && !wanted.has(patch.patchId)) {
+          continue;
+        }
         if (patch.patch === undefined) {
           // Announced by stat but the server has no ops for it. An error rather
           // than a silent skip: the head would otherwise stay `partial` forever
@@ -321,21 +336,28 @@ export function createValSystem(
     },
 
     discardPatches: async (patchIds) => {
-      const res = await client("/patches", "DELETE", {
-        query: { id: patchIds },
-      });
-      if (res.status !== 200) {
-        return {
-          status: "error",
-          message:
-            res.status !== null && "message" in res.json
-              ? res.json.message
-              : `DELETE /patches failed with status ${res.status ?? "network"}`,
-        };
+      // One request per chunk the URL can carry: "discard all" on a long chain
+      // otherwise built a query string the server refuses before the handler
+      // sees it. See `chunkPatchIdsForDelete`.
+      const deleted: PatchId[] = [];
+      for (const chunk of chunkPatchIdsForDelete(patchIds)) {
+        const res = await client("/patches", "DELETE", {
+          query: { id: chunk },
+        });
+        if (res.status !== 200) {
+          return {
+            status: "error",
+            message:
+              res.status !== null && "message" in res.json
+                ? res.json.message
+                : `DELETE /patches failed with status ${res.status ?? "network"}`,
+          };
+        }
+        // The ids the server says it deleted. A partial delete must not make the
+        // client forget a patch that still exists.
+        deleted.push(...res.json);
       }
-      // The ids the server says it deleted. A partial delete must not make the
-      // client forget a patch that still exists.
-      return { status: "discarded", patchIds: res.json };
+      return { status: "discarded", patchIds: deleted };
     },
 
     ...(options?.writes === true
