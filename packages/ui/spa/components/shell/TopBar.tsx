@@ -73,6 +73,8 @@ export type TopBarProps = {
    * altogether and there was no way left to reach the panel that explains it.
    */
   accountError?: { message: string };
+  /** Blinks the mark, as a terminal caret does while it waits. */
+  isLoading?: boolean;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -104,6 +106,7 @@ export function TopBar({
   validationErrorCount = 0,
   onShowErrors,
   accountError,
+  isLoading,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -128,7 +131,7 @@ export function TopBar({
       )}
       {!isDesktop && (
         <div className="grid place-items-center w-7 h-7 shrink-0 text-fg-primary">
-          <ValLogo className="h-5" />
+          <ValLogo className="h-5" blinking={isLoading} />
         </div>
       )}
       <ProjectName projectName={projectName} />
@@ -235,14 +238,34 @@ export function TopBar({
  * control quietly becomes an ordinary Preview button rather than offering a
  * dead option.
  */
-function PreviewButton({
+export function PreviewButton({
   onPreview,
   onToggleCanvas,
   isCanvasOpen,
+  className,
+  menuPlacement = "below",
+  alwaysShowLabel,
 }: {
   onPreview: () => void;
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
+  /** For the mobile bar, where this shares a row with Publish. */
+  className?: string;
+  /**
+   * Which way the menu opens.
+   *
+   * `above` for the mobile bottom bar: a menu that drops down from a control at
+   * the bottom of the screen opens off the screen.
+   */
+  menuPlacement?: "below" | "above";
+  /**
+   * Keep the word "Preview" at every width.
+   *
+   * The top bar hides it below `md` because it is competing with the project
+   * name, the search box and four icons. The mobile bottom bar has room, and a
+   * bare icon there is the least discoverable control in the app.
+   */
+  alwaysShowLabel?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -258,25 +281,32 @@ function PreviewButton({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [isOpen]);
 
+  const labelClassName = alwaysShowLabel ? undefined : "hidden md:inline";
+
   // Without a canvas there is nothing to choose between, so there is no menu.
   if (!onToggleCanvas) {
     return (
       <button
         type="button"
         onClick={onPreview}
-        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary",
+          className,
+        )}
       >
         <Eye size={14} />
-        <span className="hidden md:inline">Preview</span>
+        <span className={labelClassName}>Preview</span>
       </button>
     );
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    // The height is on the wrapper so a caller can change it — `tailwind-merge`
+    // lets `h-9` from the mobile bar replace the default rather than fight it.
+    <div ref={containerRef} className={cn("relative h-8", className)}>
       <div
         className={cn(
-          "inline-flex items-stretch h-8 rounded-md border overflow-hidden",
+          "inline-flex h-full w-full items-stretch overflow-hidden rounded-md border",
           isCanvasOpen
             ? "border-border-float bg-bg-float-raised text-fg-primary"
             : "border-border-float text-fg-secondary",
@@ -287,10 +317,10 @@ function PreviewButton({
           aria-label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
           aria-pressed={isCanvasOpen}
           onClick={onToggleCanvas}
-          className="inline-flex items-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
         >
           <Columns2 size={14} />
-          <span className="hidden md:inline">Preview</span>
+          <span className={labelClassName}>Preview</span>
         </button>
         <span aria-hidden className="w-px self-stretch bg-border-float" />
         <button
@@ -307,7 +337,10 @@ function PreviewButton({
       {isOpen && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-full mt-1 w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+          className={cn(
+            "absolute right-0 z-full w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg",
+            menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
+          )}
         >
           <PreviewMenuItem
             icon={Columns2}

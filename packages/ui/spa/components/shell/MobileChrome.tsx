@@ -1,7 +1,7 @@
-import { Columns2, Eye, Info } from "lucide-react";
+import { Info, PanelRight } from "lucide-react";
 import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
-import { PublishButton } from "./TopBar";
+import { PreviewButton, PublishButton } from "./TopBar";
 import { visibleRailItems } from "./LeftRail";
 import { ShellDestination, ShellPanel } from "./types";
 
@@ -64,6 +64,7 @@ export function MobileBottomBar({
   onPublish,
   publishSlot,
   onOpenStatus,
+  onOpenQuickActions,
   onToggleCanvas,
   isCanvasOpen,
 }: {
@@ -73,6 +74,12 @@ export function MobileBottomBar({
   /** The real publish control, when there is one. See `TopBarProps`. */
   publishSlot?: ReactNode;
   onOpenStatus: () => void;
+  /**
+   * Quick actions — the same panel the top bar opens above the mobile
+   * breakpoint. It holds the validation errors, Review changes, New page and
+   * Upload media, none of which were reachable on a phone at all.
+   */
+  onOpenQuickActions?: () => void;
   /** Absent when the selection has no route Val can put on a canvas. */
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
@@ -87,30 +94,33 @@ export function MobileBottomBar({
       >
         <Info size={16} />
       </button>
-      {onToggleCanvas && (
+      {onOpenQuickActions && (
         <button
           type="button"
-          onClick={onToggleCanvas}
-          aria-label="Canvas"
-          aria-pressed={isCanvasOpen}
-          className={cn(
-            "grid place-items-center w-9 h-9 shrink-0 rounded-md border border-border-float",
-            isCanvasOpen
-              ? "bg-bg-float-raised text-fg-primary"
-              : "text-fg-secondary",
-          )}
+          onClick={onOpenQuickActions}
+          aria-label="Quick actions"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float text-fg-secondary"
         >
-          <Columns2 size={16} />
+          <PanelRight size={16} />
         </button>
       )}
-      <button
-        type="button"
-        onClick={onPreview}
-        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-xs font-medium text-fg-secondary border border-border-float"
-      >
-        <Eye size={14} />
-        Preview
-      </button>
+      {/*
+       * The same control as on desktop, not a second design of it.
+       *
+       * A phone had a canvas icon and a Preview button side by side, which made
+       * "show me the page" a choice about chrome rather than about the page —
+       * the exact thing the split button was built to stop. It also meant the
+       * two behaviours drifted: the desktop menu explains what each one does and
+       * the phone's pair of icons explained nothing.
+       */}
+      <PreviewButton
+        onPreview={onPreview}
+        onToggleCanvas={onToggleCanvas}
+        isCanvasOpen={isCanvasOpen}
+        menuPlacement="above"
+        alwaysShowLabel
+        className="h-9 flex-1"
+      />
       {publishSlot ?? (
         <PublishButton
           pendingChanges={pendingChanges}

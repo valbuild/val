@@ -547,6 +547,7 @@ export function Shell({
           user={data.user}
           hasDraftChanges={pendingChanges > 0}
           accountError={accountError}
+          isLoading={isLoading}
         />
       )}
 
@@ -570,6 +571,7 @@ export function Shell({
         // account, so it owns the mark — and has to put a button there at all,
         // since a failed load means there is no avatar to hang it on.
         accountError={breakpoint === "desktop" ? undefined : accountError}
+        isLoading={isLoading}
         onPreview={onPreview ?? (() => undefined)}
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
@@ -594,6 +596,7 @@ export function Shell({
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
           onOpenStatus={() => setOpenPanel("settings")}
+          onOpenQuickActions={() => setOpenPanel("utility")}
         />
       ) : (
         <StatusBar
