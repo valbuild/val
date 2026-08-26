@@ -516,6 +516,25 @@ test.describe("recently changed", () => {
     await expect(title).toHaveValue("Blog 1");
     await title.fill("Blog 1 revisited");
 
+    /**
+     * Wait for the patch to reach the server before leaving.
+     *
+     * Not politeness: the next step is a full reload, and the patch sets this
+     * list is built from are rebuilt from the server's chain. Typing is
+     * debounced, so navigating immediately threw the edit away and the list was
+     * correctly empty — a test failing on a precondition it never established.
+     */
+    await expect
+      .poll(
+        async () => {
+          const listed = await request.get("/api/val/patches");
+          const body = (await listed.json()) as { patches: unknown[] };
+          return body.patches.length;
+        },
+        { message: "the edit never reached the server" },
+      )
+      .toBeGreaterThan(0);
+
     // Somewhere else entirely, so going back has to actually navigate.
     await openStudio(page, "/val/~/content/authors.val.ts");
 
@@ -530,12 +549,20 @@ test.describe("recently changed", () => {
     await expect(row).toBeVisible();
     await row.click();
 
-    // Back on the blog post, with the edit still there.
+    /**
+     * Back on the blog post, with the edit still there.
+     *
+     * The page in `p` and the field in `field`, not the field in `p`: a field is
+     * opened IN CONTEXT — the whole page, scrolled to it — so that a title you
+     * clicked does not arrive as the only thing on screen. `field` is what
+     * carries the exact path (see `ValRouter`).
+     */
     await expect
-      .poll(() => new URL(page.url()).searchParams.get("p"), {
-        message: "going back to a recent change did not open it",
+      .poll(() => new URL(page.url()).searchParams.get("field"), {
+        message: "going back to a recent change did not open the field",
       })
       .toContain("title");
+    expect(new URL(page.url()).searchParams.get("p")).toBe('"/blogs/blog1"');
     await expect(studio.locator("input").first()).toHaveValue(
       "Blog 1 revisited",
     );
