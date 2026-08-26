@@ -3,6 +3,7 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import { CanvasFrame } from "./canvas/CanvasFrame";
+import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
@@ -277,7 +278,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * remembering produced was a canvas opening on a page you had left, from a
    * screen with no relationship to it.
    */
-  const selectedRoute = selection?.kind === "page" ? selection.urlPath : "/";
+  /** The page the editor is on, or null when it is not on one. */
+  const selectedPageRoute =
+    selection?.kind === "page" ? selection.urlPath : null;
 
   /**
    * A route typed into the canvas's address bar.
@@ -302,31 +305,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       return;
     }
     setTypedRoute(null);
-  }, [selectedRoute]);
-
-  /** Never null: without a route of its own the canvas shows the root. */
-  const canvasUrl = typedRoute ?? selectedRoute;
-
-  /**
-   * The URL, kept in step with the view.
-   *
-   * The typed route is only recorded when it differs from the selected page's
-   * own: otherwise every link would carry a route that says nothing the route
-   * it is already on does not.
-   */
-  useWriteShellUrlState(
-    urlState.write,
-    useMemo(
-      (): ShellUrlState => ({
-        ...viewState,
-        canvasRoute:
-          typedRoute !== null && typedRoute !== selectedRoute
-            ? typedRoute
-            : null,
-      }),
-      [viewState, typedRoute, selectedRoute],
-    ),
-  );
+  }, [selectedPageRoute]);
 
   /** The routes Val resolves, for the address bar's suggestions. */
   /**
@@ -393,6 +372,51 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     () =>
       Array.from(routeSourcePaths.keys()).sort((a, b) => a.localeCompare(b)),
     [routeSourcePaths],
+  );
+
+  /**
+   * Where the canvas points when the editor is not on a page.
+   *
+   * Compare, Errors, a data module, the media panel — none of them names a page,
+   * and the canvas still has to point somewhere. The root is the honest default:
+   * it is the page every site has and the one an editor recognises.
+   *
+   * Unless the project does not TRACK the root, which is common enough — a site
+   * whose home page is static, or one whose content starts at `/blog`. Loading
+   * `/` then puts a page Val knows nothing about on the canvas: no fields,
+   * nothing selectable, which reads as the canvas being broken rather than as
+   * the page not being Val's. The first route it does track is a page the editor
+   * can actually work on, and the route bar above it lists the rest to pick
+   * from.
+   */
+  const fallbackRoute = useMemo(
+    () => canvasFallbackRoute(canvasRoutes),
+    [canvasRoutes],
+  );
+
+  /** The page the canvas is showing. Never null — see `fallbackRoute`. */
+  const selectedRoute = selectedPageRoute ?? fallbackRoute;
+  const canvasUrl = typedRoute ?? selectedRoute;
+
+  /**
+   * The URL, kept in step with the view.
+   *
+   * The typed route is only recorded when it differs from the selected page's
+   * own: otherwise every link would carry a route that says nothing the route
+   * it is already on does not.
+   */
+  useWriteShellUrlState(
+    urlState.write,
+    useMemo(
+      (): ShellUrlState => ({
+        ...viewState,
+        canvasRoute:
+          typedRoute !== null && typedRoute !== selectedRoute
+            ? typedRoute
+            : null,
+      }),
+      [viewState, typedRoute, selectedRoute],
+    ),
   );
 
   /**
