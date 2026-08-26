@@ -31,6 +31,8 @@ import {
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
+import { describePublishRefusal } from "../utils/describePublishRefusal";
+import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -1464,8 +1466,27 @@ export function usePublishSummary() {
         return { status: "error", message: "No store system is mounted" };
       }
       setIsPublishing(true);
-      return val.system
-        .publish(globalServerSidePatchIds, summary)
+      /**
+       * One retry for `chain-moved`, and no more.
+       *
+       * The gate refuses when an edit lands while it is validating, because what
+       * it checked is then not what would be published. That race is with the
+       * user's own last keystroke — they typed, then clicked Save — so the
+       * honest response is to run the gate again rather than to report a
+       * failure they cannot act on. Bounded, so a project being edited from
+       * another tab cannot spin here.
+       */
+      const attempt = async (): Promise<PublishResult> => {
+        const first = await val.system.publish(
+          globalServerSidePatchIds,
+          summary,
+        );
+        if (first.status === "refused" && first.reason === "chain-moved") {
+          return val.system.publish(globalServerSidePatchIds, summary);
+        }
+        return first;
+      };
+      return attempt()
         .then((res) => {
           if (res.status === "published") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
@@ -1477,14 +1498,8 @@ export function usePublishSummary() {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
             // work has shipped.
-            val.system.status.reportError(
-              res.reason === "validation-errors"
-                ? "Cannot publish: some modules have validation errors."
-                : "A publish is already in progress.",
-              res.reason === "validation-errors"
-                ? res.modules.join("\n")
-                : undefined,
-            );
+            const said = describePublishRefusal(res);
+            val.system.status.reportError(said.message, said.details);
           } else if (res.status === "failed") {
             val.system.status.reportError(
               "Could not publish",

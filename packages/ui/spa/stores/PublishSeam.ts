@@ -58,6 +58,24 @@ export type PublishResult =
       modules: ModuleFilePath[];
     }
   | { status: "refused"; reason: "already-publishing" }
+  /**
+   * Local edits could not be saved, so the chain to publish is incomplete.
+   *
+   * A field writes on a pause in typing, so Save can arrive while the last word
+   * is still only local. `publish` flushes first; this is the flush failing —
+   * the server is unreachable or refused. Publishing anyway would ship the
+   * project without the newest edit, which is the one the user is looking at.
+   */
+  | { status: "refused"; reason: "unsaved-changes"; patchIds: PatchId[] }
+  /**
+   * An edit landed while the gate was validating, so what was checked is not
+   * what would be published.
+   *
+   * Retryable by re-running the gate — the caller clicks Save again. Kept
+   * separate from `validation-errors` because nothing is wrong with the content:
+   * the answer was simply about a document that has since moved.
+   */
+  | { status: "refused"; reason: "chain-moved" }
   | {
       status: "failed";
       message: string;
