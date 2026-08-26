@@ -428,11 +428,13 @@ test.describe("the canvas", () => {
 
     // Off to a module that is not on a route.
     await openStudio(page, "/val/~/content/authors.val.ts");
-    // The record's key, not one of its values: values are what other suites
-    // edit, and the module having rendered is all this needs to know.
-    await expect(studio.getByText("teddy").first()).toBeVisible({
-      timeout: 30000,
-    });
+    // The record renders its `select` title, so each row is a button named for
+    // the author. The chain is cleared in `beforeAll` — without that, a leftover
+    // patch from another suite renames this one and the test fails for a reason
+    // that has nothing to do with the canvas.
+    await expect(
+      studio.getByRole("button", { name: "Theodor René Carlsen" }),
+    ).toBeVisible({ timeout: 30000 });
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
     await expect(
       studio.getByLabel("Canvas route"),
