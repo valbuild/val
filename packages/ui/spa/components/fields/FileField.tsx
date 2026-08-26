@@ -31,14 +31,17 @@ import {
   useRemoteFiles,
 } from "../ValRemoteProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
-import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
+import { File, SquareArrowOutUpRight, Upload } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
+import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
+import { MediaSummaryRow } from "./MediaSummaryRow";
+import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
 const textEncoder = new TextEncoder();
@@ -141,6 +144,14 @@ export function FileField({
     addModuleFilePatch,
   } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
+  /**
+   * The hidden file input, clicked by name.
+   *
+   * A `<label htmlFor>` would open the dialog without any script, but a label is
+   * not announced as a button and cannot be tabbed to as one — and "Choose
+   * asset" is the field's primary action.
+   */
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
@@ -318,6 +329,17 @@ export function FileField({
   if (filePathRef) {
     filename = filePathRef.split("/").slice(-1)[0];
   }
+  /**
+   * What the summary row says under the name.
+   *
+   * An `s.file()` records only the mime type — no byte size — so that is all
+   * there is to say, and it is absent rather than guessed when even that is
+   * missing.
+   */
+  const fileDetail =
+    source?.metadata && typeof source.metadata.mimeType === "string"
+      ? source.metadata.mimeType
+      : null;
   return (
     <div id={path}>
       <ValidationErrors path={path} />
@@ -333,84 +355,45 @@ export function FileField({
           {error}
         </div>
       )}
-      <div className="grid gap-2">
-        {filename && (
-          <div className="flex gap-2 items-center">
-            <div className="text-sm text-fg-secondary">{filename}</div>
-            {loading && (
-              <Loader2
-                className={`animate-spin text-fg-secondary ${
-                  loading ? "block" : "hidden"
-                }`}
-                size={16}
-              />
-            )}
-            {progressPercentage !== null && (
-              <div className="text-sm text-fg-secondary">
-                {progressPercentage}%
-              </div>
-            )}
-          </div>
-        )}
-        {referencedModule && (
-          <ModuleMediaPicker
-            modulePath={referencedModule as ModuleFilePath}
-            selectedRef={source?._ref ?? null}
-            onSelect={(entry: GalleryEntry) => {
-              addPatch(
-                [
-                  {
-                    op: "replace",
-                    path: patchPath,
-                    value: {
-                      [FILE_REF_PROP]: entry.filePath,
-                      [VAL_EXTENSION]: "file",
-                      metadata: entry.metadata as JSONValue,
-                    },
-                  },
-                ],
-                "file",
-              );
-            }}
-            isImage={false}
-            disabled={disabled}
-            portalContainer={portalContainer}
-          />
-        )}
-        <div className="flex gap-4 items-center">
-          {source &&
-            (showAsVideo ? (
-              <div className="flex flex-col gap-2">
-                <video
-                  className="w-full h-auto rounded-lg"
-                  controls
-                  src={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
-                />
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
+      <div className="flex flex-col gap-5">
+        {/*
+         * The same summary row the image field uses: which file, then what can
+         * be done with it. A file has no picture to identify it by, so the name
+         * and type are the whole answer and used to be a bare line of text with
+         * the controls somewhere below.
+         */}
+        <MediaSummaryRow
+          url={url}
+          name={filename}
+          detail={fileDetail}
+          isImage={false}
+          uploading={loading}
+          progressPercentage={progressPercentage}
+          actions={
+            <>
+              {/*
+               * One control for "which file". A field that owns its file opens
+               * the dialog directly; one pointing into a collection opens the
+               * list, with the upload inside it — choosing a file and adding one
+               * to the collection are the same decision from here.
+               */}
+              {!referencedModule && (
+                <Button
+                  variant={"outline"}
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  {source ? "Replace" : "Choose asset"}
                 </Button>
-              </div>
-            ) : (
-              <>
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
-                </Button>
+              )}
+              {source && (
                 <a
-                  className="flex gap-2 items-center"
+                  className="inline-flex items-center gap-1.5 text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
                   target="_blank"
                   rel="noopener noreferrer"
-                  download={filename}
+                  download={filename ?? undefined}
                   href={
                     VAL_EXTENSION in source &&
                     source[VAL_EXTENSION] === "remote"
@@ -424,14 +407,77 @@ export function FileField({
                         }).url
                   }
                 >
-                  <span> Open file</span>
-                  <SquareArrowOutUpRight />
+                  Open file
+                  <SquareArrowOutUpRight size={12} />
                 </a>
-              </>
-            ))}
+              )}
+              {referencedModule && (
+                <ModuleMediaPicker
+                  compact
+                  footer={
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                        "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                        "disabled:pointer-events-none disabled:opacity-50",
+                      )}
+                    >
+                      <Upload size={13} />
+                      Upload into {prettyModuleName(referencedModule)}
+                    </button>
+                  }
+                  modulePath={referencedModule as ModuleFilePath}
+                  selectedRef={source?._ref ?? null}
+                  onSelect={(entry: GalleryEntry) => {
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath,
+                          value: {
+                            [FILE_REF_PROP]: entry.filePath,
+                            [VAL_EXTENSION]: "file",
+                            metadata: entry.metadata as JSONValue,
+                          },
+                        },
+                      ],
+                      "file",
+                    );
+                  }}
+                  isImage={false}
+                  disabled={disabled}
+                  portalContainer={portalContainer}
+                />
+              )}
+            </>
+          }
+        />
+        {/* A video is worth showing at size; anything else is a name. */}
+        {source && showAsVideo && (
+          <video
+            className="w-full h-auto rounded-lg"
+            controls
+            src={
+              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
+                ? Internal.convertRemoteSource({
+                    ...source,
+                    [VAL_EXTENSION]: "remote",
+                  }).url
+                : Internal.convertFileSource({
+                    ...source,
+                    [VAL_EXTENSION]: "file",
+                  }).url
+            }
+          />
+        )}
+        <div>
           <input
             disabled={disabled}
             hidden
+            ref={fileInputRef}
             id={`file_input:${path}`}
             type="file"
             accept={acceptOptions}

@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
   closeNavPanel,
+  discardAll,
   expandRow,
   openNavPanel,
   openSiteMap,
@@ -149,6 +150,35 @@ test("the canvas", async ({ page }) => {
     await page.waitForTimeout(1500);
     await shot(page, "14-canvas-resized");
   }
+});
+
+/** The media fields: which file, what it is of, where to look at it. */
+test("media fields", async ({ page }) => {
+  await openStudio(page, "/val/~/content/mediaFields.val.ts");
+  const studio = page.locator("#val-shadow-root");
+  await page.waitForTimeout(3000);
+
+  // Every field in this fixture is nullable and empty, so the bodies only
+  // render once a field is switched on. The first is `s.image()` (its own file)
+  // and the third is `s.image(gallery)` (a collection), which are the two cases
+  // Choose asset behaves differently for.
+  const toggles = studio.locator('button[role="checkbox"]');
+  await toggles.nth(0).click();
+  await toggles.nth(2).click();
+  await page.waitForTimeout(2500);
+  await shot(page, "19-media-fields");
+
+  // The gallery-backed field's picker, with the upload inside it.
+  // The gallery-backed field's Choose asset, which opens a list rather than the
+  // file dialog — a dialog is not something a screenshot can show.
+  await studio
+    .getByRole("combobox", { name: /Choose asset/ })
+    .first()
+    .click();
+  await page.waitForTimeout(1500);
+  await shot(page, "20-choose-asset");
+  await page.keyboard.press("Escape");
+  await discardAll(page);
 });
 
 test("light mode", async ({ page }) => {
