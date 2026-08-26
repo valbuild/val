@@ -17,6 +17,7 @@ import {
 import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
 import { useModuleMediaEntries } from "./useModuleMediaEntries";
+import { servedPath } from "../../utils/mediaPath";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -300,9 +301,7 @@ export function MediaPickerList({
                         src={
                           getUrl
                             ? getUrl(row.filePath)
-                            : row.filePath.startsWith("/public")
-                              ? row.filePath.slice("/public".length)
-                              : row.filePath
+                            : servedPath(row.filePath)
                         }
                         alt={alt || filename}
                         className="h-full w-full object-cover"

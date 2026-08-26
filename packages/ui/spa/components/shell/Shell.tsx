@@ -31,6 +31,7 @@ import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
+import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
   ShellActivityEntry,
@@ -169,7 +170,6 @@ export type ShellProps = {
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   onNewPage?: () => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
-  onNewDataFile?: () => void;
   /** Open the review view. Offered from the quick actions. */
   onCompare?: () => void;
   /** A thumbnail URL for a media file. See `MediaPanelProps`. */
@@ -235,7 +235,6 @@ export function Shell({
   onSelectActivity,
   onNewPage,
   onUploadMedia,
-  onNewDataFile,
   onCompare,
   getMediaFileUrl,
   searchContentResults,
@@ -592,15 +591,15 @@ export function Shell({
               // the whole gallery.
               id: file.sourcePath,
               title: file.ref.split("/").pop() ?? file.ref,
-              urlPath: gallery.directory,
+              urlPath: servedPath(gallery.directory),
               sourcePath: file.sourcePath,
             })
           }
           getFileUrl={getMediaFileUrl}
-          onUpload={() => {
-            const gallery = data.media.find((g) => g.id === selection?.id);
-            if (gallery) onUploadMedia?.(gallery);
-          }}
+          // The panel asks which gallery; it used to guess from the selection,
+          // so the button did nothing at all unless a gallery happened to be
+          // open — which is most of the time.
+          onUpload={onUploadMedia}
           onClose={closePanel}
           navSwitcher={navSwitcher}
           isLoading={isLoading}
@@ -648,7 +647,6 @@ export function Shell({
           onSelectValidationError={onSelectValidationError ?? (() => undefined)}
           onNewPage={onNewPage ?? (() => undefined)}
           onUploadMedia={() => setOpenPanel("media")}
-          onNewDataFile={onNewDataFile ?? (() => undefined)}
           destinations={destinations}
           onOpenAI={() => setOpenPanel("ai")}
           onCompare={onCompare}
@@ -752,7 +750,9 @@ function toMediaSelection(gallery: ShellMediaGallery): ShellSelection {
     kind: "media",
     id: gallery.id,
     title: gallery.name,
-    urlPath: gallery.directory,
+    // Where its files are served from, not where they are stored: `/public` is
+    // the web root, so the ref and the URL differ by exactly that prefix.
+    urlPath: servedPath(gallery.directory),
     sourcePath: gallery.moduleFilePath,
   };
 }

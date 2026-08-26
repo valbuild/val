@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
-import { ShellData, ShellValidationError } from "./types";
+import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { useContentSearch } from "./useContentSearch";
 import {
@@ -15,6 +15,7 @@ import {
   useWriteShellUrlState,
 } from "./useShellUrlState";
 import { Module } from "../Module";
+import { useRequestUpload } from "../UploadRequest";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -152,17 +153,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
-   * The editor for what the route points at.
-   *
-   * The *route*, not the selection's own path. A selection is a row in the
-   * navigation, and a row is a whole module; the route can be deeper —
-   * `?p="image"` inside it, which is what a deep link, a search result, a
-   * validation error and a pick on the canvas all produce. Rendering the row's
-   * path instead opened the module every time and quietly ignored the rest of
-   * the route, so every one of those landed on the right module and the wrong
-   * place in it.
-   */
-  /**
    * The field the canvas points at.
    *
    * The route's focus when it has one, and the route itself otherwise. The two
@@ -191,6 +181,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     scrollToStudioPath(focused);
   }, [viewState.canvasView, navigation.focusedSourcePath]);
 
+  /**
+   * The editor for what the route points at.
+   *
+   * The *route*, not the selection's own path. A selection is a row in the
+   * navigation, and a row is a whole module; the route can be deeper —
+   * `?p="image"` inside it, which is what a deep link, a search result, a
+   * validation error and a pick on the canvas all produce. Rendering the row's
+   * path instead opened the module every time and quietly ignored the rest of
+   * the route, so every one of those landed on the right module and the wrong
+   * place in it.
+   */
   const renderEditor = useCallback(
     (selection: ShellSelection) => (
       <Module
@@ -352,6 +353,28 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const getMediaFileUrl = useCallback(
     (ref: string) => refToUrl(ref, filePatchIds),
     [filePatchIds],
+  );
+
+  /**
+   * Upload into the gallery the navigation picked.
+   *
+   * Opens it, then asks it to open its file dialog. The panel knows which
+   * gallery you meant; only `ModuleGallery` knows how to upload into one — the
+   * ref from the file's hash and the gallery's directory, local or remote, the
+   * metadata entry and the file op as one patch — so the upload stays there
+   * rather than existing twice. See `UploadRequest`.
+   */
+  const requestUpload = useRequestUpload();
+  const uploadInto = useCallback(
+    (gallery: ShellMediaGallery) => {
+      // The same boundary cast `renderEditor` makes: the shell's own types are
+      // plain strings so the layout can be built without the providers, and the
+      // brand is put back on at the edge.
+      const moduleFilePath = gallery.moduleFilePath as ModuleFilePath;
+      navigation.navigate(moduleFilePath);
+      requestUpload(moduleFilePath);
+    },
+    [navigation, requestUpload],
   );
 
   /**
@@ -540,6 +563,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialCanvasView={urlState.initial.canvasView}
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
+      onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}

@@ -132,6 +132,45 @@ test.describe("the Media section", () => {
    * edit it, and in the fields view the canvas column was covering the thing
    * that had just been picked.
    */
+  /**
+   * Uploading from the panel, which needs to know where.
+   *
+   * The button used to look up a gallery by the current selection and call a
+   * handler the app never passed — so it did nothing, ever, and would have
+   * guessed the destination even if it had. A project can have several galleries
+   * with different directories, one taking images and the next taking anything,
+   * so the panel asks; the gallery it names does the upload, because that is
+   * where knowing how to build the ref and the patch lives.
+   */
+  test("asks which gallery to upload into, and opens it there", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Media");
+
+    await studio.getByRole("button", { name: /Upload/ }).click();
+    // Both galleries, by the directory files will land in and what it takes.
+    const target = studio.getByRole("menuitem", { name: /test\/subdir/ });
+    await expect(
+      target,
+      "the upload menu did not offer the galleries by directory",
+    ).toBeVisible();
+    // Served paths, so the row reads the way a URL to the file will.
+    await expect(target).not.toContainText("/public");
+    await expect(target).toContainText("Images");
+    await expect(
+      studio.getByRole("menuitem", { name: /Files/ }),
+      "the menu did not say which gallery takes non-images",
+    ).toBeVisible();
+
+    await target.click();
+    // It opens the gallery it named — the upload itself happens there, and the
+    // file dialog it raises is not something a test can drive.
+    await expect
+      .poll(() => page.url(), { timeout: 20000 })
+      .toContain("/content/mediaFixtures.val.ts");
+  });
+
   test("opens one file, and leaves the canvas to do it", async ({ page }) => {
     await openStudio(page);
     const studio = await openSiteMap(page);

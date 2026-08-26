@@ -36,6 +36,7 @@ import { readImage, readImageFromFile } from "../../utils/readImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 import { refToUrl } from "../MediaPicker/refToUrl";
+import { useUploadRequest } from "../UploadRequest";
 
 const textEncoder = new TextEncoder();
 
@@ -61,6 +62,15 @@ export function ModuleGallery({
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
   const inputRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * The Media panel can ask this gallery to open its file dialog.
+   *
+   * The panel knows which gallery you meant; only this component knows how to
+   * upload into one — the ref from the hash and the directory, local or remote,
+   * the metadata entry and the file op as one patch. So the panel asks and this
+   * answers, rather than the upload existing twice.
+   */
+  useUploadRequest(moduleFilePath, () => inputRef.current?.click());
   const dragCounterRef = React.useRef(0);
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);

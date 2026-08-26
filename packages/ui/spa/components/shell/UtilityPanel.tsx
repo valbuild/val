@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  Braces,
   Clock,
   FilePlus2,
   GitCompare,
@@ -28,7 +27,6 @@ export type UtilityPanelProps = {
   onSelectValidationError?: (error: ShellValidationError) => void;
   onNewPage: () => void;
   onUploadMedia: () => void;
-  onNewDataFile: () => void;
   onOpenAI: () => void;
   /**
    * The destinations this project has content for. All of them when absent.
@@ -66,7 +64,6 @@ export function UtilityPanel({
   onSelectValidationError,
   onNewPage,
   onUploadMedia,
-  onNewDataFile,
   onOpenAI,
   destinations,
   onCompare,
@@ -150,13 +147,14 @@ export function UtilityPanel({
               onClick={onUploadMedia}
             />
           )}
-          {offers("data") && (
-            <QuickAction
-              icon={Braces}
-              label="New data file"
-              onClick={onNewDataFile}
-            />
-          )}
+          {/*
+           * No "New data file".
+           *
+           * A val module is a TypeScript file with a schema in it, so making one
+           * is something you do in the editor and not something the Studio can
+           * offer from a menu — the action existed as a shortcut to a flow that
+           * was never built, and did nothing when pressed.
+           */}
         </div>
 
         <PanelSectionLabel divided>Recent activity</PanelSectionLabel>

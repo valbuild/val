@@ -5,6 +5,7 @@ import { ValProvider } from "./ValProvider";
 import { Themes } from "./ValThemeProvider";
 import { Layout } from "./Layout";
 import { ValShell } from "./shell/ValShell";
+import { UploadRequestProvider } from "./UploadRequest";
 import { SharedValConfig } from "@valbuild/shared/internal";
 import { ValRouter } from "./ValRouter";
 import { ErrorBoundary } from "react-error-boundary";
@@ -72,8 +73,16 @@ export const ValStudio: FC<ValFullscreenProps> = ({
           id="val-app-container"
         >
           <ValRouter>
-            {cssLoaded &&
-              (layoutChoice === "classic" ? <Layout /> : <ValShell />)}
+            {/*
+             * Above both layouts, because the two halves of an upload are in
+             * different parts of the tree: the navigation names the gallery and
+             * the gallery's own field component performs the upload. See
+             * `UploadRequest`.
+             */}
+            <UploadRequestProvider>
+              {cssLoaded &&
+                (layoutChoice === "classic" ? <Layout /> : <ValShell />)}
+            </UploadRequestProvider>
           </ValRouter>
         </div>
       </ErrorBoundary>

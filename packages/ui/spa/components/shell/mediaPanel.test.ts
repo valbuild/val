@@ -63,7 +63,9 @@ describe("groupByDirectory", () => {
       [file("/public/other/stray.png")],
       "/public/val/images",
     );
-    expect(groups[0].label).toBe("/public/other");
+    // Shown as it is served: `/public` is the web root, so a path outside the
+    // gallery still reads the way a URL to it would.
+    expect(groups[0].label).toBe("/other");
   });
 
   test("groups come out in a stable order", () => {

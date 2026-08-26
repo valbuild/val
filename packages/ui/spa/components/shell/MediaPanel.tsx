@@ -1,4 +1,11 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -16,6 +23,8 @@ import {
 } from "./PanelPrimitives";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint, ShellMediaFile, ShellMediaGallery } from "./types";
+import { servedPath } from "../../utils/mediaPath";
+import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
 export type MediaPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -32,7 +41,15 @@ export type MediaPanelProps = {
    * a patch id, and the published one does not.
    */
   getFileUrl?: (ref: string) => string | null;
-  onUpload: () => void;
+  /**
+   * Upload into one gallery.
+   *
+   * Which gallery is the panel's question to ask: a project can have several,
+   * they have different directories, and one takes images while the next takes
+   * arbitrary files — so an Upload button that guesses is a button that puts
+   * files in the wrong place. Absent when the app cannot upload at all.
+   */
+  onUpload?: (gallery: ShellMediaGallery) => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -137,14 +154,9 @@ export function MediaPanel({
       onClose={onClose}
       subheader={navSwitcher}
       headerAction={
-        <button
-          type="button"
-          onClick={onUpload}
-          className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-medium text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-        >
-          <Plus size={13} />
-          Upload
-        </button>
+        onUpload && media.length > 0 ? (
+          <UploadMenu media={media} onUpload={onUpload} />
+        ) : undefined
       }
       sticky={
         isLoading || loadError ? undefined : (
@@ -189,7 +201,9 @@ export function MediaPanel({
                     </span>
                   }
                   label={gallery.name}
-                  meta={gallery.directory}
+                  // The served path, not the ref: `/public` is the web root, so
+                  // `/val/images` is what a URL to anything in here looks like.
+                  meta={servedPath(gallery.directory)}
                   trailing={
                     <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
                       {gallery.itemCount}
@@ -262,7 +276,7 @@ function GalleryFiles({
               gallery's own directory on every row says nothing. */}
           {groups.length > 1 && (
             <p
-              title={group.directory}
+              title={servedPath(group.directory)}
               className="truncate pl-8 pr-3 pt-1.5 pb-0.5 text-[0.625rem] uppercase tracking-wide text-fg-secondary-alt"
             >
               {group.label}
@@ -318,7 +332,7 @@ function FileRow({
       <button
         type="button"
         onClick={() => onSelect?.(gallery, file)}
-        title={file.ref}
+        title={servedPath(file.ref)}
         aria-current={selected ? "true" : undefined}
         className={cn(
           "group flex items-center gap-2 min-w-0 flex-1 h-8 px-1.5 rounded-md text-xs text-left",
@@ -392,6 +406,84 @@ function baseName(ref: string): string {
 }
 
 /**
+ * Where to upload, as a menu.
+ *
+ * A list rather than a dialog, because the choice is small and the useful part
+ * of each option is short: the directory the files will land in, and whether the
+ * gallery takes images or anything. Both are on the row, because "Upload" with
+ * neither of them is how a PDF ends up in the images folder.
+ *
+ * With one gallery there is no choice to make, so the button uploads straight
+ * into it — but it still says which directory, for the same reason.
+ */
+function UploadMenu({
+  media,
+  onUpload,
+}: {
+  media: ShellMediaGallery[];
+  onUpload: (gallery: ShellMediaGallery) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setIsOpen(false), []);
+  useDismissOnOutsidePointer(containerRef, isOpen, close);
+  const only = media.length === 1 ? media[0] : null;
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup={only ? undefined : "menu"}
+        aria-expanded={only ? undefined : isOpen}
+        title={
+          only
+            ? `Upload into ${servedPath(only.directory)}`
+            : "Choose where to upload"
+        }
+        onClick={() => (only ? onUpload(only) : setIsOpen((open) => !open))}
+        className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-medium text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+      >
+        <Plus size={13} />
+        Upload
+        {!only && <ChevronDown size={12} />}
+      </button>
+      {isOpen && !only && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-window mt-1 w-64 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+        >
+          {media.map((gallery) => (
+            <button
+              key={gallery.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setIsOpen(false);
+                onUpload(gallery);
+              }}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              {gallery.mediaType === "images" ? (
+                <ImageIcon size={13} className="mt-0.5 shrink-0" />
+              ) : (
+                <FileText size={13} className="mt-0.5 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs">
+                  {servedPath(gallery.directory)}
+                </span>
+                <span className="block text-[0.6875rem] text-fg-secondary-alt">
+                  {gallery.mediaType === "images" ? "Images" : "Files"}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Files grouped by the directory they are in, relative to the gallery's own.
  *
  * Relative because the gallery's directory is on the row above and repeating it
@@ -422,10 +514,13 @@ function relativeDirectory(
   galleryDirectory: string,
 ): string {
   if (directory === galleryDirectory) return "In this folder";
+
   const prefix = galleryDirectory.endsWith("/")
     ? galleryDirectory
     : `${galleryDirectory}/`;
   return directory.startsWith(prefix)
     ? directory.slice(prefix.length)
-    : directory;
+    : // Not under the gallery at all, so there is nothing to make it relative
+      // to and the whole path is shown — as it is served, like everywhere else.
+      servedPath(directory);
 }

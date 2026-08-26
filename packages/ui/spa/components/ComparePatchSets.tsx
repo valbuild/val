@@ -52,6 +52,7 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { urlOf } from "@valbuild/shared/internal";
 import { getNavPathFromAll } from "./getNavPath";
+import { servedPath } from "../utils/mediaPath";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -429,7 +430,7 @@ function refToUrl(
       ? `/api/val/files${filePath}?patch_id=${patchId}`
       : `${filePath}?patch_id=${patchId}`;
   }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
+  return servedPath(ref);
 }
 
 /**
@@ -440,9 +441,7 @@ function staticFileUrl(ref: string): string {
   const remoteRefRes = Internal.remote.splitRemoteRef(ref);
   const filePath =
     remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
-  return filePath.startsWith("/public")
-    ? filePath.slice("/public".length)
-    : filePath;
+  return servedPath(filePath);
 }
 
 function hasAnyChange(node: ChangeTreeNode): boolean {
