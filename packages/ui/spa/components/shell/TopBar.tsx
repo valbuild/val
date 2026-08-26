@@ -13,11 +13,12 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "./Avatar";
 import { ValLogo } from "./ValLogo";
 import { ShellBreakpoint, ShellPanel } from "./types";
+import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -223,24 +224,15 @@ function PreviewButton({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const close = useCallback(() => setIsOpen(false), []);
+  useDismissOnOutsidePointer(containerRef, isOpen, close);
   useEffect(() => {
     if (!isOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && containerRef.current?.contains(target)) {
-        return;
-      }
-      setIsOpen(false);
-    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
     };
-    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [isOpen]);
 
   // Without a canvas there is nothing to choose between, so there is no menu.

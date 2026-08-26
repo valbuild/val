@@ -1,7 +1,15 @@
-import { forwardRef, ReactNode, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { GripHorizontal, X } from "lucide-react";
 import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
 import { cn } from "../designSystem/cn";
+import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
 /**
  * Chrome for the floating menu that sits over the user's own site.
@@ -468,22 +476,15 @@ export function OverlayMenuLauncher({
   };
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const collapse = useCallback(() => setExpanded(false), [setExpanded]);
+  useDismissOnOutsidePointer(rootRef, expanded, collapse);
   useEffect(() => {
     if (!expanded) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setExpanded(false);
-    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setExpanded(false);
     };
-    // `pointerdown` rather than `click` so a tap outside closes the menu
-    // before the tap reaches the user's page and activates something there.
-    window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded, setExpanded]);
 
   const growsFromEnd =

@@ -11,9 +11,9 @@ import { closeNavPanel, expandRow, openSiteMap, openStudio } from "./studio";
  * catches it is the frame's URL: it has to be the route the selected page is
  * on, served by the app, and it has to have rendered that route's content.
  *
- * The canvas also has two gates that are easy to get wrong in opposite
- * directions, so both are checked: it is offered on a page whose route Val
- * resolves, and it is not offered on a module that is not on a route at all.
+ * The canvas is offered wherever there is a site to look at, on a route or off
+ * one, so both are checked — and so is the address bar, because the canvas being
+ * a browser is only true if you can actually point it somewhere.
  */
 
 /** The frame the canvas is showing, if it is showing one. */
@@ -384,5 +384,88 @@ test.describe("the canvas", () => {
       studio.getByLabel("Canvas route"),
       "the canvas opened somewhere other than the root",
     ).toHaveValue("/", { timeout: 30000 });
+  });
+
+  /**
+   * The address bar's suggestions, clicked rather than typed.
+   *
+   * Worth its own test because it broke in a way that looked like nothing at
+   * all: the list opened, the highlight followed the mouse, and pressing a row
+   * did nothing. The studio renders in a shadow root, so a `pointerdown`
+   * listener on `document` sees the shadow HOST as its target — the containment
+   * check meant to spare presses on the list rejected every one of them, and the
+   * list dismissed itself before the press could reach a row. Enter kept working
+   * throughout, which is exactly why a keyboard-only test would have missed it.
+   */
+  test("goes where a clicked route suggestion says", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+
+    const route = studio.getByLabel("Canvas route");
+    await expect(route).toHaveValue("/blogs/blog1", { timeout: 30000 });
+    await route.click();
+    // Widened on purpose: the list filters on what is in the bar, so the route
+    // the canvas is already on matches only itself and there would be nothing
+    // to pick that would move anything.
+    await route.fill("/blogs/blog");
+
+    const suggestion = studio.getByRole("option", { name: "/blogs/blog2" });
+    await expect(
+      suggestion,
+      "the tracked routes were not offered",
+    ).toBeVisible();
+    await suggestion.click();
+
+    await expect(
+      route,
+      "pressing a suggestion did not move the canvas",
+    ).toHaveValue("/blogs/blog2");
+    await expect
+      .poll(() => canvasFrameUrls(page).join(" "), {
+        message: "the frame did not follow the route that was picked",
+        timeout: 30000,
+      })
+      .toContain("/blogs/blog2");
+  });
+
+  /**
+   * The other half of the Preview split button.
+   *
+   * Through `/api/val/enable` rather than straight to the page, so the tab lands
+   * on the route already in preview mode — the unpublished work is the only
+   * reason to open a preview rather than the site itself.
+   *
+   * The same shadow-root dismissal as the suggestions above killed this one too:
+   * the menu opened and its items did nothing, so what is asserted is that a tab
+   * actually arrives.
+   */
+  test("opens the page in a new tab, in preview mode", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+
+    await studio.getByRole("button", { name: "Other ways to preview" }).click();
+    const item = studio.getByRole("menuitem", { name: /Open in a new tab/ });
+    await expect(item).toBeVisible();
+
+    const opened = page.context().waitForEvent("page", { timeout: 20000 });
+    await item.click();
+    const tab = await opened;
+    await tab.waitForLoadState("domcontentloaded");
+
+    // The enable endpoint redirects, so the tab ends up on the page itself
+    // rather than sitting on the endpoint.
+    expect(tab.url()).toContain("/blogs/blog1");
+    expect(
+      tab.url(),
+      "the tab stopped at the enable endpoint instead of redirecting",
+    ).not.toContain("/api/val/enable");
+    await tab.close();
   });
 });

@@ -55,6 +55,20 @@ something downstream takes it as a `useMemo`/effect dependency — then it is th
 whole subtree recomputing per keystroke. `FieldSourceOverrideContext` in the
 compare view was exactly this.
 
+**An outside-click listener on `document` cannot see into the Shadow DOM.** The
+Studio renders inside a shadow root, so an event listened for outside it has its
+`target` **retargeted to the shadow host** — that is what a shadow root is for.
+`popup.contains(event.target)` therefore asks "is the shadow host inside this
+popup", which is false for every press, the popup's own items included. Every
+popup written this way dismisses itself on `pointerdown` and unmounts before the
+`mousedown`/`click` can be delivered, so it opens fine, highlights fine, and its
+items do nothing — it reads as a dead button, not as a dismissal. Swapping
+`onClick` for `onMouseDown`, the usual cure for a list that closes on blur, does
+not help: `pointerdown` comes first. Use `event.composedPath().includes(node)`,
+which is the path the event actually travelled — `useDismissOnOutsidePointer`
+does. This cost the Preview menu's "Open in a new tab" and every suggestion in
+the canvas address bar.
+
 **React blames the wrong component for a render loop.** The error surfaces
 wherever the update budget ran out — typically a Radix ref callback, whose JS
 stack is pure Radix. Do not start there; census the fiber tree instead

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link2, X } from "lucide-react";
 import { cn } from "../../designSystem/cn";
+import { useDismissOnOutsidePointer } from "../useDismissOnOutsidePointer";
 
 /**
  * The canvas's address bar.
@@ -56,19 +57,11 @@ export function CanvasRouteBar({
 
   // Clicking anywhere else is a way out that does not commit — the same as
   // Escape, and the one people reach for first.
-  useEffect(() => {
-    if (!isOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && containerRef.current?.contains(target)) {
-        return;
-      }
-      setIsOpen(false);
-      setDraft(value);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [isOpen, value]);
+  const revert = useCallback(() => {
+    setIsOpen(false);
+    setDraft(value);
+  }, [value]);
+  useDismissOnOutsidePointer(containerRef, isOpen, revert);
 
   const commit = (route: string) => {
     const normalized = normalizeRoute(route);
