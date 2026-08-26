@@ -69,6 +69,11 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Open the global search on mount (⌘K / Ctrl+K)",
     },
+    aiEnabled: {
+      control: "boolean",
+      description:
+        "Whether the project has the assistant configured. Off hides the top bar button, the quick action and the panel",
+    },
     publishState: {
       control: "select",
       options: ["idle", "publishing", "error"],
@@ -129,6 +134,7 @@ type HarnessProps = {
   empty: boolean;
   withoutRouters: boolean;
   searchOpen: boolean;
+  aiEnabled: boolean;
   theme: "dark" | "light";
   publishState: PublishState;
   saveState: SaveState;
@@ -186,6 +192,7 @@ function ShellHarness({
   selectionId,
   empty,
   withoutRouters,
+  aiEnabled,
   searchOpen,
   theme,
   publishState,
@@ -218,11 +225,12 @@ function ShellHarness({
   };
   return (
     <Shell
-      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
       initialSearchOpen={searchOpen}
+      aiEnabled={aiEnabled}
       theme={currentTheme}
       onThemeChange={setCurrentTheme}
       pendingChanges={empty ? 0 : 12}
@@ -284,6 +292,7 @@ export const Default: Story = {
     empty: false,
     withoutRouters: false,
     searchOpen: false,
+    aiEnabled: true,
     theme: "dark",
     publishState: "idle",
     saveState: "saved",

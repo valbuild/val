@@ -42,6 +42,7 @@
 
 - [Installation](#installation)
 - [Getting started](#getting-started)
+- [Previewing unpublished pages](#previewing-unpublished-pages)
 - [Schema types](#schema-types):
   - [String](#string)
   - [Number](#number)
@@ -234,6 +235,50 @@ const { s, c, val, config } = initVal({
 export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
+
+# Previewing unpublished pages
+
+An editor who creates a page in the Val editor has not published it yet: the new
+route exists only as a pending change. Your app knows nothing about it, so
+opening that URL hits a `page.tsx` whose content lookup finds no such key — and
+a page component that answers a missing key with `notFound()` shows the editor a
+404 for the page they just made.
+
+`suspend` on `ValProvider` is what makes that page load. Set it when the editor
+should be able to preview unpublished pages:
+
+```tsx
+// ./app/layout.tsx
+<ValProvider config={config} suspend>
+  <ValModulesClient />
+  {children}
+</ValProvider>
+```
+
+With it set, a component reading content through `useVal`, `useValRoute`,
+`fetchVal` or `fetchValRoute` suspends until the editor's pending changes have
+been applied, instead of resolving against published content and rendering
+something the editor did not ask for. Put a `Suspense` boundary where you want
+the loading state to show; without one, Next uses the nearest `loading.tsx`.
+
+**It only ever waits for editors.** Nothing here runs for a visitor: the gate is
+behind the same `val_enable` cookie the editor overlay is, so a normal request
+makes no extra requests, waits for nothing, and renders exactly as it would
+without `suspend`. It is safe to leave on in production, which is the point —
+previewing unpublished content is something editors do against the deployed site.
+
+**What it costs an editor.** Pending changes come from the editor's browser, so a
+page opened with the editor active waits for them to arrive before it renders.
+That is the trade: a short wait instead of published content flashing up and
+being replaced, or a 404 for a page that exists.
+
+**Known limitation.** A page whose route exists _only_ in an unpublished change
+can still 404 on the very first render: `suspend` is activated in the browser
+after hydration, and the render before that resolves against published content.
+A page that calls `notFound()` at that point cannot recover, since the response
+has already been sent. Reloading the page in the editor works around it. Pages
+that read content for a route they already have — the common case, editing an
+existing page — are not affected.
 
 # Formatting published content
 
@@ -459,6 +504,8 @@ export default c.define("/app/[slug]/page.val.ts", pageSchema, {
 ```
 
 To consume a page route from a NextJS "page component", it is recommended you use `fetchValRoute` or `useValRoute`.
+
+NOTE: a page an editor has created but not published yet is not in the record, so `fetchValRoute` / `useValRoute` return `null` for it and a page component that calls `notFound()` shows the editor a 404. See [previewing unpublished pages](#previewing-unpublished-pages).
 
 NOTE: to be refactor proof (i.e. not break when changing the route), you should always provide the params of the NextJS page component.
 

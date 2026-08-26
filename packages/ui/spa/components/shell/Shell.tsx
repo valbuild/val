@@ -186,6 +186,17 @@ export type ShellProps = {
    * working or still connecting, and the panel offers a composer as usual.
    */
   aiUnavailable?: { message: string; onRetry: () => void };
+  /**
+   * Whether this project has an assistant at all.
+   *
+   * Absent means it does not, and every way into one is hidden: the top bar
+   * button, the quick action, the canvas field menu's Attach to chat, and the
+   * panel itself — including when a restored URL asks for it. Same rule the
+   * rail follows for a destination with no content behind it: an affordance
+   * that can only report that there is nothing there is worse than no
+   * affordance.
+   */
+  aiEnabled?: boolean;
   onSelectValidationError?: (error: ShellValidationError) => void;
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
@@ -254,6 +265,7 @@ export function Shell({
   onShowErrors,
   accountError,
   aiUnavailable,
+  aiEnabled = false,
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
@@ -387,6 +399,14 @@ export function Shell({
       setOpenPanel(null);
     }
   }, [openPanel, destinations]);
+  // Same rule for the assistant, which is not a destination but is just as
+  // absent: a `?panel=ai` link into a project without one would otherwise
+  // restore an empty panel that nothing can fill.
+  useEffect(() => {
+    if (openPanel === "ai" && !aiEnabled) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, aiEnabled]);
 
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
@@ -519,7 +539,7 @@ export function Shell({
         view={canvasView}
         onViewChange={setCanvasView}
         isDevMode={isDevMode}
-        onAttachToChat={attachToChat}
+        onAttachToChat={aiEnabled ? attachToChat : undefined}
         skipTransition={skipTransition}
       >
         {editorOverride ? (
@@ -572,6 +592,7 @@ export function Shell({
         // since a failed load means there is no avatar to hang it on.
         accountError={breakpoint === "desktop" ? undefined : accountError}
         isLoading={isLoading}
+        aiEnabled={aiEnabled}
         onPreview={onPreview ?? (() => undefined)}
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
@@ -728,7 +749,7 @@ export function Shell({
           onNewPage={() => setOpenPanel("pages")}
           onUploadMedia={() => setOpenPanel("media")}
           destinations={destinations}
-          onOpenAI={() => setOpenPanel("ai")}
+          onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
           onCompare={onCompare}
           pendingChanges={pendingChanges}
           onSelectActivity={onSelectActivity ?? (() => undefined)}
@@ -736,7 +757,7 @@ export function Shell({
         />
       )}
 
-      {openPanel === "ai" && (
+      {openPanel === "ai" && aiEnabled && (
         <AIChatPanel
           breakpoint={breakpoint}
           messages={chat}

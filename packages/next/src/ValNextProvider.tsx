@@ -97,6 +97,13 @@ export const ValNextProvider = (props: {
    * When omitted (or `false`), `useValStega` never suspends — components
    * render with the static committed source and update on the client once
    * draft data has loaded.
+   *
+   * A route that exists ONLY in a draft is the case this is for, and the case
+   * it does not fully cover: the render before the gate activates resolves
+   * against committed source, and a page that answers a missing route with
+   * `notFound()` cannot take that back. See `architecture/quirks.md`
+   * ("`suspend` is three waits") for why, and the README section
+   * "Previewing unpublished pages" for what to tell users.
    */
   suspend?: boolean;
 }) => {

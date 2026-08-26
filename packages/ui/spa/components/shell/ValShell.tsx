@@ -46,6 +46,7 @@ import {
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
+import { useAIChatActions } from "../AIChatActionsContext";
 
 /**
  * The Val studio on the floating shell.
@@ -99,6 +100,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const profilesError = useProfilesError();
   /** Why the assistant is unavailable, once it has stopped trying to connect. */
   const aiConnectionError = useAIConnectionError();
+  /**
+   * Whether there is an assistant at all.
+   *
+   * `ai.chat.experimental.enable` in the project config. Not the connection —
+   * a configured assistant that is currently offline still gets its panel,
+   * which is where `aiConnectionError` and its retry are shown.
+   */
+  const { isAIChatEnabled } = useAIChatActions();
   const navigation = useNavigation();
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
@@ -686,6 +695,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           ? { message: profilesError.message, onRetry: profilesError.retry }
           : undefined
       }
+      aiEnabled={isAIChatEnabled}
       aiUnavailable={
         aiConnectionError
           ? {

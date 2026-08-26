@@ -678,7 +678,16 @@ export function ValProvider({
       }}
     >
       <TooltipProvider>
-        <AIChatActionsProvider isAIChatEnabled={wsEnabled}>
+        {/*
+          Configured and connected are two different questions, and the studio
+          answers them in two different places: whether to offer an assistant at
+          all, and whether an affordance that needs a live conversation can do
+          anything yet.
+        */}
+        <AIChatActionsProvider
+          isAIChatEnabled={wsEnabled}
+          isAIChatOnline={wsEnabled && isWsConnected}
+        >
           {theme !== undefined && setTheme ? (
             <ValThemeProvider
               theme={theme}

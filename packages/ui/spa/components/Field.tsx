@@ -77,7 +77,12 @@ export function Field({
   const effectiveReadonly = readonly || hasOverrides;
   const { navigate } = useNavigation();
   const getNavPath = useGetNavPath();
-  const { isAIChatEnabled } = useAIChatActions();
+  /**
+   * Not merely enabled — see `canMentionField`. The mention opens the assistant
+   * and drops this field into its composer, so it is only worth offering where
+   * both of those can actually happen.
+   */
+  const { canMentionField } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
   const handleLabelNavigate = () => {
     const navPath = getNavPath(path);
@@ -195,7 +200,7 @@ export function Field({
           {!hasOverrides && !compact && (
             <FieldPatchAuthorsSection path={path} />
           )}
-          {!hasOverrides && isAIChatEnabled && (
+          {!hasOverrides && canMentionField && (
             <button
               type="button"
               onClick={() => insertFieldRef(path)}

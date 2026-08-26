@@ -75,6 +75,13 @@ export type TopBarProps = {
   accountError?: { message: string };
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
+  /**
+   * Whether this project has an assistant. See `ShellProps.aiEnabled`.
+   *
+   * Absent hides the button rather than disabling it: it is the only thing in
+   * the bar that opens a panel with nothing behind it.
+   */
+  aiEnabled?: boolean;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -107,6 +114,7 @@ export function TopBar({
   onShowErrors,
   accountError,
   isLoading,
+  aiEnabled = false,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -160,13 +168,15 @@ export function TopBar({
             <BarDivider />
           </>
         )}
-        <IconButton
-          label="AI assistant"
-          active={openPanel === "ai"}
-          onClick={() => onTogglePanel("ai")}
-        >
-          <Sparkles size={16} />
-        </IconButton>
+        {aiEnabled && (
+          <IconButton
+            label="AI assistant"
+            active={openPanel === "ai"}
+            onClick={() => onTogglePanel("ai")}
+          >
+            <Sparkles size={16} />
+          </IconButton>
+        )}
         {!isMobile && (
           <IconButton
             label="Quick actions"
