@@ -1,7 +1,7 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, ReactNode, useEffect, useMemo, useRef } from "react";
-import { useSyncEngine } from "../ValFieldProvider";
+import { useValSystem } from "../../stores/react/SystemContext";
 import { Button } from "../designSystem/button";
 
 /**
@@ -44,7 +44,7 @@ export function VirtualizedRecordList({
   className?: string;
   renderRow: (key: string) => ReactNode;
 }) {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const parentRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = keys.length > VIRTUALIZE_THRESHOLD;
 
@@ -81,14 +81,48 @@ export function VirtualizedRecordList({
   const windowKeysId = windowKeys.join("\u0000");
   const windowKeysRef = useRef(windowKeys);
   windowKeysRef.current = windowKeys;
+  /**
+   * Keys this list has already asked for, ever.
+   *
+   * Monotonic on purpose, and it is what makes windowed loading CONVERGE.
+   * Entry content is taller than the skeleton it replaces, so every arrival
+   * re-renders these rows and moves the window — which asked again, brought more
+   * entries, and moved it again. Bounded by the key count in principle, but it
+   * walks it as one cascade of nested updates and React gives up first: the
+   * record route died with "Maximum update depth exceeded" from inside a ref
+   * callback, naming nothing about entries.
+   *
+   * Asking once per key breaks the feedback: the window may still shift as
+   * content lands, but a shift that reveals no NEW key now costs nothing, so it
+   * settles. `SourceStore` skips entries it already has, so this is not about
+   * request count — it is about not re-entering the announcement that caused the
+   * shift.
+   */
+  const requestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!jsonValues || windowKeysRef.current.length === 0) {
       return;
     }
-    // Coalesced by the engine into one request per module per tick, so a fast
-    // scroll that crosses several windows does not fan out.
-    syncEngine.requestJsonEntries(moduleFilePath, windowKeysRef.current);
-  }, [syncEngine, moduleFilePath, jsonValues, windowKeysId]);
+    const fresh = windowKeysRef.current.filter(
+      (key) => !requestedRef.current.has(key),
+    );
+    if (fresh.length === 0) {
+      return;
+    }
+    for (const key of fresh) {
+      requestedRef.current.add(key);
+    }
+    // Entries already here are skipped, and concurrent requests for one entry
+    // share a single fetch (`SourceStore.loadEntry`), so a fast scroll that
+    // crosses several windows does not fan out into duplicate requests.
+    void val?.system.sourceStore.loadEntries(moduleFilePath, fresh);
+  }, [val, moduleFilePath, jsonValues, windowKeysId]);
+
+  // A different module in the same component instance is a different record, so
+  // what was asked for no longer applies.
+  useEffect(() => {
+    requestedRef.current = new Set();
+  }, [moduleFilePath]);
 
   if (!shouldVirtualize) {
     return (

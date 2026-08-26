@@ -85,6 +85,25 @@ function enrichNavMenuData(
       hasError: hasErrorAtPath(data.external.moduleFilePath, allErrors),
     };
   }
+  /**
+   * Carried through, and forgetting it made every gallery unreachable.
+   *
+   * This function rebuilds `NavMenuData` from scratch rather than spreading it,
+   * so a section it does not name is dropped — and `media` was not named. The
+   * consequence was worse than a missing section, because `collectMediaModules`
+   * also REMOVES galleries from the explorer tree on the grounds that they live
+   * under Media: two entry points for one module is confusing. With Media gone,
+   * an `s.images()` or `s.files()` module was in neither place, and the only way
+   * to open one was to know its URL.
+   *
+   * Carried through as-is, unlike the sections above: `collectMediaModules`
+   * already attributes errors per module, and `MediaModule` carries them as
+   * `errors` rather than the `hasError` flag the other rows use. There is
+   * nothing to enrich.
+   */
+  if (data.media && data.media.length > 0) {
+    result.media = data.media;
+  }
   return result;
 }
 

@@ -2,6 +2,21 @@
 
 Instructions for AI assistants working with the Val content management system codebase.
 
+## Read first
+
+[`architecture/`](../architecture/README.md) holds the explanations that are
+expensive to re-derive from the code:
+
+- [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
+  state in one page: marks vs demand, the two realms, `peek`/`get`, and why
+  reference stability is load-bearing.
+- [`architecture/media.md`](../architecture/media.md) — `s.images()` / `s.files()`
+  vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
+  chosen (the rule that has been got wrong repeatedly).
+- [`architecture/quirks.md`](../architecture/quirks.md) — true, surprising things
+  that each cost someone an afternoon. **Skim this before debugging the Studio**,
+  and add to it when you lose time to something a comment could not have said.
+
 ## General rules
 
 1. Never add @ts-expect-error unless explicitly being allowed to do so

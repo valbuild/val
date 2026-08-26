@@ -1,7 +1,8 @@
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
+import { Internal, SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
   useAddPatch,
   useFieldCreatorId,
+  useHasUnsavedFrom,
   useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -45,6 +46,17 @@ export function ArrayFields({
   const sourceAtPath = useSourceAtPath(path);
 
   const { addPatch, patchPath } = useAddPatch(path, creatorId);
+  const [moduleFilePathOfPath] = Internal.splitModuleFilePathAndModulePath(
+    path as SourcePath,
+  );
+  /**
+   * Subscribed, unlike the same fact inside `useShallowSourceAtPath`.
+   *
+   * A list has no caret to lose, and an indicator that says "saving" after the
+   * save has landed is a visible lie — so this one is allowed to wake the
+   * component. See `useHasUnsavedFrom` for why a text input must not.
+   */
+  const hasUnsavedOwnEdit = useHasUnsavedFrom(moduleFilePathOfPath, creatorId);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -82,16 +94,28 @@ export function ArrayFields({
   const renderAtPathData =
     renderAtPath && "data" in renderAtPath ? renderAtPath.data : undefined;
 
-  // NOTE: we do not really want to show loading here, but since
-  // render data is loaded from the server,
-  // we have a rather jarring UX of items rearranging when it finally finishes
-  // Ideally this is less jarring, but for now we just show a loading spinner
-  // which we figured was better than not doing so
-  const loading =
-    renderAtPathData &&
-    ((shallowSourceAtPath.status === "success" &&
-      shallowSourceAtPath.clientSideOnly) ||
-      shallowSourceAtPath.status === "loading");
+  /**
+   * Is there an edit of ours the server has not acknowledged yet?
+   *
+   * Shown, never enforced. This used to gate `disabled` on the list, its rows,
+   * and the delete and duplicate buttons, behind a blocking overlay — so making
+   * one edit took the controls away until the next one. Two things were wrong
+   * with it:
+   *
+   * - `clientSideOnly` was stale (see `useHasUnsavedFrom`), so "until the next
+   *   one" meant "until some unrelated change moved source at this path", which
+   *   in practice was never. One drag disabled dragging.
+   * - Even fixed, it is the wrong rule. An unsaved edit of your own is the normal
+   *   state of the editor, and the whole per-instance suppression design exists
+   *   so that your own edit is not news to you. It must not block you either.
+   *
+   * The overlay was a curtain over previews recomputing after a reorder. That is
+   * worth solving by not moving the rows out from under the reader — see
+   * `SortableContainer` — rather than by disabling the control that caused it.
+   */
+  const savingOwnEdit =
+    renderAtPathData !== undefined &&
+    (hasUnsavedOwnEdit || shallowSourceAtPath.status === "loading");
   if (inline) {
     const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
     if (sourcePaths === null) {
@@ -153,14 +177,16 @@ export function ArrayFields({
       {renderAtPath?.status === "error" && (
         <PreviewError error={renderAtPath.message} path={path} />
       )}
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-bg-disabled z-[40] opacity-40">
-          <Loader2 className="animate-spin" />
+      {savingOwnEdit && (
+        // `pointer-events-none` is the whole point: it says something is in
+        // flight without standing between the reader and the list.
+        <div className="pointer-events-none absolute right-2 top-2 z-[40] flex items-center text-fg-secondary">
+          <Loader2 className="animate-spin h-4 w-4" />
         </div>
       )}
       <SortableList
         path={path}
-        disabled={loading}
+        disabled={readonly}
         onClick={(path) => {
           navigate(path);
         }}

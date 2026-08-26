@@ -20,3 +20,9 @@ pnpm-lock.yaml
 
 # Unzipped `val debug` snapshots: customer source, not ours to format.
 debug/*/
+
+# Git worktrees checked out inside the repo (Claude Code puts them here).
+# `prettier --check .` walks the whole tree, so a second checkout means the
+# format gate reports on someone else's in-progress work — and `--write` would
+# reformat it under them.
+.claude/worktrees/

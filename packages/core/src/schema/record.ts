@@ -5,7 +5,12 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ListRecordRender, RenderSelector, ReifiedRender } from "../render";
+import {
+  ListRecordRender,
+  RenderSelector,
+  ReifiedRender,
+  RenderScope,
+} from "../render";
 import { splitModuleFilePathAndModulePath } from "../module";
 import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
@@ -37,6 +42,8 @@ export type SerializedRecordSchema = {
   item: SerializedSchema;
   key?: SerializedSchema;
   opt: boolean;
+  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
+  render?: true;
   router?: string;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
@@ -776,6 +783,7 @@ export class RecordSchema<
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
+      render: this.renderInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&
@@ -813,6 +821,7 @@ export class RecordSchema<
   protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    scope?: RenderScope,
   ): ReifiedRender {
     const res: ReifiedRender = {};
     if (src === null) {
@@ -831,7 +840,10 @@ export class RecordSchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executeRender"](subPath, itemSrc);
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
+      }
+      const itemResult = this.item["executeRender"](subPath, itemSrc, scope);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
@@ -845,10 +857,20 @@ export class RecordSchema<
           message: "Unknown layout type: " + layout,
         };
       }
+      // See the same block in `array`: the whole record when the record is what
+      // is being shown, only the wanted entries when it is not.
+      const window =
+        scope !== undefined && !scope.wants(sourcePath) ? scope : null;
       const items: ListRecordRender["items"] = [];
       for (const [key, val] of Object.entries(src)) {
         if (isJson(val)) {
           continue; // as above: nothing to select from an un-loaded entry
+        }
+        if (
+          window !== null &&
+          !window.wantsUnder(unsafeCreateSourcePath(sourcePath, key))
+        ) {
+          continue;
         }
         // Per KEY, not per record: `select` is user code, and one entry whose
         // data trips it up must not take out the whole list.

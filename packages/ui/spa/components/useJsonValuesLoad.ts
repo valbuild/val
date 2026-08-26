@@ -1,10 +1,10 @@
+import { useValSystem } from "../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef } from "react";
 import {
   useAllSources,
   useJsonEntriesProgress,
   useSchemas,
-  useSyncEngine,
 } from "./ValFieldProvider";
 import {
   JsonValuesLoadQuery,
@@ -95,10 +95,20 @@ export function useReferenceScanStatus(
     schemas.status === "success" ? schemas.data : null,
   ]);
   const load = useJsonValuesLoad(required);
-  if (query !== null && schemas.status === "error") {
-    return { status: "error", message: schemas.error };
-  }
-  return load;
+  // Memoised for the same reason as the tail of `useJsonValuesLoad`: this is a
+  // dependency downstream, so the schema-error branch must not mint a new object
+  // per render either.
+  return useMemo<JsonValuesLoadStatus>(() => {
+    if (query !== null && schemas.status === "error") {
+      return { status: "error", message: schemas.error };
+    }
+    return load;
+  }, [
+    query,
+    schemas.status,
+    schemas.status === "error" ? schemas.error : null,
+    load,
+  ]);
 }
 
 /**
@@ -141,10 +151,10 @@ export function useAllJsonValuesLoad(enabled: boolean): JsonValuesLoadStatus {
 function useJsonValuesLoad(
   moduleFilePaths: ModuleFilePath[] | null,
 ): JsonValuesLoadStatus {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const progress = useJsonEntriesProgress();
-  // Subscribing to sources is what re-renders this hook as batches land: every
-  // load pass ends in an invalidateSource, which emits "all-sources".
+  // Subscribing to sources is what re-renders this hook as batches land: an
+  // entry arriving bumps its module, which is a `source:change`.
   useAllSources();
 
   // The module list as a primitive, so effects key on its CONTENT: the schema
@@ -158,7 +168,7 @@ function useJsonValuesLoad(
   const loadStatus =
     moduleFilePaths === null || moduleFilePaths.length === 0
       ? null
-      : syncEngine.getJsonEntriesLoadStatus(moduleFilePaths);
+      : (val?.system.sourceStore.entriesStatus(moduleFilePaths) ?? null);
   const needsLoad = loadStatus?.status === "incomplete";
 
   useEffect(() => {
@@ -166,38 +176,63 @@ function useJsonValuesLoad(
     if (!needsLoad || modules === null) {
       return;
     }
-    void syncEngine.ensureJsonEntries(modules);
-  }, [syncEngine, requiredKey, needsLoad]);
+    for (const moduleFilePath of modules) {
+      void val?.system.sourceStore.loadAllEntries(moduleFilePath);
+    }
+  }, [val, requiredKey, needsLoad]);
 
-  if (moduleFilePaths === null) {
-    return { status: "loading", percentage: 0 };
-  }
-  if (loadStatus === null || loadStatus.status === "complete") {
-    return LOAD_COMPLETE;
-  }
-  if (loadStatus.status === "error") {
-    const { errors } = loadStatus;
-    const first = errors[0];
+  /**
+   * Memoised, because this result is a DEPENDENCY, not just a value to render.
+   *
+   * `useKeysOf` and `useEagerRouteReferences` pass it through `withReferences`
+   * into components that put it in effect dependencies, so a fresh object per
+   * render is a render loop. That is what killed the `.jsonValues()` record
+   * route: `ArrayAndRecordTools` saw a new `refs` on all 118 of its renders and
+   * the page ended on "Maximum update depth exceeded".
+   *
+   * Every input here is stable by contract — `entriesStatus` and the progress
+   * snapshot are reference-stable in `SourceStore`, and `requiredKey` is a
+   * string — so this memo genuinely holds rather than recomputing each time.
+   */
+  return useMemo<JsonValuesLoadStatus>(() => {
+    if (moduleFilePaths === null) {
+      return { status: "loading", percentage: 0 };
+    }
+    if (loadStatus === null || loadStatus.status === "complete") {
+      return LOAD_COMPLETE;
+    }
+    if (loadStatus.status === "error") {
+      const { errors } = loadStatus;
+      const first = errors[0];
+      return {
+        status: "error",
+        message:
+          errors.length === 1
+            ? `Could not load ${first.key} in ${first.moduleFilePath}: ${first.message}`
+            : `Could not load ${errors.length} entries. First failure — ${first.key} in ${first.moduleFilePath}: ${first.message}`,
+        // Guarded on the requirements still being there: `errors` is a snapshot
+        // from this render, and a retry fired after the caller stopped needing
+        // these modules would re-fetch entries nobody is waiting for.
+        retry: () => {
+          if (requiredRef.current === null) {
+            return;
+          }
+          for (const { moduleFilePath, key } of errors) {
+            void val?.system.sourceStore.retryEntry(moduleFilePath, key);
+          }
+        },
+      };
+    }
     return {
-      status: "error",
-      message:
-        errors.length === 1
-          ? `Could not load ${first.key} in ${first.moduleFilePath}: ${first.message}`
-          : `Could not load ${errors.length} entries. First failure — ${first.key} in ${first.moduleFilePath}: ${first.message}`,
-      retry: () => {
-        const modules = requiredRef.current;
-        if (modules !== null) {
-          void syncEngine.retryJsonEntries(modules);
-        }
-      },
+      status: "loading",
+      // The run has not started yet on the render that discovers the work, and an
+      // idle progress store reports 100 — which would read as "done".
+      percentage: progress.status === "loading" ? progress.percentage : 0,
     };
-  }
-  return {
-    status: "loading",
-    // The run has not started yet on the render that discovers the work, and an
-    // idle progress store reports 100 — which would read as "done".
-    percentage: progress.status === "loading" ? progress.percentage : 0,
-  };
+    // `moduleFilePaths` is deliberately absent: it is a fresh array every render
+    // (the schema record is rebuilt), and `requiredKey` is its content as a
+    // string, which is what this actually depends on.
+  }, [val, requiredKey, moduleFilePaths === null, loadStatus, progress]);
 }
 
 /** Attaches the refs a scan found to the status of the load it depended on. */

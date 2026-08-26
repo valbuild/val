@@ -23,7 +23,7 @@ import {
 } from "./validation/ValidationError";
 import { FileSource } from "../source/file";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
-import { ReifiedRender } from "../render";
+import { ReifiedRender, RenderScope } from "../render";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -172,9 +172,17 @@ export abstract class Schema<Src extends SelectorSource> {
    */
   abstract hidden(): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
+  /**
+   * @param scope Which paths the caller needs a render for. Absent means the
+   * whole module, which is what every caller passed before scoping existed.
+   * See {@link RenderScope}: a container prunes recursion where nothing is
+   * wanted, and renders a WINDOW when its own path is not wanted but some of its
+   * items are — which is the single-visible-row case.
+   */
   protected abstract executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
+    scope?: RenderScope,
   ): ReifiedRender;
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
+import type { SourceOverride } from "./ValFieldProvider";
 import {
   FieldSourceOverrideContext,
   useAllSources,
@@ -1380,12 +1381,22 @@ function SingleSideContent({
     [sourcePath],
   );
   const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
-
-  if (side === "before") {
-    const beforeOverride =
+  /**
+   * Memoised because it is a CONTEXT VALUE. See {@link BeforeSourceOverride}.
+   *
+   * Computed unconditionally rather than inside the `before` branch: a hook
+   * cannot be called conditionally, and the object is cheap. The `after` side
+   * never reads it.
+   */
+  const beforeOverride = useMemo<SourceOverride | null>(
+    () =>
       beforeModuleSource.status === "success"
         ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-        : null;
+        : null,
+    [moduleFilePath, beforeModuleSource],
+  );
+
+  if (side === "before") {
     return (
       <FieldSourceOverrideContext.Provider value={beforeOverride}>
         <SingleSideContentInner
@@ -1627,10 +1638,26 @@ function BeforeSourceOverride({
     [sourcePath],
   );
   const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
+  /**
+   * Memoised, because this is a CONTEXT VALUE and every field on the "before"
+   * side reads it.
+   *
+   * `useShallowSourceAtPath` takes the override as a `useMemo` dependency — it
+   * has to, since the override decides which source the field reads — so a fresh
+   * object here recomputed the shallow source of every field under it, on every
+   * render of this component. That is the whole "before" subtree re-rendering per
+   * keystroke, and an input that re-renders enough loses the caret.
+   *
+   * `useServerSourceAtPath` is already reference-stable (it memoises on a
+   * `peekBase` snapshot), so this holds for as long as the base source does.
+   */
+  const beforeOverride = useMemo<SourceOverride | null>(
+    () =>
+      beforeModuleSource.status === "success"
+        ? { moduleFilePath, moduleSource: beforeModuleSource.data }
+        : null,
+    [moduleFilePath, beforeModuleSource],
+  );
   return (
     <FieldSourceOverrideContext.Provider value={beforeOverride}>
       {children}

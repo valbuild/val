@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   DndContext,
   DragOverlay,
@@ -52,6 +58,27 @@ export function SortableContainer({
   }) => React.ReactNode;
   className?: string;
 }) {
+  /**
+   * The rendered order, which is `source`'s order plus a transient optimistic lie.
+   *
+   * ## Why this is re-derived from `source`, and must stay that way
+   *
+   * An array item's path is POSITIONAL (`?p="0"`, `?p="1"`), so a reorder does not
+   * move paths — it moves content between fixed paths. `handleDragEnd` permutes
+   * these entries for immediate feedback, and that permutation has to be undone
+   * the moment the patch applies, or it is applied a second time and cancels the
+   * move out.
+   *
+   * Measured, because it is not obvious and it looks like churn worth removing:
+   * with this reset suppressed for a reorder (paths compared as a set, which is
+   * what "the list owns its order" amounts to), dragging row 1 below row 2 ends
+   * with the list showing its ORIGINAL order. The patch is correct, source is
+   * correct, and the drag silently does nothing.
+   *
+   * So this is not the controlled/uncontrolled question that text fields answer
+   * with `defaultValue`. A text field owns a value at a fixed path; a list row
+   * owns nothing — its path is its index.
+   */
   const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
   useEffect(() => {
     const nextItems: {
@@ -95,7 +122,7 @@ export function SortableContainer({
       }
       setActiveId(null);
     },
-    [items],
+    [items, onMove],
   );
   return (
     <DndContext
@@ -121,7 +148,15 @@ export function SortableContainer({
           ))}
         </div>
       </SortableContext>
-      <DragOverlay>
+      {/*
+       * No drop animation, deliberately.
+       *
+       * The overlay renders a positional path, so while it animates back into
+       * place the patch lands and the content AT that path changes — the card
+       * under the cursor turns into a different row. Removing the animation
+       * unmounts it at drop instead, before there is anything to change.
+       */}
+      <DragOverlay dropAnimation={null}>
         {activeItem
           ? renderItem({
               path: activeItem.path,
@@ -154,6 +189,18 @@ export function SortableList({
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
+  /**
+   * The render's items by index, built once per render of the list.
+   *
+   * `items` is `[index, value][]` — a windowed render is a SHORTER array, so a
+   * row has to be found by its index rather than read at a position. Doing that
+   * with `find` per row is O(n) per row and therefore O(n²) for a full list,
+   * which is the case with the most rows on screen.
+   */
+  const renderByIndex = useMemo(
+    () => new Map(render?.items ?? []),
+    [render?.items],
+  );
   return (
     <SortableContainer
       source={source}
@@ -167,7 +214,10 @@ export function SortableList({
           renderLayout={render?.layout}
           render={
             /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            render?.items[id - 1]
+            /* By index, not by position: a render computed for a subset of paths
+               carries only those items, so items[n] would be a different row.
+               See ListArrayRender, and `renderByIndex` for why it is a Map. */
+            renderByIndex.get(id - 1)
           }
           path={path}
           onClick={onClick}
@@ -204,7 +254,7 @@ export function SortableItemRow({
   id: number;
   path: SourcePath;
   renderLayout?: "list";
-  render?: ListArrayRender["items"][number];
+  render?: ListArrayRender["items"][number][1];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;

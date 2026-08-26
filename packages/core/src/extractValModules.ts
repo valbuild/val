@@ -115,7 +115,7 @@ function collectObjectRecursive(
  * Extracts schemas and sources from a ValModules registry and computes the
  * deterministic SHAs that the server and client both use to detect changes.
  *
- * Used by ValOps on the server and by ValSyncEngine on the client so the
+ * Used by ValOps on the server and by `HostStore` on the client so the
  * hash algorithm has a single source of truth.
  */
 export async function extractValModules(

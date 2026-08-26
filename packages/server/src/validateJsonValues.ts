@@ -28,6 +28,35 @@ import { ValidationError } from "@valbuild/core";
  * module errors (see `findNestedJsonValuesRecords`), so they can never reach
  * here — if that guard is ever relaxed, this must become a recursive visitor or
  * nested entries silently get no content validation at all.
+ *
+ * ## NOT validated, and it should be: the entry's FILE PATH
+ *
+ * The key↔file mapping is canonical. `getNewJsonEntryPaths` derives it, and both
+ * write paths use it — the `jsonValues:extract-entry` fix and the patch commit:
+ *
+ *     /content/kb.val.ts  +  key "kb-000"  ->  /content/kb/kb-000.val.json
+ *
+ * This function does not check it. It calls the thunk and validates whatever
+ * comes back, so an entry may point at ANY file in the project and pass. The
+ * repo's own fixture does exactly that — `examples/next/content/kb.val.ts` has
+ * `"kb-000": c.json(() => import("./kb/entry-000.val.json"))`, where the
+ * canonical path is `./kb/kb-000.val.json`, and `val validate` calls it valid.
+ *
+ * Two consequences, the first a live bug:
+ *
+ * - **A key rename writes to the DERIVED path**, which for a non-canonical entry
+ *   is not the file the old key was reading. The old file is orphaned and the new
+ *   key reads a file that was never written.
+ * - It blocks localising entry staleness. `jsonEntriesSha` cannot say which entry
+ *   changed, so the client drops a whole module's loaded content; with the mapping
+ *   guaranteed, a changed file resolves to one key by derivation alone.
+ *
+ * The fix belongs here and needs no new machinery: the module's `.val.ts` is
+ * already parsed (`ValSourceFileHandler`), so the import specifier is readable
+ * from the AST — no `thunk.toString()`, which a bundler would defeat. A
+ * `jsonValues:rename-entry-file` fix could move the file and rewrite the import,
+ * exactly as `extract-entry` writes both. See `packages/ui/spa/stores/openquestions.md`
+ * item 9b.
  */
 export async function validateJsonValuesEntries(
   schema: Schema<SelectorSource>,

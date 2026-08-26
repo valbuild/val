@@ -157,8 +157,10 @@ export {
   type ListRecordRender,
   type ListArrayRender,
   type ReifiedRender,
+  type RenderScope,
   type CodeLanguage,
   type CodeRender,
+  renderScope,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";

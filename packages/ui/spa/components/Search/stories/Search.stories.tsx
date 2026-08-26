@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useMemo, useState } from "react";
 import {
+  type Json,
   ModuleFilePath,
   ReifiedRender,
   SerializedSchema,
 } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
 import { Search } from "../../Search";
 import { mockSchemas, mockSources, mockRenders } from "./mockData";
-import { ValSyncEngine } from "../../../ValSyncEngine";
+import { createStorySystem } from "../../../stores/react/storySystem";
+import { ValSystemProvider } from "../../../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "../../ValThemeProvider";
 import { ValErrorProvider } from "../../ValErrorProvider";
 import { ValPortalProvider } from "../../ValPortalProvider";
@@ -36,25 +37,23 @@ function createMockClient(): ValClient {
 // Wrapper component that provides all necessary providers
 function SearchWithProviders({
   schemas = mockSchemas,
-  sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
+  sources = mockSources,
   renders = mockRenders,
 }: {
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
-  sources?: Record<ModuleFilePath, JSONValue | undefined>;
+  sources?: Record<ModuleFilePath, Json | undefined>;
   renders?: Record<ModuleFilePath, ReifiedRender | null>;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>(null);
 
   // Create syncEngine and initialize with mock data
-  const syncEngine = useMemo(() => {
-    const engine = new ValSyncEngine(client, undefined);
-    // Use setSchemas, setSources, and setRenders to initialize with mock data
-    engine.setSchemas(schemas);
-    engine.setSources(sources);
-    engine.setRenders(renders);
-    engine.setInitializedAt(Date.now());
-    return engine;
+  const system = useMemo(() => {
+    return createStorySystem({
+      schemas: schemas,
+      sources: sources,
+      renders: renders,
+    });
   }, [client, schemas, sources, renders]);
 
   // Mock getDirectFileUploadSettings callback
@@ -84,23 +83,24 @@ function SearchWithProviders({
   );
 
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <ValErrorProvider syncEngine={syncEngine}>
-        <ValPortalProvider>
-          <ValRemoteProvider remoteFiles={remoteFiles}>
-            <ValFieldProvider
-              syncEngine={syncEngine}
-              getDirectFileUploadSettings={getDirectFileUploadSettings}
-              config={undefined}
-            >
-              <ValRouter>
-                <Search />
-              </ValRouter>
-            </ValFieldProvider>
-          </ValRemoteProvider>
-        </ValPortalProvider>
-      </ValErrorProvider>
-    </ValThemeProvider>
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <ValErrorProvider>
+          <ValPortalProvider>
+            <ValRemoteProvider remoteFiles={remoteFiles}>
+              <ValFieldProvider
+                getDirectFileUploadSettings={getDirectFileUploadSettings}
+                config={undefined}
+              >
+                <ValRouter>
+                  <Search />
+                </ValRouter>
+              </ValFieldProvider>
+            </ValRemoteProvider>
+          </ValPortalProvider>
+        </ValErrorProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 

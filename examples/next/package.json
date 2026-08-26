@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "fixtures": "node scripts/jsonvalues-fixtures.mjs"
+    "fixtures": "node scripts/jsonvalues-fixtures.mjs",
+    "handbook": "node scripts/handbook-fixture.mjs"
   },
   "dependencies": {
     "@preconstruct/next": "^4.0.0",

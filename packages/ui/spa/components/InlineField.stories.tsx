@@ -9,11 +9,11 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
-import { JSONValue } from "@valbuild/core/patch";
 import { useMemo, useState } from "react";
 import { Field } from "./Field";
 import { AnyField } from "./AnyField";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { createStorySystem } from "../stores/react/storySystem";
+import { ValSystemProvider } from "../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -90,16 +90,12 @@ function StoryProviders({
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>("dark");
-  const syncEngine = useMemo(() => {
-    const engine = new ValSyncEngine(client, undefined);
-    engine.setSchemas(mockData.schemas);
-    engine.setSources(
-      mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
-    );
-    engine.setRenders(mockData.renders);
-    engine.setBaseSha("storybook-mock-sha");
-    engine.setInitializedAt(Date.now());
-    return engine;
+  const system = useMemo(() => {
+    return createStorySystem({
+      schemas: mockData.schemas,
+      sources: mockData.sources,
+      renders: mockData.renders,
+    });
   }, [client, mockData]);
 
   const getDirectFileUploadSettings = useMemo(
@@ -116,23 +112,24 @@ function StoryProviders({
   );
 
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <TooltipProvider>
-        <ValRouter>
-          <ValErrorProvider syncEngine={syncEngine}>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                {children}
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValErrorProvider>
-        </ValRouter>
-      </TooltipProvider>
-    </ValThemeProvider>
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <TooltipProvider>
+          <ValRouter>
+            <ValErrorProvider>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
+                >
+                  {children}
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValRouter>
+        </TooltipProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 

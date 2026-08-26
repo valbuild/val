@@ -22,6 +22,7 @@ import {
   useClient,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
+import type { TransientError } from "../stores/StatusStore";
 import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -364,12 +365,14 @@ export function ValidationErrorsDisplay() {
   );
 }
 
-export type TransientError = {
-  message: string;
-  timestamp: number;
-  details?: string;
-  id: string;
-};
+/**
+ * Re-exported from `StatusStore`, which is where these are produced.
+ *
+ * There were two identical declarations of this — one here, one in the store —
+ * and only a `readonly` on the store's array kept them apart. One definition,
+ * owned by the thing that makes them.
+ */
+export type { TransientError };
 
 /**
  * Container that wires the transient-error queue (the history) to the
@@ -409,7 +412,7 @@ export function TransientErrorsList({
   onClear,
   container,
 }: {
-  errors: TransientError[];
+  errors: readonly TransientError[];
   onDismiss: (id: string) => void;
   onClear: () => void;
   container?: HTMLElement | null;
@@ -652,7 +655,7 @@ function PatchCard({
 }: {
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
 }) {
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
@@ -752,7 +755,7 @@ function PatchSetCard({
   patchErrors,
 }: {
   patchSet: PatchSetMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
   patchErrors: Record<PatchId, { message: string }> | null;
 }) {
   const [isOpen, setOpen] = useState(false);

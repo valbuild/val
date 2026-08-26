@@ -1,4 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { Json, PatchId, ValidationErrors } from "@valbuild/core";
+import { applyPatch, JSONOps, type JSONValue } from "@valbuild/core/patch";
+import { result } from "@valbuild/core/fp";
+import type { ParentRef } from "@valbuild/shared/internal";
+
+/**
+ * The JSON patch applier, shared by every speculative validation below.
+ *
+ * Module scope because it is stateless and constructing one per call would be
+ * an allocation per AI tool call for no reason.
+ */
+const ops = new JSONOps();
+import { useValSystem } from "../stores/react/SystemContext";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
@@ -14,7 +33,6 @@ import {
   SessionImageToPatchError,
   useCurrentProfile,
   useProfilesByAuthorId,
-  useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
 import {
@@ -40,7 +58,7 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "./resolveValidationErrors";
+import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
@@ -601,7 +619,189 @@ export function useAI(
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   } = useAIContext();
-  const syncEngine = useSyncEngine();
+  const valSystem = useValSystem();
+  /**
+   * What this hook reads out of the store system.
+   *
+   * Gathered into one object rather than reached for at each of ~30 call sites,
+   * because they are all the same handful of questions and the alternative is
+   * `valSystem?.system.x.y()` with a null check thirty times. Nothing here holds
+   * state — every method reads the stores when called, which is what the AI flow
+   * needs: a tool call answers about the project as it is at that moment, not as
+   * it was when the socket handler was created.
+   */
+  const valReads = useMemo(() => {
+    const system = valSystem?.system ?? null;
+    return {
+      getAllSchemasSnapshot(): Record<ModuleFilePath, SerializedSchema> {
+        return system?.schemaStore.all() ?? {};
+      },
+      getAllSourcesSnapshot(): Record<ModuleFilePath, Json> {
+        return system?.sourceStore.allSources() ?? {};
+      },
+      getSourceSnapshot(
+        moduleFilePath: ModuleFilePath,
+      ): { status: "success"; data: Json } | { status: "not-found" } {
+        const source = system?.sourceStore.moduleSource(moduleFilePath);
+        return source === undefined
+          ? { status: "not-found" }
+          : { status: "success", data: source };
+      },
+      createPatchId(): PatchId {
+        if (system === null) {
+          throw new Error("Cannot mint a patch id: no store system is mounted");
+        }
+        return system.patchStore.mintPatchId();
+      },
+      getParentRef(): ParentRef | null {
+        return system?.patchSync.currentParentRef() ?? null;
+      },
+      /**
+       * Would the module still validate if this patch were applied?
+       *
+       * Speculative — the patch is applied to a COPY and nothing reaches the
+       * store, so a proposal that would break the module is rejected before it
+       * becomes an edit the user has to notice and discard.
+       */
+      validatePatchResult(
+        moduleFilePath: ModuleFilePath,
+        patch: Patch,
+      ):
+        | ValidationErrors
+        | {
+            status: "no-source" | "no-schema" | "patch-error";
+            message: string;
+          } {
+        if (system === null) {
+          return {
+            status: "no-source",
+            message: "No store system is mounted",
+          };
+        }
+        const currentSource = system.sourceStore.moduleSource(moduleFilePath);
+        if (currentSource === undefined) {
+          return {
+            status: "no-source",
+            message: `Content at '${moduleFilePath}' is not yet initialized`,
+          };
+        }
+        if (system.schemaStore.get(moduleFilePath) === undefined) {
+          return {
+            status: "no-schema",
+            message: `Schema not found for '${moduleFilePath}'`,
+          };
+        }
+        // File ops carry bytes, not a value the JSON patch can apply.
+        const patchableOps = patch.filter((op) => op.op !== "file");
+        const patchRes = applyPatch(
+          JSON.parse(JSON.stringify(currentSource)) as JSONValue,
+          ops,
+          patchableOps,
+        );
+        if (result.isErr(patchRes)) {
+          return { status: "patch-error", message: patchRes.error.message };
+        }
+        const validated = system.host.validateSpeculative(
+          moduleFilePath,
+          patchRes.value,
+        );
+        if (validated.status === "unknown-module") {
+          return {
+            status: "no-schema",
+            message: `No schema instance for '${moduleFilePath}'`,
+          };
+        }
+        return validated.errors;
+      },
+      getAllPatchesSnapshot(): Record<
+        PatchId,
+        {
+          moduleFilePath: ModuleFilePath;
+          createdAt: string;
+          isPending: boolean;
+          authorId: string | null;
+        }
+      > {
+        if (system === null) return {};
+        const patches: Record<
+          PatchId,
+          {
+            moduleFilePath: ModuleFilePath;
+            createdAt: string;
+            isPending: boolean;
+            authorId: string | null;
+          }
+        > = {};
+        for (const record of system.patchStore.allRecords()) {
+          patches[record.patchId] = {
+            moduleFilePath: record.moduleFilePath,
+            createdAt: record.createdAt ?? "",
+            isPending: system.patchStore.isPending(record.patchId),
+            authorId: record.authorId ?? null,
+          };
+        }
+        return patches;
+      },
+    };
+  }, [valSystem]);
+  /**
+   * An AI write, through the store.
+   *
+   * These four call sites used to call `valReads.addPatchAwaitable` directly,
+   * bypassing `useAddPatch` — which is why they were the one place the write flip
+   * left behind. With the engine's `PUT` disabled they applied locally and were
+   * never saved: an AI edit that appeared on screen and reached no server, with
+   * the tool reporting success.
+   *
+   * Same shape as `useAddPatch`'s `writePatch`: the store mints the id and issues
+   * the write, then the engine applies it locally so every un-ported component
+   * sees it. The session id is passed per patch, because the server records it per
+   * patch and `PatchSync` batches only patches that share one.
+   *
+   * The return shape keeps `patch-synced` so the four sites — which report the
+   * patch id back over the websocket — do not each need rewriting.
+   */
+  const writeAIPatch = useCallback(
+    async (
+      moduleFilePath: ModuleFilePath,
+      patch: Patch,
+      sessionId: string | null,
+      /**
+       * Use THIS id rather than minting one.
+       *
+       * The image flows mint an id up front and hand it to
+       * `aiSessionImagesToPatchFile`, which attaches the bytes to it server-side.
+       * Without passing it here the store minted a DIFFERENT id, so the patch
+       * that was created referenced a file attached to an id no patch ever had —
+       * the image resolved to nothing.
+       */
+      withPatchId?: PatchId,
+    ): Promise<
+      | { status: "patch-synced"; patchId: PatchId }
+      | { status: "patch-error"; message: string }
+    > => {
+      if (valSystem === null) {
+        return {
+          status: "patch-error",
+          message: "Cannot write: no store system is mounted.",
+        };
+      }
+      const res = await valSystem.system.patchStore.createPatch(
+        moduleFilePath,
+        patch,
+        undefined,
+        undefined,
+        undefined,
+        withPatchId,
+        sessionId ?? undefined,
+      );
+      if (res.status !== "created") {
+        return { status: "patch-error", message: res.message };
+      }
+      return { status: "patch-synced", patchId: res.record.patchId };
+    },
+    [valSystem],
+  );
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
   const { navigate, currentSourcePath } = useNavigation();
@@ -700,7 +900,7 @@ export function useAI(
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
@@ -710,7 +910,7 @@ export function useAI(
         } else if (message.name === "get_source") {
           const args = message.arguments as { module_file_path: string };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
-          const snapshot = syncEngine.getSourceSnapshot(moduleFilePath);
+          const snapshot = valReads.getSourceSnapshot(moduleFilePath);
           if (snapshot.status === "success") {
             sendWsMessage({
               type: "ai_tool_result",
@@ -724,10 +924,12 @@ export function useAI(
               toolCallId: message.toolCallId,
               result: {
                 success: false,
-                error:
-                  snapshot.status === "no-schemas"
-                    ? "Schemas not loaded yet. Try again shortly."
-                    : `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                // One reason now, where the engine had three snapshot statuses
+                // for it. A module the store has no source for is a module the
+                // project does not have: intake derives source from the host
+                // app's own `ValModules`, so there is no "not loaded yet" state
+                // after intake for the AI to be told to wait through.
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
               },
               isError: true,
             });
@@ -789,7 +991,7 @@ export function useAI(
             }
             const inputPatch = parseResult.data;
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -804,14 +1006,13 @@ export function useAI(
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
-            const moduleSourceSnap =
-              syncEngine.getSourceSnapshot(moduleFilePath);
+            const moduleSourceSnap = valReads.getSourceSnapshot(moduleFilePath);
             const moduleSourceData =
               moduleSourceSnap.status === "success"
                 ? (moduleSourceSnap.data as Source | undefined)
                 : undefined;
-            const patchId = syncEngine.createPatchId();
-            const parentRef = syncEngine.getParentRef();
+            const patchId = valReads.createPatchId();
+            const parentRef = valReads.getParentRef();
             if (parentRef === null) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -885,7 +1086,7 @@ export function useAI(
               return;
             }
             const patch = expanded.patch;
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -903,8 +1104,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 console.error("Patch validation failed", blockingErrors);
@@ -921,13 +1122,12 @@ export function useAI(
                 return;
               }
             }
-            const res = await syncEngine.addPatchAwaitable(
+            const res = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
+              // The id the bytes were attached to, above.
+              patchId,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -983,7 +1183,7 @@ export function useAI(
             }
 
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -999,9 +1199,9 @@ export function useAI(
               return;
             }
 
-            const patchId = syncEngine.createPatchId();
+            const patchId = valReads.createPatchId();
             const isRemote = isRemoteSchema(moduleSchema);
-            const parentRef = syncEngine.getParentRef();
+            const parentRef = valReads.getParentRef();
             if (parentRef === null) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -1112,7 +1312,7 @@ export function useAI(
             }
             const patch = buildResult.patch;
 
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -1129,8 +1329,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
@@ -1147,13 +1347,12 @@ export function useAI(
               }
             }
 
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
+              // The id the bytes were attached to, above.
+              patchId,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1200,7 +1399,7 @@ export function useAI(
               return;
             }
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -1215,7 +1414,7 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+            const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
             const sourceData =
               sourceSnap.status === "success"
                 ? (sourceSnap.data as Source | undefined)
@@ -1252,7 +1451,7 @@ export function useAI(
             }
             const patch = buildResult.patch;
 
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -1269,8 +1468,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
@@ -1287,14 +1486,10 @@ export function useAI(
               }
             }
 
-            const patchId = syncEngine.createPatchId();
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1321,11 +1516,11 @@ export function useAI(
         } else if (message.name === "navigate_to") {
           const args = message.arguments as { source_path: string };
           const sourcePath = args.source_path as SourcePath;
-          const allSources = syncEngine.getAllSourcesSnapshot() as Record<
+          const allSources = valReads.getAllSourcesSnapshot() as Record<
             ModuleFilePath,
             Source
           >;
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
           if (navPath === null) {
             sendWsMessage({
@@ -1348,7 +1543,7 @@ export function useAI(
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           }
         } else if (message.name === "get_current_context") {
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const browserPathname = window.location.pathname;
           const routeSourcePath = getSourcePathFromRoute(
             browserPathname,
@@ -1388,7 +1583,7 @@ export function useAI(
             });
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
           } else {
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const found = getSourcePathFromRoute(
               pathname,
               (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
@@ -1420,7 +1615,7 @@ export function useAI(
           };
           const limit = args.limit ?? 20;
           const offset = args.offset ?? 0;
-          const allPatches = syncEngine.getAllPatchesSnapshot() ?? {};
+          const allPatches = valReads.getAllPatchesSnapshot() ?? {};
           const patches = Object.entries(allPatches)
             .filter(([, data]) => data !== undefined)
             .map(([patchId, data]) => {
@@ -1553,7 +1748,7 @@ export function useAI(
               return;
             }
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -1570,7 +1765,7 @@ export function useAI(
             }
             let buildResult: BuildResult;
             if (toolName === "duplicate_source") {
-              const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+              const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
               const sourceData =
                 sourceSnap.status === "success"
                   ? (sourceSnap.data as Source | undefined)
@@ -1614,7 +1809,7 @@ export function useAI(
               return;
             }
             const patch = buildResult.patch;
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -1631,8 +1826,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
@@ -1650,14 +1845,10 @@ export function useAI(
                 return;
               }
             }
-            const patchId = syncEngine.createPatchId();
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1707,7 +1898,7 @@ export function useAI(
             return;
           }
           const moduleFilePath = args.module_file_path as ModuleFilePath;
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
             sendWsMessage({
@@ -1722,7 +1913,7 @@ export function useAI(
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
             return;
           }
-          const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+          const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
           const sourceData =
             sourceSnap.status === "success"
               ? (sourceSnap.data as Source | undefined)
@@ -1781,7 +1972,7 @@ export function useAI(
             return;
           }
           const moduleFilePath = args.module_file_path as ModuleFilePath;
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const moduleSchema = schemas?.[moduleFilePath];
           if (!moduleSchema) {
             sendWsMessage({
@@ -1796,7 +1987,7 @@ export function useAI(
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
             return;
           }
-          const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+          const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
           const sourceData =
             sourceSnap.status === "success"
               ? (sourceSnap.data as Source | undefined)
@@ -1906,7 +2097,7 @@ export function useAI(
   }, [
     subscribeToWsMessages,
     sendWsMessage,
-    syncEngine,
+    valReads,
     aiSearch,
     aiValidation,
     chatRef,

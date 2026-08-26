@@ -128,6 +128,84 @@ export function ImageField({
       }
     }
   }, [sourceAtPath, filePatchIds]);
+  /**
+   * Everything below this comment is a HOOK, and it lives above the early
+   * returns because React counts them.
+   *
+   * These three used to sit after the `loading` / `not-found` / wrong-type
+   * guards, which is a Rules of Hooks violation with a real symptom: a field
+   * whose value is `null` (an `s.image().nullable()` that nothing has uploaded
+   * to yet) took an early return on the first render and then ran three more
+   * hooks once source arrived, so opening one crashed the Studio with "Rendered
+   * more hooks than during the previous render" from inside `useMemo`.
+   *
+   * So they are computed unconditionally and defensively — every input is read
+   * through a status check rather than assumed — and the guards follow.
+   */
+  const imageSchema =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "image"
+      ? schemaAtPath.data
+      : undefined;
+  const referencedModule = imageSchema?.referencedModule;
+  const acceptOptions = useMemo(() => {
+    if (!imageSchema || schemas.status !== "success") {
+      return undefined;
+    }
+    if (imageSchema.options?.accept) {
+      return imageSchema.options.accept;
+    }
+    if (!referencedModule) {
+      return undefined;
+    }
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    if (moduleSchema?.type === "record" && moduleSchema.accept) {
+      return moduleSchema.accept;
+    }
+    return undefined;
+  }, [imageSchema, referencedModule, schemas]);
+  /**
+   * Where an upload from this field is stored.
+   *
+   * The field's OWN `directory` option wins, then the gallery it references, and
+   * `createFilePatch` falls back to `/public/val` when neither says. Only the
+   * referenced module was read before, so `s.image({ directory: "/public/x" })`
+   * silently wrote to `/public/val` — the file landed somewhere the schema
+   * forbids, and `files:check-directory` then reported the content as invalid.
+   */
+  const uploadDirectory = useMemo(() => {
+    if (imageSchema?.options?.directory) {
+      return imageSchema.options.directory;
+    }
+    if (!referencedModule || schemas.status !== "success") return undefined;
+    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
+    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
+  }, [imageSchema, referencedModule, schemas]);
+  const existingAlt =
+    maybeSourceData && typeof maybeSourceData?.metadata?.alt === "string"
+      ? maybeSourceData.metadata.alt
+      : undefined;
+  const remoteData =
+    imageSchema?.remote &&
+    remoteFiles.status === "ready" &&
+    currentRemoteFileBucket &&
+    config
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          bucket: currentRemoteFileBucket,
+          coreVersion: remoteFiles.coreVersion,
+          schema: imageSchema,
+          remoteHost: config.remoteHost,
+        }
+      : null;
+  const { uploadImage, loading, error, progressPercentage } = useImageUpload({
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+    remoteData,
+    directory: uploadDirectory,
+    referencedModule,
+    existingAlt,
+  });
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -171,7 +249,6 @@ export function ImageField({
     schemaAtPath.data.type === "image" &&
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
-  const referencedModule = schemaAtPath.data.referencedModule;
   const missingModules =
     referencedModule && schemas.status === "success"
       ? schemas.data[referencedModule as ModuleFilePath]
@@ -180,53 +257,6 @@ export function ImageField({
       : [];
   const disabled =
     readonly || remoteFileUploadDisabled || missingModules.length > 0;
-  const acceptOptions = useMemo(() => {
-    if (
-      schemaAtPath.data.type !== "image" ||
-      !referencedModule ||
-      schemas.status !== "success"
-    ) {
-      return undefined;
-    }
-    if (schemaAtPath.data.options?.accept) {
-      return schemaAtPath.data.options.accept;
-    }
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    if (moduleSchema?.type === "record" && moduleSchema.accept) {
-      return moduleSchema.accept;
-    }
-    return undefined;
-  }, [schemaAtPath.data, referencedModule, schemas]);
-  const moduleDirectory = useMemo(() => {
-    if (!referencedModule || schemas.status !== "success") return undefined;
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [referencedModule, schemas]);
-  const remoteData =
-    schemaAtPath.data.remote &&
-    remoteFiles.status === "ready" &&
-    currentRemoteFileBucket
-      ? {
-          publicProjectId: remoteFiles.publicProjectId,
-          bucket: currentRemoteFileBucket,
-          coreVersion: remoteFiles.coreVersion,
-          schema: schemaAtPath.data,
-          remoteHost: config.remoteHost,
-        }
-      : null;
-  const existingAlt =
-    maybeSourceData && typeof maybeSourceData?.metadata?.alt === "string"
-      ? maybeSourceData.metadata.alt
-      : undefined;
-  const { uploadImage, loading, error, progressPercentage } = useImageUpload({
-    patchPath,
-    addAndUploadPatchWithFileOps,
-    addModuleFilePatch,
-    remoteData,
-    directory: moduleDirectory,
-    referencedModule,
-    existingAlt,
-  });
   const metadataPath = Internal.createValPathOfItem(path, "metadata");
   const altPath = Internal.createValPathOfItem(metadataPath, "alt");
   const hotspotPath = Internal.createValPathOfItem(metadataPath, "hotspot");
@@ -253,7 +283,16 @@ export function ImageField({
           </div>
         )}
       <div className="flex flex-col gap-2">
-        {source && !moduleDirectory && (
+        {/*
+         * Only for a field that is NOT gallery-backed. A gallery keeps alt on
+         * its entry, so a field referencing one must not offer a second place
+         * to write it.
+         *
+         * This asked `!moduleDirectory` when that was only ever set for a
+         * referenced module. It is not any more — a field's own `directory`
+         * option sets it too — so the question is asked directly.
+         */}
+        {source && !referencedModule && (
           <div className="">
             <span id={altPath}>Description</span>
             <Input

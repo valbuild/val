@@ -1,6 +1,6 @@
-import { useSyncExternalStore, useCallback } from "react";
+import { useCallback } from "react";
 import { SourcePath, Internal } from "@valbuild/core";
-import { useSyncEngine } from "../components/ValProvider";
+import { useAllValidationErrors } from "../components/ValErrorProvider";
 
 type ValidationErrorEntry = {
   sourcePath: string;
@@ -16,13 +16,7 @@ type ValidationErrorsByModule = {
 };
 
 export function useAIValidation() {
-  const syncEngine = useSyncEngine();
-
-  const validationErrors = useSyncExternalStore(
-    syncEngine.subscribe("all-validation-errors"),
-    () => syncEngine.getAllValidationErrorsSnapshot(),
-    () => syncEngine.getAllValidationErrorsSnapshot(),
-  );
+  const validationErrors = useAllValidationErrors();
 
   const getErrors = useCallback((): ValidationErrorsByModule[] => {
     const snapshot = validationErrors ?? {};
