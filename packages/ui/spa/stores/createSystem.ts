@@ -55,6 +55,15 @@ import type {
 } from "./workerBridge";
 
 /**
+ * How long a chain movement waits before the pending modules are validated.
+ *
+ * Short enough that the publish gate is right by the time anyone reaches for
+ * the button, long enough that a burst of keystrokes is one validation rather
+ * than one per patch. See `scheduleValidationOfPendingModules`.
+ */
+const PENDING_VALIDATION_DEBOUNCE_MS = 300;
+
+/**
  * Stores in the HOST realm: they either hold user closures, or need to read
  * something that does.
  */
@@ -524,6 +533,32 @@ export function createSystem(options: SystemOptions): System {
     }
   }
 
+  /**
+   * Coalesce the pass above, so typing costs one validation per burst.
+   *
+   * `patch:chain` fires on every chain movement, which for a field being typed
+   * into is once per patch. Validating on each would put the whole
+   * per-keystroke cost this design removed straight back — so the pass is
+   * deferred and collapsed, and the timer is cleared on dispose so a torn-down
+   * system cannot wake up and validate.
+   */
+  let validatePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleValidationOfPendingModules(): void {
+    if (validatePendingTimer !== null) return;
+    validatePendingTimer = setTimeout(() => {
+      validatePendingTimer = null;
+      const modules = new Set<ModuleFilePath>();
+      for (const record of patchStore.allRecords()) {
+        modules.add(record.moduleFilePath);
+      }
+      for (const moduleFilePath of modules) {
+        // Fire and forget: the result reaches readers as `validation:result`,
+        // and a failure to validate is the validation store's to report.
+        void validationStore.validate(moduleFilePath);
+      }
+    }, PENDING_VALIDATION_DEBOUNCE_MS);
+  }
+
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
@@ -599,6 +634,29 @@ export function createSystem(options: SystemOptions): System {
     }),
     renderStore.listenTo(),
     validationStore.listenTo(),
+
+    /**
+     * Every module with a PENDING CHANGE is validated, whether or not anyone is
+     * looking at it.
+     *
+     * The rest of this system is demand-driven and should stay that way: nothing
+     * validates a module because it exists. But "can this project be published"
+     * is a question with no field behind it — the publish button asks it, and it
+     * has to be answered about every pending change, including ones made in a
+     * view that has since been closed, in another tab, or by the AI. Left to
+     * on-screen demand it was answered from whatever happened to have been
+     * looked at, which is how an invalid edit could sit in the chain with the
+     * publish button offering to ship it.
+     *
+     * Bounded by the pending chain, not by the project: a project with three
+     * edited modules validates three modules, however many it has. And bounded
+     * again by `ValidationStore`'s own cache — a module whose source has not
+     * moved since its last result is a cache hit, so a burst of unrelated chain
+     * events costs nothing.
+     */
+    patchStore.events.on("patch:chain", () => {
+      scheduleValidationOfPendingModules();
+    }),
 
     /**
      * A patch that cannot be applied is deleted, and says so loudly.
@@ -975,6 +1033,10 @@ export function createSystem(options: SystemOptions): System {
     },
     dispose() {
       for (const off of unsubscribe) off();
+      if (validatePendingTimer !== null) {
+        clearTimeout(validatePendingTimer);
+        validatePendingTimer = null;
+      }
       // Before the unsubscribes would be wrong-ish and after is right: a retry
       // mid-backoff has to be told to stop, or it wakes up and writes to a
       // torn-down system — in a test, after the test that made it has finished.
