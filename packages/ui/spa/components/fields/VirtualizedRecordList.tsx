@@ -1,6 +1,14 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Fragment, ReactNode, useEffect, useMemo, useRef } from "react";
+import {
+  Fragment,
+  ReactNode,
+  RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useValSystem } from "../../stores/react/SystemContext";
 import { Button } from "../designSystem/button";
 
@@ -13,8 +21,92 @@ import { Button } from "../designSystem/button";
  * are requested at once, which is one or two batches.
  */
 const VIRTUALIZE_THRESHOLD = 50;
-/** Height of the virtualized scroll viewport. */
-const VIEWPORT_MAX_HEIGHT = 800;
+/**
+ * Fallback height for the virtualized viewport, before it has been measured.
+ *
+ * A constant used to be the ANSWER, and that is what made a long record awkward
+ * to use: an 800px box inside the editor's own scroller means two scrollbars,
+ * and the outer one moves the whole list — so scrolling anywhere but exactly
+ * inside the box heaves a thousand rows up and down. The list is sized to the
+ * room it actually has instead; see {@link useFitHeight}.
+ */
+const VIEWPORT_FALLBACK_HEIGHT = 800;
+/** Below this the viewport is too short to be a list at all. */
+const VIEWPORT_MIN_HEIGHT = 320;
+/** Room left under the list, so it does not end flush against the edge. */
+const VIEWPORT_BOTTOM_GUTTER = 16;
+
+/**
+ * The height that makes this list end where its container does.
+ *
+ * ## Why it is measured rather than a `calc`
+ *
+ * What is below the list varies — the editor's own bottom padding, the mobile
+ * bottom bar, a canvas pane — and what is ABOVE it varies more: the module
+ * header, other fields, however many of them the schema has. Only the element
+ * itself knows where it ended up.
+ *
+ * ## Why it does NOT re-measure on scroll
+ *
+ * `top` changes as an ancestor scrolls, so re-measuring there would grow and
+ * shrink the list under the pointer — the jitter this exists to remove, in a
+ * more confusing form. Measured at layout and on resize: the height is "the
+ * room this list has", which does not depend on where the page is scrolled to.
+ */
+function useFitHeight(ref: RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(VIEWPORT_FALLBACK_HEIGHT);
+  useEffect(() => {
+    const node = ref.current;
+    if (node === null) return;
+    const measure = () => {
+      const top = node.getBoundingClientRect().top;
+      /**
+       * The bottom of whatever scrolls this list, or the window.
+       *
+       * A scrolling ancestor's own bottom is the real floor: the editor column
+       * is inset from the viewport by the shell's floating chrome, and sizing to
+       * the window would push the last rows underneath it.
+       */
+      const scroller = findScrollParent(node);
+      const bottom =
+        scroller === null
+          ? window.innerHeight
+          : scroller.getBoundingClientRect().bottom;
+      setHeight(
+        Math.max(VIEWPORT_MIN_HEIGHT, bottom - top - VIEWPORT_BOTTOM_GUTTER),
+      );
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    /**
+     * And when the layout around it changes without a resize: opening the canvas
+     * halves the column, and a panel opening or a field expanding moves this
+     * list up or down the page.
+     */
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.documentElement);
+    const scroller = findScrollParent(node);
+    if (scroller !== null) observer.observe(scroller);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer.disconnect();
+    };
+  }, [ref]);
+  return height;
+}
+
+/** The nearest ancestor that scrolls, if any. */
+function findScrollParent(node: HTMLElement): HTMLElement | null {
+  let current = node.parentElement;
+  while (current !== null) {
+    const overflowY = getComputedStyle(current).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 
 /**
  * Renders a record's rows, virtualizing once there are enough of them, and — for
@@ -47,6 +139,7 @@ export function VirtualizedRecordList({
   const val = useValSystem();
   const parentRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = keys.length > VIRTUALIZE_THRESHOLD;
+  const fitHeight = useFitHeight(parentRef);
 
   const virtualizer = useVirtualizer({
     count: shouldVirtualize ? keys.length : 0,
@@ -140,7 +233,8 @@ export function VirtualizedRecordList({
       className="overflow-auto"
       style={{
         contain: "strict",
-        height: Math.min(keys.length * estimatedRowHeight, VIEWPORT_MAX_HEIGHT),
+        // The room it has, or less if the list is shorter than that.
+        height: Math.min(keys.length * estimatedRowHeight, fitHeight),
       }}
     >
       <div
