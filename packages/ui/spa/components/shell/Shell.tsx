@@ -696,7 +696,16 @@ export function Shell({
           autoSave={autoSave}
           onAutoSaveChange={setAutoSave}
           branch={data.branch}
-          deployments={deployments}
+          /**
+           * No deploy feed in dev.
+           *
+           * Running against the working copy on disk there is nothing to
+           * publish to, so the section could only ever say "nothing published
+           * yet" — a heading and an explanation for something that will never
+           * happen here. The status bar already applies this rule to its own
+           * feed (`mode === "http"`); the panel was missed.
+           */
+          deployments={mode === "fs" ? undefined : deployments}
           onDismissDeployment={dismissDeployment}
           // Passed through as-is: absent means there is no session to end, and
           // the panel then shows no Sign out button rather than a dead one.

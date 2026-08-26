@@ -176,10 +176,13 @@ test.describe("a route that has not been committed", () => {
    * `draftMode === null` fix cannot help, because the gate is not consulted at
    * all.
    *
-   * Closing it means the FIRST render knowing that Val is enabled, which means
-   * telling `ValProvider` server-side — `layout.tsx` is a server component and
-   * can read the cookie — and that changes its public API and its
-   * hydration contract. Left as a pinned reproduction rather than a silent gap.
+   * Closing it means the FIRST render knowing that Val is enabled — which is
+   * what `suspend={await isValEnabled()}` did before a4c09b2e. TRIED, and it is
+   * not enough on its own: with the gate on during SSR the server suspends on
+   * `waitForLoad`, and the store it is waiting for is only ever filled from the
+   * browser, so the request hangs rather than 404s. Making it work needs the
+   * server able to supply draft sources during its own render, which is a good
+   * deal more than a prop. See architecture/quirks.md.
    */
   test.fixme("renders a route whose module is the only one it reads", async ({
     page,

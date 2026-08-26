@@ -159,10 +159,16 @@ route into dynamic rendering, which is a real cost to pay on every visitor for
 something only editors need. The replacement reads `document.cookie` in an
 effect, which is cheap, static — and always too late for a route.
 
-So the fix is not new work, it is choosing which cost to pay, and it belongs to
-whoever owns the public API. The type already allows it (`suspend?: boolean`
-accepts `await isValEnabled()`); what is missing is the provider honouring the
-value it is given instead of always starting from `false`.
+Restoring it is not enough on its own, though — this was tried. With the gate on
+during SSR the server suspends on `waitForLoad`, and the store it waits for is
+only ever filled from the browser (the studio pushes sources by `postMessage`;
+`ValExternalStore` has no server-side writer). So the request does not 404, it
+**hangs**: the example app's `/api/val/enable` redirect never finished loading.
+
+That is the actual shape of the remaining work: the server has to be able to
+supply draft sources during its own render — which `fetchVal` already does for
+server components, via `/sources/~` with patches applied. A client component's
+SSR pass has no equivalent, and giving it one is a good deal more than a prop.
 
 ### What a visitor pays
 
