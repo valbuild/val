@@ -12,10 +12,12 @@ import {
   Search,
   Sparkles,
   Upload,
+  UserRound,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "./Avatar";
+import { AccountErrorDot } from "./AccountError";
 import { ValLogo } from "./ValLogo";
 import { ShellBreakpoint, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
@@ -63,6 +65,14 @@ export type TopBarProps = {
    */
   validationErrorCount?: number;
   onShowErrors?: () => void;
+  /**
+   * Set when the account could not be loaded, and the studio has stopped trying.
+   *
+   * This is the case where `user` is absent, so it also has to *put* a control
+   * here: with nothing to show, the top bar dropped the account button
+   * altogether and there was no way left to reach the panel that explains it.
+   */
+  accountError?: { message: string };
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -93,6 +103,7 @@ export function TopBar({
   publishState = "idle",
   validationErrorCount = 0,
   onShowErrors,
+  accountError,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -180,16 +191,28 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {user && (
+        {(user || accountError) && (
           <>
             <BarDivider />
             <button
               type="button"
-              aria-label={`Account: ${user.name}`}
+              aria-label={
+                accountError
+                  ? `Account: ${accountError.message}`
+                  : `Account: ${user?.name}`
+              }
+              title={accountError?.message}
               onClick={() => onTogglePanel("settings")}
-              className="rounded-full shrink-0"
+              className="relative shrink-0 rounded-full"
             >
-              <Avatar initials={user.initials} size="sm" />
+              {user ? (
+                <Avatar initials={user.initials} size="sm" />
+              ) : (
+                <span className="grid h-6 w-6 place-items-center rounded-full text-fg-secondary">
+                  <UserRound size={15} />
+                </span>
+              )}
+              {accountError && <AccountErrorDot />}
             </button>
           </>
         )}

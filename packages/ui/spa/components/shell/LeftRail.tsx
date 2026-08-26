@@ -8,6 +8,7 @@ import {
 import { ShellDestination, ShellPanel } from "./types";
 import { ValLogo } from "./ValLogo";
 import { Avatar } from "./Avatar";
+import { AccountErrorDot } from "./AccountError";
 
 export type RailItem = {
   panel: ShellDestination;
@@ -65,6 +66,14 @@ export type LeftRailProps = {
   user?: { initials: string; name: string };
   /** Number of pending draft changes, shown as a dot on the account button. */
   hasDraftChanges?: boolean;
+  /**
+   * Set when the account could not be loaded, and the studio has stopped trying.
+   *
+   * Marks the button rather than announcing itself, because the panel it opens
+   * is where the explanation and the retry are. Note that this is exactly the
+   * case where `user` is absent — so the mark has to appear on the cog as well.
+   */
+  accountError?: { message: string };
 };
 
 /**
@@ -79,6 +88,7 @@ export function LeftRail({
   destinations,
   user,
   hasDraftChanges,
+  accountError,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
   return (
@@ -130,12 +140,15 @@ export function LeftRail({
                 className="relative grid place-items-center w-8 h-8 rounded-full"
               >
                 <Avatar initials={user.initials} size="sm" />
+                {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{user.name}</TooltipContent>
+            <TooltipContent side="right">
+              {accountError ? accountError.message : user.name}
+            </TooltipContent>
           </Tooltip>
         ) : (
           <Tooltip>
@@ -153,12 +166,15 @@ export function LeftRail({
                 )}
               >
                 <Settings size={17} />
+                {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">Settings</TooltipContent>
+            <TooltipContent side="right">
+              {accountError ? accountError.message : "Settings"}
+            </TooltipContent>
           </Tooltip>
         )}
       </div>

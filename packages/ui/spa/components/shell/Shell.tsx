@@ -28,6 +28,7 @@ import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
+import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
@@ -167,6 +168,21 @@ export type ShellProps = {
   onSignOut?: () => void;
   /** Open the full validation-errors view. Falls back to the utility panel. */
   onShowErrors?: () => void;
+  /**
+   * Why the account could not be loaded, once the studio has stopped trying.
+   *
+   * Not part of `data`: `data` is the project's content, and this is the state
+   * of one request the app made. It marks the account button and explains
+   * itself inside the panel that button opens.
+   */
+  accountError?: ShellAccountError;
+  /**
+   * Why the assistant is unavailable, once the studio has stopped trying.
+   *
+   * Shown in the AI panel in place of the composer. Absent means it is either
+   * working or still connecting, and the panel offers a composer as usual.
+   */
+  aiUnavailable?: { message: string; onRetry: () => void };
   onSelectValidationError?: (error: ShellValidationError) => void;
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
@@ -233,6 +249,8 @@ export function Shell({
   onPreview,
   onSignOut,
   onShowErrors,
+  accountError,
+  aiUnavailable,
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
@@ -505,6 +523,7 @@ export function Shell({
           destinations={destinations}
           user={data.user}
           hasDraftChanges={pendingChanges > 0}
+          accountError={accountError}
         />
       )}
 
@@ -524,6 +543,10 @@ export function Shell({
         // The rail owns the account wherever it is shown. Passing the user
         // here too would put the same avatar in two corners of one screen.
         user={breakpoint === "desktop" ? undefined : data.user}
+        // The rail carries the mark on desktop; below that the top bar owns the
+        // account, so it owns the mark — and has to put a button there at all,
+        // since a failed load means there is no avatar to hang it on.
+        accountError={breakpoint === "desktop" ? undefined : accountError}
         onPreview={onPreview ?? (() => undefined)}
         onToggleCanvas={canCanvas ? toggleCanvas : undefined}
         isCanvasOpen={isCanvasOpen}
@@ -639,6 +662,7 @@ export function Shell({
         <SettingsPanel
           breakpoint={breakpoint}
           user={data.user}
+          accountError={accountError}
           theme={theme}
           onThemeChange={onThemeChange}
           isDevMode={isDevMode}
@@ -648,7 +672,9 @@ export function Shell({
           branch={data.branch}
           deployments={deployments}
           onDismissDeployment={dismissDeployment}
-          onSignOut={onSignOut ?? (() => undefined)}
+          // Passed through as-is: absent means there is no session to end, and
+          // the panel then shows no Sign out button rather than a dead one.
+          onSignOut={onSignOut}
           onClose={closePanel}
           navSwitcher={navSwitcher}
         />
@@ -690,6 +716,7 @@ export function Shell({
           onProposalAction={() => undefined}
           onNewSession={() => setChat([])}
           onClose={closePanel}
+          unavailable={aiUnavailable}
         />
       )}
 

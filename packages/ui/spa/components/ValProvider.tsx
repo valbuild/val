@@ -30,6 +30,7 @@ import {
   getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { readableProfilesError } from "../utils/readableProfilesError";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -114,6 +115,18 @@ type ValContextValue = {
   mode: "http" | "fs" | "unknown";
   profileId: string | null;
   profileAuthError: string | null;
+  /**
+   * Why loading the people who made the changes failed, if it did.
+   *
+   * Separate from `profileAuthError`, which is only the `fs`-mode 401 and is
+   * shown as a global banner. This is any other failure — a project that is not
+   * configured, a server that is down — and it is not global: the studio works
+   * fine without knowing who anyone is, so it belongs beside the account rather
+   * than across the top of the screen.
+   */
+  profilesError: { message: string; willRetry: boolean } | null;
+  /** Ask for the profiles again, from the first attempt. */
+  retryProfiles: () => void;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
@@ -152,6 +165,15 @@ type ValContextValue = {
   sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
   aiAuthError: boolean;
+  /**
+   * Why the assistant is unavailable, once the studio has stopped trying.
+   *
+   * Distinct from `aiAuthError`, which is the 401 and terminal from the first
+   * answer. This is any other failure that has run out of attempts.
+   */
+  aiConnectionError: string | null;
+  /** Try the assistant's connection again, from the first attempt. */
+  retryAiConnection: () => void;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -230,6 +252,8 @@ export function ValProvider({
     send: sendWsMessage,
     isConnected: isWsConnected,
     authError: aiAuthError,
+    connectionError: aiConnectionError,
+    retryConnection: retryAiConnection,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -608,7 +632,7 @@ export function ValProvider({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [unsavedCount]);
-  const profilesData = useProfilesData(
+  const { state: profilesData, retry: retryProfiles } = useProfilesData(
     client,
     authenticationState,
     "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -626,6 +650,11 @@ export function ValProvider({
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
+        profilesError:
+          profilesData.status === "error"
+            ? { message: profilesData.error, willRetry: profilesData.willRetry }
+            : null,
+        retryProfiles,
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         observedCommitShas,
@@ -640,6 +669,8 @@ export function ValProvider({
         sendWsMessage,
         isWsConnected,
         aiAuthError,
+        aiConnectionError,
+        retryAiConnection,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -736,33 +767,64 @@ const EMPTY_STATUS: StatusSnapshot = {
   schema: "current",
 };
 
+/**
+ * How many times a failing `/profiles` is tried before it gives up.
+ *
+ * It used to be unbounded — a fixed two second retry, forever. Against a
+ * misconfigured project (`/profiles` answering 404 "Project not found") that is
+ * not resilience: the request will never succeed, and the only thing the retry
+ * produces is a console filling with the same stack every two seconds, which
+ * buries every other error in the studio.
+ */
+const PROFILES_MAX_ATTEMPTS = 5;
+/** The wait after the first failure. Doubled after each one after that. */
+const PROFILES_RETRY_BASE_MS = 1000;
+
+type ProfilesData =
+  | { status: "not-asked" }
+  | { data?: Record<AuthorId, Profile>; status: "loading" }
+  | {
+      data?: Record<AuthorId, Profile>;
+      status: "error";
+      error: string;
+      /** Whether another attempt is already scheduled. */
+      willRetry: boolean;
+    }
+  | { data?: Record<AuthorId, Profile>; status: "auth-error"; error: string }
+  | { data: Record<AuthorId, Profile>; status: "done" };
+
 function useProfilesData(
   client: ValClient,
   authenticationState: AuthenticationState,
   mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
   project: string | undefined,
-) {
-  const loadProfileDataRef = useRef(true);
-  const [profilesData, setProfilesData] = useState<
-    | {
-        data: Record<AuthorId, Profile>;
-        status: "done";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "loading" | "error";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "auth-error";
-        error: string;
-      }
-    | {
-        status: "not-asked";
-      }
-  >({ status: "not-asked" });
+): { state: ProfilesData; retry: () => void } {
+  const [profilesData, setProfilesData] = useState<ProfilesData>({
+    status: "not-asked",
+  });
+  /**
+   * How many times this has been tried since the last success or manual retry.
+   *
+   * A ref rather than state: it is read inside the request that increments it,
+   * and rendering has nothing to say about it — what the UI shows is the status
+   * and whether another attempt is coming, both of which are in state.
+   */
+  const attempts = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetry = useCallback(() => {
+    if (retryTimer.current !== null) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }, []);
+  useEffect(() => clearRetry, [clearRetry]);
+
+  // Through a ref so a failure can schedule the next attempt without the
+  // callback having to name itself.
+  const loadProfilesRef = useRef<() => void>(() => undefined);
   const loadProfiles = useCallback(async () => {
+    attempts.current += 1;
     setProfilesData((prev) => ({
       status: "loading",
       data: "data" in prev ? prev.data : undefined,
@@ -777,6 +839,7 @@ function useProfilesData(
           avatar: profile.avatar,
         };
       }
+      attempts.current = 0;
       setProfilesData({
         status: "done",
         data: profilesById,
@@ -792,14 +855,39 @@ function useProfilesData(
         data: "data" in prev ? prev.data : undefined,
       }));
     } else {
-      console.error("Could not get profiles", res.json);
-      loadProfileDataRef.current = true;
+      const willRetry = attempts.current < PROFILES_MAX_ATTEMPTS;
+      if (!willRetry) {
+        // Logged once, when there is nothing left to try — not on every
+        // attempt, which is what made this the loudest thing in the console.
+        console.error("Could not get profiles", res.json);
+      }
       setProfilesData((prev) => ({
         status: "error",
+        error: readableProfilesError(res.json),
+        willRetry,
         data: "data" in prev ? prev.data : undefined,
       }));
+      if (willRetry) {
+        // Backing off rather than a fixed interval: a server that is briefly
+        // busy recovers in the first second or two, and one that is
+        // misconfigured is not going to answer differently on the fifth ask.
+        const delay = PROFILES_RETRY_BASE_MS * 2 ** (attempts.current - 1);
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          loadProfilesRef.current();
+        }, delay);
+      }
     }
-  }, [client, mode, profilesData]);
+  }, [client, mode]);
+  loadProfilesRef.current = () => void loadProfiles();
+
+  /** Start again from the first attempt, because someone asked. */
+  const retry = useCallback(() => {
+    clearRetry();
+    attempts.current = 0;
+    loadProfilesRef.current();
+  }, [clearRetry]);
+
   useEffect(() => {
     if (
       authenticationState === "not-asked" ||
@@ -816,27 +904,23 @@ function useProfilesData(
     if (serviceUnavailable) {
       return;
     }
-    if (!loadProfileDataRef.current) {
+    // Only the first ask. Retries are the timer's job, and a manual one is the
+    // retry callback's — an effect that re-fires on every status change cannot
+    // tell "try again" from "the status changed because we tried".
+    if (profilesData.status !== "not-asked") {
       return;
     }
-    loadProfileDataRef.current = false;
-    if (profilesData.status === "error") {
-      // Wait a bit before retrying...
-      setTimeout(() => loadProfiles(), 2000);
-    } else if (profilesData.status === "not-asked") {
-      loadProfiles();
-    }
+    loadProfiles();
   }, [
     authenticationState,
-    client,
     loadProfiles,
     mode,
-    profilesData,
+    profilesData.status,
     serviceUnavailable,
     project,
   ]);
 
-  return profilesData;
+  return { state: profilesData, retry };
 }
 
 export function useAuthenticationState() {
@@ -1773,9 +1857,59 @@ export function useErrors() {
   return { globalErrors, skippedPatches };
 }
 
+/**
+ * Why the assistant is unavailable, and how to ask again.
+ *
+ * `null` while it is connecting or still retrying. Only once the studio has
+ * given up is there anything a person can do about it — see
+ * `useAIWebSocket` — and a chat panel that offers a composer while nothing is
+ * listening is worse than one that says so.
+ */
+export function useAIConnectionError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { aiAuthError, aiConnectionError, retryAiConnection } =
+    useContext(ValContext);
+  return useMemo(() => {
+    if (aiAuthError) {
+      return {
+        message: "You are not signed in to the assistant",
+        retry: retryAiConnection,
+      };
+    }
+    if (aiConnectionError !== null) {
+      return { message: aiConnectionError, retry: retryAiConnection };
+    }
+    return null;
+  }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
 export function useProfilesByAuthorId() {
   const { profiles } = useContext(ValContext);
   return profiles;
+}
+
+/**
+ * Why the profiles could not be loaded, and how to ask again.
+ *
+ * `null` while it is working or still trying. Only once the studio has given up
+ * is there anything for a person to do about it, and only then is there anything
+ * worth putting on screen — a message that appears and disappears while a retry
+ * loop runs is noise, not information.
+ */
+export function useProfilesError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { profilesError, retryProfiles } = useContext(ValContext);
+  return useMemo(
+    () =>
+      profilesError === null || profilesError.willRetry
+        ? null
+        : { message: profilesError.message, retry: retryProfiles },
+    [profilesError, retryProfiles],
+  );
 }
 
 /**

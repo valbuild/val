@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
-import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { SaveState } from "./StatusBar";
@@ -35,7 +34,8 @@ import {
   useAllPatchErrors,
   useAuthenticationState,
   useConnectionStatus,
-  useCurrentProfile,
+  useProfilesError,
+  useAIConnectionError,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -43,11 +43,7 @@ import {
   usePublishSummary,
   useValMode,
 } from "../ValProvider";
-import {
-  useFilePatchIds,
-  useGetNavPath,
-  useValConfig,
-} from "../ValFieldProvider";
+import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
 
@@ -91,9 +87,18 @@ export function ValShell() {
  */
 function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const { theme, setTheme } = useTheme();
-  const config = useValConfig();
   const mode = useValMode();
-  const profile = useCurrentProfile();
+  /**
+   * Why there is no profile, when the studio expected one.
+   *
+   * Only once it has given up retrying — see `useProfilesError`. Nothing in the
+   * editor depends on it, so this is reported beside the account rather than as
+   * a banner: `/profiles` answering "Project not found" is a configuration
+   * problem, not a reason to stop working.
+   */
+  const profilesError = useProfilesError();
+  /** Why the assistant is unavailable, once it has stopped trying to connect. */
+  const aiConnectionError = useAIConnectionError();
   const navigation = useNavigation();
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
@@ -555,17 +560,33 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   }, [navigation]);
 
   /**
-   * Signing out is a link to the app host, and only exists in `http` mode:
-   * there is no session to end when Val is reading and writing the working
-   * copy on disk.
+   * Signing out, where there is a session to end.
+   *
+   * Only in `http` mode. Running against the working copy on disk there is no
+   * session at all, so the control is absent rather than present and inert —
+   * and a Sign out button that does nothing is worse than none, because the
+   * only way to find out is to press it.
+   *
+   * `/api/val/logout` rather than the app host's: it is this studio's session
+   * cookies that decide whether you are signed in here, and the app host's
+   * logout does not clear them. `redirect_to` brings you back to where you
+   * were, where the studio now finds itself unauthenticated and asks you to
+   * sign in — which is what signing out is supposed to look like. It used to
+   * point at the app host, which signed you out of Val's own site and left this
+   * studio exactly as it was.
+   *
+   * Not conditional on the profile any more. The profile is a display name and
+   * an avatar; it can fail to load (see `profilesError`) while the session it
+   * belongs to is perfectly valid, and hiding the way out of a session because
+   * its owner's name did not arrive left no way out at all.
    */
   const onSignOut = useMemo(() => {
-    if (mode !== "http" || !profile) return undefined;
-    const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
+    if (mode !== "http") return undefined;
     return () => {
-      window.location.href = `${appHostUrl}/logout`;
+      const redirectTo = encodeURIComponent(window.location.href);
+      window.location.href = `/api/val/logout?redirect_to=${redirectTo}`;
     };
-  }, [mode, profile, config?.appHost]);
+  }, [mode]);
 
   /**
    * What the status bar says about saving.
@@ -656,6 +677,19 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       // A content hit is a path inside a module, so it is opened directly.
       onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
       onSignOut={onSignOut}
+      accountError={
+        profilesError
+          ? { message: profilesError.message, onRetry: profilesError.retry }
+          : undefined
+      }
+      aiUnavailable={
+        aiConnectionError
+          ? {
+              message: aiConnectionError.message,
+              onRetry: aiConnectionError.retry,
+            }
+          : undefined
+      }
     />
   );
 }

@@ -4,12 +4,21 @@ import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
 import { Avatar } from "./Avatar";
+import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
 import { ShellBreakpoint, ShellDeployment } from "./types";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
   user?: { name: string; email?: string; initials: string };
+  /**
+   * Why there is no account, when there should be one.
+   *
+   * Shown where the account would have been, because that is the question it
+   * answers — and with the retry, since everything that produces this is
+   * something an editor may have just fixed elsewhere.
+   */
+  accountError?: ShellAccountError;
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
   isDevMode: boolean;
@@ -20,7 +29,14 @@ export type SettingsPanelProps = {
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
   onDismissDeployment?: (commitSha: string) => void;
-  onSignOut: () => void;
+  /**
+   * Ends the session. Absent where there is not one.
+   *
+   * Optional rather than a no-op default: running against the working copy on
+   * disk there is nothing to sign out of, and the button was still rendered —
+   * wired to a function that did nothing.
+   */
+  onSignOut?: () => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -35,6 +51,7 @@ export type SettingsPanelProps = {
 export function SettingsPanel({
   breakpoint,
   user,
+  accountError,
   theme,
   onThemeChange,
   isDevMode,
@@ -59,6 +76,7 @@ export function SettingsPanel({
       subheader={navSwitcher}
     >
       <div className="pb-4">
+        {accountError && <AccountErrorNotice error={accountError} />}
         {user && (
           <div className="flex items-center gap-2.5 px-4 py-3">
             <Avatar initials={user.initials} />
@@ -135,16 +153,18 @@ export function SettingsPanel({
           </>
         )}
 
-        <div className="px-4 pt-4">
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
-          >
-            <LogOut size={13} />
-            Sign out
-          </button>
-        </div>
+        {onSignOut && (
+          <div className="px-4 pt-4">
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <LogOut size={13} />
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </FloatingPanel>
   );
