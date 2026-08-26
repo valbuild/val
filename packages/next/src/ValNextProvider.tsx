@@ -123,6 +123,15 @@ export const ValNextProvider = (props: {
   // and then swaps to draft data as a normal update — no Suspense fallback
   // flash and no hydration mismatch.
   const [suspendActive, setSuspendActive] = React.useState(false);
+  /**
+   * Whether the studio has said it sent everything it holds.
+   *
+   * Until then, a module missing from the store might still be on its way. After
+   * it, a missing module simply has no draft — see `sourcesSynced` in the canvas
+   * protocol. Without this the page could only wait out `waitForLoad`'s timeout,
+   * ten seconds per module nobody had edited.
+   */
+  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(false);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   /**
    * Whether this document is the studio's canvas frame.
@@ -139,6 +148,34 @@ export const ValNextProvider = (props: {
    */
   const [isCanvas, setIsCanvas] = React.useState(false);
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
+  /**
+   * Resolves when `draftMode` stops being unknown.
+   *
+   * `null` is the state before `/draft/stat` has answered, and it is NOT a
+   * synonym for "off": the reader that turns a selector into content treats it
+   * as off, so a render that happens while draft mode is still unknown resolves
+   * against committed source. For a route that only exists in an uncommitted
+   * patch that means `notFound()` — terminal, before the answer even arrives.
+   *
+   * So a page that is going to suspend waits for the answer first. A promise
+   * rather than a re-render, because the thing that has to wait is a render.
+   */
+  const draftModeReady = React.useRef<{
+    promise: Promise<void>;
+    resolve: () => void;
+  } | null>(null);
+  if (draftModeReady.current === null) {
+    let resolve = () => undefined as void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    draftModeReady.current = { promise, resolve };
+  }
+  React.useEffect(() => {
+    if (draftMode !== null) {
+      draftModeReady.current?.resolve();
+    }
+  }, [draftMode]);
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
   const [isRefreshing, startTransition] = React.useTransition();
@@ -441,6 +478,10 @@ export const ValNextProvider = (props: {
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
+            if (event.detail?.type === "sources-synced") {
+              setDraftSourcesSynced(true);
+              return;
+            }
             if (event.detail?.type === "source-update") {
               const moduleFilePath = event.detail?.moduleFilePath;
               const source = event.detail?.source;
@@ -552,6 +593,8 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider
       draftMode={draftMode}
+      draftModeReady={draftModeReady.current.promise}
+      draftSourcesSynced={draftSourcesSynced}
       suspend={suspendActive}
       store={valStore}
     >

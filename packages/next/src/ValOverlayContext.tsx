@@ -187,25 +187,56 @@ export const ValOverlayContext = React.createContext<{
   // hooks suspend — when its `suspend` prop is set and the Val Enable cookie
   // is present. Never deactivated once active.
   readonly suspend: boolean;
+  /**
+   * Resolves once `draftMode` is known — see `ValNextProvider`.
+   *
+   * `null` draft mode is not "off": the content reader treats it as off, so a
+   * render while it is unknown resolves against committed source, and for a
+   * route that only exists in an uncommitted patch that is a `notFound()` no
+   * later answer can undo.
+   */
+  readonly draftModeReady?: Promise<void>;
+  /**
+   * Whether the editor has said it sent every draft source it holds.
+   *
+   * Until then a missing module may still be coming; after it, a missing module
+   * has no draft and committed source is the draft. Without it the only way to
+   * find out was `waitForLoad`'s timeout, once per unedited module.
+   */
+  readonly draftSourcesSynced?: boolean;
 }>({
   store: undefined,
   draftMode: false,
   suspend: false,
+  draftModeReady: undefined,
+  draftSourcesSynced: false,
 });
 
 export function ValOverlayProvider({
   store,
   draftMode,
   suspend,
+  draftModeReady,
+  draftSourcesSynced,
   children,
 }: {
   store?: ValExternalStore;
   draftMode: boolean | null;
   suspend: boolean;
+  draftModeReady?: Promise<void>;
+  draftSourcesSynced?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <ValOverlayContext.Provider value={{ store, draftMode, suspend }}>
+    <ValOverlayContext.Provider
+      value={{
+        store,
+        draftMode,
+        suspend,
+        draftModeReady,
+        draftSourcesSynced,
+      }}
+    >
       {children}
     </ValOverlayContext.Provider>
   );

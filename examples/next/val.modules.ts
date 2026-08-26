@@ -25,4 +25,6 @@ export default modules(config, [
   { def: () => import("./content/mediaFields.val") },
   // `hidden()` and `readonly()`, which the Studio is the only thing enforcing.
   { def: () => import("./content/access.val") },
+  // A plain router read from a SERVER component — see app/notes/[note]/page.val.ts.
+  { def: () => import("./app/notes/[note]/page.val") },
 ]);

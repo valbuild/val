@@ -136,6 +136,24 @@ export type ValCanvasStudioMessage =
       source: unknown;
     }
   | {
+      /**
+       * Everything the studio holds has been sent.
+       *
+       * The page waits for draft sources before it renders, and it cannot know
+       * how many to expect. The studio only sends modules it has PATCHES for —
+       * an unedited module has no draft, so there is nothing to send — and the
+       * page cannot tell "not sent yet" from "nothing to send". Left to a
+       * timeout, every page reading an unedited module stalled ten seconds and
+       * then rendered committed source; the module that mattered, a router with
+       * a brand new page in it, was the one whose absence looked identical.
+       *
+       * So the studio says when it has finished. After this, a module the page
+       * has not been given has no draft, and committed source IS the draft.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "sourcesSynced";
+    }
+  | {
       val: typeof VAL_CANVAS_MESSAGE;
       type: "setPicking";
       /**
@@ -174,7 +192,8 @@ export function isValCanvasStudioMessage(
     message.type === "rescan" ||
     message.type === "highlight" ||
     message.type === "setPicking" ||
-    message.type === "sourceUpdate"
+    message.type === "sourceUpdate" ||
+    message.type === "sourcesSynced"
   );
 }
 

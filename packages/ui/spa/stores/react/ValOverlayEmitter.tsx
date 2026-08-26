@@ -155,12 +155,33 @@ export function useValPendingSourceSnapshot(): (
  * whole store graph run in a worker and in a node test. See `StoreBus`.
  */
 export function ValOverlayEmitter({ enabled }: { enabled: boolean }) {
-  useValSourceUpdates(enabled, (moduleFilePath, source) => {
+  const emit = useCallback(
+    (moduleFilePath: ModuleFilePath, source: unknown) => {
+      window.dispatchEvent(
+        new CustomEvent("val-event", {
+          detail: { type: "source-update", moduleFilePath, source },
+        }),
+      );
+    },
+    [],
+  );
+  useValSourceUpdates(enabled, emit);
+  /**
+   * Hand over what is already pending, then say that was all of it.
+   *
+   * The subscription above only fires on a CHANGE, so a page loaded with edits
+   * already in the chain saw none of them — and a page waiting for draft
+   * sources (`suspend`) had nothing to wait for and no way to know that. The
+   * canvas has had the snapshot half of this since it was a separate document;
+   * the overlay shares the window and was missed.
+   */
+  const sendPendingSources = useValPendingSourceSnapshot();
+  useEffect(() => {
+    if (!enabled) return;
+    sendPendingSources(emit);
     window.dispatchEvent(
-      new CustomEvent("val-event", {
-        detail: { type: "source-update", moduleFilePath, source },
-      }),
+      new CustomEvent("val-event", { detail: { type: "sources-synced" } }),
     );
-  });
+  }, [enabled, sendPendingSources, emit]);
   return null;
 }

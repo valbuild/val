@@ -221,7 +221,19 @@ export function CanvasFrame({
   useEffect(() => {
     if (!isLive) return;
     sendPendingSources(sendSourceUpdate);
-  }, [isLive, reloadKey, sendPendingSources, sendSourceUpdate]);
+    /**
+     * And say that was all of it.
+     *
+     * Only modules with patches are ever sent — an unedited module has no draft
+     * to send — so a page waiting for draft sources cannot tell "not sent yet"
+     * from "nothing to send". Left to work it out, it waited out its own ten
+     * second timeout once per unedited module it reads, which is what left a
+     * newly created page sitting on its loading fallback long enough to look
+     * broken. After this the page knows a module it has not been given has no
+     * draft, and renders committed source for it immediately.
+     */
+    send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
+  }, [isLive, reloadKey, sendPendingSources, sendSourceUpdate, send]);
 
   const blocked =
     (state.status === "ready" && !state.draftMode) ||

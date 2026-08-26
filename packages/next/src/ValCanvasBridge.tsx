@@ -289,6 +289,16 @@ export function ValCanvasBridge({
         );
         return;
       }
+      if (message.type === "sourcesSynced") {
+        // Relayed the same way and for the same reason as `sourceUpdate`: the
+        // page is listening on its own window, and the studio is in another.
+        window.dispatchEvent(
+          new CustomEvent("val-event", {
+            detail: { type: "sources-synced" },
+          }),
+        );
+        return;
+      }
       setHighlighted(message.path);
       if (message.path !== null && message.scrollIntoView) {
         const target = findByPath(message.path);
