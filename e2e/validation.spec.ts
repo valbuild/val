@@ -97,4 +97,26 @@ test.describe("validation while editing", () => {
       page.getByLabel("1 validation error", { exact: true }),
     ).toBeVisible({ timeout: 15000 });
   });
+
+  /**
+   * The errors view lists each error once.
+   *
+   * It renders the real field so it can be fixed in place, and a field opened
+   * on its own shows its own errors — so the row's list and the field's copy
+   * were the same message twice, once above and once below. Counted rather than
+   * merely asserted visible, which is the only way this failure shows up.
+   */
+  test("lists each error once in the errors view", async ({ page }) => {
+    await openStudio(page, `${HOME}&canvas=1`);
+    const title = page.locator("input").first();
+    await expect(title).toHaveValue("Content as code");
+    await title.fill("Foo");
+    await expect(page.getByText(TOO_SHORT)).toBeVisible({ timeout: 15000 });
+
+    await page.getByLabel("1 validation error", { exact: true }).click();
+
+    // The field is here to be fixed, and the message is here once.
+    await expect(page.getByText("Validation errors")).toBeVisible();
+    await expect(page.getByText(TOO_SHORT)).toHaveCount(1);
+  });
 });

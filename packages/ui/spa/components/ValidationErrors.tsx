@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { AnyField } from "./AnyField";
 import { FieldErrorList } from "./FieldErrorList";
+import { FieldErrorsOwned } from "./FieldErrorsOwner";
 import { getNavPathFromAll } from "./getNavPath";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
@@ -203,7 +204,19 @@ function ValidationErrorRow({
     >
       <FieldPathLabel sourcePath={sourcePath} />
       {schemaAtPath.status === "success" ? (
-        <AnyField path={sourcePath} schema={schemaAtPath.data} />
+        /*
+         * This row shows the errors itself, below the field, so the field must
+         * not show them too.
+         *
+         * A field opened on its own has no `Field` wrapper above it, so
+         * `AnyField` fills in and renders them — which is right everywhere else
+         * and is a duplicate here, where listing the error IS the row's job and
+         * where the same block also turns into "Fixed." once it clears. See
+         * `FieldErrorsOwner`.
+         */
+        <FieldErrorsOwned>
+          <AnyField path={sourcePath} schema={schemaAtPath.data} />
+        </FieldErrorsOwned>
       ) : (
         <div className="flex items-center gap-2 text-sm text-fg-secondary">
           <Loader2 size={14} className="animate-spin" aria-hidden />
