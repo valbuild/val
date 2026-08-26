@@ -141,8 +141,15 @@ export type ShellValidationError = {
 };
 
 export type ShellActivityEntry = {
+  /**
+   * A React key, not a target: two patch sets can share a module and a path, so
+   * this carries an index to keep them apart. Use `sourcePath` to go anywhere.
+   */
   id: string;
+  /** Where the change was, e.g. `/content/home.val.ts?p="hero"."title"`. */
+  sourcePath: string;
   title: string;
+  /** Already relative, e.g. "2 minutes ago". */
   timestamp: string;
   author?: string;
 };

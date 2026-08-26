@@ -17,6 +17,7 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
 import { CodeEditor } from "../CodeEditor";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export function StringField({
   path,
@@ -170,11 +171,7 @@ export function StringField({
   }
 
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

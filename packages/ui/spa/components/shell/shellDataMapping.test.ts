@@ -250,38 +250,61 @@ describe("toActivity", () => {
     lastUpdated: at,
     lastUpdatedBy: "ada",
   });
+  /** Ten minutes after the timestamps below, so "10 minutes ago" is stable. */
+  const now = new Date("2026-08-24T10:10:00Z").getTime();
 
   test("reads as a trail from the file to what changed in it", () => {
-    const [entry] = toActivity([
-      set("/content/home.val.ts", ["hero", "title"], "2026-08-24T10:00:00Z"),
-    ]);
+    const [entry] = toActivity(
+      [set("/content/home.val.ts", ["hero", "title"], "2026-08-24T10:00:00Z")],
+      now,
+    );
     expect(entry.title).toBe("home › hero › title");
     expect(entry.author).toBe("ada");
-    expect(entry.timestamp).toBe("2026-08-24T10:00:00Z");
+    // Relative, not the raw ISO string, which is what the panel used to render.
+    expect(entry.timestamp).toBe("10 minutes ago");
+  });
+
+  test("carries a source path that resolves", () => {
+    // The grammar matters: string keys are quoted, array indices are bare. A
+    // hand-joined path looks close enough to work and then opens nothing.
+    const [entry] = toActivity(
+      [set("/content/home.val.ts", ["items", "0", "title"], "x")],
+      now,
+    );
+    expect(entry.sourcePath).toBe('/content/home.val.ts?p="items".0."title"');
+  });
+
+  test("a whole-module change points at the module", () => {
+    const [entry] = toActivity([set("/content/home.val.ts", [], "x")], now);
+    expect(entry.sourcePath).toBe("/content/home.val.ts");
   });
 
   test("keeps the newest few, in the order the patch sets give them", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       set("/content/home.val.ts", [`field${i}`], "2026-08-24T10:00:00Z"),
     );
-    const activity = toActivity(many);
+    const activity = toActivity(many, now);
     expect(activity).toHaveLength(8);
     expect(activity[0].title).toBe("home › field0");
   });
 
   test("gives every entry a distinct key even for repeated paths", () => {
     // Two patch sets can share a module and path; React needs them apart.
-    const activity = toActivity([
-      set("/content/home.val.ts", ["title"], "2026-08-24T10:00:00Z"),
-      set("/content/home.val.ts", ["title"], "2026-08-23T10:00:00Z"),
-    ]);
+    const activity = toActivity(
+      [
+        set("/content/home.val.ts", ["title"], "2026-08-24T10:00:00Z"),
+        set("/content/home.val.ts", ["title"], "2026-08-23T10:00:00Z"),
+      ],
+      now,
+    );
     expect(activity[0].id).not.toBe(activity[1].id);
   });
 
   test("survives a patch with no author", () => {
-    const [entry] = toActivity([
-      { ...set("/content/home.val.ts", ["title"], "x"), lastUpdatedBy: null },
-    ]);
+    const [entry] = toActivity(
+      [{ ...set("/content/home.val.ts", ["title"], "x"), lastUpdatedBy: null }],
+      now,
+    );
     expect(entry.author).toBeUndefined();
   });
 });

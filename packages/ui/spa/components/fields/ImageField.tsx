@@ -39,6 +39,8 @@ import { JSONValue } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
 import { useImageUpload } from "./useImageUpload";
 import { MediaSummaryRow, Section, readableFilename } from "./MediaSummaryRow";
+import { HotspotMarker } from "./HotspotMarker";
+import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
 export function ImageField({
   path,
@@ -62,6 +64,20 @@ export function ImageField({
     undefined,
   );
   const [url, setUrl] = useState<string | null>(null);
+  /**
+   * Whether the image is open at a size worth looking at.
+   *
+   * The thumbnail identifies the file; it is far too small to judge one by. A
+   * dialog rather than growing the row, because "is this the right photo" is a
+   * question you ask once and then stop asking, and a field that answers it
+   * permanently is a field whose controls are all below the fold.
+   *
+   * Up here with the other hooks, ON PURPOSE: everything below the `not-found`
+   * and `loading` guards runs only on some renders, and a hook there is
+   * "Rendered more hooks than during the previous render" the first time this
+   * field mounts with no value — which is every empty image field.
+   */
+  const [previewOpen, setPreviewOpen] = useState(false);
   const {
     addPatch,
     patchPath,
@@ -386,6 +402,7 @@ export function ImageField({
           name={fileName}
           detail={fileDetail}
           hotspot={hotspot}
+          onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
           uploading={loading}
           progressPercentage={progressPercentage}
           actions={
@@ -529,7 +546,13 @@ export function ImageField({
         {source && url && (
           <Section
             label="Focal point"
-            hint="The part that must stay in frame when the page crops this image."
+            hint="Click the image to say what must stay in frame when the page crops it."
+            collapsible
+            summary={
+              hotspot
+                ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                : "Not set"
+            }
           >
             {source && url && (
               <div className="relative rounded-lg bg-bg-secondary">
@@ -602,41 +625,7 @@ export function ImageField({
                     }
                   }}
                 />
-                {hotspot && (
-                  <div
-                    className="absolute pointer-events-none"
-                    style={{
-                      top: `${hotspot.y * 100}%`,
-                      left: `${hotspot.x * 100}%`,
-                      transform: "translate(-50%, -50%)",
-                      zIndex: 10,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "20px",
-                        height: "20px",
-                        borderRadius: "50%",
-                        border: "2px solid white",
-                        boxShadow:
-                          "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
-                      }}
-                    />
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        width: "4px",
-                        height: "4px",
-                        borderRadius: "50%",
-                        backgroundColor: "white",
-                        boxShadow: "0 0 2px rgba(0,0,0,0.5)",
-                      }}
-                    />
-                  </div>
-                )}
+                {hotspot && <HotspotMarker hotspot={hotspot} />}
               </div>
             )}
             {source && url && (
@@ -699,6 +688,26 @@ export function ImageField({
           </Section>
         )}
       </div>
+      {url && (
+        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          <DialogContent
+            container={portalContainer}
+            className="max-h-[90vh] max-w-[90vw] overflow-hidden p-0"
+          >
+            <DialogTitle className="sr-only">{fileName ?? "Image"}</DialogTitle>
+            {/* The focal point is drawn here too: it is a property of the
+                image, and the large view is where it is actually legible. */}
+            <div className="relative inline-flex bg-bg-secondary">
+              <img
+                src={url}
+                alt={altText}
+                className="max-h-[85vh] max-w-full object-contain"
+              />
+              {hotspot && <HotspotMarker hotspot={hotspot} />}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

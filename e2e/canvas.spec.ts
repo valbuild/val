@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { closeNavPanel, expandRow, openSiteMap, openStudio } from "./studio";
+import {
+  clearPatchChain,
+  closeNavPanel,
+  expandRow,
+  openSiteMap,
+  openStudio,
+} from "./studio";
 
 /**
  * The canvas: the running site beside the editor for it.
@@ -23,6 +29,17 @@ function canvasFrameUrls(page: import("@playwright/test").Page): string[] {
     .map((frame) => frame.url())
     .filter((url) => url !== "" && !url.includes("/val"));
 }
+
+/**
+ * From a clean chain, because this suite reads the fixture's content.
+ *
+ * Without it a leftover patch from another suite — `studio-ui` renames an author
+ * to prove an edit landed — is still applied, and a test that looks for the
+ * fixture's own text fails for a reason that has nothing to do with the canvas.
+ */
+test.beforeAll(async ({ request }) => {
+  await clearPatchChain(request);
+});
 
 test.describe("the canvas", () => {
   test("puts the running page beside its editor", async ({ page }) => {
@@ -411,7 +428,9 @@ test.describe("the canvas", () => {
 
     // Off to a module that is not on a route.
     await openStudio(page, "/val/~/content/authors.val.ts");
-    await expect(studio.getByText("Theodor René Carlsen")).toBeVisible({
+    // The record's key, not one of its values: values are what other suites
+    // edit, and the module having rendered is all this needs to know.
+    await expect(studio.getByText("teddy").first()).toBeVisible({
       timeout: 30000,
     });
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
@@ -424,37 +443,48 @@ test.describe("the canvas", () => {
   /**
    * Leaving the page for a view that is not one.
    *
-   * The errors view is the whole editor column and is not on a route, so a
-   * canvas left open beside it is showing a page you are no longer editing —
-   * and in the fields view it is worse than stale, because the column IS the
-   * page's fields and the view you asked for would not appear at all.
+   * The compare and errors views are the whole editor column and are not on a
+   * route, so a canvas left open beside one is showing a page you are no longer
+   * editing — and in the fields view it is worse than stale, because the column
+   * IS the page's fields and the view you asked for would not appear at all.
    *
-   * Reached through the error pill rather than a URL, because the transition is
-   * the thing being tested: a fresh load of the errors view has no canvas to
-   * close.
+   * Compare rather than errors, because compare has a way in that does not
+   * depend on the fixture being broken: make a change, and the quick actions
+   * panel offers to review it. Both go through the same rule in `Shell` — the
+   * selection is no longer a page — so this covers the errors view too.
    */
-  test("leaves the canvas when the errors view is opened", async ({ page }) => {
+  test("leaves the canvas when the compare view is opened", async ({
+    page,
+    request,
+  }) => {
     await openStudio(page);
     const studio = await openSiteMap(page);
     await expandRow(studio, "blogs");
     await expandRow(studio, "blog1");
     await closeNavPanel(studio, "Pages");
+
+    // A change, so there is something to review.
+    const title = studio.locator("input").first();
+    await expect(title).toHaveValue("Blog 1");
+    await title.fill("Blog 1 compared");
+
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
     await expect(studio.getByLabel("Canvas route")).toHaveValue(
       "/blogs/blog1",
       { timeout: 30000 },
     );
 
-    // The example app has content errors of its own, which is what puts the
-    // pill in the top bar.
-    await studio
-      .getByRole("button", { name: /\d+ validation errors?/ })
-      .click();
+    await studio.getByRole("button", { name: "Quick actions" }).click();
+    await studio.getByRole("button", { name: /Review \d+ change/ }).click();
 
     await expect(
       studio.getByRole("button", { name: "Exit Preview" }),
       "the canvas stayed open beside a view that is not a page",
     ).not.toBeVisible();
+
+    // The change was only ever a way in to the compare view, and the tests
+    // below read the fixture's own values.
+    await clearPatchChain(request);
   });
 
   /**

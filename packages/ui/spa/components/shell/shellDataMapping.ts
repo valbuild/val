@@ -1,4 +1,4 @@
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 import { routePatternToString } from "../NavMenu/SitemapItem";
@@ -147,12 +147,33 @@ export function toActivity(
     lastUpdated: string;
     lastUpdatedBy: string | null;
   }>,
+  /**
+   * A parameter rather than a call to `Date.now()`, so the result is a function
+   * of its inputs and can be tested — the same reason `toDeployments` takes one.
+   */
+  now: number,
 ): ShellActivityEntry[] {
   return patchSets.slice(0, ACTIVITY_LIMIT).map(
     (set, index): ShellActivityEntry => ({
+      // The index is load-bearing: two patch sets can share a module and a path,
+      // and React needs them apart. `sourcePath` is the one that means something.
       id: `${set.moduleFilePath}?${set.patchPath.join("/")}-${index}`,
+      /**
+       * Where the change was, as a real source path.
+       *
+       * Built with `patchPathToModulePath`, which is the only thing that knows
+       * the grammar — string keys are JSON-quoted, array indices are bare — so
+       * `["items", "0", "title"]` becomes `"items".0."title"` and not something
+       * that looks close enough to work and then does not resolve.
+       */
+      sourcePath: Internal.joinModuleFilePathAndModulePath(
+        set.moduleFilePath,
+        Internal.patchPathToModulePath(set.patchPath),
+      ),
       title: [fileLabel(set.moduleFilePath), ...set.patchPath].join(" › "),
-      timestamp: set.lastUpdated,
+      // Relative, because this is a "what have I been doing" list and an ISO
+      // timestamp is not an answer to that. It was rendered raw.
+      timestamp: formatRelativeTime(set.lastUpdated, now),
       author: set.lastUpdatedBy ?? undefined,
     }),
   );

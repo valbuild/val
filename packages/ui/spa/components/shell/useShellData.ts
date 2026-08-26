@@ -138,7 +138,7 @@ export function useShellData(): ShellDataState {
         validationErrors: toValidationErrors(validationErrors),
         activity:
           patchSets.status === "success"
-            ? toActivity(patchSets.data)
+            ? toActivity(patchSets.data, Date.now())
             : undefined,
         chatSuggestions: config?.ai?.chat?.suggestions,
         pendingChanges: currentPatchIds.length - committedPatchIds.size,

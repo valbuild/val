@@ -341,6 +341,59 @@ test.describe("single media fields", () => {
     await expect.poll(() => chainLength(page)).toBe(0);
   });
 
+  /**
+   * What the field shows before you have asked it anything.
+   *
+   * The focal point used to be open: a 500px-tall clickable image between the
+   * file and everything below it, so the field's own controls were off screen
+   * and the thing an editor came for was the thing they had to scroll past. It
+   * is a crop hint most images never need, so it folds — and folded it still has
+   * to say whether it is set, which is what the summary is for.
+   */
+  test("keeps the focal point folded, and opens the image large", async ({
+    page,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
+    const studio = page.locator("#val-shadow-root");
+    // Every field in this fixture starts null on purpose, so there has to be a
+    // file before there is anything to crop or to look at.
+    await picker(studio).first().setInputFiles(IMAGE);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual(["/public/val/blue-8x8_8b441.png"]);
+
+    const focalPoint = studio.getByRole("button", { name: "Focal point" });
+    await expect(focalPoint).toBeVisible({ timeout: 30000 });
+    await expect(
+      focalPoint,
+      "the focal point section was open before anyone asked for it",
+    ).toHaveAttribute("aria-expanded", "false");
+    // Folded, so the picker's own control is not on screen.
+    await expect(studio.getByLabel("Hotspot")).toHaveCount(0);
+
+    await focalPoint.click();
+    await expect(focalPoint).toHaveAttribute("aria-expanded", "true");
+
+    // And the thumbnail opens the image at a size worth looking at.
+    await studio.getByRole("button", { name: "View image" }).click();
+    const dialog = studio.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          dialog
+            .locator("img")
+            .first()
+            .evaluate((i) => (i as HTMLImageElement).naturalWidth),
+        { message: "the large preview did not decode" },
+      )
+      .toBeGreaterThan(0);
+
+    await page.keyboard.press("Escape");
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(0);
+  });
+
   test("s.file() uploads a non-image", async ({ page }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22file%22`);
     const studio = page.locator("#val-shadow-root");

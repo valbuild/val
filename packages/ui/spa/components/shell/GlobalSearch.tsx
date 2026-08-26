@@ -5,6 +5,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  History,
   Search,
   TextSearch,
 } from "lucide-react";
@@ -21,7 +22,7 @@ export type SearchResult = {
    * any row, which is the point of finding it.
    */
   id: string;
-  kind: "page" | "external" | "media" | "data" | "content";
+  kind: "page" | "external" | "media" | "data" | "content" | "recent";
   /** What the row shows. */
   label: string;
   /** Secondary line: url path, directory or module file path. */
@@ -34,6 +35,7 @@ const KIND_ICON: Record<SearchResult["kind"], typeof FileText> = {
   media: ImageIcon,
   data: Braces,
   content: TextSearch,
+  recent: History,
 };
 
 const KIND_LABEL: Record<SearchResult["kind"], string> = {
@@ -42,6 +44,7 @@ const KIND_LABEL: Record<SearchResult["kind"], string> = {
   media: "Media",
   data: "Data",
   content: "In content",
+  recent: "Recently changed",
 };
 
 /**
@@ -116,6 +119,15 @@ export type GlobalSearchProps = {
    * is already filtered by the query, so it is not filtered again here.
    */
   contentResults?: SearchResult[];
+  /**
+   * The last few things that changed, newest first.
+   *
+   * Offered for the empty query only, above everything else. Opening search
+   * without typing is most often "take me back to what I was just editing", and
+   * a list of every page in the project does not answer that — it answers "take
+   * me somewhere", which is what typing is for.
+   */
+  recentResults?: SearchResult[];
   /** True while the content index is still answering, or still filling. */
   isSearchingContent?: boolean;
   /** Called as the query changes, so the app can run the content search. */
@@ -134,6 +146,7 @@ export type GlobalSearchProps = {
 export function GlobalSearch({
   results,
   contentResults,
+  recentResults,
   isSearchingContent,
   onQueryChange,
   onSelect,
@@ -172,9 +185,12 @@ export function GlobalSearch({
     const content = (q ? (contentResults ?? []) : []).filter(
       (result) => !seen.has(result.id),
     );
+    // Recently changed answers the empty query and nothing else: once there is
+    // a query, what you asked for beats what you happened to touch last.
+    const recent = q ? [] : (recentResults ?? []);
     // Kept as one flat list so arrow keys move across the groups.
-    return [...navigation, ...content].slice(0, 40);
-  }, [results, contentResults, query]);
+    return [...recent, ...navigation, ...content].slice(0, 40);
+  }, [results, contentResults, recentResults, query]);
 
   // A stale highlight after retyping would send Enter somewhere unexpected.
   useEffect(() => setActiveIndex(0), [query]);

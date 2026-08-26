@@ -38,6 +38,7 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export type KeyPreview = {
   title: string;
@@ -313,11 +314,7 @@ export function KeyOfField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

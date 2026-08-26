@@ -11,6 +11,7 @@ import {
 } from "../ValFieldProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export function NumberField({
   path,
@@ -84,11 +85,7 @@ export function NumberField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

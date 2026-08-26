@@ -208,6 +208,9 @@ export function Module({
               key={path}
               path={path}
               showChildPath={showModuleGalleryChild}
+              // A readonly gallery module offered upload, delete and alt text
+              // regardless, and every one of them wrote a patch.
+              readonly={schema.readonly}
             />
           ) : (
             <AnyField key={path} path={path} schema={schema} />

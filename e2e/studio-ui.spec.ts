@@ -489,6 +489,61 @@ test.describe("a field inside a jsonValues entry", () => {
 });
 
 /**
+ * Getting back to what you were just editing.
+ *
+ * The empty search used to answer with every page in the project, which answers
+ * "take me somewhere" — but opening search without typing is usually "take me
+ * back". The patch sets already know: they are newest first and grouped by the
+ * thing that changed, which is exactly this list.
+ *
+ * This is also the first thing that makes the activity rows mean anything. They
+ * carried an id that was a React key rather than a path, and no handler was
+ * passed for them at all, so clicking one did nothing.
+ */
+test.describe("recently changed", () => {
+  test("is offered by search, and goes back to it", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+
+    const title = studio.locator("input").first();
+    await expect(title).toHaveValue("Blog 1");
+    await title.fill("Blog 1 revisited");
+
+    // Somewhere else entirely, so going back has to actually navigate.
+    await openStudio(page, "/val/~/content/authors.val.ts");
+
+    await studio.getByRole("button", { name: "Search" }).first().click();
+    await expect(
+      studio.getByText("Recently changed"),
+      "the empty search did not offer what had just changed",
+    ).toBeVisible({ timeout: 30000 });
+
+    // The row reads as a trail from the file to the field inside it.
+    const row = studio.getByRole("button", { name: /page › .*title/ }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+
+    // Back on the blog post, with the edit still there.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("p"), {
+        message: "going back to a recent change did not open it",
+      })
+      .toContain("title");
+    await expect(studio.locator("input").first()).toHaveValue(
+      "Blog 1 revisited",
+    );
+    await clearPatchChain(request);
+  });
+});
+
+/**
  * Creating a page, which needs to say which route.
  *
  * A project can have several routers that accept one — `/blogs/[blog]`,
@@ -543,5 +598,87 @@ test.describe("creating a page", () => {
       "the form let an existing path through",
     ).toBeVisible();
     await expect(studio.getByRole("button", { name: "Create" })).toBeDisabled();
+  });
+});
+
+/**
+ * `hidden()` and `readonly()`.
+ *
+ * Nothing on the server enforces either: a patch for a readonly field is
+ * accepted, and a hidden field's value is served like any other. The Studio is
+ * the whole of the enforcement, which makes "it looks readonly" and "it IS
+ * readonly" different claims — and only the second is worth anything.
+ *
+ * Readonly was the first kind: the field was dimmed and mouse-proof
+ * (`pointer-events-none`), and still perfectly typeable once Tab had put the
+ * cursor in it, patch and all. So the assertion is a keystroke and the chain
+ * length, not a class name.
+ *
+ * Fixture: `examples/next/content/access.val.ts`.
+ */
+test.describe("hidden and readonly", () => {
+  const MODULE = "/content/access.val.ts";
+
+  test("a readonly field cannot be typed into, by mouse or keyboard", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+
+    const locked = studio.locator('input[value="Do not edit"]');
+    await expect(locked).toBeVisible({ timeout: 30000 });
+
+    // Focus it the way `pointer-events-none` cannot stop, then type.
+    await locked.evaluate((el) => (el as HTMLInputElement).focus());
+    await page.keyboard.type("nope");
+
+    await expect(locked, "typing into a readonly field changed it").toHaveValue(
+      "Do not edit",
+    );
+    await expect
+      .poll(() => chainLength(page), {
+        message: "a readonly field wrote a patch",
+      })
+      .toBe(0);
+  });
+
+  test("a hidden field is not rendered at all", async ({ page }) => {
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+    // The editable field proves the module rendered.
+    await expect(studio.locator('input[value="Type here"]')).toBeVisible({
+      timeout: 30000,
+    });
+
+    // Not as a disabled row, not as an empty labelled box: absent.
+    await expect(studio.getByText("secret", { exact: true })).toHaveCount(0);
+    await expect(
+      studio.locator('input[value="Not on screen"]'),
+      "a hidden field put its value in the DOM",
+    ).toHaveCount(0);
+    await expect(
+      studio.locator('input[value="Also not on screen"]'),
+      "a hidden field nested in an object was still rendered",
+    ).toHaveCount(0);
+  });
+
+  test("an editable field beside them still works", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+    const editable = studio.locator('input[value="Type here"]');
+    await expect(editable).toBeVisible({ timeout: 30000 });
+    await editable.fill("Typed");
+    await expect
+      .poll(() => chainLength(page), {
+        message: "the restricted fields took the editable one down with them",
+      })
+      .toBeGreaterThan(0);
+    await clearPatchChain(request);
   });
 });

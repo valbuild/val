@@ -67,6 +67,9 @@ export type ShellSelection = {
   isTracked?: boolean;
 };
 
+/** How many recent changes the search offers. See `recentSearchResults`. */
+const RECENT_SEARCH_LIMIT = 5;
+
 export type ShellProps = {
   data: ShellData;
   /** Panel to open on mount. */
@@ -345,6 +348,26 @@ export function Shell({
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
+  /**
+   * The last few things that changed, as search rows.
+   *
+   * From the activity feed, which is the patch sets — already newest first and
+   * already grouped by the thing that changed. Five, because this is a "take me
+   * back" list rather than a history: past that it stops being a shortcut and
+   * starts being something to read.
+   */
+  const recentSearchResults = useMemo(
+    (): SearchResult[] =>
+      (data.activity ?? []).slice(0, RECENT_SEARCH_LIMIT).map((entry) => ({
+        id: entry.sourcePath,
+        kind: "recent",
+        label: entry.title,
+        detail: entry.author
+          ? `${entry.timestamp} · ${entry.author}`
+          : entry.timestamp,
+      })),
+    [data.activity],
+  );
 
   /** See `availableDestinations`. */
   const destinations = useMemo(
@@ -744,6 +767,7 @@ export function Shell({
         <GlobalSearch
           results={searchResults}
           contentResults={searchContentResults}
+          recentResults={recentSearchResults}
           isSearchingContent={isSearchingContent}
           onQueryChange={onSearchQueryChange}
           onSelect={(result) => {

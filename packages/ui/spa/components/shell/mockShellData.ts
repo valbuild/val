@@ -432,24 +432,29 @@ export const mockValidationErrors: ShellValidationError[] = [
 export const mockActivity: ShellActivityEntry[] = [
   {
     id: '/app/page.val.ts?p="/"/hero/title-0',
+    sourcePath: '/app/page.val.ts?p="/"."hero"."title"',
     title: "page › hero › title",
     timestamp: "2 minutes ago",
     author: "Fredrik Ekholdt",
   },
   {
     id: '/app/pricing/page.val.ts?p="/pricing"/plans-1',
+    sourcePath: '/app/pricing/page.val.ts?p="/pricing"."plans"',
     title: "page › plans",
     timestamp: "18 minutes ago",
     author: "Fredrik Ekholdt",
   },
   {
     id: "/content/navigation.val.ts?primary-2",
+    sourcePath: '/content/navigation.val.ts?p="primary"',
     title: "navigation › primary",
     timestamp: "1 hour ago",
     author: "Ida Sørensen",
   },
   {
     id: '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"/text-3',
+    sourcePath:
+      '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"."text"',
     title: "page › /blog/why-we-built-val › text",
     timestamp: "Yesterday",
   },

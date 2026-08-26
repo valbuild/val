@@ -23,4 +23,6 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
+  // `hidden()` and `readonly()`, which the Studio is the only thing enforcing.
+  { def: () => import("./content/access.val") },
 ]);

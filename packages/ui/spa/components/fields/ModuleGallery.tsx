@@ -42,9 +42,20 @@ const textEncoder = new TextEncoder();
 export function ModuleGallery({
   path,
   showChildPath: showChild,
+  readonly,
 }: {
   path: SourcePath;
   showChildPath?: SourcePath;
+  /**
+   * `s.images().readonly()` — look, do not touch.
+   *
+   * The gallery had no notion of it at all, so a readonly module still offered
+   * upload, delete and alt text, and every one of them wrote a patch. The three
+   * handlers are simply withheld: `FileGallery` already hides an action it was
+   * given no handler for, which is better than a disabled button that invites a
+   * click and then explains itself.
+   */
+  readonly?: boolean;
 }) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
@@ -670,9 +681,11 @@ export function ModuleGallery({
         files={files}
         parentPath={moduleFilePath}
         imageMode={imageMode}
-        onAltTextChange={imageMode ? handleAltTextChange : undefined}
-        onFileDelete={handleFileDelete}
-        onUploadClick={() => inputRef.current?.click()}
+        onAltTextChange={
+          imageMode && !readonly ? handleAltTextChange : undefined
+        }
+        onFileDelete={readonly ? undefined : handleFileDelete}
+        onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
         uploading={uploading}
         defaultOpenFileRef={showChildRef ?? undefined}
         isDraggingOver={isDraggingOver}

@@ -19,6 +19,7 @@ import {
   useShallowSourceAtPath,
 } from "../ValFieldProvider";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 /**
  * The transparency checkerboard shown behind a swatch. Inlined rather than put
@@ -287,11 +288,7 @@ export function ColorField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

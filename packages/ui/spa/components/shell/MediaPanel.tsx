@@ -24,6 +24,7 @@ import {
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint, ShellMediaFile, ShellMediaGallery } from "./types";
 import { servedPath } from "../../utils/mediaPath";
+import { MediaThumbnail } from "../MediaThumbnail";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
 export type MediaPanelProps = {
@@ -343,13 +344,10 @@ function FileRow({
       >
         <span className="grid place-items-center w-6 h-6 shrink-0 overflow-hidden rounded bg-bg-float-raised">
           {showImage ? (
-            <img
-              src={url}
-              alt=""
+            <MediaThumbnail
+              url={url}
               loading="lazy"
-              decoding="async"
               onError={() => setFailed(true)}
-              className="h-full w-full object-cover"
             />
           ) : gallery.mediaType === "images" ? (
             <ImageIcon size={12} className="text-fg-secondary-alt" />

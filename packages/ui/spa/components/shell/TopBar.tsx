@@ -511,6 +511,10 @@ function SearchTrigger({
   return (
     <button
       type="button"
+      // Labelled as well as captioned: the word and the shortcut are both
+      // `lg:inline`, so between the mobile breakpoint and `lg` this button has
+      // an icon and nothing else to take its name from.
+      aria-label="Search"
       onClick={onClick}
       className="inline-flex items-center gap-2 h-8 pl-2 pr-1.5 rounded-md text-xs text-fg-secondary-alt border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
     >

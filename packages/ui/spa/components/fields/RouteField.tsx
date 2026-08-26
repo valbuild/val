@@ -48,6 +48,7 @@ import {
 } from "../useCreateRouteEntry";
 import { NewPageForm, AvailableRoute } from "../NavMenu/NewPageForm";
 import { CommandSeparator } from "../designSystem/command";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export interface RouteSelectorRoute {
   route: string;
@@ -516,11 +517,7 @@ export function RouteField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

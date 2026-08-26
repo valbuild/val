@@ -19,6 +19,7 @@ import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
 import { useModuleMediaEntries } from "./useModuleMediaEntries";
 import { servedPath } from "../../utils/mediaPath";
+import { MediaThumbnail } from "../MediaThumbnail";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -316,18 +317,14 @@ export function MediaPickerList({
                     )}
                   />
                   {isImage && mimeType?.startsWith("image/") ? (
-                    <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-bg-secondary">
-                      <img
-                        src={
-                          getUrl
-                            ? getUrl(row.filePath)
-                            : servedPath(row.filePath)
-                        }
-                        alt={alt || filename}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    </div>
+                    <MediaThumbnail
+                      url={
+                        getUrl ? getUrl(row.filePath) : servedPath(row.filePath)
+                      }
+                      alt={alt || filename}
+                      loading="lazy"
+                      className="h-8 w-8 shrink-0 rounded bg-bg-secondary"
+                    />
                   ) : (
                     <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
                       {isImage ? (

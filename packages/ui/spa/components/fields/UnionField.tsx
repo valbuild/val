@@ -32,6 +32,7 @@ import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -124,11 +125,7 @@ export function UnionField({
       </div>
     );
     if (readonly) {
-      return (
-        <div className="pointer-events-none opacity-70" aria-disabled="true">
-          {stringUnionContent}
-        </div>
-      );
+      return <ReadonlyGuard>{stringUnionContent}</ReadonlyGuard>;
     }
     return stringUnionContent;
   } else if (!isStringUnion(schemaAtPath.data)) {

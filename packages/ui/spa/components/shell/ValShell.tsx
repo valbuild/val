@@ -670,6 +670,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onCompare={showCompare}
+      // Recent activity rows did nothing: the panel listed them and no handler
+      // was passed. They carry a real source path, so opening one is the same
+      // act as opening a search hit.
+      onSelectActivity={(entry) => openPath(entry.sourcePath as SourcePath)}
       getMediaFileUrl={getMediaFileUrl}
       searchContentResults={contentSearch.results}
       isSearchingContent={contentSearch.isSearching}
