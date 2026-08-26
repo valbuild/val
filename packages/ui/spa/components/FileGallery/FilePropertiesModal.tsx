@@ -258,7 +258,10 @@ export function FilePropertiesModal({
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
-                    className="w-[clamp(300px,40vw,400px)] p-0 z-[8999]"
+                    // Narrower than it was: the rows no longer repeat the
+                    // module path, so there is less to fit and less reason to
+                    // take 40% of the window for a menu.
+                    className="w-[clamp(260px,32vw,360px)] p-0 z-[8999]"
                     container={container}
                   >
                     <ConnectedReferencesList

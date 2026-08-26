@@ -20,11 +20,17 @@ export function DropdownPreviewRow({
   subtitle,
   image,
   className,
+  imageSize = "md",
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   image?: DropdownPreviewImage;
   className?: string;
+  /**
+   * `sm` where the row is a menu item rather than a card — see
+   * `ReferencesList`, whose rows carry a border of their own and have less room.
+   */
+  imageSize?: "sm" | "md";
 }) {
   const imageUrl = resolveImageUrl(image);
   return (
@@ -48,7 +54,12 @@ export function DropdownPreviewRow({
           ))}
       </div>
       {imageUrl && (
-        <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary">
+        <div
+          className={cn(
+            "shrink-0 overflow-hidden rounded bg-bg-secondary",
+            imageSize === "sm" ? "h-7 w-7" : "h-8 w-8",
+          )}
+        >
           <img
             src={imageUrl}
             alt={typeof title === "string" ? title : ""}
