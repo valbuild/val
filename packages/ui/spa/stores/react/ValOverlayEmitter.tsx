@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ModuleFilePath } from "@valbuild/core";
-import { useValSystem } from "./SystemContext";
+import { useValSystem, type ValSystem } from "./SystemContext";
 
 /**
  * How long a burst of edits is collected before the host page is told.
@@ -13,14 +13,55 @@ import { useValSystem } from "./SystemContext";
 const DEBOUNCE_MS = 200;
 
 /**
+ * Read one module's source as it stands, and hand it over.
+ *
+ * Shared by the subscription below and by the snapshot after it, because the
+ * `.jsonValues()` handling is the part that is easy to get wrong and impossible
+ * to notice — an entry the user edited but never opened is a marker in source,
+ * so the receiver falls back to committed content and the edit looks lost.
+ */
+function emitModuleSource(
+  system: ValSystem["system"],
+  moduleFilePath: ModuleFilePath,
+  onUpdate: (moduleFilePath: ModuleFilePath, source: unknown) => void,
+): void {
+  const source = system.sourceStore.moduleSource(moduleFilePath);
+  if (source === undefined) {
+    return;
+  }
+  /**
+   * Ask for the entries this module's own patches touch; when they land the
+   * module changes again and the subscription runs with real content.
+   *
+   * Derived from the patch ops rather than tracked: the first segment of an op
+   * path IS the record key, so the set of entries an edit could have touched is
+   * exactly what the chain says.
+   */
+  const keys = new Set<string>();
+  for (const record of system.patchStore.allRecords()) {
+    if (record.moduleFilePath !== moduleFilePath) continue;
+    for (const op of record.patch) {
+      const key = op.path[0];
+      if (typeof key === "string") keys.add(key);
+    }
+  }
+  if (keys.size > 0) {
+    void system.sourceStore.loadEntries(moduleFilePath, [...keys]);
+  }
+  // The store's own object. The receiver is a different bundle reading it,
+  // never writing it — and cloning a whole module per burst is the cost the
+  // debounce exists to avoid paying more than once.
+  onUpdate(moduleFilePath, source);
+}
+
+/**
  * Subscribe to module sources moving, debounced and made whole.
  *
  * Split out from the component below because there are now two places a
  * customer's page can be: behind the Studio, sharing its window, and inside the
  * canvas, which is a different document reached by `postMessage`. Both need the
  * same payload and the same debounce, and neither should own a second copy of
- * the rules for building it — particularly the `.jsonValues()` handling, which
- * is the part that is easy to get wrong and impossible to notice.
+ * the rules for building it.
  */
 export function useValSourceUpdates(
   enabled: boolean,
@@ -40,38 +81,10 @@ export function useValSourceUpdates(
     const pending = new Set<ModuleFilePath>();
     let timeout: ReturnType<typeof setTimeout> | null = null;
 
-    const emit = (moduleFilePath: ModuleFilePath) => {
-      const source = system.sourceStore.moduleSource(moduleFilePath);
-      if (source === undefined) {
-        return;
-      }
-      /**
-       * A `.jsonValues()` entry the user has edited but never opened this
-       * session is still a marker in source, so the host would fall back to the
-       * committed content and the edit would look lost. Ask for the entries the
-       * module's own patches touch; when they land the module changes again and
-       * this runs once more with real content.
-       *
-       * Derived from the patch ops rather than tracked: the first segment of an
-       * op path IS the record key, so the set of entries an edit could have
-       * touched is exactly what the chain says.
-       */
-      const keys = new Set<string>();
-      for (const record of system.patchStore.allRecords()) {
-        if (record.moduleFilePath !== moduleFilePath) continue;
-        for (const op of record.patch) {
-          const key = op.path[0];
-          if (typeof key === "string") keys.add(key);
-        }
-      }
-      if (keys.size > 0) {
-        void system.sourceStore.loadEntries(moduleFilePath, [...keys]);
-      }
-      // The store's own object. The host is a different bundle reading it,
-      // never writing it — and cloning a whole module per burst is the cost
-      // this debounce exists to avoid paying more than once.
-      onUpdateRef.current(moduleFilePath, source);
-    };
+    const emit = (moduleFilePath: ModuleFilePath) =>
+      emitModuleSource(system, moduleFilePath, (path, source) =>
+        onUpdateRef.current(path, source),
+      );
 
     const off = system.sourceStore.events.on("source:change", (event) => {
       pending.add(event.moduleFilePath);
@@ -90,6 +103,43 @@ export function useValSourceUpdates(
       if (timeout !== null) clearTimeout(timeout);
     };
   }, [val, enabled]);
+}
+
+/**
+ * Every module with unsaved work, as it stands right now.
+ *
+ * The subscription above only fires on a *change*, which is the wrong shape for
+ * something that has just started listening. A canvas frame gets its content
+ * from the server when the page is requested, and there are reasons that render
+ * can miss uncommitted work — a cached route, a patch written after the request
+ * went out — so a freshly loaded canvas sometimes showed the published page
+ * while the editor beside it showed the edit, and stayed that way until the next
+ * keystroke happened to relay one.
+ *
+ * Modules with a pending patch rather than everything the page reports: those
+ * are exactly the ones whose content could disagree, the set is small, and it
+ * does not need to know anything about the page.
+ */
+export function useValPendingSourceSnapshot(): (
+  onUpdate: (moduleFilePath: ModuleFilePath, source: unknown) => void,
+) => void {
+  const val = useValSystem();
+  return useCallback(
+    (onUpdate) => {
+      if (val === null) {
+        return;
+      }
+      const system = val.system;
+      const moduleFilePaths = new Set<ModuleFilePath>();
+      for (const record of system.patchStore.allRecords()) {
+        moduleFilePaths.add(record.moduleFilePath);
+      }
+      for (const moduleFilePath of moduleFilePaths) {
+        emitModuleSource(system, moduleFilePath, onUpdate);
+      }
+    },
+    [val],
+  );
 }
 
 /**

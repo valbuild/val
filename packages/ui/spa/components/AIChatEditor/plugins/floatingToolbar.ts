@@ -92,7 +92,7 @@ export function createChatFloatingToolbarPlugin(
       toolbarEl = document.createElement("div");
       const portal = options?.getPortalContainer?.();
       toolbarEl.className = [
-        `${portal ? "fixed" : "absolute"} z-50 flex items-center gap-x-0.5 rounded-md border border-border-primary`,
+        `${portal ? "fixed" : "absolute"} z-window flex items-center gap-x-0.5 rounded-md border border-border-primary`,
         "bg-bg-primary px-1 py-1 shadow-lg",
       ].join(" ");
       toolbarEl.style.display = "none";

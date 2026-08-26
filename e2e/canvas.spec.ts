@@ -536,6 +536,40 @@ test.describe("the canvas", () => {
     await expect(
       studio.locator("[data-val-studio-path*='\"label\"']").first(),
     ).toBeVisible();
+
+    /**
+     * And it is actually in view, not merely rendered.
+     *
+     * The scroll used to be computed from `offsetTop`, which is measured from
+     * the nearest positioned ancestor — and the field tree has plenty of them —
+     * so it reported a fraction of the distance to the scroll container. The
+     * scroll stopped short and left the field below the fold, which reads as
+     * "the navigation did nothing".
+     */
+    // Polled: the scroll is smooth, so a single read lands mid-animation and
+    // reports wherever the field happened to be on the way.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const root = document.getElementById("val-shadow-root")?.shadowRoot;
+            const container = root?.getElementById("val-content-area");
+            const field = root?.querySelector(
+              "[data-val-studio-path*='\"label\"']",
+            );
+            if (!container || !field) return "not-found";
+            const outer = container.getBoundingClientRect();
+            const inner = field.getBoundingClientRect();
+            if (inner.top < outer.top) return "above the top";
+            if (inner.bottom > outer.bottom) return "below the bottom";
+            return "in view";
+          }),
+        {
+          message: "the field never reached the editor's visible area",
+          timeout: 10000,
+        },
+      )
+      .toBe("in view");
   });
 
   /**

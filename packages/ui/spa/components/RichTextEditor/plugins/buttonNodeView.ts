@@ -82,7 +82,7 @@ function createOverlayManager(
     const portal = options?.getPortalContainer?.();
     const useFixed = !!portal;
     overlayContainer.className = [
-      `${useFixed ? "fixed" : "absolute"} z-[60] rounded-md border border-border-primary`,
+      `${useFixed ? "fixed" : "absolute"} z-window rounded-md border border-border-primary`,
       "bg-bg-primary p-1 shadow-lg",
     ].join(" ");
     const mountTarget = portal ?? parent;

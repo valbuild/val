@@ -555,6 +555,16 @@ export function PageWorkspace({
     // scrolls the editor.
     <div
       id="val-content-area"
+      /**
+       * How far below the container's top a field has to land.
+       *
+       * Read by `doScroll` in `ValRouter`, because only this layout knows what
+       * is covering the column. With the view switch on screen the switch has a
+       * row of its own above the scroller and a small gap is enough; without it
+       * the column runs up under the shell's floating top bar, and a field
+       * scrolled flush to the top lands behind it.
+       */
+      data-scroll-clearance={columnHasHeaderRow ? 16 : 96}
       className="h-full overflow-y-auto scrollbar-slim"
     >
       {/*
@@ -857,7 +867,10 @@ function SplitDivider({
         }
       }}
       className={cn(
-        "group relative z-10 w-3 shrink-0 cursor-col-resize self-stretch",
+        // `z-hover`: the grab handle sits over the edge of both panes. It said
+        // `z-10`, which is not on this project's scale at all, so Tailwind
+        // emitted nothing and it was relying on source order.
+        "group relative z-hover w-3 shrink-0 cursor-col-resize self-stretch",
         "focus-visible:outline-none",
       )}
     >

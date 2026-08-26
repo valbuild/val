@@ -115,11 +115,39 @@ export function scrollToStudioPath(path: string, retries = 100) {
   execScroll();
 }
 
+/** Clearance to leave above a field when nothing says otherwise. */
+const DEFAULT_SCROLL_CLEARANCE = 16;
+
+/**
+ * Bring a field to the top of the editor, below whatever floats over it.
+ *
+ * Measured from bounding rects rather than from `offsetTop`. `offsetTop` is
+ * relative to the nearest *positioned* ancestor, and the field tree has plenty
+ * of those, so what it reports is usually a fraction of the distance to the
+ * scroll container — the scroll then stopped short and left the field below the
+ * fold. Rects plus the container's current `scrollTop` is the real distance
+ * whatever the tree looks like.
+ *
+ * The clearance comes from the container, because only the layout knows what is
+ * covering it: the shell's top bar floats over the editor column, and in the
+ * canvas the view switch takes a row of its own instead. A field scrolled to
+ * `top` in the first case lands underneath the bar.
+ */
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
-  shadowRoot.getElementById("val-content-area")?.scrollTo({
-    top: Math.max(0, element.offsetTop - 16),
-    behavior: "smooth",
-  });
+  const container = shadowRoot.getElementById("val-content-area");
+  if (container) {
+    const declared = Number(container.dataset.scrollClearance);
+    const clearance = Number.isFinite(declared)
+      ? declared
+      : DEFAULT_SCROLL_CLEARANCE;
+    const distance =
+      element.getBoundingClientRect().top -
+      container.getBoundingClientRect().top;
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + distance - clearance),
+      behavior: "smooth",
+    });
+  }
   element.classList.remove("val-scroll-highlight");
   void element.offsetWidth;
   element.classList.add("val-scroll-highlight");

@@ -643,7 +643,9 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
           ref={fixedToolbarMountRef}
           className={[
             "rounded-t-md border border-input",
-            "bg-bg-secondary absolute left-0 top-0 z-5 w-full",
+            // `z-hover`: a bar pinned over the top of the editor's own content,
+            // and nothing more. `z-5` put it over the shell's chrome as well.
+            "bg-bg-secondary absolute left-0 top-0 z-hover w-full",
           ].join(" ")}
         />
       )}

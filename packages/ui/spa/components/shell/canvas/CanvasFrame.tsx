@@ -7,9 +7,12 @@ import {
   ValCanvasStudioMessage,
   withValCanvasParam,
 } from "@valbuild/shared/internal";
-import { SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { cn } from "../../designSystem/cn";
-import { useValSourceUpdates } from "../../../stores/react/ValOverlayEmitter";
+import {
+  useValPendingSourceSnapshot,
+  useValSourceUpdates,
+} from "../../../stores/react/ValOverlayEmitter";
 
 /**
  * How the frame is currently doing.
@@ -183,14 +186,36 @@ export function CanvasFrame({
    * the canvas is only correct for the instant after it loads.
    */
   const isLive = state.status === "ready" && state.draftMode;
-  useValSourceUpdates(isLive, (moduleFilePath, source) => {
-    send({
-      val: VAL_CANVAS_MESSAGE,
-      type: "sourceUpdate",
-      moduleFilePath,
-      source,
-    });
-  });
+  const sendSourceUpdate = useCallback(
+    (moduleFilePath: ModuleFilePath, source: unknown) => {
+      send({
+        val: VAL_CANVAS_MESSAGE,
+        type: "sourceUpdate",
+        moduleFilePath,
+        source,
+      });
+    },
+    [send],
+  );
+  useValSourceUpdates(isLive, sendSourceUpdate);
+
+  /**
+   * And catch the page up the moment it is listening.
+   *
+   * The relay above only carries a *change*, which is nothing at all for a page
+   * that has just loaded: whatever it got from the server is what it shows, and
+   * a freshly opened canvas sometimes showed published content beside an editor
+   * full of edits — then corrected itself on the next keystroke, which made it
+   * look intermittent rather than like a missing step.
+   *
+   * Keyed on the reload as well as on going live, because a reload is a new
+   * document with the same problem.
+   */
+  const sendPendingSources = useValPendingSourceSnapshot();
+  useEffect(() => {
+    if (!isLive) return;
+    sendPendingSources(sendSourceUpdate);
+  }, [isLive, reloadKey, sendPendingSources, sendSourceUpdate]);
 
   const blocked =
     (state.status === "ready" && !state.draftMode) ||

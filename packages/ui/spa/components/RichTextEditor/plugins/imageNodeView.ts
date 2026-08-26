@@ -165,7 +165,7 @@ export function createImageNodeView(
       const portal = options?.getPortalContainer?.();
       if (portal) {
         overlayContainer.className = [
-          "fixed z-50 rounded-md border border-border-primary",
+          "fixed z-window rounded-md border border-border-primary",
           "bg-bg-primary p-2 shadow-lg",
         ].join(" ");
         const imgRect = img.getBoundingClientRect();
@@ -174,7 +174,7 @@ export function createImageNodeView(
         portal.appendChild(overlayContainer);
       } else {
         overlayContainer.className = [
-          "absolute z-50 rounded-md border border-border-primary",
+          "absolute z-window rounded-md border border-border-primary",
           "bg-bg-primary p-2 shadow-lg",
         ].join(" ");
         overlayContainer.style.left = "0";

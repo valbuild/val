@@ -20,6 +20,15 @@ const SELECTION = "#079455";
 const SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
 
 /**
+ * How often the page is re-measured even when nothing said it changed.
+ *
+ * A backstop, not the mechanism — the observers below carry the responsive
+ * case. Slow enough to be free, fast enough that a field which appeared late is
+ * in the list before anyone goes looking for it.
+ */
+const RESCAN_INTERVAL_MS = 5000;
+
+/**
  * The page's half of the canvas protocol.
  *
  * Mounted only in the studio's canvas frame. Its job is to tell the studio
@@ -46,6 +55,16 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
     // already displaying.
     window.parent.postMessage(message, "*");
   }, []);
+
+  /**
+   * The last payload posted, as a string.
+   *
+   * The periodic scan below runs whether or not anything moved, and an
+   * unchanged payload costs the studio a re-render of the fields column for
+   * nothing. Compared as a string because the comparison has to be by value —
+   * every scan builds fresh objects.
+   */
+  const lastPosted = React.useRef<string | null>(null);
 
   /** Every element Val tagged, with where it is on the page. */
   const scan = React.useCallback(() => {
@@ -88,7 +107,7 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
         },
       });
     });
-    post({
+    const message: ValCanvasPageMessage = {
       val: VAL_CANVAS_MESSAGE,
       type: "elements",
       elements,
@@ -96,7 +115,13 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
         width: document.documentElement.scrollWidth,
         height: document.documentElement.scrollHeight,
       },
-    });
+    };
+    const serialized = JSON.stringify(message);
+    if (serialized === lastPosted.current) {
+      return;
+    }
+    lastPosted.current = serialized;
+    post(message);
   }, [post]);
 
   // Announce the frame, and say whether it is actually showing draft content.
@@ -147,6 +172,61 @@ export function ValCanvasBridge({ draftMode }: { draftMode: boolean }) {
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("load", schedule);
+    };
+  }, [scan]);
+
+  /**
+   * And re-scan every few seconds regardless.
+   *
+   * The event-driven scan above is not enough in practice, and the way it fails
+   * is confusing rather than obviously broken: the fields column shows some of
+   * what is on the page and not the rest, until you happen to edit one of the
+   * missing ones and they appear. Anything that tags content after the observers
+   * are set up but produces no mutation they watch — a streamed-in server
+   * component, an element that measured zero because its image had not decoded,
+   * content revealed by something outside `data-val-path`, `class` and `style` —
+   * is invisible until the next unrelated change. A slow poll costs nothing and
+   * closes all of those at once, without having to guess which one it was.
+   *
+   * Idle-scheduled, and never on the frame's critical path. A scan is a
+   * `querySelectorAll` plus a forced layout per tagged element, which is exactly
+   * the kind of work that should wait for a gap rather than take one — and this
+   * runs inside the customer's own page, where Val is a guest. Skipped entirely
+   * while the frame is hidden, where the boxes cannot have moved and nobody is
+   * looking at them.
+   */
+  React.useEffect(() => {
+    let idle: number | null = null;
+    const runWhenIdle = () => {
+      if (document.hidden || idle !== null) return;
+      // `requestIdleCallback` where it exists, a timeout where it does not
+      // (Safari). The timeout option matters: without it a busy page can defer
+      // an idle callback indefinitely, which is the one outcome worse than
+      // scanning at a bad moment.
+      if (typeof window.requestIdleCallback === "function") {
+        idle = window.requestIdleCallback(
+          () => {
+            idle = null;
+            scan();
+          },
+          { timeout: 1000 },
+        );
+      } else {
+        idle = window.setTimeout(() => {
+          idle = null;
+          scan();
+        }, 0);
+      }
+    };
+    const interval = window.setInterval(runWhenIdle, RESCAN_INTERVAL_MS);
+    return () => {
+      window.clearInterval(interval);
+      if (idle === null) return;
+      if (typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idle);
+      } else {
+        window.clearTimeout(idle);
+      }
     };
   }, [scan]);
 
