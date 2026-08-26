@@ -164,11 +164,23 @@ whoever owns the public API. The type already allows it (`suspend?: boolean`
 accepts `await isValEnabled()`); what is missing is the provider honouring the
 value it is given instead of always starting from `false`.
 
+### What a visitor pays
+
+Nothing. Measured on a fresh context with no `val_enable` cookie: **zero**
+`/api/val` requests, no Val elements in the DOM, and no timers — the refresh
+loop, the `/draft/stat` poll and the safety refresh are all behind
+`mountOverlay`, which is the cookie. The suspend gates short-circuit on
+`suspend`, which stays false. The `draftModeReady` promise is only built when
+`props.suspend` is set.
+
+This is worth keeping true, and it is the whole reason (3) above is still open:
+the fix for it — the server knowing whether Val is enabled — is the one change
+here that WOULD cost a visitor something, because reading `cookies()` opts the
+route into dynamic rendering for everyone.
+
 ### Where this is pinned
 
-`packages/next/src/client/useValRoute.draft.test.tsx` — seven fast tests, one
-per state, including the two that differ ONLY in whether the gate was on for the
-deciding render. Prefer adding here over an e2e: every state above shows up in a
-browser as either a 404 or a loading fallback, so an e2e cannot tell them apart.
-`e2e/uncommitted-routes.spec.ts` covers the whole path end to end, and its
+`packages/next/src/client/useValRoute.draft.test.tsx` — one test per state,
+including the two that differ ONLY in whether the gate was on for the deciding
+render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).

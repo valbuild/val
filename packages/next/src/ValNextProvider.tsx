@@ -164,7 +164,10 @@ export const ValNextProvider = (props: {
     promise: Promise<void>;
     resolve: () => void;
   } | null>(null);
-  if (draftModeReady.current === null) {
+  // Only for a page that opted in. A visitor with Val off never reads it, and
+  // an object created per mount for nobody is the kind of cost that is invisible
+  // until it is in every page of every app.
+  if (props.suspend && draftModeReady.current === null) {
     let resolve = () => undefined as void;
     const promise = new Promise<void>((r) => {
       resolve = r;
@@ -593,7 +596,7 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider
       draftMode={draftMode}
-      draftModeReady={draftModeReady.current.promise}
+      draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
       suspend={suspendActive}
       store={valStore}
