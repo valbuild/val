@@ -9,7 +9,9 @@ import { config } from "./val.config";
  * bucket, and `/save` demands remote credentials for EVERY publish — including a
  * publish of plain text. Both need a login this app does not have by default, so
  * registering the module unconditionally would leave a plain `pnpm dev` logging
- * failed requests and unable to publish anything.
+ * failed requests and unable to publish anything. (This held for a remote FIELD
+ * before `hasRemoteFileSchema` was fixed to see remote galleries too; now it holds
+ * for either.)
  *
  * `NEXT_PUBLIC_` because both halves have to agree: the server needs the schema
  * to validate and commit, and the Studio — which is handed `ValModules` in the

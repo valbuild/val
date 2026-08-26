@@ -17,13 +17,11 @@ import {
  * to the content host rather than to disk. Without a content service to talk to
  * there is nothing to test.
  *
- * The fixture is `content/remoteImages.val.ts` — a gallery, deliberately, so
- * that the example app can ship it. A single `s.image().remote()` field would
- * make `hasRemoteFileSchema` true for the whole project and every `fs`-mode
- * publish would then demand remote credentials a local checkout does not have.
- * The upload path being exercised is the same one either way: `ModuleGallery`
- * builds a remote ref with `createRemoteRef` and sends the bytes with
- * `remote: true`.
+ * The fixture is `content/remoteImages.val.ts`, a gallery, registered only when
+ * the app is started in proxy mode — one remote schema anywhere makes every
+ * `fs`-mode publish demand remote credentials a local checkout does not have. The
+ * upload path is the same as a remote field's: `ModuleGallery` builds a remote ref
+ * with `createRemoteRef` and sends the bytes with `remote: true`.
  */
 
 const MODULE = "/content/remoteImages.val.ts";

@@ -62,16 +62,24 @@ stack is pure Radix. Do not start there; census the fiber tree instead
 
 ## Remote files and proxy mode
 
-**Two different functions answer "does this project use remote files", and they
-disagree.** `hasRemoteFileSchema` (server, gates whether `/save` demands remote
-credentials) only looks at `type: "file" | "image"` schemas, so it returns FALSE
-for `s.images({ remote: true })` — a record of metadata, not an image schema.
-`findRequiredRemoteFiles` (Studio, gates the `/remote/settings` fetch) has a
-`record` branch that checks `mediaType && remote`, so it returns TRUE for the same
-schema. A remote gallery therefore makes the Studio ask for remote settings while
-leaving publishing unguarded, and a remote _field_ guards publishing too.
+**"Does this project use remote files" is `hasRemoteFileSchema` in
+`@valbuild/core`, and only that.** There used to be two — the server's, gating
+whether `/save` demands remote credentials, and the Studio's
+`findRequiredRemoteFiles`, gating the `/remote/settings` fetch — and they
+disagreed about `s.images({ remote: true })`. A media collection serializes as a
+`record` of metadata with the file named by the KEY, so a walk that only recurses
+into `item` finds no image schema and says no; that was the server's answer. If
+you add a schema type, teach that one function about it: the `never` assignment in
+its default branch is what makes forgetting a compile error.
 
-**One remote image or file field anywhere makes EVERY publish need remote
+**A `false` there is silent, not safe.** `saveOrUploadFiles` in `skip-remote` mode
+does not merely skip the upload — its loop over remote descriptors is inside the
+`upload-remote` branch, so every remote file is dropped with no error. The commit
+then lands a remote ref with no bytes behind it. That is why the function throws on
+an unknown schema type rather than returning `false`, and why the Studio catches it
+at its one call site instead.
+
+**One remote image, file or gallery anywhere makes EVERY publish need remote
 credentials.** `/save` in `fs` mode calls `getIsRemoteRequired` over all schemas,
 and a single `true` switches the whole save into `upload-remote`, which needs an
 api key or a `.val/pat.json`. A local checkout has neither, so adding one
