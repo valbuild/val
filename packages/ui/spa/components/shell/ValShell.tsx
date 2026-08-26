@@ -170,13 +170,30 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
-   * The page the canvas is currently on, if it is on one.
+   * The route the canvas follows the selection to.
    *
-   * Only a page selection has a URL to show, and only one Val resolves — the
-   * canvas is a view of a route, so a data module or a gallery has nothing to
-   * put on it.
+   * A page selection is a router entry, and a route pointing anywhere inside
+   * one resolves back to that entry — see `resolveSelectionId` — so "on a route,
+   * or somewhere under one" is exactly a page selection.
+   *
+   * Anything else leaves the canvas where it is, and the root is where it
+   * starts. Editing a settings module or a gallery is precisely when watching
+   * the page that renders it is worth having, so a selection that is not a page
+   * must not yank the canvas away from the page you opened it to watch; and
+   * before any page has been opened the canvas still has to show something,
+   * because it is a browser and a browser opens somewhere.
+   *
+   * The last route is kept in a ref rather than in state because it is derived:
+   * it changes exactly when `selectedPageRoute` does, so putting it in state
+   * would re-render to reach a value this render already knows.
    */
-  const selectedPageUrl = selection?.kind === "page" ? selection.urlPath : null;
+  const selectedPageRoute =
+    selection?.kind === "page" ? selection.urlPath : null;
+  const lastPageRoute = useRef("/");
+  if (selectedPageRoute !== null) {
+    lastPageRoute.current = selectedPageRoute;
+  }
+  const selectedRoute = selectedPageRoute ?? lastPageRoute.current;
 
   /**
    * A route typed into the canvas's address bar.
@@ -201,9 +218,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       return;
     }
     setTypedRoute(null);
-  }, [selectedPageUrl]);
+  }, [selectedRoute]);
 
-  const canvasUrl = typedRoute ?? selectedPageUrl;
+  /** Never null: without a route of its own the canvas shows the root. */
+  const canvasUrl = typedRoute ?? selectedRoute;
 
   /**
    * The URL, kept in step with the view.
@@ -218,11 +236,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       (): ShellUrlState => ({
         ...viewState,
         canvasRoute:
-          typedRoute !== null && typedRoute !== selectedPageUrl
+          typedRoute !== null && typedRoute !== selectedRoute
             ? typedRoute
             : null,
       }),
-      [viewState, typedRoute, selectedPageUrl],
+      [viewState, typedRoute, selectedRoute],
     ),
   );
 
@@ -279,7 +297,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * cookies and redirects, so the new tab lands on the page already in preview.
    */
   const openPreviewTab = useCallback(() => {
-    if (canvasUrl === null) return;
     const target = new URL(canvasUrl, window.location.origin).toString();
     window.open(
       `/api/val/enable?redirect_to=${encodeURIComponent(target)}`,
@@ -336,7 +353,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * that lets a page in a different document be part of the editor.
    */
   const renderCanvas = useMemo(() => {
-    if (canvasUrl === null) return undefined;
     return ({
       width,
       height,
@@ -468,7 +484,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       selectedCanvasPath={
         (navigation.currentSourcePath as SourcePath | "") || null
       }
-      canvasRoute={canvasUrl ?? undefined}
+      canvasRoute={canvasUrl}
       onCanvasRouteChange={setTypedRoute}
       canvasRoutes={canvasRoutes}
       initialPanel={urlState.initial.panel}
@@ -578,6 +594,9 @@ function isPathWithin(path: string, id: string): boolean {
  */
 const EMPTY_SHELL_DATA: ShellData = {
   projectName: "Val",
+  // Unknown rather than false, but the shell only reads this once loading is
+  // over — `isLoading` puts every destination on the rail until then.
+  hasRouters: false,
   pages: [],
   externalPages: [],
   media: [],

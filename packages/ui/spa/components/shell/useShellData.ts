@@ -104,6 +104,7 @@ export function useShellData(): ShellDataState {
       data: {
         projectName: config?.project ?? "Val",
         branch: config?.gitBranch,
+        hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
           ? toShellPages(navData.sitemap, modulesWithDrafts)
           : [],

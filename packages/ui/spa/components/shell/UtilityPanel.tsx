@@ -15,6 +15,7 @@ import {
 import {
   ShellActivityEntry,
   ShellBreakpoint,
+  ShellDestination,
   ShellValidationError,
 } from "./types";
 
@@ -29,6 +30,14 @@ export type UtilityPanelProps = {
   onUploadMedia: () => void;
   onNewDataFile: () => void;
   onOpenAI: () => void;
+  /**
+   * The destinations this project has content for. All of them when absent.
+   *
+   * The shortcuts are shortcuts *to the destinations*, so they follow the same
+   * rule the rail does: "Upload media" in a project with no gallery to upload
+   * into is an action that cannot complete.
+   */
+  destinations?: readonly ShellDestination[];
   /**
    * Open the review view: every pending change, side by side with what it
    * replaces.
@@ -59,11 +68,14 @@ export function UtilityPanel({
   onUploadMedia,
   onNewDataFile,
   onOpenAI,
+  destinations,
   onCompare,
   pendingChanges = 0,
   onSelectActivity,
   onClose,
 }: UtilityPanelProps) {
+  const offers = (destination: ShellDestination) =>
+    destinations === undefined || destinations.includes(destination);
   return (
     <FloatingPanel
       side="right"
@@ -124,17 +136,27 @@ export function UtilityPanel({
               onClick={onCompare}
             />
           )}
-          <QuickAction icon={FilePlus2} label="New page" onClick={onNewPage} />
-          <QuickAction
-            icon={ImagePlus}
-            label="Upload media"
-            onClick={onUploadMedia}
-          />
-          <QuickAction
-            icon={Braces}
-            label="New data file"
-            onClick={onNewDataFile}
-          />
+          {offers("pages") && (
+            <QuickAction
+              icon={FilePlus2}
+              label="New page"
+              onClick={onNewPage}
+            />
+          )}
+          {offers("media") && (
+            <QuickAction
+              icon={ImagePlus}
+              label="Upload media"
+              onClick={onUploadMedia}
+            />
+          )}
+          {offers("data") && (
+            <QuickAction
+              icon={Braces}
+              label="New data file"
+              onClick={onNewDataFile}
+            />
+          )}
         </div>
 
         <PanelSectionLabel divided>Recent activity</PanelSectionLabel>

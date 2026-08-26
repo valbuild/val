@@ -116,9 +116,18 @@ export async function discardAll(page: Page): Promise<void> {
  * on screen, so a test that wants to click a page has to open the panel first.
  * The rail button and the panel's own header share a name, hence `.first()`.
  */
+/**
+ * A floating panel, by the title in its header.
+ *
+ * Settings is one of them: it is not a content destination — it is reached from
+ * the cog at the foot of the rail rather than from the strip of three — but it
+ * is the same panel with the same close button, so the helpers take it too.
+ */
+export type PanelName = "Pages" | "Media" | "Data" | "Settings";
+
 export async function openNavPanel(
   page: Page,
-  panel: "Pages" | "Media" | "Data",
+  panel: PanelName,
 ): Promise<Locator> {
   const studio = page.locator("#val-shadow-root");
   await studio.getByRole("button", { name: panel }).first().click();
@@ -158,7 +167,7 @@ export async function openSiteMap(page: Page): Promise<Locator> {
  */
 export async function closeNavPanel(
   studio: Locator,
-  panel: "Pages" | "Media" | "Data",
+  panel: PanelName,
 ): Promise<void> {
   await studio.getByRole("button", { name: `Close ${panel}` }).click();
 }

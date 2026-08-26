@@ -1,5 +1,6 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
+  availableDestinations,
   hostLabel,
   initialsOf,
   toActivity,
@@ -9,6 +10,7 @@ import {
   toValidationErrors,
 } from "./shellDataMapping";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
+import { ShellData, ShellDataModule, ShellMediaGallery } from "./types";
 
 /**
  * The provider-to-shell mapping.
@@ -296,5 +298,98 @@ describe("initialsOf", () => {
 
   test("does not crash on an empty name", () => {
     expect(initialsOf("")).toBe("?");
+  });
+});
+
+/**
+ * Which destinations a project offers.
+ *
+ * The rule is per-destination and each has a different source, which is the
+ * part worth pinning: Pages follows the routers existing rather than the site
+ * map having entries, while Media and Data follow their lists — because an
+ * empty gallery is still a gallery, but there is no such thing as a data module
+ * that is present and empty.
+ */
+describe("availableDestinations", () => {
+  const project = (
+    over: Partial<Pick<ShellData, "hasRouters" | "media" | "data">>,
+  ): Pick<ShellData, "hasRouters" | "media" | "data"> => ({
+    hasRouters: false,
+    media: [],
+    data: [],
+    ...over,
+  });
+  const gallery: ShellMediaGallery = {
+    id: "/content/media.val.ts",
+    name: "images",
+    directory: "/public/val/images",
+    moduleFilePath: "/content/media.val.ts",
+    itemCount: 0,
+    mediaType: "images",
+  };
+  const dataModule: ShellDataModule = {
+    id: "/content/settings.val.ts",
+    name: "settings",
+    moduleFilePath: "/content/settings.val.ts",
+  };
+
+  test("a project using all of Val offers all three", () => {
+    expect(
+      availableDestinations(
+        project({ hasRouters: true, media: [gallery], data: [dataModule] }),
+        false,
+      ),
+    ).toEqual(["pages", "media", "data"]);
+  });
+
+  test("no router means no Pages", () => {
+    expect(
+      availableDestinations(project({ data: [dataModule] }), false),
+    ).toEqual(["data"]);
+  });
+
+  test("a router with no pages in it yet still offers Pages", () => {
+    // The site map is the thing you add the first page from, so hiding it
+    // would leave a new project with no way to make one.
+    expect(availableDestinations(project({ hasRouters: true }), false)).toEqual(
+      ["pages"],
+    );
+  });
+
+  test("no gallery module means no Media", () => {
+    expect(
+      availableDestinations(project({ hasRouters: true }), false),
+    ).not.toContain("media");
+  });
+
+  test("an empty gallery is still a gallery", () => {
+    // `itemCount: 0` is a gallery with nothing uploaded into it — which is
+    // exactly where "Upload media" is most useful.
+    expect(availableDestinations(project({ media: [gallery] }), false)).toEqual(
+      ["media"],
+    );
+  });
+
+  test("only routers and galleries means no Data", () => {
+    expect(
+      availableDestinations(
+        project({ hasRouters: true, media: [gallery] }),
+        false,
+      ),
+    ).toEqual(["pages", "media"]);
+  });
+
+  test("a project using none of it offers nothing", () => {
+    expect(availableDestinations(project({}), false)).toEqual([]);
+  });
+
+  test("everything is on offer while the navigation loads", () => {
+    // The panels have loading states; a rail that grows icons as the data
+    // arrives is worse than one that starts full and settles.
+    expect(availableDestinations(project({}), true)).toEqual([
+      "pages",
+      "media",
+      "data",
+    ]);
   });
 });

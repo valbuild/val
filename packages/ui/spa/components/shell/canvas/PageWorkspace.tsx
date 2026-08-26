@@ -210,6 +210,23 @@ export function PageWorkspace({
    */
   const hasCanvas = page !== undefined || renderCanvas !== undefined;
   const open = isCanvasOpen && hasCanvas;
+  /**
+   * Whether the canvas has ever been opened.
+   *
+   * The pane's wrapper stays mounted while closed so opening it can animate,
+   * but what is inside must not be built until it is asked for: in the app
+   * `renderCanvas` is an iframe on the running site, and mounting it while the
+   * canvas is closed loads the entire site on every studio load — a page load
+   * nobody asked for, whose console output arrives as the studio's own.
+   *
+   * A ref, because it is derived from `open` and changes in the same render
+   * `open` does: state here would mean a second render to catch up, and the
+   * frame would mount one frame after the pane became visible.
+   */
+  const hasBeenOpen = useRef(false);
+  if (open) {
+    hasBeenOpen.current = true;
+  }
 
   const ease = (properties: string[]) =>
     reducedMotion || skipTransition
@@ -380,18 +397,23 @@ export function PageWorkspace({
    * to fit into. The column also finishes moving a third of a second after the
    * click, and the observer above catches that too.
    *
-   * The exception is the first opening when a link named a position. The canvas
-   * is mounted closed and opens a moment later once the data has loaded, so
-   * without this the fit that follows would overwrite exactly the thing the
-   * link was carrying — and the link would look like it had not worked.
+   * A CHANGE in the box, not merely a render in which the box has a value. A
+   * link that names a position has already answered the question fitting exists
+   * to answer, and the canvas can be open from the very first render when a link
+   * says so — so anything that treats the first run as a transition overwrites
+   * exactly what the link was carrying, and the link looks like it did not work.
+   *
+   * The previous box is a ref updated inside the effect rather than a flag the
+   * first run consumes: an effect can be run more than once for one commit —
+   * StrictMode does exactly that on mount — and a flag consumed by the first run
+   * turns the second into a spurious "the box changed".
    */
-  const honoredInitialTransform = useRef(initialTransform == null);
+  const lastBox = useRef({ device, open });
   useEffect(() => {
-    if (!honoredInitialTransform.current) {
-      if (!open) return;
-      honoredInitialTransform.current = true;
+    if (lastBox.current.device === device && lastBox.current.open === open) {
       return;
     }
+    lastBox.current = { device, open };
     setNeedsFit(true);
   }, [device, open]);
 
@@ -606,7 +628,7 @@ export function PageWorkspace({
     />
   );
 
-  const canvasPane = hasCanvas && (
+  const canvasPane = hasCanvas && hasBeenOpen.current && (
     <div
       className={cn(
         "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",

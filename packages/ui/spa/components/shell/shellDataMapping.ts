@@ -3,8 +3,10 @@ import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { ValEnrichedDeployment } from "../../utils/mergeCommitsAndDeployments";
 import {
   ShellActivityEntry,
+  ShellData,
   ShellDataModule,
   ShellDeployment,
+  ShellDestination,
   ShellExternalPage,
   ShellMediaFile,
   ShellPage,
@@ -281,4 +283,39 @@ export function initialsOf(fullName: string): string {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * The destinations a project actually has something behind, in rail order.
+ *
+ * A project is not obliged to use all of Val: a marketing site is routes and
+ * images with no loose content files; a design-token project is content files
+ * and nothing else. A rail icon that opens a panel saying "nothing here" reads
+ * as a broken Val rather than as a part of Val this project does not use, so
+ * the icon goes instead of the panel being empty.
+ *
+ * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
+ * a router with no entries yet is a site map to add the first page to.
+ *
+ * Media and Data hang off their lists, which are already exactly the right
+ * question. `media` is the `s.images()`/`s.files()` modules, and an empty
+ * gallery still lists as a gallery — so an empty `media` means no gallery
+ * module exists. `data` is what is left after the routers and the galleries
+ * have been taken out of the module tree, so "every module is a router or a
+ * gallery" and "`data` is empty" are the same statement.
+ *
+ * Everything is on offer while the navigation is still loading: the panels have
+ * loading states of their own, and a rail that grows icons as data arrives is
+ * worse than one that starts full.
+ */
+export function availableDestinations(
+  data: Pick<ShellData, "hasRouters" | "media" | "data">,
+  isLoading: boolean,
+): ShellDestination[] {
+  if (isLoading) return ["pages", "media", "data"];
+  const available: ShellDestination[] = [];
+  if (data.hasRouters) available.push("pages");
+  if (data.media.length > 0) available.push("media");
+  if (data.data.length > 0) available.push("data");
+  return available;
 }

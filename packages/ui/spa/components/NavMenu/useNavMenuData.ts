@@ -139,7 +139,13 @@ export function useNavMenuData(): Remote<NavMenuData> {
     // Indexed ONCE per render: the trees used to scan the whole error map for
     // every row, which is O(rows x errors) on every validation update.
     const navErrors = indexNavErrors(validationErrors ?? {});
-    const data: NavMenuData = {};
+    // Every router the project declares, of whatever kind: a project with only
+    // external URLs still has pages to show, so the answer is about routers
+    // existing rather than about the app router specifically.
+    const routerIds = Object.keys(trees.data.routers).filter(
+      (routerId) => (trees.data.routers[routerId] ?? []).length > 0,
+    );
+    const data: NavMenuData = { hasRouters: routerIds.length > 0 };
 
     // Transform sitemap if available
     if (sitemapPaths.length > 0) {

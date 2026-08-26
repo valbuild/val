@@ -165,6 +165,7 @@ export const Loading: Story = {
 export const LargeSitemap: Story = {
   args: {
     data: {
+      hasRouters: true,
       sitemap: mockLargeSitemap,
       explorer: mockExplorer,
       external: mockExternal,
@@ -176,6 +177,7 @@ export const LargeSitemap: Story = {
 export const LargeExplorer: Story = {
   args: {
     data: {
+      hasRouters: true,
       sitemap: mockSitemap,
       explorer: mockLargeExplorer,
       external: mockExternal,

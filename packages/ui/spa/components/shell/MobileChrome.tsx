@@ -2,8 +2,8 @@ import { Columns2, Eye, Info } from "lucide-react";
 import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { PublishButton } from "./TopBar";
-import { RAIL_ITEMS } from "./LeftRail";
-import { ShellPanel } from "./types";
+import { visibleRailItems } from "./LeftRail";
+import { ShellDestination, ShellPanel } from "./types";
 
 /**
  * The destination switcher shown at the top of every navigation sheet on
@@ -12,17 +12,26 @@ import { ShellPanel } from "./types";
 export function MobileNavSwitcher({
   openPanel,
   onSelect,
+  destinations,
 }: {
   openPanel: ShellPanel | null;
   onSelect: (panel: ShellPanel) => void;
+  /** The destinations this project has content for. See `LeftRailProps`. */
+  destinations?: readonly ShellDestination[];
 }) {
+  const items = visibleRailItems(destinations);
+  if (items.length < 2) {
+    // One destination is not a choice, and a tab strip with a single tab in it
+    // just takes a row off the top of every sheet.
+    return null;
+  }
   return (
     <div
       role="tablist"
       aria-label="Destinations"
       className="flex gap-0.5 p-0.5 rounded-md bg-bg-float-raised"
     >
-      {RAIL_ITEMS.map(({ panel, label, icon: Icon }) => (
+      {items.map(({ panel, label, icon: Icon }) => (
         <button
           key={panel}
           type="button"

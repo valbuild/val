@@ -313,15 +313,24 @@ test.describe("the canvas", () => {
      * browsers, rate limited into dropping the ones that matter. The URL only
      * has to be right by the time someone copies it.
      *
+     * Polled on the ZOOM rather than on the view, and this is the whole
+     * difference between a test that checks the link and one that checks
+     * nothing: the view was set before the zoom, so a URL carrying
+     * `canvas-view=fields` can still be carrying the position from before the
+     * two clicks — and restoring that position looks exactly like a fit having
+     * overruled the link.
+     *
      * `p` belongs to the route, so carrying it as studio state as well would
      * name the module path twice.
      */
+    const zoomedScale = (Number(zoomed!.replace("%", "")) / 100).toFixed(2);
     await expect
       .poll(() => decodeURIComponent(page.url()), {
         message: "the view state never reached the URL",
         timeout: 10000,
       })
-      .toMatch(/canvas-view=fields/);
+      .toMatch(new RegExp(`canvas-at=${zoomedScale},`));
+    expect(decodeURIComponent(page.url())).toMatch(/canvas-view=fields/);
     const url = page.url();
     const decoded = decodeURIComponent(url);
     expect(decoded).toContain("canvas=1");
@@ -343,12 +352,37 @@ test.describe("the canvas", () => {
     await restored.close();
   });
 
-  test("is not offered for content that is not on a route", async ({
-    page,
-  }) => {
+  /**
+   * The canvas off a route.
+   *
+   * A data module is not on a route, and that used to mean no canvas at all —
+   * which had it backwards: a shared record is content some page renders, so
+   * changing one is exactly when watching a page is worth having. With nothing
+   * naming a route, the canvas opens on the site's root and the address bar
+   * takes it anywhere else.
+   */
+  test("is offered off a route too, pointed at the root", async ({ page }) => {
     await openStudio(page, "/val/~/content/authors.val.ts");
     const studio = page.locator("#val-shadow-root");
     // The module is open — the canvas question is only meaningful once it is.
-    await expect(studio.getByRole("button", { name: "Canvas" })).toHaveCount(0);
+    // A record's rows, not "the first input": a record of authors renders a row
+    // per key and has no field of its own to type into.
+    await expect(studio.getByRole("button", { name: /Erlend/ })).toBeVisible({
+      timeout: 30000,
+    });
+
+    const canvasButton = studio.getByRole("button", {
+      name: /Open the canvas/,
+    });
+    await expect(
+      canvasButton,
+      "the canvas was not offered on a module that is not on a route",
+    ).toBeVisible();
+    await canvasButton.click();
+
+    await expect(
+      studio.getByLabel("Canvas route"),
+      "the canvas opened somewhere other than the root",
+    ).toHaveValue("/", { timeout: 30000 });
   });
 });

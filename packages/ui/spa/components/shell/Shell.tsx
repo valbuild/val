@@ -30,6 +30,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
+import { availableDestinations } from "./shellDataMapping";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
   ShellActivityEntry,
@@ -326,6 +327,25 @@ export function Shell({
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
 
+  /** See `availableDestinations`. */
+  const destinations = useMemo(
+    () => availableDestinations(data, isLoading),
+    [isLoading, data],
+  );
+  // A panel for a destination this project does not have cannot be opened, and
+  // a link that asks for one lands on the editor rather than on an empty panel.
+  useEffect(() => {
+    if (
+      openPanel !== null &&
+      (openPanel === "pages" ||
+        openPanel === "media" ||
+        openPanel === "data") &&
+      !destinations.includes(openPanel)
+    ) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, destinations]);
+
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
     [data.validationErrors],
@@ -335,19 +355,20 @@ export function Shell({
     [notifications],
   );
 
-  // The canvas is only offered where it would work: a page whose route Val
-  // resolves, and only once the running site has reported what is on it.
   /**
    * Whether the canvas is on offer.
    *
-   * Any page, not only one Val resolves. The canvas is a browser pointed at a
-   * URL: it can show a route Val knows nothing about just as well, and with the
-   * route bar it can be pointed anywhere. What a tracked route adds is the
-   * content on it — the fields view — and that gates itself on having any.
+   * Wherever there is something to put on it, and nothing about the selection.
+   * The canvas is a browser pointed at a URL: it does not need a page selected
+   * any more than a browser needs one, and with the route bar it can be pointed
+   * anywhere. Gating it on the selection meant a project of pure content files
+   * could never see its own site, and that editing a settings module — which is
+   * exactly when you want to watch a page react — closed the canvas.
+   *
+   * What a page selection adds is a starting URL and the content on it; both of
+   * those degrade on their own, to `/` and to an empty fields view.
    */
-  const canCanvas =
-    selection?.kind === "page" &&
-    (renderCanvas !== undefined || canvasPage !== undefined);
+  const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
   const toggleCanvas = useCallback(() => setIsCanvasOpen((open) => !open), []);
   // Closing puts the module editor back, so the way out lands where the way
   // in started rather than on whichever view you happened to end on.
@@ -379,12 +400,10 @@ export function Shell({
       }
       onSelectionChange?.(next);
       setChatTarget(null);
-      // The canvas is a view of a page, so it closes when the selection is not
-      // one. Moving between pages keeps it open — that is the point of it.
-      if (next.kind !== "page") {
-        setIsCanvasOpen(false);
-        setCanvasView("normal");
-      }
+      // The canvas stays open across every kind of selection. It used to close
+      // on anything that was not a page, which is backwards: a settings module
+      // or a media file is content a page renders, so watching a page while you
+      // change one is the reason to have the two side by side.
       if (breakpoint === "mobile") setOpenPanel(null);
     },
     [breakpoint, isControlled, onSelectionChange],
@@ -407,7 +426,11 @@ export function Shell({
 
   const navSwitcher =
     breakpoint === "mobile" ? (
-      <MobileNavSwitcher openPanel={openPanel} onSelect={setOpenPanel} />
+      <MobileNavSwitcher
+        openPanel={openPanel}
+        onSelect={setOpenPanel}
+        destinations={destinations}
+      />
     ) : undefined;
 
   return (
@@ -457,6 +480,7 @@ export function Shell({
         <LeftRail
           openPanel={openPanel}
           onSelect={togglePanel}
+          destinations={destinations}
           user={data.user}
           hasDraftChanges={pendingChanges > 0}
         />
@@ -467,7 +491,10 @@ export function Shell({
         projectName={data.projectName}
         openPanel={openPanel}
         onTogglePanel={togglePanel}
-        onOpenMenu={() => setOpenPanel("pages")}
+        // The menu button opens the first destination this project has, which
+        // is Pages wherever there is one — but a project with no routes has to
+        // land somewhere that exists.
+        onOpenMenu={() => setOpenPanel(destinations[0] ?? "settings")}
         onOpenSearch={openSearch}
         unreadNotifications={
           data.notifications === undefined ? undefined : unreadNotifications
@@ -611,6 +638,7 @@ export function Shell({
           onNewPage={onNewPage ?? (() => undefined)}
           onUploadMedia={() => setOpenPanel("media")}
           onNewDataFile={onNewDataFile ?? (() => undefined)}
+          destinations={destinations}
           onOpenAI={() => setOpenPanel("ai")}
           onCompare={onCompare}
           pendingChanges={pendingChanges}

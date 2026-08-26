@@ -509,6 +509,7 @@ export const mockDeployments: ShellDeployment[] = [
 export const mockShellData: ShellData = {
   projectName: "val-demo-project",
   branch: "main",
+  hasRouters: true,
   pages: mockPages,
   externalPages: mockExternalPages,
   media: mockMedia,
@@ -541,9 +542,19 @@ export const mockSelectionIds = {
   instagram: mockExternalPages[0].id,
 } satisfies Record<string, string>;
 
-/** An empty project — used to check the shell's empty states. */
+/**
+ * A project that has a router but nothing in it yet.
+ *
+ * `hasRouters` stays true while `pages` is empty, which is the state a project
+ * is in between `s.router(...)` being written and the first page being made:
+ * the site map is there to add to. Media and Data have no equivalent — a
+ * gallery module with no files still shows as a gallery, so an empty `media`
+ * means no gallery module exists — which is why this data has neither
+ * destination, and why the shell shows only Pages for it.
+ */
 export const emptyShellData: ShellData = {
   ...mockShellData,
+  hasRouters: true,
   pages: [],
   externalPages: [],
   media: [],

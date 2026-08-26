@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
 import { PublishState } from "../TopBar";
 import { SaveState } from "../StatusBar";
-import { ShellPanel } from "../types";
+import { ShellData, ShellPanel } from "../types";
 import {
   emptyShellData,
   mockDeployments,
@@ -60,6 +60,11 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Render an empty project to check empty states",
     },
+    withoutRouters: {
+      control: "boolean",
+      description:
+        "Drop the routers and the galleries, leaving a content-only project",
+    },
     searchOpen: {
       control: "boolean",
       description: "Open the global search on mount (⌘K / Ctrl+K)",
@@ -101,7 +106,7 @@ const meta: Meta<typeof ShellHarness> = {
     canvasOpen: {
       control: "boolean",
       description:
-        "Open the canvas beside the editor. Only offered on a Val-tracked page.",
+        "Open the canvas beside the editor. Offered wherever there is a site to look at, not only on a page.",
     },
     canvasView: {
       control: "inline-radio",
@@ -122,6 +127,7 @@ type HarnessProps = {
   openPanel: ShellPanel | null;
   selectionId: string | null;
   empty: boolean;
+  withoutRouters: boolean;
   searchOpen: boolean;
   theme: "dark" | "light";
   publishState: PublishState;
@@ -179,6 +185,7 @@ function ShellHarness({
   openPanel,
   selectionId,
   empty,
+  withoutRouters,
   searchOpen,
   theme,
   publishState,
@@ -194,7 +201,12 @@ function ShellHarness({
   canvasReported,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
-  const base = empty ? emptyShellData : mockShellData;
+  const full = empty ? emptyShellData : mockShellData;
+  // A project of nothing but content files: no `s.router`, no `s.images()`.
+  // The shell answers by showing one destination instead of three.
+  const base: ShellData = withoutRouters
+    ? { ...full, hasRouters: false, pages: [], externalPages: [], media: [] }
+    : full;
   const withErrors = withValidationErrors
     ? base
     : { ...base, validationErrors: [] };
@@ -206,7 +218,7 @@ function ShellHarness({
   };
   return (
     <Shell
-      key={`${openPanel}-${selectionId}-${empty}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
@@ -270,6 +282,7 @@ export const Default: Story = {
     openPanel: null,
     selectionId: null,
     empty: false,
+    withoutRouters: false,
     searchOpen: false,
     theme: "dark",
     publishState: "idle",
@@ -441,9 +454,30 @@ export const LightMode: Story = {
   },
 };
 
-/** A brand new project: every list empty, nothing to publish. */
+/**
+ * A brand new project: the router is there, nothing has been made yet.
+ *
+ * Only Pages is on the rail. Media and Data are not empty here so much as
+ * absent — an `s.images()` module with no files still lists as a gallery, so a
+ * project with no galleries at all has nothing for Media to be about.
+ */
 export const EmptyProject: Story = {
   args: { ...Default.args, empty: true, openPanel: "pages" },
+};
+
+/**
+ * A project of content files and nothing else — no `s.router`, no galleries.
+ *
+ * The rail is one icon. Val does not insist a project use all of it, and an
+ * icon that opens a panel with nothing behind it reads as something broken
+ * rather than as something this project does not use.
+ *
+ * The canvas is still on offer: it is a browser pointed at a URL, and a project
+ * whose routes Val does not track still has a site to look at while editing the
+ * content those routes render.
+ */
+export const ContentOnlyProject: Story = {
+  args: { ...Default.args, withoutRouters: true, openPanel: "data" },
 };
 
 /**
@@ -573,12 +607,11 @@ export const CanvasWithPanelOpen: Story = {
 };
 
 /**
- * A tracked page the running site has not reported on yet.
+ * Nothing to put on the canvas.
  *
- * There is no Canvas button at all, rather than one that opens something
- * empty. A page whose route Val does *not* resolve cannot be selected in the
- * first place — it has no content to open — so this is the only way the
- * button is absent on a page.
+ * There is no Preview split button at all, rather than one that opens an empty
+ * frame. In the app there is always the running site, so this is a Storybook
+ * state: the harness is not passing a page and there is no site to frame.
  */
 export const CanvasNotReported: Story = {
   args: {
@@ -588,9 +621,20 @@ export const CanvasNotReported: Story = {
   },
 };
 
-/** A data module: never a canvas, because it is not on a route. */
-export const DataModuleHasNoCanvas: Story = {
-  args: { ...Default.args, selectionId: mockSelectionIds.products },
+/**
+ * A data module, with the canvas open on the root.
+ *
+ * The canvas is not a property of the selection: a settings module or a shared
+ * record is content some page renders, so watching a page while changing one is
+ * the reason to have the two side by side. With no page selected the canvas
+ * shows the site's root, and the address bar takes it anywhere else.
+ */
+export const CanvasOnADataModule: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.products,
+    canvasOpen: true,
+  },
 };
 
 /** On a phone the two halves are panes you swipe between, canvas second. */

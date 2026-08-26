@@ -156,6 +156,17 @@ export type ShellProposalAction =
   | "replace"
   | "try-another";
 
+/**
+ * A content destination: what the left rail switches between.
+ *
+ * Its own type because a project does not necessarily have all three — a site
+ * with no `s.router` has no Pages, a project with no `s.images()`/`s.files()`
+ * has no Media — and several pieces of the shell have to agree on which are on
+ * offer: the rail, the mobile switcher, the quick actions, and whichever panel
+ * a fresh session opens on.
+ */
+export type ShellDestination = Extract<ShellPanel, "pages" | "media" | "data">;
+
 /** Which floating panel is currently open. At most one at a time. */
 export type ShellPanel =
   | "pages"
@@ -181,6 +192,16 @@ export type ShellData = {
   projectName: string;
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
+  /**
+   * Whether the project declares any `s.router` module.
+   *
+   * Separate from `pages` being non-empty, because a router that has no entries
+   * yet is still a project with pages — the site map is empty, not absent. The
+   * shell hides the Pages destination on this rather than on `pages.length`, so
+   * a project that has simply not made its first page keeps the way to make
+   * one.
+   */
+  hasRouters: boolean;
   pages: ShellPage[];
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];

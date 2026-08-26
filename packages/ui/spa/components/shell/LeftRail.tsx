@@ -5,12 +5,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../designSystem/tooltip";
-import { ShellPanel } from "./types";
+import { ShellDestination, ShellPanel } from "./types";
 import { ValLogo } from "./ValLogo";
 import { Avatar } from "./Avatar";
 
 export type RailItem = {
-  panel: Extract<ShellPanel, "pages" | "media" | "data">;
+  panel: ShellDestination;
   label: string;
   icon: typeof FileText;
 };
@@ -27,6 +27,9 @@ export type RailItem = {
  * External pages are not a top-level destination either — they live at the
  * bottom of the Pages panel, because that is where someone looks for "the
  * page that links to Instagram".
+ *
+ * The full set. Which of them a given project actually offers is `destinations`
+ * — see `visibleRailItems`.
  */
 export const RAIL_ITEMS: RailItem[] = [
   { panel: "pages", label: "Pages", icon: FileText },
@@ -34,9 +37,31 @@ export const RAIL_ITEMS: RailItem[] = [
   { panel: "data", label: "Data", icon: Braces },
 ];
 
+/**
+ * The rail items a project offers, in rail order.
+ *
+ * Undefined means all of them, which is what Storybook and the tests want: a
+ * component that hides two thirds of itself unless told otherwise is a
+ * component nobody can look at.
+ */
+export function visibleRailItems(
+  destinations?: readonly ShellDestination[],
+): RailItem[] {
+  if (destinations === undefined) return RAIL_ITEMS;
+  return RAIL_ITEMS.filter((item) => destinations.includes(item.panel));
+}
+
 export type LeftRailProps = {
   openPanel: ShellPanel | null;
   onSelect: (panel: ShellPanel) => void;
+  /**
+   * The destinations this project has content for. All of them when absent.
+   *
+   * A project with no `s.router` has nothing to put under Pages, and an icon
+   * that opens an empty panel is worse than no icon: it reads as something
+   * broken rather than as something the project does not use.
+   */
+  destinations?: readonly ShellDestination[];
   user?: { initials: string; name: string };
   /** Number of pending draft changes, shown as a dot on the account button. */
   hasDraftChanges?: boolean;
@@ -51,9 +76,11 @@ export type LeftRailProps = {
 export function LeftRail({
   openPanel,
   onSelect,
+  destinations,
   user,
   hasDraftChanges,
 }: LeftRailProps) {
+  const items = visibleRailItems(destinations);
   return (
     <nav
       aria-label="Main"
@@ -62,7 +89,7 @@ export function LeftRail({
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
         <ValLogo className="h-6" />
       </div>
-      {RAIL_ITEMS.map(({ panel, label, icon: Icon }) => (
+      {items.map(({ panel, label, icon: Icon }) => (
         <Tooltip key={panel}>
           <TooltipTrigger asChild>
             <button

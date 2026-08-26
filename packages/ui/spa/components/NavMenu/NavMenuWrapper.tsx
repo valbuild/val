@@ -72,7 +72,7 @@ function enrichNavMenuData(
   data: NavMenuData,
   allErrors: Record<SourcePath, ValidationError[]>,
 ): NavMenuData {
-  const result: NavMenuData = {};
+  const result: NavMenuData = { hasRouters: data.hasRouters };
   if (data.sitemap) {
     result.sitemap = enrichSitemapItem(data.sitemap, allErrors);
   }
@@ -166,11 +166,11 @@ export function NavMenuWrapper() {
   }, [navMenuData, allValidationErrors]);
 
   if (navMenuData.status === "error") {
-    return <NavMenu data={{}} isLoading={false} />;
+    return <NavMenu data={{ hasRouters: false }} isLoading={false} />;
   }
 
   if (!enrichedData) {
-    return <NavMenu data={{}} isLoading={true} />;
+    return <NavMenu data={{ hasRouters: false }} isLoading={true} />;
   }
 
   return (
