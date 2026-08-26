@@ -50,6 +50,7 @@ import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { useAIChatActions } from "../AIChatActionsContext";
+import { useValSystem } from "../../stores/react/SystemContext";
 
 /**
  * The Val studio on the floating shell.
@@ -787,6 +788,20 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
 /** The compare view, as `ContentArea` renders it. */
 function CompareView() {
+  const val = useValSystem();
+  /**
+   * Everything typed reaches the server before the comparison is computed.
+   *
+   * A field writes on a pause in typing, so clicking Compare a moment after
+   * editing could group a chain that is missing the last word — and the view
+   * would then show a diff that is not the one about to be published. Once, on
+   * mount: the grouping is re-read whenever the chain moves, so the save landing
+   * brings it in.
+   */
+  useEffect(() => {
+    if (val === null) return;
+    void val.system.patchSync.flush();
+  }, [val]);
   const patchSetsResult = usePatchSets();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const mode = useValMode();

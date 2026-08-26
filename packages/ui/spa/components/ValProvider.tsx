@@ -1072,6 +1072,17 @@ export function usePatchSets():
     | { status: "not-asked" }
   >({ status: "not-asked" });
 
+  /**
+   * The last answer, serialized, so an unchanged one keeps its identity.
+   *
+   * `chainVersion` bumps for every movement of the chain — a save landing, a
+   * stat arriving, a patch being marked published — and most of those do not
+   * change the GROUPING at all. Handing back a fresh object each time made the
+   * compare view recompute its change trees in the worker and rebuild every row,
+   * which is what "it re-does the whole thing" and the blinking were.
+   */
+  const lastSerialized = useRef<string | null>(null);
+
   useEffect(() => {
     if (val === null) {
       return;
@@ -1080,7 +1091,15 @@ export function usePatchSets():
     void val.system
       .getPatchSets()
       .then((data) => {
-        if (!cancelled) setState({ status: "success", data });
+        if (cancelled) return;
+        const serialized = JSON.stringify(data);
+        if (serialized === lastSerialized.current) {
+          // Same grouping. Not merely an optimisation: replacing the object is
+          // what makes everything downstream treat it as news.
+          return;
+        }
+        lastSerialized.current = serialized;
+        setState({ status: "success", data });
       })
       .catch((err: unknown) => {
         if (!cancelled) {
