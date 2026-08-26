@@ -281,35 +281,51 @@ describe("hasRemoteFileSchema", () => {
    */
   describe("media collections", () => {
     it("should return true for s.images({ remote: true })", () => {
-      expect(hasRemoteFileSchema(serialize(s.images({ remote: true })))).toBe(
-        true,
-      );
+      expect(
+        hasRemoteFileSchema(
+          serialize(s.images({ directory: "/public/val", remote: true })),
+        ),
+      ).toBe(true);
     });
 
     it("should return true for a remote s.files()", () => {
-      // `accept` is required on `s.files()` (unlike `s.images()`, whose options
-      // are all optional), so it is here to satisfy the type, not the test.
+      // `directory` and `accept` are both required by the type; neither is what
+      // this test is about.
       expect(
         hasRemoteFileSchema(
-          serialize(s.files({ accept: "application/pdf", remote: true })),
+          serialize(
+            s.files({
+              directory: "/public/val",
+              accept: "application/pdf",
+              remote: true,
+            }),
+          ),
         ),
       ).toBe(true);
     });
 
     it("should return false for a local s.images()", () => {
-      expect(hasRemoteFileSchema(serialize(s.images()))).toBe(false);
+      expect(
+        hasRemoteFileSchema(serialize(s.images({ directory: "/public/val" }))),
+      ).toBe(false);
     });
 
     it("should return false for a local s.files()", () => {
       expect(
-        hasRemoteFileSchema(serialize(s.files({ accept: "application/pdf" }))),
+        hasRemoteFileSchema(
+          serialize(
+            s.files({ directory: "/public/val", accept: "application/pdf" }),
+          ),
+        ),
       ).toBe(false);
     });
 
     it("should return false for s.images({ remote: false })", () => {
-      expect(hasRemoteFileSchema(serialize(s.images({ remote: false })))).toBe(
-        false,
-      );
+      expect(
+        hasRemoteFileSchema(
+          serialize(s.images({ directory: "/public/val", remote: false })),
+        ),
+      ).toBe(false);
     });
 
     it("should find a remote gallery nested in an object", () => {
@@ -318,7 +334,7 @@ describe("hasRemoteFileSchema", () => {
           serialize(
             s.object({
               title: s.string(),
-              gallery: s.images({ remote: true }),
+              gallery: s.images({ directory: "/public/val", remote: true }),
             }),
           ),
         ),
@@ -337,7 +353,7 @@ describe("hasRemoteFileSchema", () => {
               }),
               s.object({
                 type: s.literal("images"),
-                images: s.images({ remote: true }),
+                images: s.images({ directory: "/public/val", remote: true }),
               }),
             ),
           ),

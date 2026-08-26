@@ -5,10 +5,15 @@
 `s.images()` / `s.files()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)                     | field (lives at a path)                                      |
-| ----- | ---------------------------------------------- | ------------------------------------------------------------ |
-| image | `s.images({ directory, accept, alt, remote })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
-| file  | `s.files({ accept, directory, remote })`       | `s.file({ accept })`                                         |
+|       | collection (is the module)                        | field (lives at a path)                                      |
+| ----- | ------------------------------------------------- | ------------------------------------------------------------ |
+| image | `s.images({ directory, accept?, alt?, remote? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
+| file  | `s.files({ directory, accept, remote? })`         | `s.file({ accept })`                                         |
+
+A collection's `directory` is **required**. It used to default to `/public/val`,
+which meant a gallery that had simply not said where it wanted its files shared a
+directory with every other one — and `images:check-unique-folder` (below) then
+failed on a collision the author never chose.
 
 This is why `s.images(galleryModule)` does not typecheck: `s.images()` _defines_ a
 collection, it does not reference one. A field backed by a gallery is
