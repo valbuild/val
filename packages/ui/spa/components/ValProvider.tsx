@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import {
   FILE_REF_PROP,
+  hasRemoteFileSchema,
   ImageMetadata,
   Internal,
   Json,
@@ -32,7 +33,6 @@ import {
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
-import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
 import {
@@ -502,9 +502,25 @@ export function ValProvider({
       const schemasData = schemas;
       let requiresRemoteFiles = false;
       for (const schema of Object.values(schemasData)) {
-        if (findRequiredRemoteFiles(schema)) {
-          requiresRemoteFiles = true;
-          break;
+        /**
+         * Caught, because this is the same function the SERVER uses to decide
+         * whether a publish needs remote credentials, and there it must throw on
+         * a schema type it does not know — returning `false` would let a publish
+         * drop remote files silently. Here the cost of throwing is the whole
+         * Studio, and all that is at stake is whether to fetch remote settings.
+         * So: log it, and carry on as if this schema wanted nothing remote.
+         */
+        try {
+          if (hasRemoteFileSchema(schema)) {
+            requiresRemoteFiles = true;
+            break;
+          }
+        } catch (err) {
+          console.error(
+            "Val: could not tell whether a schema needs remote files. Remote " +
+              "uploads may be unavailable.",
+            err,
+          );
         }
       }
       setRequiresRemoteFiles(requiresRemoteFiles);
