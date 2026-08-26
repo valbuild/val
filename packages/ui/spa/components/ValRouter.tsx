@@ -27,6 +27,19 @@ type ValRouterContextValue = {
     },
   ) => void;
   currentSourcePath: SourcePath;
+  /**
+   * The exact field the route is focused on, when it is deeper than the module
+   * `currentSourcePath` names.
+   *
+   * The two differ because opening one field should not hide the rest of the
+   * page it is on. A pick on the canvas, a search hit or a validation error all
+   * name a leaf, and the editor is opened at the nearest sensible ancestor of it
+   * — see `getNavPath` — so the field arrives in context, with its siblings
+   * around it. This is the leaf itself, kept so the thing that was asked for can
+   * still be pointed at: scrolled to, outlined on the page, marked in the fields
+   * list. Null when the route is already the module the editor shows.
+   */
+  focusedSourcePath: SourcePath | null;
   isCompareView: boolean;
   isErrorsView: boolean;
   errorFields: SourcePath[];
@@ -58,8 +71,12 @@ const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
  * `error-field` belongs to the errors view: carrying it would mean the fields
  * from one visit followed you to the next, which is how a view ends up showing
  * errors nobody asked about.
+ *
+ * `field` is the leaf the route is focused on, which belongs to the navigation
+ * that set it: carrying it would leave the previous field outlined on a page it
+ * is not on.
  */
-const ROUTE_OWNED_PARAMS = ["p", "error-field"];
+const ROUTE_OWNED_PARAMS = ["p", "error-field", "field"];
 
 const STUDIO_PATH_ATTR = "data-val-studio-path";
 
@@ -74,6 +91,28 @@ function findStudioPathTarget(
     if (el.getAttribute(STUDIO_PATH_ATTR) === path) return el;
   }
   return null;
+}
+
+/**
+ * Scroll to a path once something renders it.
+ *
+ * Retried rather than done once, because the target does not exist yet: the
+ * navigation has only just set the route, and the field being scrolled to is
+ * somewhere in a module tree that is still mounting — and on a cold load, still
+ * being fetched.
+ */
+export function scrollToStudioPath(path: string, retries = 100) {
+  const execScroll = () => {
+    const shadowRoot = document.getElementById("val-shadow-root")?.shadowRoot;
+    const element = shadowRoot ? findStudioPathTarget(shadowRoot, path) : null;
+    if (element && shadowRoot) {
+      doScroll(shadowRoot, element);
+    } else if (retries > 0) {
+      retries--;
+      setTimeout(execScroll, 100);
+    }
+  };
+  execScroll();
 }
 
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
@@ -103,6 +142,9 @@ export function ValRouter({
 }) {
   const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
+  const [focusedSourcePath, setFocusedSourcePath] = useState<SourcePath | null>(
+    null,
+  );
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
@@ -156,6 +198,8 @@ export function ValRouter({
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
+        const focused = new URLSearchParams(location.search).get("field");
+        setFocusedSourcePath(focused ? (focused as SourcePath) : null);
         // reset scroll position
         const prevScrollPos = historyState.current.pop();
         if (prevScrollPos) {
@@ -175,23 +219,13 @@ export function ValRouter({
             "",
             location.pathname + location.search,
           );
-          let retriesLeft = 100;
-          const execScroll = () => {
-            if (scrollToPath) {
-              const shadowRoot =
-                document.getElementById("val-shadow-root")?.shadowRoot;
-              const element = shadowRoot
-                ? findStudioPathTarget(shadowRoot, scrollToPath)
-                : null;
-              if (element && shadowRoot) {
-                doScroll(shadowRoot, element);
-              } else if (retriesLeft > 0) {
-                retriesLeft--;
-                setTimeout(execScroll, 100);
-              }
-            }
-          };
-          execScroll();
+          if (scrollToPath) {
+            scrollToStudioPath(scrollToPath);
+          }
+        } else if (focused) {
+          // A link that named a field means it: land on the field rather than at
+          // the top of whatever module contains it.
+          scrollToStudioPath(focused);
         }
       } else if (
         location.pathname === "/val" ||
@@ -272,6 +306,23 @@ export function ValRouter({
       } else {
         carried.delete("session");
       }
+      /**
+       * The leaf this navigation was asked for, when it is not the module being
+       * opened.
+       *
+       * Durable rather than a one-shot scroll: the field is what someone
+       * actually picked, and it has to survive being copied as a link, being
+       * come back to with the back button, and the canvas switching views. It
+       * lives in the query for the same reason `p` does — the alternative was a
+       * hash, which the studio strips on read and which never reaches a reload.
+       */
+      const focused =
+        !isCompare && !isErrors && params?.scrollToPath !== path
+          ? (params?.scrollToPath ?? null)
+          : null;
+      if (focused) {
+        carried.set("field", focused);
+      }
       const carriedQuery = carried.toString();
       const finalTo = carriedQuery
         ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}${carriedQuery}`
@@ -282,6 +333,7 @@ export function ValRouter({
       setSourcePath(
         isCompare || isErrors ? ("" as SourcePath) : (path as SourcePath),
       );
+      setFocusedSourcePath(focused as SourcePath | null);
       if (!overlay) {
         const shadowRoot =
           document.getElementById("val-shadow-root")?.shadowRoot;
@@ -344,6 +396,7 @@ export function ValRouter({
       value={{
         hardLink: !!overlay,
         currentSourcePath,
+        focusedSourcePath,
         navigate,
         ready,
         isCompareView,
@@ -362,6 +415,7 @@ export function useNavigation() {
   const {
     navigate,
     currentSourcePath,
+    focusedSourcePath,
     ready,
     isCompareView,
     isErrorsView,
@@ -370,6 +424,7 @@ export function useNavigation() {
   return {
     navigate,
     currentSourcePath,
+    focusedSourcePath,
     ready,
     isCompareView,
     isErrorsView,

@@ -26,6 +26,7 @@ import { useTheme } from "../ValThemeProvider";
 import {
   VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
+  scrollToStudioPath,
   useNavigation,
 } from "../ValRouter";
 import {
@@ -40,7 +41,11 @@ import {
   usePublishSummary,
   useValMode,
 } from "../ValProvider";
-import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
+import {
+  useFilePatchIds,
+  useGetNavPath,
+  useValConfig,
+} from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
 
@@ -157,6 +162,35 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * the route, so every one of those landed on the right module and the wrong
    * place in it.
    */
+  /**
+   * The field the canvas points at.
+   *
+   * The route's focus when it has one, and the route itself otherwise. The two
+   * differ exactly when a field was opened in context: the editor is on the
+   * page and this is the field inside it, which is what the outline on the page
+   * and the mark in the fields list follow — so they stay on the field being
+   * edited rather than jumping to the whole page.
+   */
+  const focusedPath: SourcePath | null =
+    navigation.focusedSourcePath ??
+    ((navigation.currentSourcePath as SourcePath | "") || null);
+
+  /**
+   * Coming back to the module editor lands on the field you were editing.
+   *
+   * The fields view and the module editor are two ways of looking at the same
+   * field, so switching between them should not lose your place — and the scroll
+   * the navigation did happened when the field was opened, which for a switch is
+   * long past. Also covers a cold load on a link that named a field, where the
+   * module's own content arrives after the route does.
+   */
+  useEffect(() => {
+    if (viewState.canvasView !== "normal") return;
+    const focused = navigation.focusedSourcePath;
+    if (!focused) return;
+    scrollToStudioPath(focused);
+  }, [viewState.canvasView, navigation.focusedSourcePath]);
+
   const renderEditor = useCallback(
     (selection: ShellSelection) => (
       <Module
@@ -320,12 +354,28 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [filePatchIds],
   );
 
-  /** Open one field, from the page or from the list beside it. */
+  /**
+   * Open one field, from the page or from the list beside it.
+   *
+   * The editor opens at the nearest sensible ancestor of the field rather than
+   * at the field itself, and the field is scrolled to inside it. Opening the
+   * exact path put one field on screen and nothing else — pick a page's title
+   * on the canvas and the whole rest of the page vanished from the editor,
+   * which is the opposite of what picking something is for.
+   *
+   * `getNavPath` is the same resolution the rest of the studio's navigation
+   * uses, so a canvas pick lands where a search hit or a validation error on
+   * the same field would. The field itself travels as the route's focus, which
+   * is what keeps it outlined on the page and marked in the fields list — so
+   * switching between the two canvas views stays on the field being edited.
+   */
+  const getNavPath = useGetNavPath();
   const openPath = useCallback(
     (path: SourcePath) => {
-      navigation.navigate(path, { scrollToPath: path });
+      const navPath = (getNavPath(path) ?? path) as SourcePath;
+      navigation.navigate(navPath, { scrollToPath: path });
     },
-    [navigation],
+    [navigation, getNavPath],
   );
 
   /**
@@ -375,7 +425,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // The field being edited is the one the route points at, so the
         // outline on the page follows the editor without a second source of
         // truth for "what is selected".
-        highlightedPath={navigation.currentSourcePath || null}
+        highlightedPath={focusedPath}
         onElements={setCanvasElements}
         onPick={onPick}
         onRequestReload={onRequestReload}
@@ -481,9 +531,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       renderCanvas={renderCanvas}
       canvasPaths={canvasPaths}
       onSelectCanvasPath={openPath}
-      selectedCanvasPath={
-        (navigation.currentSourcePath as SourcePath | "") || null
-      }
+      selectedCanvasPath={focusedPath}
       canvasRoute={canvasUrl}
       onCanvasRouteChange={setTypedRoute}
       canvasRoutes={canvasRoutes}

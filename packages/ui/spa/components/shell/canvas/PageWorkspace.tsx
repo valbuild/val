@@ -492,10 +492,23 @@ export function PageWorkspace({
     [page, onAttachToChat],
   );
 
-  // Only the fields view is a picking surface. In the normal view the page is
-  // there to be read and clicked through like a page, so a click on it does
-  // not mean "I want to edit this".
-  const isPicking = view === "fields";
+  /**
+   * Whether a click on the page selects what it hits.
+   *
+   * Its own state with its own button, not a consequence of the view. Each view
+   * has an obvious default — the fields view exists to aim at things, the normal
+   * view is the page as a visitor meets it, links and all — so switching views
+   * sets it, and the button is how you disagree with the default. Deriving it
+   * from the view meant the only way to point at something on the page was to
+   * give up the module editor for the fields list, and no way at all to read the
+   * page normally while still being able to select a piece of it.
+   */
+  const [isPicking, setIsPicking] = useState(view === "fields");
+  const lastView = useRef(view);
+  if (lastView.current !== view) {
+    lastView.current = view;
+    setIsPicking(view === "fields");
+  }
 
   /**
    * Clears the floating rail, which the narrowed column now reaches under.
@@ -694,6 +707,10 @@ export function PageWorkspace({
           setTransform((t) => ({ ...t, scale: clampScale(t.scale / 1.2) }));
         }}
         onFit={() => setNeedsFit(true)}
+        // Only where there is something to select. The demo page reports no
+        // paths, so a click on it has nothing to open.
+        isPicking={isPicking}
+        onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
         // Only where reloading means something. The demo page renders from
         // data that is already live, so it has nothing to fetch again.
         onReload={renderCanvas && reload}

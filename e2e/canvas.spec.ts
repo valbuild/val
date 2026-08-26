@@ -468,4 +468,123 @@ test.describe("the canvas", () => {
     ).not.toContain("/api/val/enable");
     await tab.close();
   });
+
+  /**
+   * A field opened from the fields view, then read in the module editor.
+   *
+   * The two views are two ways of looking at the same field, so the field has to
+   * survive the switch — and the module editor has to show the page it is on,
+   * not the field by itself. Opening the exact path did the latter: pick a title
+   * and the rest of the page disappeared from the editor, which is the opposite
+   * of what picking something is for.
+   *
+   * What makes both true at once is that the route names the module and carries
+   * the field beside it, so `field=` in the URL is the thing being checked as
+   * much as what is on screen.
+   */
+  test("opens a picked field in its page, and stays on it across views", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+
+    const enable = studio.getByRole("button", {
+      name: /Turn on preview mode/,
+    });
+    await expect(enable).toBeVisible({ timeout: 25000 });
+    await enable.click();
+    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    await expect(fieldsTab).toBeVisible({ timeout: 30000 });
+    await fieldsTab.click();
+
+    // A field nested inside the page, so the ancestor the editor opens at is
+    // several steps up rather than the field's own parent.
+    const row = studio.getByRole("button", { name: "link › label" });
+    await expect(row).toBeVisible({ timeout: 30000 });
+    await row.click();
+
+    await expect
+      .poll(() => decodeURIComponent(page.url()), {
+        message: "the picked field did not reach the URL",
+        timeout: 10000,
+      })
+      .toMatch(/field=.*"link"\."label"/);
+    /**
+     * The module, not the field: `p` stops at the page's own entry.
+     *
+     * Read as params rather than matched against the whole URL — `field` carries
+     * a source path, so its value contains a `p=` of its own and a substring
+     * match on the URL cannot tell the two apart.
+     */
+    const params = new URL(page.url()).searchParams;
+    expect(
+      params.get("p"),
+      "the editor opened at the field instead of the page it is on",
+    ).toBe('"/blogs/blog1"');
+    expect(params.get("field")).toContain('"link"."label"');
+
+    // Back in the module editor: the whole page, with the field still marked.
+    await studio.getByRole("tab", { name: /Normal/ }).click();
+    await expect(
+      studio.locator("[data-val-studio-path*='\"content\"']").first(),
+      "the editor showed the picked field alone, without the rest of its page",
+    ).toBeVisible({ timeout: 30000 });
+    await expect(
+      studio.locator("[data-val-studio-path*='\"label\"']").first(),
+    ).toBeVisible();
+  });
+
+  /**
+   * Picking has its own control.
+   *
+   * It used to follow from the view, so selecting something on the page cost you
+   * the module editor, and reading the page normally cost you the ability to
+   * point at any of it. The view still sets the default — each has an obvious
+   * one — and the button is how you disagree with it.
+   */
+  test("lets picking be turned on without leaving the normal view", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+
+    const enable = studio.getByRole("button", {
+      name: /Turn on preview mode/,
+    });
+    await expect(enable).toBeVisible({ timeout: 25000 });
+    await enable.click();
+    await expect(studio.getByRole("tab", { name: /Fields/ })).toBeVisible({
+      timeout: 30000,
+    });
+
+    // Off in the normal view: the page is there to be read and clicked through
+    // like a page.
+    const pick = studio.getByRole("button", { name: "Select on the page" });
+    await expect(pick, "picking had no control of its own").toBeVisible();
+    await pick.click();
+
+    await expect(
+      studio.getByRole("button", { name: "Stop selecting on the page" }),
+      "the button did not turn picking on",
+    ).toBeVisible();
+    // Still the normal view — that is the whole point of the button.
+    await expect(studio.getByRole("tab", { name: /Normal/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // Switching to the fields view still turns it on by itself.
+    await studio.getByRole("tab", { name: /Fields/ }).click();
+    await expect(
+      studio.getByRole("button", { name: "Stop selecting on the page" }),
+    ).toBeVisible();
+  });
 });

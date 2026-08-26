@@ -2,6 +2,7 @@ import {
   Maximize2,
   Minus,
   Monitor,
+  MousePointerClick,
   Plus,
   RotateCw,
   Smartphone,
@@ -20,8 +21,12 @@ const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
  * The canvas's own controls: what width the page is shown at and how far it
  * is zoomed.
  *
- * Whether clicking picks elements is not here — that follows from which view
- * the canvas is in, and putting it in two places would let them disagree.
+ * Picking is here too, because it is a property of the page rather than of the
+ * column beside it. It used to follow from the view, which meant the only way
+ * to select something on the page was to give up the module editor for the
+ * fields list — and no way at all to read the page normally while still being
+ * able to point at a bit of it. Switching views still sets it, since each view
+ * has an obvious default; the button is how you disagree.
  *
  * Floats over the canvas rather than sitting above it, so the canvas keeps
  * the full height — the same reasoning as the shell's other bars.
@@ -33,6 +38,8 @@ export function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onFit,
+  isPicking,
+  onPickingChange,
   onReload,
   className,
 }: {
@@ -42,6 +49,14 @@ export function CanvasToolbar({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
+  /**
+   * Whether a click on the page selects what it hits.
+   *
+   * Absent where picking means nothing — the demo page in Storybook reports no
+   * paths, so there is nothing for a click to select.
+   */
+  isPicking?: boolean;
+  onPickingChange?: (isPicking: boolean) => void;
   /**
    * Load the page again.
    *
@@ -109,6 +124,34 @@ export function CanvasToolbar({
       >
         <Maximize2 size={13} />
       </button>
+      {onPickingChange && (
+        <>
+          <Divider />
+          <button
+            type="button"
+            aria-label={
+              isPicking ? "Stop selecting on the page" : "Select on the page"
+            }
+            aria-pressed={isPicking}
+            title={
+              isPicking
+                ? "Clicking the page selects what it hits"
+                : "Clicking the page follows links, as a visitor would"
+            }
+            onClick={() => onPickingChange(!isPicking)}
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded-md",
+              isPicking
+                ? // The green the page's own outlines are drawn in, so the
+                  // button and what it does read as the same thing.
+                  "bg-bg-page-selection-fill text-fg-brand-primary ring-1 ring-inset ring-bg-page-selection"
+                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+            )}
+          >
+            <MousePointerClick size={14} />
+          </button>
+        </>
+      )}
       {onReload && (
         <>
           <Divider />
