@@ -14,6 +14,26 @@ export const VAL_ERRORS_ROUTE = "/val/errors";
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
+  /**
+   * The URL a navigation would go to, without navigating.
+   *
+   * So that something the user can click can be a real LINK: an `<a href>` that
+   * middle-clicks into a new tab, offers "Copy link address", and shows the
+   * destination in the status bar — none of which a `<button>` calling
+   * `navigate` can do. The href and the navigation come from one function, so a
+   * link cannot advertise one destination and take you to another.
+   */
+  hrefOf: (
+    path:
+      | SourcePath
+      | ModuleFilePath
+      | typeof VAL_COMPARE_ROUTE
+      | typeof VAL_ERRORS_ROUTE,
+    params?: {
+      scrollToPath?: SourcePath | ModuleFilePath;
+      errorFields?: SourcePath[];
+    },
+  ) => string;
   navigate: (
     path:
       | SourcePath
@@ -271,7 +291,15 @@ export function ValRouter({
       window.removeEventListener("popstate", listener);
     };
   }, []);
-  const navigate = useCallback(
+  /**
+   * Build the URL a navigation goes to. See {@link ValRouterContextValue.hrefOf}.
+   *
+   * The whole body of what `navigate` used to compute, lifted out unchanged so
+   * that a link's `href` and the navigation its click performs cannot drift
+   * apart — the failure that would produce is a link showing one destination in
+   * the status bar and opening another, which is worse than no link at all.
+   */
+  const hrefOf = useCallback(
     (
       path:
         | SourcePath
@@ -280,10 +308,9 @@ export function ValRouter({
         | typeof VAL_ERRORS_ROUTE,
       params?: {
         scrollToPath?: SourcePath | ModuleFilePath;
-        replace?: true;
         errorFields?: SourcePath[];
       },
-    ) => {
+    ): string => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
       const errorFieldsQuery =
@@ -352,9 +379,33 @@ export function ValRouter({
         carried.set("field", focused);
       }
       const carriedQuery = carried.toString();
-      const finalTo = carriedQuery
+      return carriedQuery
         ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}${carriedQuery}`
         : navigateTo;
+    },
+    [overlay, sessionParam],
+  );
+
+  const navigate = useCallback(
+    (
+      path:
+        | SourcePath
+        | ModuleFilePath
+        | typeof VAL_COMPARE_ROUTE
+        | typeof VAL_ERRORS_ROUTE,
+      params?: {
+        scrollToPath?: SourcePath | ModuleFilePath;
+        replace?: true;
+        errorFields?: SourcePath[];
+      },
+    ) => {
+      const isCompare = path === VAL_COMPARE_ROUTE;
+      const isErrors = path === VAL_ERRORS_ROUTE;
+      const finalTo = hrefOf(path, params);
+      const focused =
+        !isCompare && !isErrors && params?.scrollToPath !== path
+          ? (params?.scrollToPath ?? null)
+          : null;
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
@@ -400,7 +451,7 @@ export function ValRouter({
             : "");
       }
     },
-    [overlay, sessionParam],
+    [overlay, hrefOf],
   );
   const setSessionParam = useCallback(
     (id: string | null, opts?: { replace?: boolean }) => {
@@ -426,6 +477,7 @@ export function ValRouter({
         currentSourcePath,
         focusedSourcePath,
         navigate,
+        hrefOf,
         ready,
         isCompareView,
         isErrorsView,
@@ -442,6 +494,7 @@ export function ValRouter({
 export function useNavigation() {
   const {
     navigate,
+    hrefOf,
     currentSourcePath,
     focusedSourcePath,
     ready,
@@ -451,6 +504,7 @@ export function useNavigation() {
   } = useContext(ValRouterContext);
   return {
     navigate,
+    hrefOf,
     currentSourcePath,
     focusedSourcePath,
     ready,

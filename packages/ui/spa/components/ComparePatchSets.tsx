@@ -14,7 +14,6 @@ import {
   ArrowRight,
   ChevronDown,
   Equal,
-  Globe,
   Minus,
   Pencil,
   Plus,
@@ -28,7 +27,6 @@ import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
 import type { SourceOverride } from "./ValFieldProvider";
 import {
   FieldSourceOverrideContext,
-  useAllSources,
   useFilePatchIds,
   useSchemaAtPath,
   useSchemaWithResolvedPath,
@@ -38,7 +36,6 @@ import {
 } from "./ValFieldProvider";
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import { useDeletePatches, Profile } from "./ValProvider";
-import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
 import { AuthorPatchInfo, FieldPatchAuthorsPure } from "./FieldPatchAuthors";
@@ -52,8 +49,8 @@ import { Skeleton } from "./designSystem/skeleton";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
-import { urlOf } from "@valbuild/shared/internal";
-import { getNavPathFromAll } from "./getNavPath";
+import { FieldPathLink } from "./FieldPathLink";
+import { useNavLink } from "./navLink";
 import { servedPath } from "../utils/mediaPath";
 
 /**
@@ -504,24 +501,35 @@ function ModulePathLabel({
   moduleFilePath: ModuleFilePath;
 }) {
   const parts = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleLink = useNavLink(moduleFilePath);
   return (
-    <h2 className="text-sm font-medium text-fg-primary truncate flex items-center gap-1.5 min-w-0">
-      {parts.map((part, i) => (
-        <Fragment key={`${part}-${i}`}>
-          {i > 0 && (
-            <span className="text-fg-tertiary" aria-hidden>
-              /
+    <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+      {/*
+       * The module, as somewhere you can go. A row of changes is most often read
+       * on the way to fixing one of them.
+       */}
+      <a
+        {...moduleLink}
+        title={moduleFilePath}
+        className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {parts.map((part, i) => (
+          <Fragment key={`${part}-${i}`}>
+            {i > 0 && (
+              <span className="text-fg-tertiary" aria-hidden>
+                /
+              </span>
+            )}
+            <span
+              className={classNames({
+                "text-fg-secondary": i < parts.length - 1,
+              })}
+            >
+              {prettifyFilename(part)}
             </span>
-          )}
-          <span
-            className={classNames({
-              "text-fg-secondary": i < parts.length - 1,
-            })}
-          >
-            {prettifyFilename(part)}
-          </span>
-        </Fragment>
-      ))}
+          </Fragment>
+        ))}
+      </a>
     </h2>
   );
 }
@@ -719,65 +727,31 @@ function ChangeTargetLabel({
   isRouterPageKey: boolean;
   parentMediaType?: "images" | "files";
 }) {
-  const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
-  const codeCls =
-    "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block";
-
-  const handleNavigate = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
-    const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
-    const target = navPath ?? sourcePath;
-    navigate(target, {
-      scrollToPath: target !== sourcePath ? sourcePath : undefined,
-    });
-  };
-
-  if (parentMediaType) {
-    const { filename, folder } = getRefParts(segment);
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {`${folder}/${filename}`}
-      </button>
-    );
-  }
-
-  if (!modulePath) {
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {prettifyFilename(
-          Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
-        )}
-      </button>
-    );
-  }
-  if (isRouterPageKey) {
-    const previewHref = urlOf("/api/val/enable", {
-      redirect_to:
-        (typeof window !== "undefined" ? window.location.origin : "") + segment,
-    });
-    return (
-      <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-        <button onClick={handleNavigate} className={codeCls}>
-          {segment}
-        </button>
-        <a
-          href={previewHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
-          title={`Preview ${segment}`}
-        >
-          <Globe size={12} />
-        </a>
-      </span>
-    );
-  }
+  const label = ((): string => {
+    if (parentMediaType) {
+      const { filename, folder } = getRefParts(segment);
+      return `${folder}/${filename}`;
+    }
+    if (!modulePath) {
+      return prettifyFilename(
+        Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
+      );
+    }
+    if (isRouterPageKey) {
+      return segment;
+    }
+    return prettifyModulePath(modulePath);
+  })();
   return (
-    <button onClick={handleNavigate} className={classNames(codeCls, "min-w-0")}>
-      {prettifyModulePath(modulePath)}
-    </button>
+    <FieldPathLink
+      sourcePath={sourcePath}
+      previewSegment={
+        isRouterPageKey && !parentMediaType && modulePath ? segment : undefined
+      }
+      className="min-w-0"
+    >
+      {label}
+    </FieldPathLink>
   );
 }
 

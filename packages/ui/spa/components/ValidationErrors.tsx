@@ -7,23 +7,17 @@ import {
 } from "@valbuild/core";
 import { Fragment, useMemo } from "react";
 import classNames from "classnames";
-import {
-  CheckCircle2,
-  FileCode2,
-  Globe,
-  Loader2,
-  TriangleAlert,
-} from "lucide-react";
+import { CheckCircle2, FileCode2, Loader2, TriangleAlert } from "lucide-react";
 import { AnyField } from "./AnyField";
 import { FieldErrorList } from "./FieldErrorList";
 import { FieldErrorsOwned } from "./FieldErrorsOwner";
-import { getNavPathFromAll } from "./getNavPath";
+import { FieldPathLink } from "./FieldPathLink";
+import { useNavLink } from "./navLink";
 import { useAllValidationErrors } from "./ValErrorProvider";
-import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
+import { useSchemaAtPath, useSchemas } from "./ValFieldProvider";
 import { useNavigation } from "./ValRouter";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
-import { urlOf } from "@valbuild/shared/internal";
 
 /**
  * The list of rows shown on `/val/errors` is driven entirely by the
@@ -132,6 +126,7 @@ function ModuleGroup({
     () => Internal.splitModuleFilePath(moduleFilePath),
     [moduleFilePath],
   );
+  const moduleLink = useNavLink(moduleFilePath);
   const unresolvedCount = paths.filter(
     (path) => allErrors?.[path] && allErrors[path]!.length > 0,
   ).length;
@@ -143,7 +138,15 @@ function ModuleGroup({
           className="text-fg-secondary-alt shrink-0"
           aria-hidden
         />
-        <div className="min-w-0 flex flex-wrap items-center gap-1 text-sm text-fg-secondary">
+        {/*
+         * The module this group is about, as somewhere you can go: the group
+         * header named the file and left you to find it in the navigation.
+         */}
+        <a
+          {...moduleLink}
+          title={moduleFilePath}
+          className="min-w-0 flex flex-wrap items-center gap-1 rounded-sm text-sm text-fg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {moduleParts.map((part, i) => (
             <Fragment key={`m-${i}`}>
               {i > 0 && <span className="text-fg-tertiary">/</span>}
@@ -157,7 +160,7 @@ function ModuleGroup({
               </span>
             </Fragment>
           ))}
-        </div>
+        </a>
         <div className="ml-auto">
           {unresolvedCount === 0 ? (
             <CountPill tone="success">
@@ -236,9 +239,7 @@ function ValidationErrorRow({
 }
 
 function FieldPathLabel({ sourcePath }: { sourcePath: SourcePath }) {
-  const { navigate } = useNavigation();
   const schemas = useSchemas();
-  const allSources = useAllSources();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const segments = modulePath
@@ -250,61 +251,20 @@ function FieldPathLabel({ sourcePath }: { sourcePath: SourcePath }) {
     moduleSchema?.type === "record" && Boolean(moduleSchema.router);
   const isRouterPageKey = isRouterModule && segments.length === 1;
 
-  const codeCls =
-    "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block";
-
-  const handleNavigate = () => {
-    const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
-    const target = navPath ?? sourcePath;
-    navigate(target, {
-      scrollToPath: target !== sourcePath ? sourcePath : undefined,
-    });
-  };
-
-  if (!modulePath) {
-    return (
-      <button
-        onClick={handleNavigate}
-        className={classNames(codeCls, "self-start max-w-full")}
-      >
-        {prettifyFilename(
-          Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
-        )}
-      </button>
-    );
-  }
-
-  if (isRouterPageKey) {
-    const segment = segments[0];
-    const previewHref = urlOf("/api/val/enable", {
-      redirect_to:
-        (typeof window !== "undefined" ? window.location.origin : "") + segment,
-    });
-    return (
-      <span className="inline-flex self-start items-center gap-1.5 truncate min-w-0 max-w-full">
-        <button onClick={handleNavigate} className={codeCls}>
-          {segment}
-        </button>
-        <a
-          href={previewHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
-          title={`Preview ${segment}`}
-        >
-          <Globe size={12} />
-        </a>
-      </span>
-    );
-  }
-
   return (
-    <button
-      onClick={handleNavigate}
-      className={classNames(codeCls, "self-start max-w-full")}
+    <FieldPathLink
+      sourcePath={sourcePath}
+      previewSegment={isRouterPageKey ? segments[0] : undefined}
+      className={isRouterPageKey ? undefined : "self-start max-w-full"}
     >
-      {prettifyModulePath(modulePath)}
-    </button>
+      {isRouterPageKey
+        ? segments[0]
+        : modulePath
+          ? prettifyModulePath(modulePath)
+          : prettifyFilename(
+              Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
+            )}
+    </FieldPathLink>
   );
 }
 

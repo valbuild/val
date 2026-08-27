@@ -24,12 +24,6 @@ import {
   BreadcrumbEllipsis,
 } from "./designSystem/breadcrumb";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./designSystem/dropdown-menu";
-import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
@@ -42,6 +36,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
+import { ScopeTrail, StickyScopeBar, useScrolledPast } from "./ModuleScope";
 
 export function Module({
   path,
@@ -80,6 +75,7 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
+  const [headerEndRef, headerScrolledPast] = useScrolledPast();
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -136,54 +132,99 @@ export function Module({
       ? parentSchema.key?.description
       : undefined;
 
+  /**
+   * The tools, which appear twice: in the header and in the sticky bar it
+   * collapses into. Built once so the two cannot drift.
+   */
+  const tools = !isMediaGallery && (
+    <div className="shrink-0 flex gap-2 items-center">
+      {hasPendingPatches && (
+        <FieldPatchAuthors
+          patchesByAuthorIds={patchesByAuthorIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          sourcePath={path}
+        />
+      )}
+      <ArrayAndRecordTools path={path} variant={"module"} />
+    </div>
+  );
+
+  /** What this module is called, in the header and in the sticky bar. */
+  const titleNode = showNumber ? (
+    <span className="shrink-0">#{Number(last.text)}</span>
+  ) : isParentRouter ? (
+    <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
+  ) : isCurrentRouter ? (
+    <span className="inline-flex items-center gap-2">
+      <Globe size={20} className="text-fg-tertiary shrink-0" />
+      <span>Pages</span>
+    </span>
+  ) : (
+    <span className="truncate block">{last.text}</span>
+  );
+
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
+      {/*
+       * The header, once it has been scrolled past.
+       *
+       * A long module puts its own header out of reach, and "up" is the thing
+       * you are most likely to want by the time you are editing the tenth
+       * field. See `StickyScopeBar`.
+       */}
+      {!hideHeader && init.length > 0 && (
+        <StickyScopeBar
+          parent={init[init.length - 1]}
+          title={titleNode}
+          trailing={tools}
+          visible={headerScrolledPast}
+        />
+      )}
       <div className="flex flex-col gap-2 text-left overflow-hidden">
-        {parts.length > 1 && !hideHeader && (
-          <ModuleBreadcrumb init={init} portalContainer={portalContainer} />
-        )}
         <div
           className={cn({
             "border rounded-lg border-bg-warning-secondary p-4":
               keyErrors.length > 0,
           })}
         >
-          <div className="flex gap-4 justify-between items-center min-h-6 text-xl">
-            {!showNumber && !hideHeader && (
-              <div className="min-w-0 flex-1">
-                {isParentRouter ? (
-                  <UrlPathBreadcrumb
-                    path={last.text}
-                    portalContainer={portalContainer}
-                  />
-                ) : isCurrentRouter ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Globe size={20} className="text-fg-tertiary shrink-0" />
-                    <span>Pages</span>
-                  </span>
-                ) : (
-                  <span className="truncate block">{last.text}</span>
-                )}
+          {/*
+           * Title first, scope beneath.
+           *
+           * The name of the thing being edited leads, at a size that can lead;
+           * the path is provenance and sits under it as links. The other way
+           * round — a line of grey crumbs above a smaller title — spent the top
+           * of the column on the part that does not change.
+           */}
+          <div className="flex gap-4 justify-between items-start min-h-6">
+            {!hideHeader && (
+              /*
+               * A heading, in the role sense: the editor column had none, so
+               * nothing announced what was being edited and nothing could jump
+               * to it. Not an `<h1>` element, because the title of a router page
+               * is a breadcrumb — and a `<nav>` inside a heading element is not
+               * valid HTML.
+               */
+              <div
+                role="heading"
+                aria-level={1}
+                className="min-w-0 flex-1 text-2xl leading-tight"
+              >
+                {titleNode}
               </div>
             )}
-            {showNumber && !hideHeader && (
-              <span className="shrink-0">#{Number(last.text)}</span>
-            )}
-            {!isMediaGallery && (
-              <div className="shrink-0 flex gap-2 items-center">
-                {hasPendingPatches && (
-                  <FieldPatchAuthors
-                    patchesByAuthorIds={patchesByAuthorIds}
-                    profilesByAuthorIds={profilesByAuthorIds}
-                    sourcePath={path}
-                  />
-                )}
-                <ArrayAndRecordTools path={path} variant={"module"} />
-              </div>
-            )}
+            {tools}
           </div>
+          {!hideHeader && init.length > 0 && (
+            <ScopeTrail
+              parts={init}
+              portalContainer={portalContainer}
+              className="mt-1"
+            />
+          )}
           {keyDescription && !hideHeader && (
-            <div className="text-sm text-fg-tertiary">{keyDescription}</div>
+            <div className="mt-1 text-sm text-fg-tertiary">
+              {keyDescription}
+            </div>
           )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
@@ -191,6 +232,11 @@ export function Module({
           {schema.description && (
             <div className="text-sm text-fg-tertiary">{schema.description}</div>
           )}
+          {/*
+           * Marks the bottom of the header: once this is above the top of the
+           * column, the header is gone and the sticky bar takes over.
+           */}
+          <div ref={headerEndRef} aria-hidden className="h-0" />
         </div>
       </div>
       <div>
@@ -236,78 +282,6 @@ function Home() {
   );
 }
 
-// Max visible items before showing ellipsis (first + ellipsis + last N)
-const MAX_VISIBLE_ITEMS = 3;
-
-/**
- * Where this module sits, as a trail — read, not clicked.
- *
- * The segments used to navigate, and the useful destinations were already in the
- * navigation panel: what the trail actually offered was the module ROOT, which
- * for a router is a record of every URL and for anything else is the module you
- * just came from. Clicking a page's own name took you to a record view of the
- * whole router, with the canvas still open beside it showing a page you were no
- * longer editing.
- *
- * So it says where you are and stops there. The collapsed middle is still a
- * menu, because a long path has to be readable, but its items do not navigate
- * either.
- */
-function ModuleBreadcrumb({
-  init,
-  portalContainer,
-}: {
-  init: ReturnType<typeof splitIntoInitAndLastParts>;
-  portalContainer: HTMLElement | null;
-}) {
-  const shouldCollapse = init.length > MAX_VISIBLE_ITEMS;
-  const visibleStart = shouldCollapse ? init.slice(0, 1) : init;
-  const collapsed = shouldCollapse ? init.slice(1, -2) : [];
-  const visibleEnd = shouldCollapse ? init.slice(-2) : [];
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-fg-quaternary">
-        {visibleStart.map((part, i) => (
-          <Fragment key={`start-${i}`}>
-            <BreadcrumbItem className="shrink-0">{part.text}</BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </Fragment>
-        ))}
-
-        {shouldCollapse && collapsed.length > 0 && (
-          <>
-            <BreadcrumbItem className="shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-1">
-                  <BreadcrumbEllipsis className="h-4 w-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" container={portalContainer}>
-                  {collapsed.map((part, i) => (
-                    <DropdownMenuItem key={i} disabled>
-                      {part.text}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </>
-        )}
-
-        {visibleEnd.map((part, i) => (
-          <Fragment key={`end-${i}`}>
-            <BreadcrumbItem className="shrink-0">{part.text}</BreadcrumbItem>
-            {i < visibleEnd.length - 1 && (
-              <BreadcrumbSeparator className="shrink-0" />
-            )}
-          </Fragment>
-        ))}
-      </BreadcrumbList>
-    </Breadcrumb>
-  );
-}
-
 // Max visible URL segments before showing ellipsis
 const MAX_URL_SEGMENTS = 4;
 
@@ -349,7 +323,7 @@ function UrlPathBreadcrumb({
         <HoverCardTrigger asChild>
           <div className="cursor-default">
             <Breadcrumb>
-              <BreadcrumbList className="flex-nowrap text-xl font-normal">
+              <BreadcrumbList className="flex-nowrap font-normal">
                 <BreadcrumbItem className="shrink-0">
                   <span className="text-fg-tertiary">{protocol}//</span>
                   <span>{host}</span>
@@ -380,7 +354,7 @@ function UrlPathBreadcrumb({
 
   const breadcrumbContent = (
     <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-xl font-normal">
+      <BreadcrumbList className="flex-nowrap font-normal">
         {/* Show protocol and host for full URLs */}
         {isFullUrl && (
           <>
