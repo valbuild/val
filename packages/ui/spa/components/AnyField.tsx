@@ -18,6 +18,7 @@ import { FileField } from "./fields/FileField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
 import { ValidationErrors } from "./ValidationError";
 import { useFieldErrorsOwned } from "./FieldErrorsOwner";
+import { usePendingWriteHold } from "./PendingWriteHold";
 
 export type ErrorDisplay = "default" | "compact" | "none";
 
@@ -40,10 +41,22 @@ export function AnyField({
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
 }) {
+  // Before the guard: a hook below an early return is a hook-order trap — see
+  // `architecture/quirks.md`.
+  const writeHeld = usePendingWriteHold();
   if (schema.hidden) {
     return null;
   }
-  const effectiveReadonly = readonly || schema.readonly;
+  /*
+   * The schema's own `readonly`, the caller's, and the write hold.
+   *
+   * The hold is the first load's patches not being in yet — see
+   * `PendingChangesGate`. Folded in here rather than handled separately because
+   * "you may look at this field but not change it" is a state fields already
+   * implement, and a second mechanism for it would be a second thing to keep
+   * right in every field.
+   */
+  const effectiveReadonly = readonly || schema.readonly || writeHeld;
   const leafProps = { readonly: effectiveReadonly, compact };
   let leaf: React.ReactNode;
   if (schema.type === "string") {

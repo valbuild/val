@@ -44,6 +44,8 @@ import {
   usePublishCount,
   usePublishSummary,
   useInitialPatchesApplied,
+  usePatchFetchError,
+  usePendingChangesProgress,
   useValMode,
 } from "../ValProvider";
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
@@ -147,6 +149,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * wrong.
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
+  // Only read when the wait has already gone on too long — see
+  // `PendingChangesGate`.
+  const pendingChangesProgress = usePendingChangesProgress();
+  const pendingChangesError = usePatchFetchError();
 
   /**
    * Back and forward, for the canvas.
@@ -774,6 +780,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       aiEnabled={isAIChatEnabled}
       // Held until the first load's patches are in — see `PendingChangesGate`.
       pendingChangesLoaded={pendingChangesLoaded}
+      pendingChangesProgress={pendingChangesProgress}
+      pendingChangesError={pendingChangesError}
       aiUnavailable={
         aiConnectionError
           ? {

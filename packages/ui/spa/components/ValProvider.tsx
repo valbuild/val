@@ -32,6 +32,7 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
+import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
@@ -1253,6 +1254,49 @@ export function useInitialPatchesApplied(): boolean {
  * The engine assembled this from three id lists and de-duplicated the overlap;
  * the store has one ordered chain, so this is that chain.
  */
+/**
+ * What is still outstanding in the loaded chain, and why, on demand.
+ *
+ * A getter rather than state: it is only read when the wait has already gone on
+ * too long — see `PendingChangesGate` — and as reactive state it would re-render
+ * the editor on every chain change to feed a report nobody is looking at.
+ */
+export function usePendingChangesProgress(): () => ChainProgress {
+  const val = useValSystem();
+  return useCallback(() => {
+    if (val === null) {
+      return {
+        total: 0,
+        settled: 0,
+        unfetched: [],
+        unapplied: [],
+        failed: [],
+        statSeen: false,
+      };
+    }
+    return val.system.patchStore.chainProgress();
+  }, [val]);
+}
+
+/**
+ * The last reason fetching patches failed, latched.
+ *
+ * Latched rather than cleared on success, because it is read after the fact: a
+ * chain that stalled sixty seconds ago and has since had one failing round is
+ * still explained by that round's message.
+ */
+export function usePatchFetchError(): string | null {
+  const val = useValSystem();
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (val === null) return;
+    return val.system.patchStore.events.on("patch:fetch-failed", (event) => {
+      setMessage(event.message);
+    });
+  }, [val]);
+  return message;
+}
+
 export function useCurrentPatchIds(): PatchId[] {
   const val = useValSystem();
   const chainVersion = useChainVersion();
