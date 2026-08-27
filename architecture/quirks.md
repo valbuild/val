@@ -131,6 +131,46 @@ a fresh element each time or the probe never runs again.
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
 
+## A request "pending" in dev is usually queued, not slow
+
+The devtools show a request as pending from the moment it is _created_, which
+includes the time it spends in the browser's own queue. A browser runs about six
+connections per origin over HTTP/1.1, so the seventh simultaneous request to
+`/api/val` has not been sent yet — and it looks identical to a request the server
+is sitting on.
+
+**The tell is the shape of the wait.** A request that was queued sits for
+seconds and then completes in milliseconds; one the server is actually slow on
+takes its time in the response. Observed on a `GET /patches` that appeared stuck:
+13 seconds pending, then under 50ms to answer. Resource Timing separates the two
+directly — `requestStart - fetchStart` is the queue, `responseStart -
+requestStart` is the server — which is what `scripts/valRequestReport.js` prints.
+
+**The dev studio is what fills that queue.** In development
+`packages/ui/src/server.ts` is the static handler, and it proxies every
+`/api/val/static/*` through the Next server to the Vite dev server on `:5173`,
+which serves the SPA unbundled — one request per source file. Measured on
+`examples/next`: **608 requests, peaking at 152 in flight.** Anything the editor
+asks for during that window queues behind them: `GET /patches`, `POST /stat`, the
+next navigation. This is why a save can take a very long time to go green in dev
+and then recover on its own. Dev-only — production serves a prebuilt bundle from
+`packages/ui/src/vite-server.ts`.
+
+**A parked long poll holds one of those connections.** `POST /stat` in FS mode is
+held open for `statPollingInterval`, default **20 seconds** (`ValOpsFS.getStat`).
+A request the browser has assigned behind it on the same socket cannot go out
+until it returns, which is why a `/stat` and a `/patches` are seen finishing at
+the same moment after ~20 seconds — not a shared lock, just a freed connection.
+
+Separately, and real but much smaller: `ValOpsFS.readPatches` reads and
+`JSON.parse`s **every** patch on disk before filtering to the `patch_id` that was
+asked for, all synchronously on the event loop. Measured against `examples/next`
+with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
+**35–46ms at 650** — and the response is 394 bytes at every length. Called from
+`fetchPatches`, `getStat` and `getParentPatchIdFromPatchId`, so the stat poll pays
+it too. Enough to notice on a long chain, nowhere near enough to explain a request
+that appears to hang.
+
 ## The canvas can refresh before the server has the edit
 
 An edit is applied to the client store the moment you type it and written to the
