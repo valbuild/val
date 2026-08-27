@@ -10,6 +10,7 @@ import type {
 } from "@valbuild/core";
 import { SchemaValidator } from "../validation/validateModule";
 import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
@@ -636,6 +637,28 @@ export function createSystem(options: SystemOptions): System {
               .join("\n")
           : event.message,
       );
+    }),
+    /**
+     * A save that keeps failing has to reach the USER.
+     *
+     * The retry itself is right and continues — an edit must not be thrown away
+     * because the network blinked — but it used to be entirely silent: nothing
+     * read the sync's `retrying` state, so the status bar said "Saving…" for as
+     * long as the fault lasted, and the reason the client already had went
+     * nowhere. A save that can never succeed then looks exactly like a slow one.
+     *
+     * Sticky until dismissed, like every `StatusStore` error, and de-duplicated
+     * by title there — which is why `describeStuckSave` keeps the attempt count
+     * out of the title and in the detail.
+     */
+    patchSync.events.on("patch:save-stuck", (event) => {
+      const report = describeStuckSave(
+        event.reason,
+        event.message,
+        event.attempt,
+        event.patches.length,
+      );
+      status.reportError(report.title, report.detail);
     }),
     // The parent ref is computed from stat, so the sync has to see every stat.
     // Read from the store rather than carried on the event, so the event stays

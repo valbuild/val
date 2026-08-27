@@ -18,6 +18,8 @@ import { noopActivity, type ActivitySink } from "./activity";
  *   Retryable, and the only branch that needs the chain re-synced first.
  * - `rejected` (400) — the patches are permanently bad. NOT retryable.
  * - `network-error` — retryable, and says nothing about the patches.
+ * - `unparseable-response` — retryable, but usually permanent: reported after a
+ *   couple of attempts instead of retried in silence.
  * - `unauthorized` — retryable only after the user does something.
  *
  * Collapsing conflict and rejected into one "failed" would be the expensive
@@ -40,6 +42,22 @@ export type SaveResult =
       errors?: Record<ModuleFilePath, string[]>;
     }
   | { status: "network-error"; message: string }
+  /**
+   * The server answered, and the answer was not one this client understands.
+   *
+   * Separate from `network-error`, which it used to be folded into, because the
+   * two have opposite prognoses. A network error is usually transient — the
+   * laptop's lid was shut — and retrying until it clears is right. An answer that
+   * does not parse is usually PERMANENT: a Val version mismatch between the app
+   * and the editor, or something in front of the server returning HTML. Retrying
+   * that succeeds never, so it must be said out loud rather than absorbed.
+   *
+   * Still retried, though, and the patches are still kept. "Usually permanent" is
+   * not "certainly permanent" — a dev server recompiling an API route answers
+   * exactly like this for a second or two — and giving up would throw away an
+   * edit over a transient.
+   */
+  | { status: "unparseable-response"; message: string }
   | { status: "unauthorized"; message: string };
 
 /**
@@ -51,6 +69,16 @@ export type SaveResult =
  * and the fact that the retry must wait for it.
  */
 export type ResyncChain = () => Promise<void>;
+
+/**
+ * How many failed attempts before a retry is reported rather than just retried.
+ *
+ * Two, because the first failure of anything is usually nothing: a dev server
+ * recompiling its API route, a proxy reconnecting, one dropped packet. By the
+ * third the backoff has already reached two seconds and whatever is wrong is not
+ * a blip. The retry continues either way — this only decides when someone is told.
+ */
+export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
 
 /**
  * What the write queue is doing. The queue only — see {@link SaveRejection}.
@@ -71,7 +99,11 @@ export type SyncState =
   | {
       status: "retrying";
       patches: PatchId[];
-      reason: "conflict" | "network-error" | "unauthorized";
+      reason:
+        | "conflict"
+        | "network-error"
+        | "unparseable-response"
+        | "unauthorized";
       message: string;
       attempt: number;
     };
@@ -190,6 +222,8 @@ export class PatchSync {
   private savedNotInStat: PatchId[] = [];
   private inFlight: Promise<void> | null = null;
   private attempt = 0;
+  /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
+  private reportedStuck = false;
   private state: SyncState = { status: "in-sync" };
   private stopped = false;
 
@@ -388,6 +422,7 @@ export class PatchSync {
   private async handle(result: SaveResult, sent: PatchId[]): Promise<boolean> {
     if (result.status === "saved") {
       this.attempt = 0;
+      this.reportedStuck = false;
       this.savedNotInStat.push(...result.newPatchIds);
       // The ids the SERVER named, not the ids we sent — see `markSaved`.
       this.patchStore.markSaved(result.newPatchIds);
@@ -402,6 +437,7 @@ export class PatchSync {
       return false;
     }
     if (result.status === "rejected") {
+      this.reportedStuck = false;
       // Permanently bad, so this is the one branch that destroys local state.
       // The patches are dropped and the source rebuilt without them, because the
       // alternative is a user staring at an edit that will never exist.
@@ -443,11 +479,17 @@ export class PatchSync {
       // conflict again. This is the whole reason `ResyncChain` is injected.
       await this.resync();
       if (this.stopped) return true;
+      // A conflict that survives a re-sync is no longer someone else being
+      // quicker; it is a chain this client cannot get onto.
+      if (this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS) {
+        this.reportStuck(sent, "conflict", result.message);
+      }
       await this.sleep(this.backoffMs(this.attempt));
       return this.stopped;
     }
-    // Network error or unauthorized: nothing is known about the patches, so
-    // nothing local changes. Back off and try the same batch again.
+    // Network error, an answer we cannot read, or unauthorized: nothing is known
+    // about the patches, so nothing local changes. Back off and try the same
+    // batch again.
     this.activity.work("patch:save-retry");
     this.setState({
       status: "retrying",
@@ -456,8 +498,43 @@ export class PatchSync {
       message: result.message,
       attempt: this.attempt,
     });
+    /*
+     * `unauthorized` is left out on purpose: signing in again is a different
+     * conversation, already had elsewhere by the account UI, and reporting it
+     * here would say "saving is stuck" about something the user can simply fix.
+     */
+    if (
+      result.status !== "unauthorized" &&
+      this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS
+    ) {
+      this.reportStuck(sent, result.status, result.message);
+    }
     await this.sleep(this.backoffMs(this.attempt));
     return this.stopped;
+  }
+
+  /**
+   * Say that a save is stuck — once per spell, not once per attempt.
+   *
+   * The retry loop runs for as long as the fault lasts, and `StatusStore` errors
+   * are sticky until dismissed, so emitting on every attempt would stack a fresh
+   * report every backoff. The latch is cleared on the next success, so a fault
+   * that comes back is reported again.
+   */
+  private reportStuck(
+    patches: PatchId[],
+    reason: "conflict" | "network-error" | "unparseable-response",
+    message: string,
+  ): void {
+    if (this.reportedStuck) return;
+    this.reportedStuck = true;
+    this.events.emit({
+      type: "patch:save-stuck",
+      patches,
+      reason,
+      message,
+      attempt: this.attempt,
+    });
   }
 
   private setState(state: SyncState): void {
