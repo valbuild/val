@@ -7,7 +7,11 @@ import themeVal from "../content/theme.val";
 import Link from "next/link";
 import { val } from "../val.config";
 
-export default async function Home({ params }: { params: unknown }) {
+export default async function Home({
+  params,
+}: {
+  params: Promise<Record<string, string | string[]>>;
+}) {
   const page = await fetchValRoute(pageVal, params);
   if (page === null) {
     notFound();

@@ -2,7 +2,7 @@ import React, { useContext, useRef } from "react";
 import { useTheme } from "./ValThemeProvider";
 
 type ValPortalContextValue = {
-  portalRef: React.RefObject<HTMLDivElement>;
+  portalRef: React.RefObject<HTMLDivElement | null>;
 };
 
 const ValPortalContext = React.createContext<ValPortalContextValue>(

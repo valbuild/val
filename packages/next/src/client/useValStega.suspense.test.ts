@@ -4,39 +4,6 @@
 import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-
-// Production requires React 19 (React.use). The test environment stays on React 18
-// to avoid a large dependency upgrade across the monorepo. This polyfill makes
-// React.use available so the integration test still exercises the real Suspense flow.
-// When the monorepo eventually upgrades to React 19, delete this block.
-if (!("use" in React)) {
-  type Entry = {
-    status: "pending" | "resolved" | "rejected";
-    result?: unknown;
-  };
-  const cache = new WeakMap<Promise<unknown>, Entry>();
-  Reflect.set(React, "use", function use<T>(promise: Promise<T>): T {
-    let entry = cache.get(promise);
-    if (!entry) {
-      const newEntry: Entry = { status: "pending" };
-      entry = newEntry;
-      cache.set(promise, newEntry);
-      promise.then(
-        (v) => {
-          newEntry.status = "resolved";
-          newEntry.result = v;
-        },
-        (e) => {
-          newEntry.status = "rejected";
-          newEntry.result = e;
-        },
-      );
-    }
-    if (entry.status === "resolved") return entry.result as T;
-    if (entry.status === "rejected") throw entry.result;
-    throw promise; // pending: React 18 Suspense catches the thrown promise
-  });
-}
 import { initVal, ModuleFilePath } from "@valbuild/core";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
@@ -80,7 +47,14 @@ describe("useValStega Suspense", () => {
     // pre-subscribe: a suspended first render never commits, so the source is
     // update()'d before useSyncExternalStore subscribes. The store must still
     // surface it on the retry render (otherwise useValRoute would 404).
-    render(tree(store, true));
+    //
+    // The render is wrapped in an awaited `act`: React 19 errors out ("A
+    // component suspended inside an `act` scope, but the `act` call was not
+    // awaited") when a render suspends inside the synchronous `act` that
+    // Testing Library wraps `render` in.
+    await act(async () => {
+      render(tree(store, true));
+    });
     expect(screen.getByTestId("fallback")).toBeTruthy();
     expect(screen.queryByTestId("val")).toBeNull();
 
