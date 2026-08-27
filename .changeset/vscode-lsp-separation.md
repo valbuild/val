@@ -22,3 +22,10 @@ The language server now:
 - reacts to `workspace/didChangeWatchedFiles`, and registers the watchers itself
   when the client allows it. A `.val.ts` changed by git, or a file dropped into
   `/public`, previously went unnoticed until something was retyped.
+- reports a gallery-backed media field whose path its gallery does not track, as
+  `val/gallery-membership`, and offers the two remedies as quick fixes: register
+  the file in the gallery module, or move it into the gallery's directory. The
+  rename is withheld unless the client announced support for it, since a
+  `RenameFile` a client ignores would rewrite the path and leave the file behind.
+- ships a README documenting the client contract, including a Neovim
+  configuration.

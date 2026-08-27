@@ -27,6 +27,8 @@ export {
   galleryCheckKey,
   type GalleryCheckFinding,
   type GalleryCheckVerdict,
+  galleryMembershipAt,
+  type GalleryMembership,
 } from "./diagnostics";
 export {
   findRegisteredModuleSpecifiers,
@@ -56,6 +58,11 @@ export {
   valModuleSpecifier,
   valModulesEntryText,
 } from "./valModulesRegistry";
+export {
+  canRenameFiles,
+  createGalleryMembershipActions,
+  findRecordInsertion,
+} from "./galleryFixes";
 export {
   createValCompletions,
   resolveValCompletion,

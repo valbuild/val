@@ -47,6 +47,12 @@ export const VAL_DIAGNOSTIC_CODES = [
   "val/file-not-found",
   /** The module is not registered in `val.modules`, so Val will not serve it. */
   "val/missing-module",
+  /**
+   * A gallery-backed media field points at something its gallery does not have.
+   * Reported by core with no `ValidationFix`, because the remedy is an edit to
+   * the gallery module or a file move -- see {@link GalleryMembership}.
+   */
+  "val/gallery-membership",
 ] as const;
 
 export type ValDiagnosticCode = (typeof VAL_DIAGNOSTIC_CODES)[number];
@@ -73,6 +79,12 @@ export type ValDiagnosticData = {
   value?: unknown;
   /** Absolute path of the missing file, for `val/file-not-found`. */
   filePath?: string;
+  /**
+   * Where the gallery is and what the field points at, for `val/gallery-membership`.
+   * Carried here so a code action does not have to re-resolve the schema, and so
+   * a client could show it.
+   */
+  gallery?: GalleryMembership;
   /**
    * The path to hand `createFixPatch`, when it differs from
    * {@link ValDiagnosticData.sourcePath}.
@@ -254,6 +266,25 @@ export function createValDiagnostics({
             `File ${missing} does not exist`,
             { code: "val/file-not-found", sourcePath, filePath: missing },
           ),
+        );
+        continue;
+      }
+
+      // A gallery-backed field whose path the gallery does not track. Core
+      // reports it with no fix because the remedy is elsewhere; giving it its
+      // own code is what lets the editor offer the two remedies.
+      const gallery =
+        !fixes?.length && !error.schemaError
+          ? galleryMembershipAt({ sourcePath, content, snapshot })
+          : undefined;
+      if (gallery) {
+        diagnostics.push(
+          build(rangeOf(sourcePath, modulePathMap, "path"), error.message, {
+            code: "val/gallery-membership",
+            sourcePath,
+            gallery,
+            ...(error.value !== undefined ? { value: error.value } : {}),
+          }),
         );
         continue;
       }
@@ -545,4 +576,105 @@ function dropDeferredPlaceholders(
     }
   }
   return out;
+}
+
+/**
+ * A gallery-backed field pointing at something the gallery does not have.
+ *
+ * `ImageSchema.validate` reports this (`packages/core/src/schema/image.ts`:
+ * "The gallery does not have an image at '…'") but attaches no `ValidationFix`,
+ * because the remedy is not a change to this module: either the gallery gains an
+ * entry, or the file moves into the gallery's directory. Both are edits to
+ * somewhere else, which is not what a `ValidationFix` describes.
+ *
+ * So the fix is built in the editor instead, and this is what it needs. Derived
+ * from the **schema**, not from the message: matching on message text would break
+ * the moment the wording changed, silently.
+ */
+export type GalleryMembership = {
+  /** Module path of the gallery this field points at. */
+  referencedModule: string;
+  /** The gallery's directory, when it declares one. */
+  directory?: string;
+  /** The path the field currently holds. */
+  path: string;
+  /** `image` or `file`, for wording and for which metadata to read. */
+  mediaType: "image" | "file";
+};
+
+export function galleryMembershipAt({
+  sourcePath,
+  content,
+  snapshot,
+}: {
+  sourcePath: string;
+  content: ValModuleContent;
+  snapshot?: SchemaSourceSnapshot;
+}): GalleryMembership | undefined {
+  if (!content.source || !content.schema) {
+    return undefined;
+  }
+  let resolved;
+  try {
+    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+      sourcePath as never,
+    );
+    resolved = Internal.resolvePath(modulePath, content.source, content.schema);
+  } catch {
+    return undefined;
+  }
+  const schema = resolved.schema;
+  if (
+    !schema ||
+    typeof schema !== "object" ||
+    !("type" in schema) ||
+    (schema.type !== "image" && schema.type !== "file")
+  ) {
+    return undefined;
+  }
+  const referencedModule =
+    "referencedModule" in schema && typeof schema.referencedModule === "string"
+      ? schema.referencedModule
+      : undefined;
+  if (!referencedModule) {
+    return undefined;
+  }
+  const source = resolved.source;
+  const currentPath =
+    source && typeof source === "object" && "path" in source
+      ? (source as { path?: unknown }).path
+      : undefined;
+  if (typeof currentPath !== "string") {
+    return undefined;
+  }
+  const gallery = snapshot?.schemas[referencedModule as never] as
+    | { type?: string; directory?: unknown }
+    | undefined;
+  const directory =
+    gallery?.type === "record" && typeof gallery.directory === "string"
+      ? gallery.directory
+      : undefined;
+  // Core emits TWO fixless errors on a gallery-backed field: this one, and "an
+  // image from a gallery must not carry its own width, height...". Both look
+  // identical from here, and offering "add it to the gallery" for the second
+  // would be nonsense. The path already being a key in the gallery is what tells
+  // them apart, so without a snapshot to check against, claim nothing.
+  const entries = snapshot?.sources[referencedModule as never];
+  if (
+    entries === undefined ||
+    entries === null ||
+    typeof entries !== "object" ||
+    Array.isArray(entries)
+  ) {
+    return undefined;
+  }
+  if (currentPath in entries) {
+    return undefined;
+  }
+  return {
+    referencedModule,
+    ...(directory !== undefined ? { directory } : {}),
+    path: currentPath,
+    mediaType: schema.type,
+  };
 }

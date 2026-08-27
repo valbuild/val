@@ -48,6 +48,10 @@ import {
 import { createValCompletions, resolveValCompletion } from "./completions";
 import { createValCommands, valCommandNames } from "./commands";
 import {
+  canRenameFiles as clientCanRenameFiles,
+  createGalleryMembershipActions,
+} from "./galleryFixes";
+import {
   createPublicValFiles,
   DEFAULT_FILES_DIRECTORY,
   type PublicValFiles,
@@ -242,6 +246,7 @@ export function createValLanguageServer(connection: Connection): {
 } {
   const documents = new TextDocuments(TextDocument);
   let canRegisterWatchers = false;
+  let canRenameFiles = false;
 
   /**
    * The editor's view of a file, by absolute path, or `undefined` when the file
@@ -408,6 +413,9 @@ export function createValLanguageServer(connection: Connection): {
     canRegisterWatchers =
       params.capabilities.workspace?.didChangeWatchedFiles
         ?.dynamicRegistration === true;
+    // A RenameFile sent to a client that did not announce resourceOperations is
+    // silently dropped, which would rewrite the path and leave the file behind.
+    canRenameFiles = clientCanRenameFiles(params.capabilities);
 
     const clientCapabilities: ValClientCapabilities =
       (
@@ -432,6 +440,7 @@ export function createValLanguageServer(connection: Connection): {
       "fix/upload-remote",
       "fix/download-remote",
       "login",
+      "diagnostics/gallery",
     ];
     const commands: string[] = valCommandNames();
 
@@ -637,6 +646,24 @@ export function createValLanguageServer(connection: Connection): {
       const result = await project.getModule(moduleFilePath);
       if (result.status === "error") {
         return actions;
+      }
+
+      // Gallery membership: core reports it but offers no fix, because both
+      // remedies are edits elsewhere -- the gallery module, or the file itself.
+      for (const diagnostic of params.context.diagnostics) {
+        const data = diagnostic.data as ValDiagnosticData | undefined;
+        if (data?.code !== "val/gallery-membership" || !data.gallery) {
+          continue;
+        }
+        actions.push(
+          ...(await createGalleryMembershipActions({
+            document,
+            gallery: data.gallery,
+            valRoot: project.valRoot,
+            read: readOpenDocument,
+            allowRename: canRenameFiles,
+          })),
+        );
       }
       actions.push(
         ...(await createValCodeActions({
