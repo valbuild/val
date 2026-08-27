@@ -2,7 +2,9 @@ import {
   Maximize2,
   Minus,
   Monitor,
+  MousePointerClick,
   Plus,
+  RotateCw,
   Smartphone,
   Tablet,
 } from "lucide-react";
@@ -19,8 +21,12 @@ const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
  * The canvas's own controls: what width the page is shown at and how far it
  * is zoomed.
  *
- * Whether clicking picks elements is not here — that follows from which view
- * the canvas is in, and putting it in two places would let them disagree.
+ * Picking is here too, because it is a property of the page rather than of the
+ * column beside it. It used to follow from the view, which meant the only way
+ * to select something on the page was to give up the module editor for the
+ * fields list — and no way at all to read the page normally while still being
+ * able to point at a bit of it. Switching views still sets it, since each view
+ * has an obvious default; the button is how you disagree.
  *
  * Floats over the canvas rather than sitting above it, so the canvas keeps
  * the full height — the same reasoning as the shell's other bars.
@@ -32,6 +38,10 @@ export function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onFit,
+  isPicking,
+  onPickingChange,
+  onReload,
+  isRefreshing,
   className,
 }: {
   device: CanvasDevice;
@@ -40,6 +50,33 @@ export function CanvasToolbar({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
+  /**
+   * Whether a click on the page selects what it hits.
+   *
+   * Absent where picking means nothing — the demo page in Storybook reports no
+   * paths, so there is nothing for a click to select.
+   */
+  isPicking?: boolean;
+  onPickingChange?: (isPicking: boolean) => void;
+  /**
+   * Load the page again.
+   *
+   * Needed because the canvas shows a document Val does not control the
+   * rendering of: a server component re-reads content when the page is
+   * requested, not when a patch is written, so there are changes that only a
+   * reload brings across. Absent when there is nothing to reload — the demo
+   * page is rendered from data that is already live.
+   */
+  onReload?: () => void;
+  /**
+   * The page is re-rendering because of an edit.
+   *
+   * Shown on the reload button rather than as a control of its own: what is
+   * happening IS a reload — the page is fetching itself again because the
+   * content changed — so the button that does it by hand is the honest place to
+   * say it is happening by itself.
+   */
+  isRefreshing?: boolean;
   className?: string;
 }) {
   return (
@@ -97,6 +134,58 @@ export function CanvasToolbar({
       >
         <Maximize2 size={13} />
       </button>
+      {onPickingChange && (
+        <>
+          <Divider />
+          <button
+            type="button"
+            aria-label={
+              isPicking ? "Stop selecting on the page" : "Select on the page"
+            }
+            aria-pressed={isPicking}
+            title={
+              isPicking
+                ? "Clicking the page selects what it hits"
+                : "Clicking the page follows links, as a visitor would"
+            }
+            onClick={() => onPickingChange(!isPicking)}
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded-md",
+              isPicking
+                ? // The green the page's own outlines are drawn in, so the
+                  // button and what it does read as the same thing.
+                  "bg-bg-page-selection-fill text-fg-brand-primary ring-1 ring-inset ring-bg-page-selection"
+                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+            )}
+          >
+            <MousePointerClick size={14} />
+          </button>
+        </>
+      )}
+      {onReload && (
+        <>
+          <Divider />
+          <button
+            type="button"
+            aria-label={isRefreshing ? "Updating the page" : "Reload the page"}
+            title={
+              isRefreshing
+                ? "The page is re-rendering with your change"
+                : "Reload the page"
+            }
+            onClick={onReload}
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              isRefreshing ? "text-fg-brand-primary" : "text-fg-secondary",
+            )}
+          >
+            <RotateCw
+              size={13}
+              className={cn(isRefreshing && "animate-spin")}
+            />
+          </button>
+        </>
+      )}
     </div>
   );
 }

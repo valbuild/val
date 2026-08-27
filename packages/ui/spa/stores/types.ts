@@ -253,6 +253,16 @@ export type SystemEvent =
       type: "patch:removed-by-server";
       removed: { patchId: PatchId; reason: string }[];
     }
+  /**
+   * `GET /patches` itself failed, so these ids have no data.
+   *
+   * Distinct from a per-patch error: the chain is announced but unreadable, so
+   * the editor is showing published content while pending changes exist. Nothing
+   * else in the system can tell the difference between that and the changes
+   * having been lost, which is why this is reported to the user rather than
+   * retried quietly. See `FetchPatches`.
+   */
+  | { type: "patch:fetch-failed"; patches: PatchId[]; message: string }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
   /**
@@ -301,6 +311,27 @@ export type SystemEvent =
       patches: PatchId[];
       message: string;
       errors?: Record<ModuleFilePath, string[]>;
+    }
+  /**
+   * A save has been failing long enough that someone should be told.
+   *
+   * The sync retries a failed save forever, which is right — an edit must not be
+   * thrown away because the network blinked — but it meant a save that could
+   * never succeed retried in silence, with the status bar saying "Saving…" and
+   * the reason the client already had going nowhere. This is emitted once the
+   * attempts stop being plausibly transient, so the retry can carry on while the
+   * user finds out.
+   *
+   * Carries the reason and the attempt count because "still trying, attempt 6,
+   * because the server's answer could not be read" is actionable and "saving" is
+   * not.
+   */
+  | {
+      type: "patch:save-stuck";
+      patches: PatchId[];
+      reason: "conflict" | "network-error" | "unparseable-response";
+      message: string;
+      attempt: number;
     }
   /**
    * Something the editor should be told changed: an error, the network, the

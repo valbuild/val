@@ -1,3 +1,4 @@
+import { chunkPatchIdsForDelete } from "./patchesQuery";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
@@ -66,7 +67,16 @@ export function createValSystem(
     schemaValidation?: SchemaValidationBridge;
   },
 ): System {
-  return createSystem({
+  /**
+   * The system, referred to by a seam that is constructed before it exists.
+   *
+   * `resyncChain` has to feed `stat.receiveStat`, and `stat` belongs to the
+   * system this call is building — so the reference is late-bound and assigned
+   * immediately below. The seam can only run in response to a save, which cannot
+   * happen before the system is returned, so it is never read while null.
+   */
+  let built: System | null = null;
+  const system = createSystem({
     /**
      * Schema validation, on a thread.
      *
@@ -189,7 +199,15 @@ export function createValSystem(
       const errors: Record<PatchId, string> = {};
       // In batches whose query strings fit. All the ids on one URL is ~19KB at
       // 410 pending changes, which a Node server rejects before the handler runs.
+      //
+      // This replaces dropping the `patch_id` filter once it got too long: that
+      // fetched the whole table and filtered here, which works but pulls every
+      // patch in the project to read a few. Chunking keeps the filter.
+      let requestError: string | undefined;
+      let chunks = 0;
+      let failedChunks = 0;
       for (const chunk of chunkPatchIds(patchIds)) {
+        chunks++;
         const res = await client("/patches", "GET", {
           query: {
             exclude_patch_ops: false,
@@ -209,6 +227,8 @@ export function createValSystem(
           for (const patchId of chunk) {
             errors[patchId] = message;
           }
+          requestError = message;
+          failedChunks++;
           continue;
         }
         for (const patch of res.json.patches) {
@@ -229,7 +249,16 @@ export function createValSystem(
           });
         }
       }
-      return { patches, errors };
+      return {
+        patches,
+        errors,
+        // `error` is what reaches the user, through `patch:fetch-failed`. Set it
+        // only when NO chunk came back: a partial failure already has an entry
+        // per id, and `patch:announced-not-delivered` describes it precisely.
+        ...(chunks > 0 && failedChunks === chunks
+          ? { error: requestError }
+          : {}),
+      };
     },
 
     fetchJsonEntry: async (moduleFilePath, key) => {
@@ -328,21 +357,28 @@ export function createValSystem(
     },
 
     discardPatches: async (patchIds) => {
-      const res = await client("/patches", "DELETE", {
-        query: { id: patchIds },
-      });
-      if (res.status !== 200) {
-        return {
-          status: "error",
-          message:
-            res.status !== null && "message" in res.json
-              ? res.json.message
-              : `DELETE /patches failed with status ${res.status ?? "network"}`,
-        };
+      // One request per chunk the URL can carry: "discard all" on a long chain
+      // otherwise built a query string the server refuses before the handler
+      // sees it. See `chunkPatchIdsForDelete`.
+      const deleted: PatchId[] = [];
+      for (const chunk of chunkPatchIdsForDelete(patchIds)) {
+        const res = await client("/patches", "DELETE", {
+          query: { id: chunk },
+        });
+        if (res.status !== 200) {
+          return {
+            status: "error",
+            message:
+              res.status !== null && "message" in res.json
+                ? res.json.message
+                : `DELETE /patches failed with status ${res.status ?? "network"}`,
+          };
+        }
+        // The ids the server says it deleted. A partial delete must not make the
+        // client forget a patch that still exists.
+        deleted.push(...res.json);
       }
-      // The ids the server says it deleted. A partial delete must not make the
-      // client forget a patch that still exists.
-      return { status: "discarded", patchIds: res.json };
+      return { status: "discarded", patchIds: deleted };
     },
 
     ...(options?.writes === true
@@ -352,10 +388,28 @@ export function createValSystem(
               body: { patches, parentRef, sessionId },
             });
             if (res.status === null) {
+              /*
+               * `status: null` is the client saying it could not read the answer,
+               * which is TWO different faults wearing one label: the request
+               * never completed, or it completed and the body did not match the
+               * schema. Both used to map to `network-error` and retry in silence
+               * — and the second one never succeeds by waiting, because what
+               * produces it is a Val version mismatch between the app and the
+               * editor, or something in front of the server answering with HTML.
+               *
+               * The client already labels which it was — `network_error` against
+               * `client_side_validation_error` — so that is what this branches
+               * on. Matching on the message text would work today and break the
+               * day someone rewords it.
+               */
+              const message =
+                "message" in res.json ? res.json.message : "Network error";
+              const unparseable =
+                "type" in res.json &&
+                res.json.type === "client_side_validation_error";
               return {
-                status: "network-error",
-                message:
-                  "message" in res.json ? res.json.message : "Network error",
+                status: unparseable ? "unparseable-response" : "network-error",
+                message,
               };
             }
             if (res.status === 409) {
@@ -395,5 +449,43 @@ export function createValSystem(
           },
         }
       : {}),
+    ...(options?.writes
+      ? {
+          /**
+           * Make the chain current again, after the server refused our parent.
+           *
+           * Without this the retry re-sends the parent that was just rejected —
+           * `PatchSync` says so where it calls this, and the loop can then only
+           * fail again until an unrelated `/stat` poll happens to move the
+           * parent. That poll is a long one: after a 200 the studio re-polls
+           * immediately in FS mode but waits twenty minutes when a websocket is
+           * carrying changes, so "eventually" was not a bound worth having.
+           *
+           * A `POST /stat` with NO body, deliberately. A body carries the
+           * client's own shas and asks the server to answer when they change,
+           * which is the long poll; an empty one asks what the state is right
+           * now, which is the question a conflict raises.
+           *
+           * Fed through `stat.receiveStat` rather than into `PatchSync`
+           * directly, because a moved head is not only the sync's business: the
+           * patch store learns which patches exist from the same event, and it
+           * has to drop the ones the server no longer lists.
+           */
+          resyncChain: async () => {
+            const res = await client("/stat", "POST", { body: null });
+            if (res.status !== 200) {
+              // Nothing to feed in. The caller backs off and tries again, which
+              // is the right answer for a `/stat` that is also failing.
+              return;
+            }
+            built?.stat.receiveStat({
+              baseSha: res.json.baseSha,
+              patches: res.json.patches,
+            });
+          },
+        }
+      : {}),
   });
+  built = system;
+  return system;
 }

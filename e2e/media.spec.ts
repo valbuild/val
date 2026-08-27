@@ -1,5 +1,14 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
+import {
+  chainLength,
+  clearPatchChain,
+  closeNavPanel,
+  discardAll,
+  expandRow,
+  openNavPanel,
+  openSiteMap,
+  openStudio,
+} from "./studio";
 
 /**
  * Media: `s.images()`, `s.files()`, `s.image()` and `s.file()`.
@@ -106,6 +115,95 @@ test.describe("the Media section", () => {
       studio.getByTitle("/content/fileGallery.val.ts"),
     ).toBeVisible();
   });
+
+  /**
+   * Opening one file, which is where source paths were being built by hand.
+   *
+   * A gallery is a record keyed by file path, so its keys contain dots — and a
+   * module path segment has to be JSON-quoted. Two hand-rolled path builders
+   * appended the raw key at the module root, which parses as one segment right
+   * up until the key has a `.` in it: `?p=/public/test/subdir/red-8x8_bfbd0.png`
+   * splits into `/public/test/subdir/red-8x8_bfbd0` and `png`, and the studio
+   * reported the module as not found. Every other key in the project — object
+   * fields, ordinary record keys, route keys — has no dot, so nothing else ever
+   * showed it.
+   *
+   * The canvas closing is the other half: picking a file is a decision to go and
+   * edit it, and in the fields view the canvas column was covering the thing
+   * that had just been picked.
+   */
+  /**
+   * Uploading from the panel, which needs to know where.
+   *
+   * The button used to look up a gallery by the current selection and call a
+   * handler the app never passed — so it did nothing, ever, and would have
+   * guessed the destination even if it had. A project can have several galleries
+   * with different directories, one taking images and the next taking anything,
+   * so the panel asks; the gallery it names does the upload, because that is
+   * where knowing how to build the ref and the patch lives.
+   */
+  test("asks which gallery to upload into, and opens it there", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Media");
+
+    await studio.getByRole("button", { name: /Upload/ }).click();
+    // Both galleries, by the directory files will land in and what it takes.
+    const target = studio.getByRole("menuitem", { name: /test\/subdir/ });
+    await expect(
+      target,
+      "the upload menu did not offer the galleries by directory",
+    ).toBeVisible();
+    // Served paths, so the row reads the way a URL to the file will.
+    await expect(target).not.toContainText("/public");
+    await expect(target).toContainText("Images");
+    await expect(
+      studio.getByRole("menuitem", { name: /Files/ }),
+      "the menu did not say which gallery takes non-images",
+    ).toBeVisible();
+
+    await target.click();
+    // It opens the gallery it named — the upload itself happens there, and the
+    // file dialog it raises is not something a test can drive.
+    await expect
+      .poll(() => page.url(), { timeout: 20000 })
+      .toContain("/content/mediaFixtures.val.ts");
+  });
+
+  test("opens one file, and leaves the canvas to do it", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "/");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+    await expect(
+      studio.getByRole("button", { name: "Fit page to screen" }),
+    ).toBeVisible();
+
+    await openNavPanel(page, "Media");
+    await studio.getByTitle("/content/mediaFixtures.val.ts").click();
+    const file = studio.getByRole("button", { name: /red-8x8_/ });
+    await expect(file).toBeVisible({ timeout: 30000 });
+    await file.click();
+
+    // The key, quoted: a `p` that splits into two segments resolves to nothing.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("p"), {
+        message: "the file's module path never reached the URL",
+        timeout: 10000,
+      })
+      .toBe('"/public/test/subdir/red-8x8_bfbd0.png"');
+
+    await expect(
+      studio.getByText(/not found/i),
+      "the file's path did not resolve to anything",
+    ).toHaveCount(0);
+    await expect(
+      studio.getByRole("button", { name: "Fit page to screen" }),
+      "the canvas stayed open over the file that was just picked",
+    ).toHaveCount(0);
+  });
 });
 
 test.describe("an s.images() gallery in a non-default directory", () => {
@@ -143,10 +241,32 @@ test.describe("an s.images() gallery in a non-default directory", () => {
     // file behind it yet, and `next dev` answers that path with the app's HTML,
     // so only decoding it can tell the difference.
     await expect(tile).toHaveAttribute("src", /\/api\/val\/files\/.*patch_id=/);
+
+    /*
+     * Ask the server for the same bytes the tile is asking for.
+     *
+     * Decoding alone is the stronger assertion but the worse diagnostic: when it
+     * fails, all it can say is that `naturalWidth` stayed 0, which is equally
+     * consistent with a 404, a slow answer, and a corrupt upload. This has been
+     * seen to fail only in a full-suite run — where the answer matters and is not
+     * recoverable after the fact, because the browser will not re-request an
+     * image whose src has not changed.
+     */
+    const src = await tile.getAttribute("src");
+    const served = await page.request.get(src!);
+    expect(
+      served.status(),
+      `the patch file was not served: ${served.status()} ${served.headers()["content-type"]}`,
+    ).toBe(200);
+    expect(
+      served.headers()["content-type"],
+      "the server answered with something that is not an image",
+    ).toContain("image");
+
     await expect
       .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
-        timeout: 20_000,
-        message: "the uploaded tile did not decode",
+        timeout: 30_000,
+        message: "the server served the bytes, but the tile never decoded them",
       })
       .toBe(8);
 
@@ -239,6 +359,59 @@ test.describe("single media fields", () => {
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(0);
+  });
+
+  /**
+   * What the field shows before you have asked it anything.
+   *
+   * The focal point used to be open: a 500px-tall clickable image between the
+   * file and everything below it, so the field's own controls were off screen
+   * and the thing an editor came for was the thing they had to scroll past. It
+   * is a crop hint most images never need, so it folds — and folded it still has
+   * to say whether it is set, which is what the summary is for.
+   */
+  test("keeps the focal point folded, and opens the image large", async ({
+    page,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
+    const studio = page.locator("#val-shadow-root");
+    // Every field in this fixture starts null on purpose, so there has to be a
+    // file before there is anything to crop or to look at.
+    await picker(studio).first().setInputFiles(IMAGE);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual(["/public/val/blue-8x8_8b441.png"]);
+
+    const focalPoint = studio.getByRole("button", { name: "Focal point" });
+    await expect(focalPoint).toBeVisible({ timeout: 30000 });
+    await expect(
+      focalPoint,
+      "the focal point section was open before anyone asked for it",
+    ).toHaveAttribute("aria-expanded", "false");
+    // Folded, so the picker's own control is not on screen.
+    await expect(studio.getByLabel("Hotspot")).toHaveCount(0);
+
+    await focalPoint.click();
+    await expect(focalPoint).toHaveAttribute("aria-expanded", "true");
+
+    // And the thumbnail opens the image at a size worth looking at.
+    await studio.getByRole("button", { name: "View image" }).click();
+    const dialog = studio.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          dialog
+            .locator("img")
+            .first()
+            .evaluate((i) => (i as HTMLImageElement).naturalWidth),
+        { message: "the large preview did not decode" },
+      )
+      .toBeGreaterThan(0);
+
+    await page.keyboard.press("Escape");
     await discardAll(page);
     await expect.poll(() => chainLength(page)).toBe(0);
   });

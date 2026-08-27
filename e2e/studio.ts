@@ -1,4 +1,9 @@
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 /**
  * Shared helpers for the two Studio suites.
@@ -82,8 +87,26 @@ export async function chainLength(page: Page): Promise<number> {
   });
 }
 
-/** Throw away every patch the page holds, and wait for the store to agree. */
+/**
+ * Throw away every patch the page holds, and wait for the store to agree.
+ *
+ * Looped rather than one pass over a snapshot of the ids. A write is debounced,
+ * so one can land between reading the ids and the discard returning — leaving a
+ * patch the discard never knew about, and a chain that never reaches zero. The
+ * test that typed the value is not usually the one that fails: the leftover
+ * patch is still there when the next spec asserts on the chain, so the failure
+ * lands somewhere unrelated and only when the timing happens to line up.
+ */
 export async function discardAll(page: Page): Promise<void> {
+  await expect
+    .poll(async () => {
+      await discardOnce(page);
+      return chainLength(page);
+    })
+    .toBe(0);
+}
+
+async function discardOnce(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const bag = window as unknown as {
       __VAL_STORES__: {
@@ -101,5 +124,142 @@ export async function discardAll(page: Page): Promise<void> {
       throw new Error(`could not discard: ${res.message ?? res.status}`);
     }
   });
-  await expect.poll(() => chainLength(page)).toBe(0);
+}
+
+/**
+ * Open one of the shell's navigation panels.
+ *
+ * The floating shell keeps navigation behind the left rail rather than always
+ * on screen, so a test that wants to click a page has to open the panel first.
+ * The rail button and the panel's own header share a name, hence `.first()`.
+ */
+/**
+ * A floating panel, by the title in its header.
+ *
+ * Settings is one of them: it is not a content destination — it is reached from
+ * the cog at the foot of the rail rather than from the strip of three — but it
+ * is the same panel with the same close button, so the helpers take it too.
+ */
+export type PanelName = "Pages" | "Media" | "Data" | "Settings";
+
+export async function openNavPanel(
+  page: Page,
+  panel: PanelName,
+): Promise<Locator> {
+  const studio = page.locator("#val-shadow-root");
+  await studio.getByRole("button", { name: panel }).first().click();
+  return studio;
+}
+
+/**
+ * Expand a row in the Pages panel, by name.
+ *
+ * Nothing is expanded on mount — a real site map has sections with hundreds of
+ * rows — so reaching a nested page means opening the rows above it. A row that
+ * is also a page selects itself as well, which is what clicking it does in the
+ * app too.
+ */
+export async function expandRow(studio: Locator, name: string): Promise<void> {
+  await studio.getByRole("button", { name, exact: true }).first().click();
+}
+
+/**
+ * Open the Pages panel and expand the site map down to the top level.
+ *
+ * The root of the site map is the home page on this project, so every other
+ * page is nested under it: without opening `/` there is nothing else to click.
+ */
+export async function openSiteMap(page: Page): Promise<Locator> {
+  const studio = await openNavPanel(page, "Pages");
+  await expandRow(studio, "/");
+  return studio;
+}
+
+/**
+ * Close the navigation panel, leaving the editor unobstructed.
+ *
+ * Not tidiness: an open panel has a filter input of its own, so a test that
+ * reaches for "the first input" while one is open can end up typing into the
+ * filter. Closing is also what an editor does once they have picked a page.
+ */
+export async function closeNavPanel(
+  studio: Locator,
+  panel: PanelName,
+): Promise<void> {
+  await studio.getByRole("button", { name: `Close ${panel}` }).click();
+}
+
+/**
+ * The stores the Studio hangs on `window` for tests, typed narrowly.
+ *
+ * `__VAL_STORES__` is set by `ValStoreProvider` and holds the real system, so a
+ * test can drive a store directly rather than clicking its way to a state. What
+ * it gets is declared here — only the members the helpers below use — because the
+ * alternative is `as any` at every call site, and then nothing catches a store
+ * method being renamed under a test that reaches for it.
+ *
+ * `unknown` for the values crossing back out of the browser: they are structured
+ * clones of store state, so a type here would be a claim about a serialisation
+ * rather than about the store.
+ */
+type StudioStores = {
+  system: {
+    patchStore: {
+      createPatch: (
+        moduleFilePath: string,
+        patch: unknown[],
+      ) => Promise<{ patchId: string }>;
+    };
+    sourceStore: {
+      peek: (path: string) => { status: string; data?: unknown };
+    };
+  };
+};
+
+/**
+ * Write a patch through the Studio's own store, as if a field had been edited.
+ *
+ * For the changes a test cannot reasonably produce by typing — a `move`, an `add`
+ * at a chosen index, several patches in a known order. It goes through the real
+ * `patchStore`, so the chain, the optimistic apply and the sync are all the ones
+ * the app uses; only the gesture is skipped.
+ */
+export async function patchThroughStore(
+  page: Page,
+  moduleFilePath: string,
+  patch: unknown[],
+): Promise<void> {
+  const failure = await page.evaluate(
+    async ([path, ops]) => {
+      const bag = window as unknown as { __VAL_STORES__?: StudioStores };
+      const system = bag.__VAL_STORES__?.system;
+      if (system === undefined) {
+        return "the Studio's stores are not on window yet";
+      }
+      await system.patchStore.createPatch(path as string, ops as unknown[]);
+      return null;
+    },
+    [moduleFilePath, patch] as const,
+  );
+  if (failure !== null) {
+    throw new Error(failure);
+  }
+}
+
+/**
+ * What the Studio's source store says is at a path, without loading anything.
+ *
+ * `peek`, not `get`, for the reason the store draws that distinction: `get` has a
+ * side effect (it fetches an unloaded `.jsonValues()` entry), and a test asserting
+ * on state should not be the thing that causes it.
+ */
+export async function peekThroughStore(
+  page: Page,
+  path: string,
+): Promise<unknown> {
+  return page.evaluate((at) => {
+    const bag = window as unknown as { __VAL_STORES__?: StudioStores };
+    const peeked = bag.__VAL_STORES__?.system.sourceStore.peek(at);
+    return peeked === undefined ? null : (peeked.data ?? null);
+  }, path);
 }

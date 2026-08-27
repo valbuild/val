@@ -1,8 +1,9 @@
-import { Columns2, Eye, Info } from "lucide-react";
+import { Info, PanelRight } from "lucide-react";
+import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
-import { PublishButton } from "./TopBar";
-import { RAIL_ITEMS } from "./LeftRail";
-import { ShellPanel } from "./types";
+import { PreviewButton, PublishButton } from "./TopBar";
+import { visibleRailItems } from "./LeftRail";
+import { ShellDestination, ShellPanel } from "./types";
 
 /**
  * The destination switcher shown at the top of every navigation sheet on
@@ -11,17 +12,26 @@ import { ShellPanel } from "./types";
 export function MobileNavSwitcher({
   openPanel,
   onSelect,
+  destinations,
 }: {
   openPanel: ShellPanel | null;
   onSelect: (panel: ShellPanel) => void;
+  /** The destinations this project has content for. See `LeftRailProps`. */
+  destinations?: readonly ShellDestination[];
 }) {
+  const items = visibleRailItems(destinations);
+  if (items.length < 2) {
+    // One destination is not a choice, and a tab strip with a single tab in it
+    // just takes a row off the top of every sheet.
+    return null;
+  }
   return (
     <div
       role="tablist"
       aria-label="Destinations"
       className="flex gap-0.5 p-0.5 rounded-md bg-bg-float-raised"
     >
-      {RAIL_ITEMS.map(({ panel, label, icon: Icon }) => (
+      {items.map(({ panel, label, icon: Icon }) => (
         <button
           key={panel}
           type="button"
@@ -51,15 +61,28 @@ export function MobileNavSwitcher({
 export function MobileBottomBar({
   pendingChanges,
   onPreview,
+  previewHref,
   onPublish,
+  publishSlot,
   onOpenStatus,
+  onOpenQuickActions,
   onToggleCanvas,
   isCanvasOpen,
 }: {
   pendingChanges: number;
   onPreview: () => void;
+  /** The preview URL, so "Open in a new tab" is a link. See `PreviewButton`. */
+  previewHref?: string;
   onPublish: () => void;
+  /** The real publish control, when there is one. See `TopBarProps`. */
+  publishSlot?: ReactNode;
   onOpenStatus: () => void;
+  /**
+   * Quick actions — the same panel the top bar opens above the mobile
+   * breakpoint. It holds the validation errors, Review changes, New page and
+   * Upload media, none of which were reachable on a phone at all.
+   */
+  onOpenQuickActions?: () => void;
   /** Absent when the selection has no route Val can put on a canvas. */
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
@@ -74,35 +97,41 @@ export function MobileBottomBar({
       >
         <Info size={16} />
       </button>
-      {onToggleCanvas && (
+      {onOpenQuickActions && (
         <button
           type="button"
-          onClick={onToggleCanvas}
-          aria-label="Canvas"
-          aria-pressed={isCanvasOpen}
-          className={cn(
-            "grid place-items-center w-9 h-9 shrink-0 rounded-md border border-border-float",
-            isCanvasOpen
-              ? "bg-bg-float-raised text-fg-primary"
-              : "text-fg-secondary",
-          )}
+          onClick={onOpenQuickActions}
+          aria-label="Quick actions"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float text-fg-secondary"
         >
-          <Columns2 size={16} />
+          <PanelRight size={16} />
         </button>
       )}
-      <button
-        type="button"
-        onClick={onPreview}
-        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-xs font-medium text-fg-secondary border border-border-float"
-      >
-        <Eye size={14} />
-        Preview
-      </button>
-      <PublishButton
-        pendingChanges={pendingChanges}
-        onPublish={onPublish}
-        className="flex-1 h-9"
+      {/*
+       * The same control as on desktop, not a second design of it.
+       *
+       * A phone had a canvas icon and a Preview button side by side, which made
+       * "show me the page" a choice about chrome rather than about the page —
+       * the exact thing the split button was built to stop. It also meant the
+       * two behaviours drifted: the desktop menu explains what each one does and
+       * the phone's pair of icons explained nothing.
+       */}
+      <PreviewButton
+        onPreview={onPreview}
+        previewHref={previewHref}
+        onToggleCanvas={onToggleCanvas}
+        isCanvasOpen={isCanvasOpen}
+        menuPlacement="above"
+        alwaysShowLabel
+        className="h-9 flex-1"
       />
+      {publishSlot ?? (
+        <PublishButton
+          pendingChanges={pendingChanges}
+          onPublish={onPublish}
+          className="flex-1 h-9"
+        />
+      )}
     </div>
   );
 }

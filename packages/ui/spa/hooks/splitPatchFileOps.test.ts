@@ -26,9 +26,10 @@ describe("splitPatchFileOps", () => {
         op: "replace",
         path: ["image"],
         value: {
-          _ref: "/public/val/image.png",
-          _type: "file",
-          metadata: { width: 1, height: 1, mimeType: "image/png" },
+          path: "/public/val/image.png",
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
         },
       },
       {

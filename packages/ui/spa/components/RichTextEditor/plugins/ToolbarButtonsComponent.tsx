@@ -466,7 +466,7 @@ function ImageInsertDropdown({
         <div
           ref={pickerRef}
           className={cn(
-            "absolute left-0 top-full z-50 mt-1 rounded-md",
+            "absolute left-0 top-full z-window mt-1 rounded-md",
             "border border-border-primary bg-bg-primary shadow-xl",
             imageModuleEntries ? "min-w-[280px] p-0" : "min-w-[240px] p-2",
           )}
@@ -703,7 +703,7 @@ const ButtonLinkPicker = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "absolute left-0 top-full z-50 mt-1 rounded-md",
+        "absolute left-0 top-full z-window mt-1 rounded-md",
         "border border-border-primary bg-bg-primary shadow-xl",
         hasCatalog
           ? "min-w-[280px] flex flex-col"

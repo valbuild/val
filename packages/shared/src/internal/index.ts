@@ -15,3 +15,4 @@ export * from "./routeValidation";
 export * from "./resolveSchemaSourceFixes";
 export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";
+export * from "./valCanvasProtocol";

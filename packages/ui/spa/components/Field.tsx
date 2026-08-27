@@ -14,6 +14,7 @@ import {
   AccordionItem,
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
+import { FieldErrorsOwned } from "./FieldErrorsOwner";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
 import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
@@ -76,7 +77,12 @@ export function Field({
   const effectiveReadonly = readonly || hasOverrides;
   const { navigate } = useNavigation();
   const getNavPath = useGetNavPath();
-  const { isAIChatEnabled } = useAIChatActions();
+  /**
+   * Not merely enabled — see `canMentionField`. The mention opens the assistant
+   * and drops this field into its composer, so it is only worth offering where
+   * both of those can actually happen.
+   */
+  const { canMentionField } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
   const handleLabelNavigate = () => {
     const navPath = getNavPath(path);
@@ -194,7 +200,7 @@ export function Field({
           {!hasOverrides && !compact && (
             <FieldPatchAuthorsSection path={path} />
           )}
-          {!hasOverrides && isAIChatEnabled && (
+          {!hasOverrides && canMentionField && (
             <button
               type="button"
               onClick={() => insertFieldRef(path)}
@@ -247,7 +253,9 @@ export function Field({
           }
         >
           <AccordionItem value={"open"} className="w-full border-b-0">
-            <AccordionContent>{children}</AccordionContent>
+            <AccordionContent>
+              <FieldErrorsOwned>{children}</FieldErrorsOwned>
+            </AccordionContent>
           </AccordionItem>
         </Accordion>
       )}

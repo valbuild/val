@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ModuleFilePath } from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { cn } from "../designSystem/cn";
@@ -31,6 +31,22 @@ export type NewPageFormProps = {
   onSubmit: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   /** Called when the user dismisses the form. */
   onCancel: () => void;
+  /**
+   * The page the editor is on, so the form can start on its route.
+   *
+   * A project with several routers offers several patterns, and the first one
+   * in the list is nobody's answer in particular: someone adding a blog post
+   * from a blog post had to notice the select, work out which of
+   * `/blogs/[blog]` and `/products/[category]/[product]` they wanted, and pick
+   * it — every time. What they are looking at is the best available guess at
+   * what they are about to make.
+   *
+   * Both parts, because either alone can be wrong. One router module can define
+   * several patterns, so the module does not always name one route; and two
+   * routers can accept the same URL shape, so the URL does not always name one
+   * module. Together they do.
+   */
+  currentPage?: { moduleFilePath: ModuleFilePath; urlPath: string };
 };
 
 /**
@@ -44,15 +60,32 @@ export type NewPageFormProps = {
  * Visual treatment matches the redesigned sitemap: the static parts of the route
  * are rendered as non-editable chips, dynamic parts as inputs.
  */
-export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
-  const [selectedRouteKey, setSelectedRouteKey] = useState<string>(() =>
-    routeKey(routes[0]),
+export function NewPageForm({
+  routes,
+  onSubmit,
+  onCancel,
+  currentPage,
+}: NewPageFormProps) {
+  /**
+   * What the form starts on, and what the user picked instead.
+   *
+   * Two values rather than one piece of state seeded from the preference,
+   * because `routes` can arrive after the form does — and a state initialiser
+   * runs once, against whatever was there at the time, which for an empty list
+   * is nothing. Derived, the preference still applies when the routes turn up,
+   * and a choice still outranks it the moment one is made.
+   */
+  const preferred = useMemo(
+    () => preferredRoute(routes, currentPage),
+    [routes, currentPage],
   );
+  const [chosenRouteKey, setChosenRouteKey] = useState<string | null>(null);
   const selectedRoute = useMemo(
     () =>
-      routes.find((r) => routeKey(r) === selectedRouteKey) ?? routes[0] ?? null,
-    [routes, selectedRouteKey],
+      routes.find((r) => routeKey(r) === chosenRouteKey) ?? preferred ?? null,
+    [routes, chosenRouteKey, preferred],
   );
+  const selectedRouteKey = selectedRoute ? routeKey(selectedRoute) : "";
 
   const [paramsByRoute, setParamsByRoute] = useState<
     Record<string, Record<string, string>>
@@ -122,7 +155,7 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
           <RouteSelect
             routes={routes}
             value={selectedRouteKey}
-            onChange={(value) => setSelectedRouteKey(value)}
+            onChange={setChosenRouteKey}
           />
         </div>
       ) : (
@@ -161,7 +194,7 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
       </div>
 
       {alreadyExists && (
-        <p className="text-xs text-fg-error">
+        <p className="text-xs text-fg-error-on-surface">
           A page with this path already exists
         </p>
       )}
@@ -181,6 +214,80 @@ export function NewPageForm({ routes, onSubmit, onCancel }: NewPageFormProps) {
 function routeKey(route: AvailableRoute | undefined): string {
   if (!route) return "";
   return `${route.moduleFilePath}::${route.patternString}`;
+}
+
+/**
+ * The route the form should open on: the one the page being edited is on.
+ *
+ * Scored rather than found, because "the route you are on" can be answered to
+ * different degrees. A route whose pattern the current URL fits AND whose
+ * module the current page lives in is that route. Either half on its own is
+ * still a better guess than the head of the list, so it is still preferred —
+ * and where nothing is known, or nothing matches, the head of the list is what
+ * is left.
+ */
+export function preferredRoute(
+  routes: AvailableRoute[],
+  currentPage: { moduleFilePath: ModuleFilePath; urlPath: string } | undefined,
+): AvailableRoute | undefined {
+  if (!currentPage) return routes[0];
+  let best: AvailableRoute | undefined = routes[0];
+  let bestScore = 0;
+  for (const route of routes) {
+    const sameModule = route.moduleFilePath === currentPage.moduleFilePath;
+    const samePattern = patternMatchesPath(
+      route.routePattern,
+      currentPage.urlPath,
+    );
+    const score = (samePattern ? 2 : 0) + (sameModule ? 1 : 0);
+    // Strictly greater, so the first route wins a tie — the same rule the
+    // untouched form followed.
+    if (score > bestScore) {
+      best = route;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Whether a URL is one of the URLs this pattern makes.
+ *
+ * The same grammar `buildFullPath` writes, read back: literals have to be
+ * themselves, a `[param]` stands for exactly one segment, a `[...param]` for
+ * the rest of them, and an optional segment may stand for nothing at all —
+ * which is how `/categories` and `/categories/shoes` are both
+ * `/categories/[[category]]`.
+ */
+export function patternMatchesPath(
+  pattern: RoutePattern[],
+  urlPath: string,
+): boolean {
+  const segments = urlPath.split("/").filter((segment) => segment !== "");
+  let at = 0;
+  for (const part of pattern) {
+    if (part.type === "array-param") {
+      // Catch-all takes everything left. Nothing left is only a match when the
+      // segment is allowed to be absent.
+      const remaining = segments.length - at;
+      at = segments.length;
+      if (remaining === 0) return part.optional;
+      return true;
+    }
+    if (part.type === "string-param") {
+      if (at >= segments.length) {
+        // An omitted optional segment is the base route; a missing required one
+        // means this is a different pattern.
+        if (!part.optional) return false;
+        continue;
+      }
+      at++;
+      continue;
+    }
+    if (segments[at] !== part.name) return false;
+    at++;
+  }
+  return at === segments.length;
 }
 
 /**
@@ -311,7 +418,9 @@ function RoutePatternInputs({
               }}
             />
             {error && (
-              <span className="mt-0.5 text-[10px] text-fg-error">{error}</span>
+              <span className="mt-0.5 text-[10px] text-fg-error-on-surface">
+                {error}
+              </span>
             )}
           </span>
         );
@@ -407,15 +516,11 @@ function RouteSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  // Force the selected route to be valid if `routes` changes.
-  useEffect(() => {
-    if (!routes.find((r) => routeKey(r) === value) && routes[0]) {
-      onChange(routeKey(routes[0]));
-    }
-  }, [routes, value, onChange]);
-
+  // No "force the value to be valid" effect: `value` is derived from these same
+  // routes by the form above, so it cannot name one that is not here.
   return (
     <select
+      aria-label="Route"
       className={cn(
         "w-full h-8 px-2 rounded-md bg-bg-primary border border-border-primary",
         "font-mono text-xs text-fg-primary",

@@ -58,6 +58,70 @@ Nothing here says the store system is fast in absolute terms — it says it cost
 fraction of what the thing it replaced cost, on the same hardware, measuring the
 same unit. Absolute numbers on real hardware will differ.
 
+## How to compare two branches, and one comparison that was run
+
+The runner bundles from source, so a comparison is: run it, switch the working
+tree, run it again. **Use the same `node_modules` for both** — the branch and the
+base link `@valbuild/core` and friends as workspace packages, so a worktree with
+its own install compares two dependency trees as well as two sources, and a
+worktree with a symlinked `node_modules` resolves those packages back to the
+_other_ branch's source. Checking the base out in place is the only variant where
+exactly one thing differs:
+
+```bash
+node packages/ui/spa/bench/run.mjs --reps 21 --size large   # the branch
+git checkout --detach origin/main
+node packages/ui/spa/bench/run.mjs --reps 21 --size large   # the base
+git checkout -            # back, before anything else
+```
+
+**Use enough reps.** At 11 reps `mount`/`large` read 5.6 ms against main's 5.1 ms
+— a clean-looking 10% regression. At 21 reps the same pair read 5.2 against 5.4,
+i.e. the other way. Nothing changed but the sample count. Anything inside about
+0.5 ms at this size is the machine, not the code.
+
+### The lazy-validation branch against `main`
+
+Asked because that branch changed when validation runs — modules with a pending
+change are now validated whether or not anything is watching them, and
+`ValidationStore.run` loops until the module is no longer stale. Every scenario
+here charges validation, because a field is not "ready" until it has the errors
+for its module (see the fairness contract), so these tables cover it.
+
+Same machine, same `node_modules`, Chromium 141, 4 cores, median with the first
+discarded.
+
+`large`, 21 reps:
+
+| scenario         | `main`  | branch  |
+| ---------------- | ------- | ------- |
+| `intake`         | 3.40 ms | 3.40 ms |
+| `mount`          | 5.40 ms | 5.20 ms |
+| `mount-only`     | 2.00 ms | 2.00 ms |
+| `keystroke`      | 0.70 ms | 0.60 ms |
+| `keystroke-list` | 0.20 ms | 0.30 ms |
+| `burst-40`       | 1.50 ms | 1.60 ms |
+| `list-view`      | 1.80 ms | 1.90 ms |
+| `nested-row`     | 0.40 ms | 0.40 ms |
+
+`screen`, 11 reps: every scenario within 0.1 ms except `intake` (7.50 → 8.60,
+inside a [5.2–11.3] range on both sides).
+
+With React mounted, `large`: `mount` 6.10 ms → 4.90 ms, and **renders per
+keystroke 0 on both** — the invariant this benchmark exists to protect. Retained
+heap is unchanged: 1125 KB → 1124 KB at `large`, 2564 KB → 2566 KB at `screen`.
+
+Nothing here is a regression; every difference is at or below the 0.1 ms probe
+floor, and the two that are larger both favour the branch.
+
+The cost the tables do **not** cover is the pending-module pass itself, because no
+scenario leaves patches across many modules and then waits out the debounce. That
+shape is pinned by counting instead, in `stores/pendingValidation.test.ts`: one
+validation per module TOUCHED, independent of the chain length and of the
+project's size (measured at 1/3/10 modules touched by 4/12/40 patches inside a
+30-module project). Counted rather than timed on purpose — the question is the
+shape, and a wall-clock assertion on a loaded box measures the box.
+
 ## Why this exists
 
 Every cost claim in [`../stores/architecture.md`](../stores/architecture.md) is

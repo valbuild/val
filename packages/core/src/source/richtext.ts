@@ -1,13 +1,7 @@
-import {
-  ImageMetadata,
-  ImageSchema,
-  SerializedImageSchema,
-} from "../schema/image";
+import { ImageSchema, SerializedImageSchema } from "../schema/image";
 import { RouteSchema, SerializedRouteSchema } from "../schema/route";
 import { StringSchema, SerializedStringSchema } from "../schema/string";
-import { FileSource } from "./file";
-import { ImageSource } from "./image";
-import { RemoteSource } from "./remote";
+import { ImageSource } from "./media";
 
 export type RichTextOptions = Partial<{
   style: Partial<{
@@ -29,11 +23,7 @@ export type RichTextOptions = Partial<{
   }>;
   inline: Partial<{
     a: boolean | RouteSchema<string> | StringSchema<string>;
-    img:
-      | boolean
-      | ImageSchema<ImageSource>
-      | ImageSchema<RemoteSource<ImageMetadata | undefined>>
-      | ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>>;
+    img: boolean | ImageSchema<ImageSource>;
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
 }>;
@@ -144,9 +134,9 @@ export type SpanNode<O extends RichTextOptions> = {
 export type ImageNode<O extends RichTextOptions> = NonNullable<
   O["inline"]
 >["img"] extends true
-  ? { tag: "img"; src: ImageSource | RemoteSource<ImageMetadata> }
+  ? { tag: "img"; src: ImageSource }
   : NonNullable<O["inline"]>["img"] extends ImageSchema<infer Src>
-    ? Src extends RemoteSource | FileSource | ImageSource
+    ? Src extends ImageSource
       ? { tag: "img"; src: Src }
       : never
     : never;

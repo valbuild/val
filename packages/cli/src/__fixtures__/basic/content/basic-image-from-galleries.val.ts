@@ -9,7 +9,7 @@ export default c.define(
     image2: s.image(basicGallery2Val),
   }),
   {
-    image1: c.image("/public/val/images/image.png"),
-    image2: c.image("/public/val/images2/image.png"),
+    image1: { path: "/public/val/images/image.png" },
+    image2: { path: "/public/val/images2/image.png" },
   },
 );

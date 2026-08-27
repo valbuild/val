@@ -1,8 +1,5 @@
 import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
   Internal,
-  VAL_EXTENSION,
   type ImageMetadata,
   type SerializedSchema,
   type Source,
@@ -30,13 +27,10 @@ export type BuildResult =
 export function buildFileRefValue(
   filePath: string,
   metadata: Record<string, unknown>,
-  subtype: "image" | "file",
 ): Record<string, unknown> {
   return {
-    [FILE_REF_PROP]: filePath,
-    [VAL_EXTENSION]: "file",
-    [FILE_REF_SUBTYPE_TAG]: subtype,
-    metadata,
+    path: filePath,
+    ...metadata,
   };
 }
 

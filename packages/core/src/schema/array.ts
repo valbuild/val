@@ -12,7 +12,7 @@ import {
 } from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
+import { ImageSource } from "../source/media";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,

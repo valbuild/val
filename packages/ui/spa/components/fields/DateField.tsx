@@ -22,8 +22,8 @@ import {
   PopoverTrigger,
 } from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import { formatLocalDay, parseLocalDay } from "../../utils/localDay";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export function DateField({
   path,
@@ -105,7 +105,6 @@ export function DateField({
           : currentValue;
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <Popover
         open={readonly ? false : isPopoverOpen}
         onOpenChange={(next) => {
@@ -139,8 +138,28 @@ export function DateField({
             captionLayout="dropdown"
             defaultMonth={clampedValue ?? undefined}
             weekStartsOn={1}
-            fromDate={minDate ?? undefined}
-            toDate={maxDate ?? undefined}
+            /**
+             * The range the schema allows, in the two forms v9 needs.
+             *
+             * `fromDate`/`toDate` were react-day-picker v8 and are REMOVED in
+             * v9 — still in the types as private deprecations, which is why the
+             * compiler said nothing while the calendar silently ignored them.
+             * The effect was a picker that greyed nothing out and happily
+             * returned a date the schema rejects, and a year dropdown offering
+             * a century either side of it.
+             *
+             * Two props because they answer two questions: `startMonth`/
+             * `endMonth` bound what you can navigate to (and what the year
+             * dropdown lists), `disabled` greys out the days themselves — which
+             * is the one the schema is actually about, and the reason a range
+             * that begins or ends mid-month still reads correctly.
+             */
+            startMonth={minDate ?? undefined}
+            endMonth={maxDate ?? undefined}
+            disabled={[
+              ...(minDate ? [{ before: minDate }] : []),
+              ...(maxDate ? [{ after: maxDate }] : []),
+            ]}
             selected={clampedValue || undefined}
             onSelect={(date) => {
               if (date) {
@@ -164,11 +183,7 @@ export function DateField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

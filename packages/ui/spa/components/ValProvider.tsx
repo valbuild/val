@@ -10,13 +10,11 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
-  FILE_REF_PROP,
   hasRemoteFileSchema,
   ImageMetadata,
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
   SerializedSchema,
@@ -32,6 +30,10 @@ import {
   getNextAppRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { readableProfilesError } from "../utils/readableProfilesError";
+import { describePublishRefusal } from "../utils/describePublishRefusal";
+import type { ChainProgress } from "../utils/describePendingChangesStall";
+import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
@@ -62,6 +64,7 @@ import {
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
+import { concatModulePath } from "../utils/sourcePath";
 
 export type { AITool };
 
@@ -114,6 +117,18 @@ type ValContextValue = {
   mode: "http" | "fs" | "unknown";
   profileId: string | null;
   profileAuthError: string | null;
+  /**
+   * Why loading the people who made the changes failed, if it did.
+   *
+   * Separate from `profileAuthError`, which is only the `fs`-mode 401 and is
+   * shown as a global banner. This is any other failure — a project that is not
+   * configured, a server that is down — and it is not global: the studio works
+   * fine without knowing who anyone is, so it belongs beside the account rather
+   * than across the top of the screen.
+   */
+  profilesError: { message: string; willRetry: boolean } | null;
+  /** Ask for the profiles again, from the first attempt. */
+  retryProfiles: () => void;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
@@ -152,6 +167,15 @@ type ValContextValue = {
   sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
   aiAuthError: boolean;
+  /**
+   * Why the assistant is unavailable, once the studio has stopped trying.
+   *
+   * Distinct from `aiAuthError`, which is the 401 and terminal from the first
+   * answer. This is any other failure that has run out of attempts.
+   */
+  aiConnectionError: string | null;
+  /** Try the assistant's connection again, from the first attempt. */
+  retryAiConnection: () => void;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -230,6 +254,8 @@ export function ValProvider({
     send: sendWsMessage,
     isConnected: isWsConnected,
     authError: aiAuthError,
+    connectionError: aiConnectionError,
+    retryConnection: retryAiConnection,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -633,7 +659,7 @@ export function ValProvider({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [unsavedCount]);
-  const profilesData = useProfilesData(
+  const { state: profilesData, retry: retryProfiles } = useProfilesData(
     client,
     authenticationState,
     "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -651,6 +677,11 @@ export function ValProvider({
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
+        profilesError:
+          profilesData.status === "error"
+            ? { message: profilesData.error, willRetry: profilesData.willRetry }
+            : null,
+        retryProfiles,
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         observedCommitShas,
@@ -665,6 +696,8 @@ export function ValProvider({
         sendWsMessage,
         isWsConnected,
         aiAuthError,
+        aiConnectionError,
+        retryAiConnection,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -672,7 +705,16 @@ export function ValProvider({
       }}
     >
       <TooltipProvider>
-        <AIChatActionsProvider isAIChatEnabled={wsEnabled}>
+        {/*
+          Configured and connected are two different questions, and the studio
+          answers them in two different places: whether to offer an assistant at
+          all, and whether an affordance that needs a live conversation can do
+          anything yet.
+        */}
+        <AIChatActionsProvider
+          isAIChatEnabled={wsEnabled}
+          isAIChatOnline={wsEnabled && isWsConnected}
+        >
           {theme !== undefined && setTheme ? (
             <ValThemeProvider
               theme={theme}
@@ -761,33 +803,64 @@ const EMPTY_STATUS: StatusSnapshot = {
   schema: "current",
 };
 
+/**
+ * How many times a failing `/profiles` is tried before it gives up.
+ *
+ * It used to be unbounded — a fixed two second retry, forever. Against a
+ * misconfigured project (`/profiles` answering 404 "Project not found") that is
+ * not resilience: the request will never succeed, and the only thing the retry
+ * produces is a console filling with the same stack every two seconds, which
+ * buries every other error in the studio.
+ */
+const PROFILES_MAX_ATTEMPTS = 5;
+/** The wait after the first failure. Doubled after each one after that. */
+const PROFILES_RETRY_BASE_MS = 1000;
+
+type ProfilesData =
+  | { status: "not-asked" }
+  | { data?: Record<AuthorId, Profile>; status: "loading" }
+  | {
+      data?: Record<AuthorId, Profile>;
+      status: "error";
+      error: string;
+      /** Whether another attempt is already scheduled. */
+      willRetry: boolean;
+    }
+  | { data?: Record<AuthorId, Profile>; status: "auth-error"; error: string }
+  | { data: Record<AuthorId, Profile>; status: "done" };
+
 function useProfilesData(
   client: ValClient,
   authenticationState: AuthenticationState,
   mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
   project: string | undefined,
-) {
-  const loadProfileDataRef = useRef(true);
-  const [profilesData, setProfilesData] = useState<
-    | {
-        data: Record<AuthorId, Profile>;
-        status: "done";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "loading" | "error";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "auth-error";
-        error: string;
-      }
-    | {
-        status: "not-asked";
-      }
-  >({ status: "not-asked" });
+): { state: ProfilesData; retry: () => void } {
+  const [profilesData, setProfilesData] = useState<ProfilesData>({
+    status: "not-asked",
+  });
+  /**
+   * How many times this has been tried since the last success or manual retry.
+   *
+   * A ref rather than state: it is read inside the request that increments it,
+   * and rendering has nothing to say about it — what the UI shows is the status
+   * and whether another attempt is coming, both of which are in state.
+   */
+  const attempts = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetry = useCallback(() => {
+    if (retryTimer.current !== null) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }, []);
+  useEffect(() => clearRetry, [clearRetry]);
+
+  // Through a ref so a failure can schedule the next attempt without the
+  // callback having to name itself.
+  const loadProfilesRef = useRef<() => void>(() => undefined);
   const loadProfiles = useCallback(async () => {
+    attempts.current += 1;
     setProfilesData((prev) => ({
       status: "loading",
       data: "data" in prev ? prev.data : undefined,
@@ -802,6 +875,7 @@ function useProfilesData(
           avatar: profile.avatar,
         };
       }
+      attempts.current = 0;
       setProfilesData({
         status: "done",
         data: profilesById,
@@ -817,14 +891,39 @@ function useProfilesData(
         data: "data" in prev ? prev.data : undefined,
       }));
     } else {
-      console.error("Could not get profiles", res.json);
-      loadProfileDataRef.current = true;
+      const willRetry = attempts.current < PROFILES_MAX_ATTEMPTS;
+      if (!willRetry) {
+        // Logged once, when there is nothing left to try — not on every
+        // attempt, which is what made this the loudest thing in the console.
+        console.error("Could not get profiles", res.json);
+      }
       setProfilesData((prev) => ({
         status: "error",
+        error: readableProfilesError(res.json),
+        willRetry,
         data: "data" in prev ? prev.data : undefined,
       }));
+      if (willRetry) {
+        // Backing off rather than a fixed interval: a server that is briefly
+        // busy recovers in the first second or two, and one that is
+        // misconfigured is not going to answer differently on the fifth ask.
+        const delay = PROFILES_RETRY_BASE_MS * 2 ** (attempts.current - 1);
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          loadProfilesRef.current();
+        }, delay);
+      }
     }
-  }, [client, mode, profilesData]);
+  }, [client, mode]);
+  loadProfilesRef.current = () => void loadProfiles();
+
+  /** Start again from the first attempt, because someone asked. */
+  const retry = useCallback(() => {
+    clearRetry();
+    attempts.current = 0;
+    loadProfilesRef.current();
+  }, [clearRetry]);
+
   useEffect(() => {
     if (
       authenticationState === "not-asked" ||
@@ -841,27 +940,23 @@ function useProfilesData(
     if (serviceUnavailable) {
       return;
     }
-    if (!loadProfileDataRef.current) {
+    // Only the first ask. Retries are the timer's job, and a manual one is the
+    // retry callback's — an effect that re-fires on every status change cannot
+    // tell "try again" from "the status changed because we tried".
+    if (profilesData.status !== "not-asked") {
       return;
     }
-    loadProfileDataRef.current = false;
-    if (profilesData.status === "error") {
-      // Wait a bit before retrying...
-      setTimeout(() => loadProfiles(), 2000);
-    } else if (profilesData.status === "not-asked") {
-      loadProfiles();
-    }
+    loadProfiles();
   }, [
     authenticationState,
-    client,
     loadProfiles,
     mode,
-    profilesData,
+    profilesData.status,
     serviceUnavailable,
     project,
   ]);
 
-  return profilesData;
+  return { state: profilesData, retry };
 }
 
 export function useAuthenticationState() {
@@ -1002,6 +1097,17 @@ export function usePatchSets():
     | { status: "not-asked" }
   >({ status: "not-asked" });
 
+  /**
+   * The last answer, serialized, so an unchanged one keeps its identity.
+   *
+   * `chainVersion` bumps for every movement of the chain — a save landing, a
+   * stat arriving, a patch being marked published — and most of those do not
+   * change the GROUPING at all. Handing back a fresh object each time made the
+   * compare view recompute its change trees in the worker and rebuild every row,
+   * which is what "it re-does the whole thing" and the blinking were.
+   */
+  const lastSerialized = useRef<string | null>(null);
+
   useEffect(() => {
     if (val === null) {
       return;
@@ -1010,7 +1116,15 @@ export function usePatchSets():
     void val.system
       .getPatchSets()
       .then((data) => {
-        if (!cancelled) setState({ status: "success", data });
+        if (cancelled) return;
+        const serialized = JSON.stringify(data);
+        if (serialized === lastSerialized.current) {
+          // Same grouping. Not merely an optimisation: replacing the object is
+          // what makes everything downstream treat it as news.
+          return;
+        }
+        lastSerialized.current = serialized;
+        setState({ status: "success", data });
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -1128,11 +1242,85 @@ export function usePendingClientSidePatchIds(): PatchId[] {
 }
 
 /**
+ * Whether the editor has caught up with the server's pending changes, ONCE.
+ *
+ * Latched: it flips false → true when the first stat's patches have all been
+ * loaded and applied, and never goes back. Later fetches are not this — by then
+ * the editor holds a value and a field showing it is showing the truth, so
+ * dimming the whole editor every time a patch arrives from another tab would be
+ * a flicker with no information in it.
+ *
+ * What it is for: on the first paint a field can be showing PUBLISHED content
+ * while a pending change to it is still in flight. Typing over that produces a
+ * "fix" for something that was never wrong, and the real value lands underneath
+ * it a moment later. So the fields are held — dimmed and inert — until this is
+ * true.
+ */
+export function useInitialPatchesApplied(): boolean {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const [settled, setSettled] = useState(false);
+  const ready =
+    settled ||
+    (val !== null &&
+      // `void`, not a dependency: the version is the wake-up, the store is the
+      // answer.
+      (void chainVersion, val.system.patchStore.chainSettled()));
+  useEffect(() => {
+    if (ready) setSettled(true);
+  }, [ready]);
+  return ready;
+}
+
+/**
  * Every patch in the chain, in order.
  *
  * The engine assembled this from three id lists and de-duplicated the overlap;
  * the store has one ordered chain, so this is that chain.
  */
+/**
+ * What is still outstanding in the loaded chain, and why, on demand.
+ *
+ * A getter rather than state: it is only read when the wait has already gone on
+ * too long — see `PendingChangesGate` — and as reactive state it would re-render
+ * the editor on every chain change to feed a report nobody is looking at.
+ */
+export function usePendingChangesProgress(): () => ChainProgress {
+  const val = useValSystem();
+  return useCallback(() => {
+    if (val === null) {
+      return {
+        total: 0,
+        settled: 0,
+        unfetched: [],
+        unapplied: [],
+        failed: [],
+        statSeen: false,
+      };
+    }
+    return val.system.patchStore.chainProgress();
+  }, [val]);
+}
+
+/**
+ * The last reason fetching patches failed, latched.
+ *
+ * Latched rather than cleared on success, because it is read after the fact: a
+ * chain that stalled sixty seconds ago and has since had one failing round is
+ * still explained by that round's message.
+ */
+export function usePatchFetchError(): string | null {
+  const val = useValSystem();
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (val === null) return;
+    return val.system.patchStore.events.on("patch:fetch-failed", (event) => {
+      setMessage(event.message);
+    });
+  }, [val]);
+  return message;
+}
+
 export function useCurrentPatchIds(): PatchId[] {
   const val = useValSystem();
   const chainVersion = useChainVersion();
@@ -1396,8 +1584,27 @@ export function usePublishSummary() {
         return { status: "error", message: "No store system is mounted" };
       }
       setIsPublishing(true);
-      return val.system
-        .publish(globalServerSidePatchIds, summary)
+      /**
+       * One retry for `chain-moved`, and no more.
+       *
+       * The gate refuses when an edit lands while it is validating, because what
+       * it checked is then not what would be published. That race is with the
+       * user's own last keystroke — they typed, then clicked Save — so the
+       * honest response is to run the gate again rather than to report a
+       * failure they cannot act on. Bounded, so a project being edited from
+       * another tab cannot spin here.
+       */
+      const attempt = async (): Promise<PublishResult> => {
+        const first = await val.system.publish(
+          globalServerSidePatchIds,
+          summary,
+        );
+        if (first.status === "refused" && first.reason === "chain-moved") {
+          return val.system.publish(globalServerSidePatchIds, summary);
+        }
+        return first;
+      };
+      return attempt()
         .then((res) => {
           if (res.status === "published") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
@@ -1409,14 +1616,8 @@ export function usePublishSummary() {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
             // work has shipped.
-            val.system.status.reportError(
-              res.reason === "validation-errors"
-                ? "Cannot publish: some modules have validation errors."
-                : "A publish is already in progress.",
-              res.reason === "validation-errors"
-                ? res.modules.join("\n")
-                : undefined,
-            );
+            const said = describePublishRefusal(res);
+            val.system.status.reportError(said.message, said.details);
           } else if (res.status === "failed") {
             val.system.status.reportError(
               "Could not publish",
@@ -1561,12 +1762,16 @@ export type ShallowSource = EnsureAllTypes<{
   dateTime: string;
   color: string;
   file: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    mimeType?: string;
   };
   image: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    alt?: string;
+    hotspot?: { x: number; y: number };
   };
   literal: string;
   richtext: unknown[];
@@ -1798,9 +2003,59 @@ export function useErrors() {
   return { globalErrors, skippedPatches };
 }
 
+/**
+ * Why the assistant is unavailable, and how to ask again.
+ *
+ * `null` while it is connecting or still retrying. Only once the studio has
+ * given up is there anything a person can do about it — see
+ * `useAIWebSocket` — and a chat panel that offers a composer while nothing is
+ * listening is worse than one that says so.
+ */
+export function useAIConnectionError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { aiAuthError, aiConnectionError, retryAiConnection } =
+    useContext(ValContext);
+  return useMemo(() => {
+    if (aiAuthError) {
+      return {
+        message: "You are not signed in to the assistant",
+        retry: retryAiConnection,
+      };
+    }
+    if (aiConnectionError !== null) {
+      return { message: aiConnectionError, retry: retryAiConnection };
+    }
+    return null;
+  }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
 export function useProfilesByAuthorId() {
   const { profiles } = useContext(ValContext);
   return profiles;
+}
+
+/**
+ * Why the profiles could not be loaded, and how to ask again.
+ *
+ * `null` while it is working or still trying. Only once the studio has given up
+ * is there anything for a person to do about it, and only then is there anything
+ * worth putting on screen — a message that appears and disappears while a retry
+ * loop runs is noise, not information.
+ */
+export function useProfilesError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { profilesError, retryProfiles } = useContext(ValContext);
+  return useMemo(
+    () =>
+      profilesError === null || profilesError.willRetry
+        ? null
+        : { message: profilesError.message, retry: retryProfiles },
+    [profilesError, retryProfiles],
+  );
 }
 
 /**
@@ -2061,22 +2316,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (type === "file" || type === "image") {
     if (
       typeof source !== "object" ||
-      !(FILE_REF_PROP in source) ||
-      source[FILE_REF_PROP] === undefined
+      !("path" in source) ||
+      typeof source.path !== "string"
     ) {
       return {
         status: "error",
-        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
-      };
-    }
-    if (
-      "metadata" in source &&
-      source.metatadata &&
-      typeof source.metatadata !== "object"
-    ) {
-      return {
-        status: "error",
-        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+        error: `Expected object with a path property, got ${typeof source}`,
       };
     }
     // TODO: verify that metadata values is of type Json
@@ -2140,21 +2385,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
-}
-
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
 }
 
 type AuthorId = string;

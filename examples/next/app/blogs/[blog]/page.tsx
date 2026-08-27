@@ -16,11 +16,19 @@ export default function BlogPage({
   if (!blog) {
     return notFound();
   }
-  const author = authors[blog.author];
+  /**
+   * A page that has just been created has no author yet.
+   *
+   * `s.keyOf` starts empty, so this lookup is `undefined` on any page made in
+   * the Studio and not yet filled in — and reading `.name` off it threw, which
+   * in the canvas is a runtime error overlay where the new page should be. The
+   * content is genuinely incomplete; the page's job is to render what there is.
+   */
+  const author = blog.author ? authors[blog.author] : undefined;
   return (
     <div>
       <h1>{blog.title}</h1>
-      <aside>Author: {author.name}</aside>
+      {author && <aside>Author: {author.name}</aside>}
       <ValRichText content={blog.content} />
       <Link href={blog.link.href}>{blog.link.label}</Link>
     </div>

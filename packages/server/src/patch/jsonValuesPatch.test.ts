@@ -199,7 +199,7 @@ describe("rebaseContentOp", () => {
     expect(result.isErr(res)).toBe(true);
   });
 
-  test("rejects a file op", () => {
+  test("refuses a file op: it is not a content op", () => {
     const res = rebaseContentOp(
       {
         op: "file",
@@ -311,6 +311,128 @@ describe("applyJsonValuesEntryPatches", () => {
       patches: [patch([{ op: "move", from: ["/a"], path: ["/renamed"] }])],
     });
     expect(res.kind).toBe("error");
+  });
+
+  describe("media uploaded into an entry", () => {
+    const mediaSchema: SerializedSchema = s
+      .record(s.object({ hero: s.image() }))
+      .jsonValues()
+      ["executeSerialize"]();
+
+    /** A field upload: the value, plus the bytes as a separate op. */
+    const upload = (): Patch => [
+      {
+        op: "replace",
+        path: ["/a", "hero"],
+        value: {
+          path: "/public/val/hero_a1b2c.png",
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+        },
+      },
+      {
+        op: "file",
+        path: ["/a", "hero"],
+        filePath: "/public/val/hero_a1b2c.png",
+        value: "data:image/png;base64,AAAA",
+        remote: false,
+      },
+    ];
+
+    test("marks the entry's media with the patch that holds the bytes", () => {
+      // Without the patch_id the entry resolves to a /public URL that holds
+      // nothing yet, so a just-uploaded image renders broken.
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: mediaSchema,
+        entryKey: "/a",
+        baseContent: { hero: null },
+        patches: [patch(upload())],
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: {
+          hero: {
+            path: "/public/val/hero_a1b2c.png",
+            width: 8,
+            height: 8,
+            mimeType: "image/png",
+            patch_id: "p1",
+          },
+        },
+        appliedPatchIds: ["p1"],
+      });
+    });
+
+    test("a delete carries no bytes to point at", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: mediaSchema,
+        entryKey: "/a",
+        baseContent: { hero: { path: "/public/val/hero_a1b2c.png" } },
+        patches: [
+          patch([
+            { op: "replace", path: ["/a", "hero"], value: null },
+            {
+              op: "file",
+              path: ["/a", "hero"],
+              filePath: "/public/val/hero_a1b2c.png",
+              value: null,
+              remote: false,
+            },
+          ]),
+        ],
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { hero: null },
+        appliedPatchIds: ["p1"],
+      });
+    });
+
+    test("richtext inline media is marked at its nestedFilePath", () => {
+      const richtextSchema: SerializedSchema = s
+        .record(s.object({ body: s.richtext({ inline: { img: true } }) }))
+        .jsonValues()
+        ["executeSerialize"]();
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: richtextSchema,
+        entryKey: "/a",
+        baseContent: {
+          body: [
+            {
+              tag: "p",
+              children: [{ tag: "img", src: { path: "/public/val/i.png" } }],
+            },
+          ],
+        },
+        patches: [
+          patch([
+            {
+              op: "file",
+              path: ["/a", "body", "0", "children", "0"],
+              nestedFilePath: ["src"],
+              filePath: "/public/val/i.png",
+              value: "data:image/png;base64,AAAA",
+              remote: false,
+            },
+          ]),
+        ],
+      });
+      expect(res.kind).toBe("content");
+      expect(res.kind === "content" && res.content).toEqual({
+        body: [
+          {
+            tag: "p",
+            children: [
+              {
+                tag: "img",
+                src: { path: "/public/val/i.png", patch_id: "p1" },
+              },
+            ],
+          },
+        ],
+      });
+    });
   });
 
   test("without a schema nothing is treated as an entry op", () => {

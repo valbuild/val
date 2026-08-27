@@ -98,6 +98,17 @@ export type ExternalModule = {
  * Combined navigation menu data.
  */
 export type NavMenuData = {
+  /**
+   * Whether the project declares any `s.router` module at all.
+   *
+   * Not the same as `sitemap` being present: a router with no entries yet, or
+   * one whose source folder has not resolved, has no tree to show but is still
+   * a project that has pages. The distinction matters because the shell hides
+   * the Pages destination entirely when a project has no routes — a site map
+   * for a project that is only content files is an empty room — and hiding it
+   * for a project that merely has not created its first page would be wrong.
+   */
+  hasRouters: boolean;
   /** Site map data (if next-app-router exists) */
   sitemap?: SitemapItem;
   /** Explorer data (if there are non-router val files) */

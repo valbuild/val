@@ -60,9 +60,37 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   // suspending, -> false only unblocks, and false -> true happens only on an
   // explicit draft-mode enable which already refreshes the route.
   // React.use is allowed inside conditionals — it is not a hook.
+  /**
+   * Wait until draft mode is KNOWN, before anything else.
+   *
+   * `draftMode === null` means `/draft/stat` has not answered yet, and the
+   * `getModule` below treats it as off — so a render that slips through here
+   * while it is unknown resolves against committed source. For an ordinary field
+   * that is a flash of published content; for `useValRoute` on a route that
+   * exists only in an uncommitted patch it is `notFound()`, which no later
+   * answer can undo. That was the 404 on a page you had just created.
+   */
+  if (
+    valOverlayContext.suspend &&
+    valOverlayContext.draftMode === null &&
+    valOverlayContext.draftModeReady
+  ) {
+    React.use(valOverlayContext.draftModeReady);
+  }
+  /**
+   * Then wait for the draft sources — but only while more might be coming.
+   *
+   * `draftSourcesSynced` is the editor saying it has sent everything it holds,
+   * and it only holds modules with patches: an unedited module has no draft, so
+   * nothing is ever sent for it. Without that signal this could not tell "not
+   * sent yet" from "nothing to send", and waited out `waitForLoad`'s ten second
+   * timeout once per unedited module the page reads — which is what left a newly
+   * created page sitting on its loading fallback.
+   */
   if (
     valOverlayContext.suspend &&
     valOverlayContext.draftMode !== false &&
+    !valOverlayContext.draftSourcesSynced &&
     store &&
     !store.hasAllLoaded(moduleIds)
   ) {

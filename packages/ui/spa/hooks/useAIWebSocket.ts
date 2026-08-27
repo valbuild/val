@@ -191,6 +191,20 @@ export function getRecentSession(sessions: AISession[]): AISession | null {
 // --- Hook ---
 
 const RECONNECT_DELAY = 3000;
+/**
+ * How many times a failing connection is tried before it gives up.
+ *
+ * It used to be unbounded: every failed `/ai/initialize` and every closed
+ * socket scheduled another attempt three seconds later, for as long as the tab
+ * was open. Where the assistant is enabled but cannot start — no API key on the
+ * server, the AI service down — that is a request every three seconds and a
+ * `console.warn` beside it, forever, and the panel still shows a composer that
+ * looks like it works.
+ *
+ * Attempts reset the moment a socket opens, so a connection that drops after
+ * working gets the full allowance again rather than inheriting an old count.
+ */
+const MAX_CONNECT_ATTEMPTS = 5;
 
 export function useAIWebSocket(
   enabled: boolean,
@@ -200,35 +214,67 @@ export function useAIWebSocket(
   send: (message: AIClientMessage) => boolean;
   isConnected: boolean;
   authError: boolean;
+  /**
+   * Why the assistant is unavailable, once there is nothing left to try.
+   *
+   * `null` while it is connecting or retrying: a message that comes and goes
+   * with a retry loop is noise, and the panel has nothing useful to say until
+   * the studio has actually stopped.
+   */
+  connectionError: string | null;
+  /** Try to connect again, from the first attempt. */
+  retryConnection: () => void;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptsRef = useRef(0);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const clientRef = useRef(client);
   clientRef.current = client;
 
+  /**
+   * One attempt failed. Try again, or stop and say so.
+   *
+   * Both outcomes are here rather than at the call sites so there is one place
+   * that decides when to stop — the initialize call, the socket closing and a
+   * thrown request all fail differently and all have to stop in the same way.
+   */
+  const failed = useCallback((message: string) => {
+    if (attemptsRef.current >= MAX_CONNECT_ATTEMPTS) {
+      // Warned once, where there is nothing left to try. It used to warn on
+      // every attempt, which is what made this the loudest thing in the console.
+      console.warn("Giving up on the AI connection:", message);
+      setConnectionError(message);
+      return;
+    }
+    scheduleReconnectRef.current();
+  }, []);
+
   const connect = useCallback(async () => {
     if (!enabledRef.current) return;
+    attemptsRef.current += 1;
 
     try {
       const res = await clientRef.current("/ai/initialize", "POST", {});
 
       if (res.status === 401) {
+        // Terminal on its own: another attempt with the same credentials gets
+        // the same answer, and `authError` is what the UI shows for it.
         setAuthError(true);
         return;
       }
 
       if (res.status !== 200) {
-        console.warn(
-          "AI WebSocket initialize failed:",
-          res.status,
-          res.json.message,
+        failed(
+          typeof res.json.message === "string"
+            ? res.json.message
+            : `The assistant could not be started (${res.status})`,
         );
-        scheduleReconnect();
         return;
       }
       setAuthError(false);
@@ -238,6 +284,10 @@ export function useAIWebSocket(
       );
 
       ws.onopen = () => {
+        // A working connection resets the allowance: a drop after an hour of
+        // use is not the fifth failure of a connection that never worked.
+        attemptsRef.current = 0;
+        setConnectionError(null);
         setIsConnected(true);
       };
 
@@ -266,7 +316,7 @@ export function useAIWebSocket(
         setIsConnected(false);
         if (wsRef.current === ws) {
           wsRef.current = null;
-          scheduleReconnect();
+          failed("Lost the connection to the assistant");
         }
       };
 
@@ -277,10 +327,9 @@ export function useAIWebSocket(
 
       wsRef.current = ws;
     } catch (e) {
-      console.warn("AI WebSocket connect error", e);
-      scheduleReconnect();
+      failed(e instanceof Error ? e.message : "Could not reach the assistant");
     }
-  }, []);
+  }, [failed]);
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return;
@@ -290,6 +339,22 @@ export function useAIWebSocket(
         connect();
       }
     }, RECONNECT_DELAY);
+  }, [connect]);
+  // Through a ref because `failed` is defined above it: the two call each other,
+  // and a ref is the one direction that does not need the other to exist yet.
+  const scheduleReconnectRef = useRef(scheduleReconnect);
+  scheduleReconnectRef.current = scheduleReconnect;
+
+  /** Start over, because someone asked. */
+  const retryConnection = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    attemptsRef.current = 0;
+    setConnectionError(null);
+    setAuthError(false);
+    connect();
   }, [connect]);
 
   useEffect(() => {
@@ -327,5 +392,12 @@ export function useAIWebSocket(
     return false;
   }, []);
 
-  return { subscribeToMessages, send, isConnected, authError };
+  return {
+    subscribeToMessages,
+    send,
+    isConnected,
+    authError,
+    connectionError,
+    retryConnection,
+  };
 }

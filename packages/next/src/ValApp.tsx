@@ -6,6 +6,7 @@ import Script from "next/script";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
+import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 
 export const ValApp = ({
   config,
@@ -59,8 +60,10 @@ export const ValApp = ({
       setLoadingTheme(config.defaultTheme);
     }
   }, [config]);
-  const darkBg = "#0c111d";
-  const lightBg = "white";
+  // The studio's canvas, so the loading screen is the same colour as what
+  // replaces it rather than a flash of a different one.
+  const darkBg = canvasDarkBg;
+  const lightBg = canvasLightBg;
   useEffect(() => {
     if (inMessageMode || loadingTheme === null) {
       return;

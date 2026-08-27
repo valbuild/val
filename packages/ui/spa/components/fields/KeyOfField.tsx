@@ -1,10 +1,8 @@
 import * as React from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
   ListRecordRender,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -37,13 +35,13 @@ import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export type KeyPreview = {
   title: string;
   subtitle?: string | null;
-  image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+  image?: ImageSource | string | null;
 };
 
 export interface KeySelectorProps {
@@ -277,7 +275,6 @@ export function KeyOfField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <KeySelector
           keys={keys ?? []}
@@ -315,11 +312,7 @@ export function KeyOfField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

@@ -1,10 +1,4 @@
-import {
-  ImageSource,
-  ImageMetadata,
-  Internal,
-  RemoteSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ImageSource, Internal } from "@valbuild/core";
 import { cn } from "./designSystem/cn";
 import { useState } from "react";
 
@@ -16,7 +10,7 @@ export function ListPreviewItem({
   size,
 }: {
   title: string;
-  image: ImageSource | RemoteSource<ImageMetadata> | null;
+  image: ImageSource | null;
   subtitle: string | null;
   className?: string;
   size?: "compact";
@@ -46,7 +40,7 @@ function ImageOrPlaceholder({
   src,
   alt,
 }: {
-  src: ImageSource | RemoteSource<ImageMetadata> | null | undefined;
+  src: ImageSource | null | undefined;
   alt: string;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -57,10 +51,7 @@ function ImageOrPlaceholder({
     );
   }
 
-  const imageUrl =
-    src[VAL_EXTENSION] === "file"
-      ? Internal.convertFileSource(src).url
-      : Internal.convertRemoteSource(src).url;
+  const imageUrl = Internal.mediaUrl(src);
 
   return (
     <div className="relative flex-shrink-0 ml-4 w-20 h-20">
@@ -76,8 +67,8 @@ function ImageOrPlaceholder({
           isLoaded ? "opacity-100" : "opacity-0"
         }`}
         style={{
-          objectPosition: src.metadata?.hotspot
-            ? `${src.metadata.hotspot.x * 100}% ${src.metadata.hotspot.y * 100}%`
+          objectPosition: src.hotspot
+            ? `${src.hotspot.x * 100}% ${src.hotspot.y * 100}%`
             : "",
           transition: "opacity 0.2s ease-in-out",
         }}

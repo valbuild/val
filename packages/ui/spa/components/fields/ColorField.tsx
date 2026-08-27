@@ -19,7 +19,7 @@ import {
   useShallowSourceAtPath,
 } from "../ValFieldProvider";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 /**
  * The transparency checkerboard shown behind a swatch. Inlined rather than put
@@ -273,7 +273,6 @@ export function ColorField({
   const schema = schemaAtPath.data;
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <ColorFieldPure
         value={sourceAtPath.data}
         onChange={(next) => {
@@ -289,11 +288,7 @@ export function ColorField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

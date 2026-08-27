@@ -14,7 +14,21 @@ export type SaveState = "saved" | "saving" | "error";
 export type StatusBarProps = {
   breakpoint: ShellBreakpoint;
   saveState: SaveState;
-  isDevMode: boolean;
+  /**
+   * How Val is running: against the working copy on disk, or against a
+   * project.
+   *
+   * Decides two things at once, because they are the same fact. On disk there
+   * is nothing to deploy — publishing writes files — so the deploy item would
+   * only ever say "no deploys", and the bar says "Dev mode" instead so it is
+   * clear where the work is going. Against a project the deployments *are* that
+   * answer, and a label repeating the mode next to them says nothing.
+   *
+   * `unknown` until the client has been told, and then neither is shown: a
+   * "Dev mode" that appears for a moment on a project and then vanishes is
+   * worse than a bar that fills in a beat late.
+   */
+  mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
   /** From `config.gitBranch`; hidden when Val is not in a git checkout. */
@@ -44,7 +58,7 @@ export type StatusBarProps = {
 export function StatusBar({
   breakpoint,
   saveState,
-  isDevMode,
+  mode,
   autoSave,
   onAutoSaveChange,
   branch,
@@ -90,7 +104,7 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
-        {deployments !== undefined && (
+        {mode === "http" && deployments !== undefined && (
           <>
             <DeploymentsStatus
               deployments={deployments}
@@ -102,7 +116,7 @@ export function StatusBar({
             <Divider />
           </>
         )}
-        {isDevMode && (
+        {mode === "fs" && (
           <>
             <span className="inline-flex items-center gap-1.5">
               <Terminal size={13} className="text-fg-secondary-alt" />

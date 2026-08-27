@@ -21,7 +21,7 @@ import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { FileSource } from "../source/file";
+import { FileSource } from "../source/media";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
 import { ReifiedRender, RenderScope } from "../render";
 // import { SerializedI18nSchema } from "./future/i18n";

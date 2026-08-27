@@ -23,6 +23,8 @@ import {
   initialsOf,
   directoryName,
   countKeys,
+  toMediaFiles,
+  collectNewPageRoutes,
 } from "./shellDataMapping";
 
 export type ShellDataState =
@@ -94,6 +96,13 @@ export function useShellData(): ShellDataState {
     if (navMenu.status === "error") {
       return { status: "error", error: navMenu.error };
     }
+    const collected = navData?.sitemap
+      ? collectNewPageRoutes(navData.sitemap)
+      : null;
+    const newPageRoutes =
+      collected && collected.routes.length > 0
+        ? { routes: collected.routes }
+        : undefined;
     const recordData = records.status === "success" ? records.data : null;
     const externalRecord = externalPath ? recordData?.[0] : undefined;
     const mediaRecords = recordData?.slice(externalPath ? 1 : 0) ?? [];
@@ -103,17 +112,24 @@ export function useShellData(): ShellDataState {
       data: {
         projectName: config?.project ?? "Val",
         branch: config?.gitBranch,
+        hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
           ? toShellPages(navData.sitemap, modulesWithDrafts)
           : [],
+        // Absent rather than empty when nothing accepts a page, so the shell
+        // hides the New page buttons instead of opening a form that can only
+        // say no.
+        newPage: newPageRoutes,
         externalPages: toExternalPages(externalRecord),
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({
             id: entry.moduleFilePath,
             name: directoryName(entry.directory),
             directory: entry.directory,
+            moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             itemCount: countKeys(mediaRecords[index]),
+            files: toMediaFiles(mediaRecords[index]),
           }),
         ),
         data: navData?.explorer
@@ -122,7 +138,7 @@ export function useShellData(): ShellDataState {
         validationErrors: toValidationErrors(validationErrors),
         activity:
           patchSets.status === "success"
-            ? toActivity(patchSets.data)
+            ? toActivity(patchSets.data, Date.now())
             : undefined,
         chatSuggestions: config?.ai?.chat?.suggestions,
         pendingChanges: currentPatchIds.length - committedPatchIds.size,

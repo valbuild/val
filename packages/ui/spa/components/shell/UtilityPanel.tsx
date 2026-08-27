@@ -1,8 +1,8 @@
 import {
   AlertTriangle,
-  Braces,
   Clock,
   FilePlus2,
+  GitCompare,
   ImagePlus,
   Sparkles,
 } from "lucide-react";
@@ -14,6 +14,7 @@ import {
 import {
   ShellActivityEntry,
   ShellBreakpoint,
+  ShellDestination,
   ShellValidationError,
 } from "./types";
 
@@ -26,8 +27,31 @@ export type UtilityPanelProps = {
   onSelectValidationError?: (error: ShellValidationError) => void;
   onNewPage: () => void;
   onUploadMedia: () => void;
-  onNewDataFile: () => void;
-  onOpenAI: () => void;
+  /**
+   * Open the assistant. Absent when the project has no assistant configured —
+   * see `ShellProps.aiEnabled` — and the row is then not offered at all.
+   */
+  onOpenAI?: () => void;
+  /**
+   * The destinations this project has content for. All of them when absent.
+   *
+   * The shortcuts are shortcuts *to the destinations*, so they follow the same
+   * rule the rail does: "Upload media" in a project with no gallery to upload
+   * into is an action that cannot complete.
+   */
+  destinations?: readonly ShellDestination[];
+  /**
+   * Open the review view: every pending change, side by side with what it
+   * replaces.
+   *
+   * A quick action rather than a permanent control, because it is a thing you
+   * do before publishing rather than something to look at while editing — and
+   * the publish button is right there when you are ready. Absent when there is
+   * nothing to review.
+   */
+  onCompare?: () => void;
+  /** How many changes `onCompare` would show. */
+  pendingChanges?: number;
   onSelectActivity: (entry: ShellActivityEntry) => void;
   onClose: () => void;
 };
@@ -44,11 +68,15 @@ export function UtilityPanel({
   onSelectValidationError,
   onNewPage,
   onUploadMedia,
-  onNewDataFile,
   onOpenAI,
+  destinations,
+  onCompare,
+  pendingChanges = 0,
   onSelectActivity,
   onClose,
 }: UtilityPanelProps) {
+  const offers = (destination: ShellDestination) =>
+    destinations === undefined || destinations.includes(destination);
   return (
     <FloatingPanel
       side="right"
@@ -100,17 +128,37 @@ export function UtilityPanel({
           </>
         )}
         <div className="px-3 pt-3 space-y-0.5">
-          <QuickAction icon={FilePlus2} label="New page" onClick={onNewPage} />
-          <QuickAction
-            icon={ImagePlus}
-            label="Upload media"
-            onClick={onUploadMedia}
-          />
-          <QuickAction
-            icon={Braces}
-            label="New data file"
-            onClick={onNewDataFile}
-          />
+          {onCompare && pendingChanges > 0 && (
+            <QuickAction
+              icon={GitCompare}
+              label={`Review ${pendingChanges} ${
+                pendingChanges === 1 ? "change" : "changes"
+              }`}
+              onClick={onCompare}
+            />
+          )}
+          {offers("pages") && (
+            <QuickAction
+              icon={FilePlus2}
+              label="New page"
+              onClick={onNewPage}
+            />
+          )}
+          {offers("media") && (
+            <QuickAction
+              icon={ImagePlus}
+              label="Upload media"
+              onClick={onUploadMedia}
+            />
+          )}
+          {/*
+           * No "New data file".
+           *
+           * A val module is a TypeScript file with a schema in it, so making one
+           * is something you do in the editor and not something the Studio can
+           * offer from a menu — the action existed as a shortcut to a flow that
+           * was never built, and did nothing when pressed.
+           */}
         </div>
 
         <PanelSectionLabel divided>Recent activity</PanelSectionLabel>
@@ -146,16 +194,18 @@ export function UtilityPanel({
           </ul>
         )}
 
-        <div className="px-3 pt-4">
-          <button
-            type="button"
-            onClick={onOpenAI}
-            className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
-          >
-            <Sparkles size={14} />
-            Ask the assistant
-          </button>
-        </div>
+        {onOpenAI && (
+          <div className="px-3 pt-4">
+            <button
+              type="button"
+              onClick={onOpenAI}
+              className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <Sparkles size={14} />
+              Ask the assistant
+            </button>
+          </div>
+        )}
       </div>
     </FloatingPanel>
   );

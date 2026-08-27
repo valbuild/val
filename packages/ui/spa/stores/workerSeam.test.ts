@@ -57,11 +57,12 @@ const project = () => {
         title: "Hello",
         slug: "hello",
         owner: "ada",
-        hero: c.image("/public/val/x.png", {
+        hero: {
+          path: "/public/val/x.png",
           width: 1,
           height: 1,
           mimeType: "image/png",
-        }),
+        },
         link: "/blogs/one",
         body: [{ tag: "p", children: ["text"] }],
         block: { type: "a", a: "one" },

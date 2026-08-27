@@ -1,5 +1,14 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
+import {
+  chainLength,
+  clearPatchChain,
+  closeNavPanel,
+  discardAll,
+  expandRow,
+  openNavPanel,
+  openSiteMap,
+  openStudio,
+} from "./studio";
 
 /**
  * The Studio, driven through its own UI.
@@ -11,6 +20,14 @@ import { chainLength, clearPatchChain, discardAll, openStudio } from "./studio";
  * were kept identical so no component had to change; the risk that creates is
  * exactly the one a compiler cannot see, because everything still typechecks
  * whether or not a hook returns the right thing.
+ *
+ * ## Navigation is behind a panel
+ *
+ * The floating shell keeps the site map in a panel off the left rail rather
+ * than always on screen, and expands nothing on mount — a real project has
+ * sections with hundreds of rows. So reaching a page is: open the panel, open
+ * the rows above it, click it. `openSiteMap` and `expandRow` do that, and the
+ * clicks are the same ones an editor makes.
  *
  * ## Everything is inside a shadow root
  *
@@ -53,19 +70,34 @@ test.describe("the Studio, through its own UI", () => {
   test("renders the project's navigation from real content", async ({
     page,
   }) => {
-    const studio = await studioRoot(page);
-    await expect(studio.getByRole("button", { name: "Pages" })).toBeVisible();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
     // Routes discovered from the app's own route modules...
     await expect(
       studio.getByRole("button", { name: "blogs", exact: true }),
     ).toBeVisible();
+    await expect(
+      studio.getByRole("button", { name: "support", exact: true }),
+    ).toBeVisible();
     // ...and record keys read out of source, which only appear if the source
     // store answered for those modules.
+    await expandRow(studio, "blogs");
     await expect(
       studio.getByRole("button", { name: "blog-12", exact: true }),
     ).toBeVisible();
+    await expandRow(studio, "support");
     await expect(
       studio.getByRole("button", { name: "getting-started", exact: true }),
+    ).toBeVisible();
+
+    // The non-router modules, which come from the schemas rather than from the
+    // routers: a different read, and one that has its own panel.
+    const dataPanel = await openNavPanel(page, "Data");
+    await expect(
+      dataPanel.getByRole("button", { name: "authors", exact: true }),
+    ).toBeVisible();
+    await expect(
+      dataPanel.getByRole("button", { name: "handbook", exact: true }),
     ).toBeVisible();
   });
 
@@ -75,9 +107,10 @@ test.describe("the Studio, through its own UI", () => {
    * `useShallowSourceAtPath` reads the value -> the field renders it.
    */
   test("opens a module and shows its values", async ({ page }) => {
-    const studio = await studioRoot(page);
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
 
     await expect
       .poll(() => fieldValues(page), {
@@ -98,9 +131,10 @@ test.describe("the Studio, through its own UI", () => {
    * that wrote nothing.
    */
   test("types into a field and writes exactly one patch", async ({ page }) => {
-    const studio = await studioRoot(page);
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
     await expect.poll(() => fieldValues(page)).toContain("Generic");
 
     const before = await chainLength(page);
@@ -134,6 +168,53 @@ test.describe("the Studio, through its own UI", () => {
   });
 
   /**
+   * A word typed a character at a time is ONE patch.
+   *
+   * `fill()` above sets the value in one event, which is exactly the case that
+   * hid this: a field wrote a patch per keystroke, so a paragraph left a few
+   * hundred patches in the chain — enough to slow every stat, make the publish
+   * a wall of one-character diffs, and eventually to break the request that
+   * reads the chain back (see `planPatchIdQuery`). It also made a validation
+   * error appear and clear mid-word, jumping everything below the field.
+   */
+  test("types a word a key at a time and writes one patch", async ({
+    page,
+  }) => {
+    await studioRoot(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
+    await expect.poll(() => fieldValues(page)).toContain("Generic");
+
+    const before = await chainLength(page);
+    const title = studio
+      .locator("input")
+      .filter({ hasNot: page.locator("[type=file]") })
+      .first();
+    await title.click();
+    await title.fill("");
+    // Slower than a debounce window would coalesce by accident, so passing
+    // means the writes were actually collapsed rather than merely fast.
+    for (const key of "Typed".split("")) {
+      await title.press(key);
+      await page.waitForTimeout(60);
+    }
+    await title.blur();
+
+    await expect(title).toHaveValue("Typed");
+    await expect
+      .poll(() => chainLength(page), {
+        message: "typing produced no patch at all",
+      })
+      .toBeGreaterThan(before);
+    // Five keystrokes, and the value cleared first: one patch, not six.
+    expect(await chainLength(page)).toBe(before + 1);
+
+    await discardAll(page);
+    await expect.poll(() => chainLength(page)).toBe(before);
+  });
+
+  /**
    * The publish gate, which is `usePublishSummary` over `system.publish`.
    *
    * In `fs` mode the button says "Save" and publishing writes the `.val.ts`
@@ -143,12 +224,13 @@ test.describe("the Studio, through its own UI", () => {
    * on screen would be the reversed-order bug `system.publish` documents.
    */
   test("saves the pending change and keeps showing it", async ({ page }) => {
-    const studio = await studioRoot(page);
+    await studioRoot(page);
     // Start from the committed state, whatever the tests before this one left.
     await discardAll(page);
 
-    await studio.getByRole("button", { name: "generic", exact: true }).click();
-    await studio.getByRole("button", { name: "test", exact: true }).click();
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "generic");
+    await closeNavPanel(studio, "Pages");
 
     /**
      * The committed value, read from the store rather than off the screen.
@@ -450,5 +532,227 @@ test.describe("a field inside a jsonValues entry", () => {
 
     await discardAll(page);
     await expect.poll(() => chainLength(page)).toBe(0);
+  });
+});
+
+/**
+ * Getting back to what you were just editing.
+ *
+ * The empty search used to answer with every page in the project, which answers
+ * "take me somewhere" — but opening search without typing is usually "take me
+ * back". The patch sets already know: they are newest first and grouped by the
+ * thing that changed, which is exactly this list.
+ *
+ * This is also the first thing that makes the activity rows mean anything. They
+ * carried an id that was a React key rather than a path, and no handler was
+ * passed for them at all, so clicking one did nothing.
+ */
+test.describe("recently changed", () => {
+  test("is offered by search, and goes back to it", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+
+    const title = studio.locator("input").first();
+    await expect(title).toHaveValue("Blog 1");
+    await title.fill("Blog 1 revisited");
+
+    /**
+     * Wait for the patch to reach the server before leaving.
+     *
+     * Not politeness: the next step is a full reload, and the patch sets this
+     * list is built from are rebuilt from the server's chain. Typing is
+     * debounced, so navigating immediately threw the edit away and the list was
+     * correctly empty — a test failing on a precondition it never established.
+     */
+    await expect
+      .poll(
+        async () => {
+          const listed = await request.get("/api/val/patches");
+          const body = (await listed.json()) as { patches: unknown[] };
+          return body.patches.length;
+        },
+        { message: "the edit never reached the server" },
+      )
+      .toBeGreaterThan(0);
+
+    // Somewhere else entirely, so going back has to actually navigate.
+    await openStudio(page, "/val/~/content/authors.val.ts");
+
+    await studio.getByRole("button", { name: "Search" }).first().click();
+    await expect(
+      studio.getByText("Recently changed"),
+      "the empty search did not offer what had just changed",
+    ).toBeVisible({ timeout: 30000 });
+
+    // The row reads as a trail from the file to the field inside it.
+    const row = studio.getByRole("button", { name: /page › .*title/ }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+
+    /**
+     * Back on the blog post, with the edit still there.
+     *
+     * The page in `p` and the field in `field`, not the field in `p`: a field is
+     * opened IN CONTEXT — the whole page, scrolled to it — so that a title you
+     * clicked does not arrive as the only thing on screen. `field` is what
+     * carries the exact path (see `ValRouter`).
+     */
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("field"), {
+        message: "going back to a recent change did not open the field",
+      })
+      .toContain("title");
+    expect(new URL(page.url()).searchParams.get("p")).toBe('"/blogs/blog1"');
+    await expect(studio.locator("input").first()).toHaveValue(
+      "Blog 1 revisited",
+    );
+    await clearPatchChain(request);
+  });
+});
+
+/**
+ * Creating a page, which needs to say which route.
+ *
+ * A project can have several routers that accept one — `/blogs/[blog]`,
+ * `/generic/[[...path]]`, `/support/[slug]` — so a New page button that does not
+ * ask cannot know where the page goes. It also used to not ask because it did
+ * nothing at all: `onNewPage` was never passed, exactly like the media upload.
+ *
+ * The form itself is the classic nav menu's, reused rather than rebuilt: it
+ * already knows that a literal segment is a chip, a `[param]` is an input, and
+ * a `[[...path]]` may be left blank to mean the base route.
+ */
+test.describe("creating a page", () => {
+  test("asks which route, and opens the page it made", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Pages");
+
+    await studio.getByRole("button", { name: "New page" }).first().click();
+    // More than one router accepts a page in this project, so the form has to
+    // offer the choice rather than pick for you.
+    const route = studio.getByLabel("Route");
+    await expect(
+      route,
+      "the form did not offer the routes that accept a page",
+    ).toBeVisible();
+
+    const slug = `e2e-${Date.now()}`;
+    // The dynamic segment of whichever route is selected first.
+    const input = studio.locator("form input").first();
+    await input.fill(slug);
+    await studio.getByRole("button", { name: "Create" }).click();
+
+    // It opens what it made: creating a page and being left on the list is a
+    // step nobody wants.
+    await expect
+      .poll(() => decodeURIComponent(page.url()), { timeout: 20000 })
+      .toContain(slug);
+    await expect.poll(() => chainLength(page)).toBeGreaterThan(0);
+
+    await discardAll(page);
+  });
+
+  test("says when the path is already taken", async ({ page }) => {
+    await openStudio(page);
+    const studio = await openNavPanel(page, "Pages");
+    await studio.getByRole("button", { name: "New page" }).first().click();
+
+    // A path that exists in the example app's blog router.
+    const input = studio.locator("form input").first();
+    await input.fill("blog1");
+    await expect(
+      studio.getByText(/already exists/i),
+      "the form let an existing path through",
+    ).toBeVisible();
+    await expect(studio.getByRole("button", { name: "Create" })).toBeDisabled();
+  });
+});
+
+/**
+ * `hidden()` and `readonly()`.
+ *
+ * Nothing on the server enforces either: a patch for a readonly field is
+ * accepted, and a hidden field's value is served like any other. The Studio is
+ * the whole of the enforcement, which makes "it looks readonly" and "it IS
+ * readonly" different claims — and only the second is worth anything.
+ *
+ * Readonly was the first kind: the field was dimmed and mouse-proof
+ * (`pointer-events-none`), and still perfectly typeable once Tab had put the
+ * cursor in it, patch and all. So the assertion is a keystroke and the chain
+ * length, not a class name.
+ *
+ * Fixture: `examples/next/content/access.val.ts`.
+ */
+test.describe("hidden and readonly", () => {
+  const MODULE = "/content/access.val.ts";
+
+  test("a readonly field cannot be typed into, by mouse or keyboard", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+
+    const locked = studio.locator('input[value="Do not edit"]');
+    await expect(locked).toBeVisible({ timeout: 30000 });
+
+    // Focus it the way `pointer-events-none` cannot stop, then type.
+    await locked.evaluate((el) => (el as HTMLInputElement).focus());
+    await page.keyboard.type("nope");
+
+    await expect(locked, "typing into a readonly field changed it").toHaveValue(
+      "Do not edit",
+    );
+    await expect
+      .poll(() => chainLength(page), {
+        message: "a readonly field wrote a patch",
+      })
+      .toBe(0);
+  });
+
+  test("a hidden field is not rendered at all", async ({ page }) => {
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+    // The editable field proves the module rendered.
+    await expect(studio.locator('input[value="Type here"]')).toBeVisible({
+      timeout: 30000,
+    });
+
+    // Not as a disabled row, not as an empty labelled box: absent.
+    await expect(studio.getByText("secret", { exact: true })).toHaveCount(0);
+    await expect(
+      studio.locator('input[value="Not on screen"]'),
+      "a hidden field put its value in the DOM",
+    ).toHaveCount(0);
+    await expect(
+      studio.locator('input[value="Also not on screen"]'),
+      "a hidden field nested in an object was still rendered",
+    ).toHaveCount(0);
+  });
+
+  test("an editable field beside them still works", async ({
+    page,
+    request,
+  }) => {
+    await clearPatchChain(request);
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+    const editable = studio.locator('input[value="Type here"]');
+    await expect(editable).toBeVisible({ timeout: 30000 });
+    await editable.fill("Typed");
+    await expect
+      .poll(() => chainLength(page), {
+        message: "the restricted fields took the editable one down with them",
+      })
+      .toBeGreaterThan(0);
+    await clearPatchChain(request);
   });
 });

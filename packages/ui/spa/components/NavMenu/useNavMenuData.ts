@@ -60,9 +60,20 @@ function transformSitemapNode(
   const keyDescription =
     routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
 
+  // The URL this row resolves to, which is what navigation, key creation and
+  // the row's own label all need. `pattern` is the route *pattern*
+  // (`/blogs/[blog]`), shared by every sibling under a dynamic segment, so
+  // taking it would give two blog posts the same URL. `fullPath` is the
+  // resolved one; only a folder row that is not itself a page lacks it, and
+  // there the pattern is all there is.
+  const resolvedUrlPath =
+    (node.type === "leaf" ? node.fullPath : node.page?.fullPath) ||
+    node.pattern ||
+    "/";
+
   return {
     name: node.name,
-    urlPath: node.pattern || "/",
+    urlPath: resolvedUrlPath,
     sourcePath,
     moduleFilePath,
     canAddChild,
@@ -128,7 +139,13 @@ export function useNavMenuData(): Remote<NavMenuData> {
     // Indexed ONCE per render: the trees used to scan the whole error map for
     // every row, which is O(rows x errors) on every validation update.
     const navErrors = indexNavErrors(validationErrors ?? {});
-    const data: NavMenuData = {};
+    // Every router the project declares, of whatever kind: a project with only
+    // external URLs still has pages to show, so the answer is about routers
+    // existing rather than about the app router specifically.
+    const routerIds = Object.keys(trees.data.routers).filter(
+      (routerId) => (trees.data.routers[routerId] ?? []).length > 0,
+    );
+    const data: NavMenuData = { hasRouters: routerIds.length > 0 };
 
     // Transform sitemap if available
     if (sitemapPaths.length > 0) {

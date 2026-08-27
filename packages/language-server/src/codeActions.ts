@@ -1,21 +1,45 @@
 import {
   DEFAULT_VAL_REMOTE_HOST,
+  type ModuleFilePath,
   type SourcePath,
   type ValidationError,
   type ValidationFix,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { createFixPatch, patchSourceFile } from "@valbuild/server";
+import {
+  createFixPatch,
+  patchSourceFile,
+  type FixHandlerResult,
+} from "@valbuild/server";
 import {
   CodeAction,
   CodeActionKind,
   type Diagnostic,
-  type Range,
   type TextEdit,
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
-import type { ValDiagnosticData } from "./diagnostics";
+import type { GalleryCheckFinding, ValDiagnosticData } from "./diagnostics";
+import {
+  isRemoteFix,
+  REMOTE_FIX_COMMANDS,
+  REMOTE_FIX_TITLES,
+  type RemoteFixCommandArgs,
+} from "./commands";
+import {
+  findValModulesInsertion,
+  valModuleSpecifier,
+  valModulesEntryText,
+} from "./valModulesRegistry";
 import type { ValModuleContent } from "./ValProject";
+import { minimalTextEdit } from "./textEdit";
+
+// Re-exported: it lives in its own module so that `commands.ts` can use it
+// without importing this one, which would close an import cycle.
+export { minimalTextEdit };
+import fs from "fs";
+import path from "path";
+import ts from "typescript";
+import { pathToUri } from "./uri";
 
 /**
  * Quick fixes, built by running Val's own fix machinery.
@@ -71,12 +95,15 @@ export async function createValCodeActions({
   diagnostics,
   content,
   valRoot,
+  moduleFilePath,
   remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
 }: {
   document: TextDocument;
   diagnostics: Diagnostic[];
   content: ValModuleContent;
   valRoot: string;
+  /** Needed to offer the remote fixes, which run as commands. */
+  moduleFilePath?: ModuleFilePath;
   remoteHost?: string;
 }): Promise<CodeAction[]> {
   const actions: CodeAction[] = [];
@@ -87,12 +114,41 @@ export async function createValCodeActions({
       continue;
     }
     for (const fix of data.fixes) {
+      // Remote fixes upload or download bytes, so they are commands rather than
+      // edits: a quick fix that silently needed credentials would just fail,
+      // whereas a command can say "you are not logged in".
+      if (isRemoteFix(fix)) {
+        const command = REMOTE_FIX_COMMANDS[fix];
+        if (!command || !moduleFilePath) {
+          continue;
+        }
+        const args: RemoteFixCommandArgs = {
+          uri: document.uri,
+          moduleFilePath,
+          sourcePath: data.sourcePath as SourcePath,
+          fix,
+          message: diagnostic.message,
+          ...(data.value !== undefined ? { value: data.value } : {}),
+        };
+        actions.push({
+          title: REMOTE_FIX_TITLES[fix] ?? `Val: ${fix}`,
+          kind: CodeActionKind.QuickFix,
+          command: {
+            title: REMOTE_FIX_TITLES[fix] ?? fix,
+            command,
+            arguments: [args],
+          },
+        });
+        continue;
+      }
       if (!isLocalFix(fix)) {
         continue;
       }
       const edit = await computeFixEdit({
         document,
-        sourcePath: data.sourcePath as SourcePath,
+        // A gallery check is reported on the entry but fixed against the record
+        // that contains it; everything else fixes where it is reported.
+        sourcePath: (data.fixSourcePath ?? data.sourcePath) as SourcePath,
         // createFixPatch works one fix at a time; give it exactly this one so a
         // failing sibling fix cannot suppress this action.
         validationError: {
@@ -164,39 +220,182 @@ async function computeFixEdit({
 }
 
 /**
- * Narrow an edit down to the region that actually changed.
+ * Quick fix for a module that is not registered in `val.modules`.
  *
- * A whole-document replacement would work, but it moves the cursor and shows up
- * as a full-file change in review. Trimming the common prefix and suffix keeps
- * the edit tight without needing a real diff algorithm.
+ * Separate from {@link createValCodeActions} because it is not a
+ * `ValidationError` at all — nothing is wrong with the module's content, it is
+ * simply not listed, so there is no `createFixPatch` path to reuse. The edit
+ * also lands in a *different* file than the diagnostic, which a `WorkspaceEdit`
+ * handles natively and needs no extra client capability.
+ *
+ * Returns nothing when the `val.modules` file cannot be found or its `modules(
+ * config, [ … ])` array cannot be located: an insertion at a guessed offset
+ * produces a file that no longer compiles, which is worse than no fix.
  */
-export function minimalTextEdit(
-  before: string,
-  after: string,
-  document: TextDocument,
-): TextEdit | undefined {
-  if (before === after) {
-    return undefined;
+export function createMissingModuleCodeAction({
+  valRoot,
+  moduleFilePath,
+  read,
+}: {
+  valRoot: string;
+  moduleFilePath: string;
+  /** The editor's view of a file, falling back to disk. */
+  read: (fsPath: string) => string | undefined;
+}): CodeAction | undefined {
+  for (const candidate of ["val.modules.ts", "val.modules.js"]) {
+    const file = path.join(valRoot, candidate);
+    let text = read(file);
+    if (text === undefined) {
+      try {
+        text = fs.readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+    }
+    const sourceFile = ts.createSourceFile(
+      file,
+      text,
+      ts.ScriptTarget.ES2020,
+      true,
+    );
+    const insertion = findValModulesInsertion(sourceFile);
+    if (!insertion) {
+      return undefined;
+    }
+    const specifier = valModuleSpecifier({
+      // The val.modules file sits at the Val root, so its Val-style path is its
+      // bare filename with a leading slash.
+      valModulesFilePath: `/${candidate}`,
+      moduleFilePath: moduleFilePath as never,
+    });
+    const position = sourceFile.getLineAndCharacterOfPosition(
+      insertion.insertOffset,
+    );
+    const edit: TextEdit = {
+      range: { start: position, end: position },
+      newText: valModulesEntryText({
+        specifier,
+        indentation: insertion.indentation,
+        hasElements: insertion.hasElements,
+      }),
+    };
+    return CodeAction.create(
+      `Val: register ${path.posix.basename(moduleFilePath)} in ${candidate}`,
+      { changes: { [pathToUri(file)]: [edit] } },
+      CodeActionKind.QuickFix,
+    );
   }
+  return undefined;
+}
 
-  let prefix = 0;
-  const maxPrefix = Math.min(before.length, after.length);
-  while (prefix < maxPrefix && before[prefix] === after[prefix]) {
-    prefix++;
+/**
+ * Work out whether a gallery placeholder is hiding a real problem.
+ *
+ * Core attaches `images:check-unique-folder` and `images:check-all-files` to
+ * every gallery module unconditionally — they are requests to go and look, not
+ * findings. `val validate` looks by running the fix handler and then, when the
+ * handler says the membership is fine, by running `createFixPatch` to compare
+ * each entry's stored metadata against its file. Both steps matter:
+ *
+ *  - handler `success: false` — a membership problem, with its own message.
+ *  - handler `shouldApplyPatch` — membership is fine; the metadata still has to
+ *    be checked, and `createFixPatch` returns one `remainingError` per entry
+ *    that disagrees with its file.
+ *  - anything else — nothing to report, so the placeholder is dropped.
+ *
+ * Doing it exactly this way is the point: an editor that adjudicated these
+ * itself would disagree with the CLI, and the first symptom would be a warning
+ * that appears in one and not the other.
+ */
+export async function adjudicateGalleryCheck({
+  sourcePath,
+  validationError,
+  moduleFilePath,
+  valRoot,
+  content,
+  runFixHandler,
+  remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+}: {
+  sourcePath: SourcePath;
+  validationError: ValidationError;
+  moduleFilePath: ModuleFilePath;
+  valRoot: string;
+  content: ValModuleContent;
+  runFixHandler: (args: {
+    moduleFilePath: ModuleFilePath;
+    sourcePath: SourcePath;
+    validationError: ValidationError;
+  }) => Promise<FixHandlerResult | undefined>;
+  remoteHost?: string;
+}): Promise<GalleryCheckFinding[]> {
+  const outcome = await runFixHandler({
+    moduleFilePath,
+    sourcePath,
+    validationError,
+  });
+  if (!outcome) {
+    // No handler, or a project that would not evaluate. Keep the placeholder:
+    // claiming the gallery is fine on no evidence is the worse error.
+    return [
+      {
+        sourcePath,
+        message: validationError.message,
+        ...(validationError.fixes ? { fixes: validationError.fixes } : {}),
+        ...(validationError.value !== undefined
+          ? { value: validationError.value }
+          : {}),
+      },
+    ];
   }
-
-  let suffix = 0;
-  const maxSuffix = Math.min(before.length, after.length) - prefix;
-  while (
-    suffix < maxSuffix &&
-    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
-  ) {
-    suffix++;
+  if (!outcome.success) {
+    return [
+      {
+        sourcePath,
+        message: outcome.errorMessage ?? validationError.message,
+        ...(validationError.fixes ? { fixes: validationError.fixes } : {}),
+      },
+    ];
   }
-
-  const range: Range = {
-    start: document.positionAt(prefix),
-    end: document.positionAt(before.length - suffix),
-  };
-  return { range, newText: after.slice(prefix, after.length - suffix) };
+  if (outcome.fixableErrorMessage) {
+    return [
+      {
+        sourcePath,
+        message: outcome.fixableErrorMessage,
+        ...(validationError.fixes ? { fixes: validationError.fixes } : {}),
+      },
+    ];
+  }
+  if (!outcome.shouldApplyPatch) {
+    return [];
+  }
+  let fixed;
+  try {
+    fixed = await createFixPatch(
+      { projectRoot: valRoot, remoteHost },
+      // `false`: this is a question, not a fix. Asking for the patch would have
+      // createFixPatch read and rewrite files behind the editor's back.
+      false,
+      sourcePath,
+      validationError,
+      {},
+      content.source,
+      content.schema,
+    );
+  } catch {
+    return [];
+  }
+  return (fixed?.remainingErrors ?? []).map((error) => ({
+    // A gallery check expands into per-entry errors carrying their own path;
+    // fall back to the record's path when one does not.
+    sourcePath: error.sourcePath ?? sourcePath,
+    message: error.message,
+    ...(error.fixes ? { fixes: error.fixes } : {}),
+    // The fix runs against the record, not the entry: `createFixPatch`'s gallery
+    // branch walks every entry itself and builds patch paths from the record's
+    // path, so handing it the entry's path would write to the wrong place.
+    fixSourcePath: sourcePath,
+    ...(validationError.value !== undefined
+      ? { value: validationError.value }
+      : {}),
+  }));
 }

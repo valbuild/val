@@ -12,11 +12,14 @@ import {
   ChevronsUpDown,
   ImageIcon,
   FileIcon,
+  Images,
   Search,
 } from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
 import { useModuleMediaEntries } from "./useModuleMediaEntries";
+import { servedPath } from "../../utils/mediaPath";
+import { MediaThumbnail } from "../MediaThumbnail";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -50,6 +53,25 @@ export interface MediaPickerProps extends MediaPickerListProps {
   disabled?: boolean;
   /** Portal container for the popover (shadow DOM support) */
   portalContainer?: HTMLElement | null;
+  /**
+   * A small button that says what it does, instead of a full-width combobox.
+   *
+   * The combobox form exists because the picker used to be the field's whole
+   * control: it showed the current file's name and opened the list. In a field
+   * with a summary row above it the name is already on screen, so the picker is
+   * one action among several and should look like one.
+   */
+  compact?: boolean;
+  /**
+   * Rendered under the list, inside the popover.
+   *
+   * For "upload a new one" — choosing a file for a collection-backed field and
+   * adding a file to the collection are the same decision from the editor's side
+   * ("I need this picture here"), so making them two separate controls in two
+   * places means finding out only after opening the list that what you want is
+   * not in it.
+   */
+  footer?: React.ReactNode;
 }
 
 const ROW_HEIGHT = 48;
@@ -295,20 +317,14 @@ export function MediaPickerList({
                     )}
                   />
                   {isImage && mimeType?.startsWith("image/") ? (
-                    <div className="h-8 w-8 shrink-0 rounded overflow-hidden bg-bg-secondary">
-                      <img
-                        src={
-                          getUrl
-                            ? getUrl(row.filePath)
-                            : row.filePath.startsWith("/public")
-                              ? row.filePath.slice("/public".length)
-                              : row.filePath
-                        }
-                        alt={alt || filename}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    </div>
+                    <MediaThumbnail
+                      url={
+                        getUrl ? getUrl(row.filePath) : servedPath(row.filePath)
+                      }
+                      alt={alt || filename}
+                      loading="lazy"
+                      className="h-8 w-8 shrink-0 rounded bg-bg-secondary"
+                    />
                   ) : (
                     <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
                       {isImage ? (
@@ -344,6 +360,8 @@ export function MediaPicker({
   moduleEntries,
   onSelect,
   getUrl,
+  compact,
+  footer,
 }: MediaPickerProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -359,22 +377,43 @@ export function MediaPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between"
-          disabled={disabled}
-        >
-          <span className="truncate">
-            {selectedFilename ||
-              (isImage ? "Select from gallery..." : "Select from files...")}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
+        {compact ? (
+          <Button
+            variant="outline"
+            size="sm"
+            role="combobox"
+            // Named explicitly: a `combobox` does not take its accessible name
+            // from its content, so the label an editor reads was not the label a
+            // screen reader announced.
+            aria-label="Choose asset"
+            aria-expanded={open}
+            disabled={disabled}
+          >
+            <Images className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+            Choose asset
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between"
+            disabled={disabled}
+          >
+            <span className="truncate">
+              {selectedFilename ||
+                (isImage ? "Select from gallery..." : "Select from files...")}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0"
+        className={
+          compact
+            ? "w-[22rem] p-0"
+            : "w-[var(--radix-popover-trigger-width)] p-0"
+        }
         container={portalContainer}
       >
         <MediaPickerList
@@ -389,6 +428,9 @@ export function MediaPicker({
           }}
           onEscape={() => setOpen(false)}
         />
+        {footer && (
+          <div className="border-t border-border-primary p-2">{footer}</div>
+        )}
       </PopoverContent>
     </Popover>
   );

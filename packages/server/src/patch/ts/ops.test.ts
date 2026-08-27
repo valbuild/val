@@ -3,7 +3,6 @@ import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
-import type { RemoteSource } from "@valbuild/core";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -142,60 +141,54 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.file",
+      name: "a whole media value",
       input: `{ foo: "bar" }`,
+      value: { path: "/public/val/image.jpg" },
       path: ["image"],
-      value: { _ref: "/public/val/image.jpg", _type: "file" },
       expected: result.ok(
-        `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
+        `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
       ),
     },
     {
-      name: "ref prop to c.file",
-      input: `c.file("/public/val/foo.jpg")`,
-      path: ["_ref"],
-      value: "/public/val/bar.jpg",
-      expected: result.ok(`c.file("/public/val/bar.jpg")`),
+      // patch_id says the bytes are not committed yet. It describes the draft,
+      // not the content, so it must never reach the file.
+      name: "a media value carrying a draft patch_id",
+      input: `{ foo: "bar" }`,
+      value: { path: "/public/val/image.jpg", patch_id: "abc123" },
+      path: ["image"],
+      expected: result.ok(
+        `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
+      ),
     },
     {
-      name: "ref prop to c.remote",
-      input: `c.remote("val://<schema>/<hash>/public/val/foo.jpg")`,
-      path: ["_ref"],
+      name: "path of a media value",
+      input: `{ path: "/public/val/foo.jpg" }`,
+      path: ["path"],
+      value: "/public/val/bar.jpg",
+      expected: result.ok(`{ path: "/public/val/bar.jpg" }`),
+    },
+    {
+      name: "path of a remote media value",
+      input: `{ path: "val://<schema>/<hash>/public/val/foo.jpg" }`,
+      path: ["path"],
       value: "val://<schema>/<hash>/public/val/bar.jpg",
       expected: result.ok(
-        `c.remote("val://<schema>/<hash>/public/val/bar.jpg")`,
+        `{ path: "val://<schema>/<hash>/public/val/bar.jpg" }`,
       ),
     },
     {
-      name: "ref prop",
-      input: `{ foo: "bar", image: {} }`,
-      path: ["image", "_ref"],
-      value: "/public/val/image.jpg",
-      expected: result.err(PatchError),
-    },
-    {
-      name: "prop on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "metadata"],
-      value: {
-        width: 123,
-        height: 456,
-      },
+      name: "width of a media value",
+      input: `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
+      path: ["image", "width"],
+      value: 123,
       expected: result.ok(
-        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456 }) }`,
+        `{ foo: "bar", image: { path: "/public/val/image.jpg", width: 123 } }`,
       ),
     },
     {
-      name: "null prop of name ref on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref"],
-      value: null,
-      expected: result.err(PatchError),
-    },
-    {
-      name: "to ref on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref", "zoo"],
+      name: "into the path of a media value",
+      input: `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
+      path: ["image", "path", "zoo"],
       value: null,
       expected: result.err(PatchError),
     },
@@ -278,30 +271,34 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.file from array",
-      input: `[c.file("/public/val/image1.jpg"), c.file("/public/val/image2.jpg")]`,
+      name: "a media value from an array",
+      input: `[{ path: "/public/val/image1.jpg" }, { path: "/public/val/image2.jpg" }]`,
       path: ["0"],
-      expected: result.ok(`[c.file("/public/val/image2.jpg")]`),
+      expected: result.ok(`[{ path: "/public/val/image2.jpg" }]`),
     },
     {
-      name: "c.remote from array",
-      input: `[c.remote("val://<schema>/<hash>/public/val/image1.jpg"), c.remote("val://<schema>/<hash>/public/val/image2.jpg")]`,
+      name: "a remote media value from an array",
+      input: `[{ path: "val://<schema>/<hash>/public/val/image1.jpg" }, { path: "val://<schema>/<hash>/public/val/image2.jpg" }]`,
       path: ["0"],
       expected: result.ok(
-        `[c.remote("val://<schema>/<hash>/public/val/image2.jpg")]`,
+        `[{ path: "val://<schema>/<hash>/public/val/image2.jpg" }]`,
       ),
     },
     {
-      name: "c.file from object",
-      input: `[{ foo: "bar", image: c.file("/public/val/image.jpg") }]`,
+      name: "a media value from an object",
+      input: `[{ foo: "bar", image: { path: "/public/val/image.jpg" } }]`,
       path: ["0", "image"],
       expected: result.ok(`[{ foo: "bar" }]`),
     },
     {
-      name: "ref prop from c.file",
-      input: `{ image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref"],
-      expected: result.err(PatchError),
+      // Media is an object literal now, so nothing stops a `path` being
+      // removed. It leaves an image with no file, which validation catches.
+      name: "the path of a media value",
+      input: `{ image: { path: "/public/val/image.jpg" } }`,
+      path: ["image", "path"],
+      // `{ }` rather than `{}`: removing the last property of an object splices
+      // the text out and leaves the space that separated it.
+      expected: result.ok(`{ image: { } }`),
     },
   ])("remove $name", ({ input, path, expected }) => {
     const src = testSourceFile(input);
@@ -393,115 +390,74 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.files",
-      input: `c.file("/public/val/foo/bar.jpg")`,
-      path: ["_ref"],
+      name: "the path of a media value",
+      input: `{ path: "/public/val/foo/bar.jpg" }`,
+      path: ["path"],
       value: "/public/val/foo/bar2.jpg",
-      expected: result.ok(`c.file("/public/val/foo/bar2.jpg")`),
+      expected: result.ok(`{ path: "/public/val/foo/bar2.jpg" }`),
     },
     {
-      name: "c.file ref with options",
-      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
-      path: ["_ref"],
+      name: "the path of a media value that has metadata too",
+      input: `{ path: "/public/val/foo/bar.jpg", width: 456, height: 789 }`,
+      path: ["path"],
       value: "/public/val/foo/bar2.jpg",
       expected: result.ok(
-        `c.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`,
-      ),
-    },
-    // TODO:
-    // {
-    //   name: "c.file non metadata",
-    //   input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
-    //   path: ["failure", "checksum"],
-    //   value: "101112",
-    //   expected: result.err(PatchError),
-    // },
-    {
-      name: "c.file checksum",
-      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
-      path: ["metadata", "checksum"],
-      value: "101112",
-      expected: result.ok(
-        `c.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`,
+        `{ path: "/public/val/foo/bar2.jpg", width: 456, height: 789 }`,
       ),
     },
     {
-      name: "deep c.files",
-      input: `{ foo: { bar: c.file("/public/val/foo/bar/zoo.jpg") } }`,
-      path: ["foo", "bar", "_ref"],
+      name: "one metadata field of a media value",
+      input: `{ path: "/public/val/foo/bar.jpg", width: 456, height: 789 }`,
+      path: ["width"],
+      value: 123,
+      expected: result.ok(
+        `{ path: "/public/val/foo/bar.jpg", width: 123, height: 789 }`,
+      ),
+    },
+    {
+      name: "the path of a deeply nested media value",
+      input: `{ foo: { bar: { path: "/public/val/foo/bar/zoo.jpg" } } }`,
+      path: ["foo", "bar", "path"],
       value: "/public/val/foo/bar/zoo2.jpg",
       expected: result.ok(
-        `{ foo: { bar: c.file("/public/val/foo/bar/zoo2.jpg") } }`,
+        `{ foo: { bar: { path: "/public/val/foo/bar/zoo2.jpg" } } }`,
       ),
     },
     {
-      name: "prop on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "metadata"],
+      name: "a metadata field that is not there",
+      input: `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
+      path: ["image", "width"],
+      value: 123,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "into the path of a media value",
+      input: `{ foo: "bar", image: { path: "/public/val/image.jpg" } }`,
+      path: ["image", "path", "zoo"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      // Local and remote are the same shape now: moving a file to remote is a
+      // new path, not a different kind of value.
+      name: "a local media value with a remote one",
+      input: `{ path: "/public/val/foo/bar.jpg" }`,
+      path: [],
+      value: { path: "val://<schema>/<hash>/public/val/foo/bar.jpg" },
+      expected: result.ok(
+        `{ path: "val://<schema>/<hash>/public/val/foo/bar.jpg" }`,
+      ),
+    },
+    {
+      name: "a local media value with a remote one, metadata and all",
+      input: `{ path: "/public/val/foo/bar.jpg", mimeType: "image/jpeg" }`,
+      path: [],
       value: {
-        width: 123,
-        height: 456,
+        path: "val://<schema>/<hash>/public/val/foo/bar.jpg",
+        mimeType: "image/jpeg",
       },
-      expected: result.err(PatchError),
-    },
-    {
-      name: "null prop of name ref on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref"],
-      value: null,
-      expected: result.err(PatchError),
-    },
-    {
-      name: "number prop of name ref on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref"],
-      value: 1,
-      expected: result.err(PatchError),
-    },
-    {
-      name: "to ref on c.file",
-      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
-      path: ["image", "_ref", "zoo"],
-      value: null,
-      expected: result.err(PatchError),
-    },
-    {
-      name: "c.file with c.remote",
-      input: `c.file("/public/val/foo/bar.jpg")`,
-      path: [],
-      value: {
-        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
-        _type: "remote",
-      } satisfies RemoteSource,
       expected: result.ok(
-        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
-      ),
-    },
-    {
-      name: "c.image with c.remote",
-      input: `c.image("/public/val/foo/bar.jpg")`,
-      path: [],
-      value: {
-        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
-        _type: "remote",
-      } satisfies RemoteSource,
-      expected: result.ok(
-        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
-      ),
-    },
-    {
-      name: "c.file with metadata with c.remote",
-      input: `c.file("/public/val/foo/bar.jpg", { mimeType: "image/jpeg" })`,
-      path: [],
-      value: {
-        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
-        _type: "remote",
-        metadata: {
-          mimeType: "image/jpeg",
-        },
-      } satisfies RemoteSource,
-      expected: result.ok(
-        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { mimeType: "image/jpeg" })`,
+        `{ path: "val://<schema>/<hash>/public/val/foo/bar.jpg", mimeType: "image/jpeg" }`,
       ),
     },
   ])("replace $name", ({ input, path, value, expected }) => {
@@ -594,37 +550,21 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.file to root of document",
-      input: `{ foo: null, baz: c.file("/public/val/foo/bar.jpg") }`,
+      name: "a media value to another key",
+      input: `{ foo: null, baz: { path: "/public/val/foo/bar.jpg" } }`,
       from: ["baz"],
       path: ["bar"],
       expected: result.ok(
-        `{ foo: null, bar: c.file("/public/val/foo/bar.jpg") }`,
+        `{ foo: null, bar: { path: "/public/val/foo/bar.jpg" } }`,
       ),
     },
     {
-      name: "ref out of c.file",
-      input: `{ foo: null, baz: c.file("/public/val/foo/bar.jpg") }`,
-      from: ["baz", "_ref"],
+      name: "the path out of a media value",
+      input: `{ foo: null, baz: { path: "/public/val/foo/bar.jpg" } }`,
+      from: ["baz", "path"],
       path: ["bar"],
-      expected: result.err(PatchError),
-    },
-    {
-      name: "object into c.file",
-      input: `{ foo: { bar: "zoo" }, baz: c.file("/public/val/foo/bar.jpg") }`,
-      from: ["foo"],
-      path: ["baz", "metadata"],
       expected: result.ok(
-        `{ baz: c.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`,
-      ),
-    },
-    {
-      name: "object into c.remote",
-      input: `{ foo: { bar: "zoo" }, baz: c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg") }`,
-      from: ["foo"],
-      path: ["baz", "metadata"],
-      expected: result.ok(
-        `{ baz: c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { bar: "zoo" }) }`,
+        `{ foo: null, baz: { }, bar: "/public/val/foo/bar.jpg" }`,
       ),
     },
   ])("move $name", ({ input, from, path, expected }) => {
@@ -724,28 +664,19 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.file to root of object",
-      input: `{ foo: c.file("/public/val/image1.jpg") }`,
+      name: "a media value to the root of the object",
+      input: `{ foo: { path: "/public/val/image1.jpg" } }`,
       from: ["foo"],
       path: [],
-      expected: result.ok(`c.file("/public/val/image1.jpg")`),
+      expected: result.ok(`{ path: "/public/val/image1.jpg" }`),
     },
     {
-      name: "object into c.file",
-      input: `{ foo: c.file("/public/val/image1.jpg"), bar: null }`,
-      from: ["bar"],
-      path: ["foo", "metadata"],
+      name: "the path of a media value to another key",
+      input: `{ foo: { path: "/public/val/image1.jpg" }, bar: null }`,
+      from: ["foo", "path"],
+      path: ["bar"],
       expected: result.ok(
-        `{ foo: c.file("/public/val/image1.jpg", null), bar: null }`,
-      ),
-    },
-    {
-      name: "object into c.file",
-      input: `{ foo: c.remote("val://<schema>/<hash>/public/val/image1.jpg"), bar: null }`,
-      from: ["bar"],
-      path: ["foo", "metadata"],
-      expected: result.ok(
-        `{ foo: c.remote("val://<schema>/<hash>/public/val/image1.jpg", null), bar: null }`,
+        `{ foo: { path: "/public/val/image1.jpg" }, bar: "/public/val/image1.jpg" }`,
       ),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
@@ -862,33 +793,30 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "c.file ref",
-      input: `c.file("/public/val/foo/bar.jpg")`,
-      path: ["_ref"],
+      name: "the path of a media value",
+      input: `{ path: "/public/val/foo/bar.jpg" }`,
+      path: ["path"],
       value: "/public/val/foo/bar.jpg",
       expected: result.ok(true),
     },
     {
-      name: "c.file",
-      input: `c.file("/public/val/foo/bar.jpg")`,
+      name: "a whole media value",
+      input: `{ path: "/public/val/foo/bar.jpg" }`,
       path: [],
-      value: { _ref: "/public/val/foo/bar.jpg", _type: "file" },
+      value: { path: "/public/val/foo/bar.jpg" },
       expected: result.ok(true),
     },
     {
-      name: "c.remote",
-      input: `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
+      name: "a whole remote media value",
+      input: `{ path: "val://<schema>/<hash>/public/val/foo/bar.jpg" }`,
       path: [],
-      value: {
-        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
-        _type: "remote",
-      },
+      value: { path: "val://<schema>/<hash>/public/val/foo/bar.jpg" },
       expected: result.ok(true),
     },
     {
-      name: "nested c.file",
-      input: `{ foo: { bar: c.file("/public/val/foo/bar/zoo.jpg") } }`,
-      path: ["foo", "bar", "_ref"],
+      name: "the path of a deeply nested media value",
+      input: `{ foo: { bar: { path: "/public/val/foo/bar/zoo.jpg" } } }`,
+      path: ["foo", "bar", "path"],
       value: "/public/val/foo/bar/zoo.jpg",
       expected: result.ok(true),
     },
