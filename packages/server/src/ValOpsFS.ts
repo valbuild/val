@@ -502,7 +502,7 @@ export class ValOpsFS extends ValOps {
        */
       return {
         status: "error",
-        message: `${read.message} Val cannot read patches in that layout. Move or delete ${read.patchesDir} to start over — or discard all changes in the studio, which does the same thing.`,
+        message: `${read.message} Val cannot read patches in that layout. Move or delete ${read.patchesDir} to start over. The unpublished changes it holds cannot be recovered into the current format.`,
       };
     }
     if (read.status === "unreadable") {

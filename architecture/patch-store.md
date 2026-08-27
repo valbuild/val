@@ -116,8 +116,12 @@ skip is how a store ends up locked by a process that has long since moved on.
 A store written before this layout — a `head` directory, or records with
 `parentRef` — is **refused, not converted**. Rebuilding the order would mean
 trusting the very links that are unreliable there, and the stores that hit this
-are the ones where that has already gone wrong. Discarding all changes clears it,
-so there is a way forward that is not a terminal command.
+are the ones where that has already gone wrong.
+
+The only way out is deleting `.val/patches`, and the error names the absolute
+path for exactly that reason: `DELETE /patches` takes the ids to remove, and a
+store Val refuses to read is one whose ids the Studio never learns, so no button
+in the Studio can clear it.
 
 ## Where to look
 

@@ -329,9 +329,23 @@ describe("ValOpsFS patch store", () => {
       ).toBe(before);
     });
 
-    test("can be cleared by discarding all changes", async () => {
+    test("says exactly what to delete, because nothing else can clear it", async () => {
       writeLegacyStore();
 
+      const res = await ops.fetchPatches({ excludePatchOps: false });
+
+      // The path, not just "the patches directory". There is no route that
+      // clears this from the studio - `DELETE /patches` takes the ids to remove,
+      // and a store Val refuses to read is one whose ids it never learns - so
+      // this message is the only way out and it has to be actionable.
+      expect(res.error?.message).toContain(patchesDir());
+      expect(res.error?.message).toContain("Move or delete");
+    });
+
+    test("is cleared by deleting the directory, which is what the message says", async () => {
+      writeLegacyStore();
+
+      // What the message asks the person to do, done.
       expect(await ops.deleteAllPatches()).toEqual({});
 
       const res = await ops.fetchPatches({ excludePatchOps: false });
