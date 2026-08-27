@@ -154,6 +154,42 @@ function createRemote(remoteHost: string): IValRemote {
   };
 }
 
+/**
+ * A work-done progress the client can show, and cancel.
+ *
+ * `createWorkDoneProgress` needs the client to have announced
+ * `window.workDoneProgress`; when it has not, this degrades to a plain message
+ * and a signal nobody aborts, rather than failing the command. The
+ * `AbortSignal` is what connects a user pressing cancel to
+ * `awaitValLoginConfirmation`, which takes one precisely so an editor can drive
+ * it.
+ */
+async function withProgress(
+  connection: Connection,
+  title: string,
+  message: string,
+): Promise<{ signal: AbortSignal; done: () => void }> {
+  const controller = new AbortController();
+  try {
+    const reporter = await connection.window.createWorkDoneProgress();
+    reporter.begin(title, undefined, message, true);
+    reporter.token.onCancellationRequested(() => controller.abort());
+    let finished = false;
+    return {
+      signal: controller.signal,
+      done: () => {
+        if (!finished) {
+          finished = true;
+          reporter.done();
+        }
+      },
+    };
+  } catch {
+    connection.window.showInformationMessage(`${title}. ${message}`);
+    return { signal: controller.signal, done: () => {} };
+  }
+}
+
 export function createValCommands(deps: ValCommandDeps): {
   execute: (command: string, args: unknown[]) => Promise<void>;
 } {
@@ -175,10 +211,21 @@ export function createValCommands(deps: ValCommandDeps): {
         uri: session.url,
         external: true,
       });
-      connection.window.showInformationMessage(
-        "Val: complete the login in your browser. Waiting…",
+      // The poll runs for up to five minutes. Without progress the editor looks
+      // hung, and there is nothing to tell the user the browser is the next step.
+      const progress = await withProgress(
+        connection,
+        "Val: waiting for login",
+        "Complete the login in your browser.",
       );
-      const confirmed = await awaitValLoginConfirmation(session.nonce);
+      let confirmed;
+      try {
+        confirmed = await awaitValLoginConfirmation(session.nonce, {
+          signal: progress.signal,
+        });
+      } finally {
+        progress.done();
+      }
       const filePath = persistPersonalAccessToken(project.valRoot, confirmed);
       connection.window.showInformationMessage(
         `Val: logged in as ${confirmed.profile.email} (token saved to ${filePath}).`,
@@ -236,6 +283,15 @@ export function createValCommands(deps: ValCommandDeps): {
       fixes: [args.fix],
     };
 
+    // Bytes over the network: how long depends on the file, so the editor needs
+    // to say something is happening.
+    const progress = await withProgress(
+      connection,
+      isUpload
+        ? "Val: uploading to Val Remote"
+        : "Val: downloading from Val Remote",
+      args.sourcePath,
+    );
     let outcome;
     try {
       outcome = await project.runFixHandler({
@@ -249,11 +305,13 @@ export function createValCommands(deps: ValCommandDeps): {
         remoteFiles,
       });
     } catch (e: unknown) {
+      progress.done();
       connection.window.showErrorMessage(
         `Val: ${args.fix} failed. ${e instanceof Error ? e.message : String(e)}`,
       );
       return;
     }
+    progress.done();
     if (!outcome) {
       connection.window.showErrorMessage(
         `Val: could not run ${args.fix} — the project would not evaluate.`,
