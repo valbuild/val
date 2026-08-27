@@ -69,6 +69,40 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**A ref mutated during render survives a discarded render; the `setState` beside
+it does not.** So the "adjust state when a prop changes" pattern must hold the
+previous prop in **state**, never a ref:
+
+```tsx
+// ❌ WRONG — one committed render with the new value, then stuck on the old one
+const lastView = useRef(view);
+if (lastView.current !== view) {
+  lastView.current = view; // survives
+  setIsPicking(view === "fields"); // does not
+}
+
+// ✅ CORRECT — a discarded render discards both, a committed one commits both
+const [viewSource, setViewSource] = useState(view);
+if (viewSource !== view) {
+  setViewSource(view);
+  setIsPicking(view === "fields");
+}
+```
+
+React is free to throw a render away and start again from the last committed
+state. The retained pass then sees the ref already equal to the new prop, skips
+the branch, and the derived state stays at its old value **for good**. This is
+not a fringe case: `StrictMode` invokes the body twice and keeps the second
+result, so it reproduces on demand — which is what makes it testable
+(`usePickingDefault.test.tsx` renders the hook inside `StrictMode`; two of its
+cases fail against the ref version).
+
+It cost the canvas's select mode: switching to the fields view stopped arming
+picking, so the fields list rendered, the Select button read as off, and clicking
+anything on the page reported nothing — the bridge only reports while picking.
+Nothing in that looks like a missed state update, which is why it went unnoticed
+while a real e2e failure sat on it.
+
 **React blames the wrong component for a render loop.** The error surfaces
 wherever the update budget ran out — typically a Radix ref callback, whose JS
 stack is pure Radix. Do not start there; census the fiber tree instead
