@@ -704,10 +704,6 @@ export function getModuleIds(input: any): string[] {
       }
 
       if (VAL_EXTENSION in sourceOrSelector) {
-        if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          return;
-        }
-
         if (
           sourceOrSelector[VAL_EXTENSION] === "file" &&
           typeof sourceOrSelector[FILE_REF_PROP] === "string"

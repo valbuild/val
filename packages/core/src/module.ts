@@ -19,14 +19,14 @@ import {
   ImageSchema,
   SerializedImageSchema,
 } from "./schema/image";
-import { FILE_REF_PROP, FileSource } from "./source/file";
+import { FileSource } from "./source/file";
 import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
 import { ImageSource } from "./source/image";
-import { FileMetadata, FileSchema, ModuleFilePathSep } from ".";
+import { ModuleFilePathSep } from ".";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -64,81 +64,6 @@ export function define<T extends Schema<SelectorSource>>(
     [GetSchema]: schema,
     [Path]: id as SourcePath,
   } as unknown as ValModule<SelectorOfSchema<T>>;
-}
-
-export function enrichFileImageRemoteSourceWithMetadata<
-  T extends SelectorSource,
->(source: T, schema: Schema<SelectorSource>): T {
-  const addedModules = new Set<string>();
-  let filesLookup: Record<string, ImageMetadata | FileMetadata> = {};
-  function traverseSchema(schema: Schema<SelectorSource>) {
-    if (schema instanceof ImageSchema || schema instanceof FileSchema) {
-      const moduleMetadata =
-        schema instanceof ImageSchema
-          ? schema["moduleMetadata"]
-          : schema["moduleMetadata"];
-      for (const [modulePath, valModule] of Object.entries(
-        moduleMetadata || {},
-      )) {
-        if (addedModules.has(modulePath)) {
-          continue;
-        }
-        addedModules.add(modulePath);
-        filesLookup = {
-          ...filesLookup,
-          ...valModule,
-        };
-      }
-    } else if (schema instanceof ObjectSchema) {
-      for (const value of Object.values(schema["items"])) {
-        if (value instanceof Schema) {
-          traverseSchema(value);
-        }
-      }
-    } else if (schema instanceof ArraySchema) {
-      traverseSchema(schema["item"]);
-    } else if (schema instanceof RecordSchema) {
-      traverseSchema(schema["item"]);
-    } else if (schema instanceof UnionSchema) {
-      for (const value of schema["items"]) {
-        if (value instanceof ObjectSchema) {
-          traverseSchema(value);
-        }
-      }
-    } else if (schema instanceof RichTextSchema) {
-      if (schema["options"]?.inline?.img instanceof ImageSchema) {
-        traverseSchema(schema["options"].inline.img);
-      }
-    }
-  }
-  function injectMetadataIntoSource(source: SelectorSource): SelectorSource {
-    if (!source) {
-      return source;
-    }
-    if (
-      typeof source === "object" &&
-      FILE_REF_PROP in source &&
-      typeof source[FILE_REF_PROP] === "string"
-    ) {
-      const fileRef = source[FILE_REF_PROP];
-      const metadata = filesLookup[fileRef];
-      (source as { [FILE_REF_PROP]: string; metadata?: unknown }).metadata =
-        metadata;
-    } else if (typeof source === "object") {
-      if (Array.isArray(source)) {
-        for (const item of source) {
-          injectMetadataIntoSource(item);
-        }
-      } else {
-        for (const value of Object.values(source)) {
-          injectMetadataIntoSource(value);
-        }
-      }
-    }
-  }
-  traverseSchema(schema);
-  injectMetadataIntoSource(source);
-  return source;
 }
 
 export function getSource<T extends Source>(valModule: ValModule<T>): T {
