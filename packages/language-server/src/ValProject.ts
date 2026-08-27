@@ -2,9 +2,21 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { createRequire } from "node:module";
-import type { Json, ModuleFilePath, ModulePath } from "@valbuild/core";
+import type {
+  Json,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
 import type { SchemaSourceSnapshot } from "@valbuild/shared/internal";
-import { createService, type Service } from "@valbuild/server";
+import {
+  createService,
+  fixHandlers,
+  type FixHandlerResult,
+  type IValRemote,
+  type Service,
+  type ValidationError,
+} from "@valbuild/server";
 import { createEditorFsHost, type OpenDocuments } from "./EditorFsHost";
 
 /**
@@ -55,11 +67,51 @@ export type ValProject = {
   >;
   /** Val module file paths found under the Val root. */
   listModuleFilePaths(): ModuleFilePath[];
+  /**
+   * Run the `val validate --fix` handler for one validation error and report
+   * what it found, without applying anything (`fix: false`).
+   *
+   * The handlers are the precondition layer in `@valbuild/server`: they read the
+   * file, check the directory, look across modules. Running them here rather
+   * than reimplementing their checks is what keeps an editor's verdict and the
+   * CLI's identical. Exposed as a method because the handlers need the
+   * `Service` and the fs host, and both stay private to this module.
+   *
+   * Resolves to `undefined` when the project could not be evaluated, or when no
+   * handler is registered for the error's fixes.
+   */
+  runFixHandler(args: {
+    moduleFilePath: ModuleFilePath;
+    sourcePath: SourcePath;
+    validationError: ValidationError;
+  }): Promise<FixHandlerResult | undefined>;
   /** Drop cached results. Pass a path to invalidate one module. */
   invalidate(moduleFilePath?: ModuleFilePath): void;
   /** Number of cached module results — for tests and diagnostics. */
   cacheSize(): number;
   dispose(): Promise<void>;
+};
+
+/**
+ * A remote that refuses to do anything.
+ *
+ * The handlers that need a remote (upload) are not reachable through
+ * {@link ValProject.runFixHandler}, which reports rather than applies. Passing a
+ * refusing stub keeps the context type honest instead of asserting the field
+ * away, and turns any future miswiring into a message rather than a crash.
+ */
+const reportOnlyRemote: IValRemote = {
+  remoteHost: "",
+  getSettings: () =>
+    Promise.resolve({
+      success: false,
+      message: "The language server does not upload while reporting.",
+    }),
+  uploadFile: () =>
+    Promise.resolve({
+      success: false,
+      error: "The language server does not upload while reporting.",
+    }),
 };
 
 const DEFAULT_OPTIONS = { validate: true };
@@ -297,7 +349,7 @@ export function createValProject({
     return { status: "ok", snapshot };
   }
 
-  return {
+  const project: ValProject = {
     valRoot,
 
     async getModule(moduleFilePath, options = DEFAULT_OPTIONS) {
@@ -340,6 +392,42 @@ export function createValProject({
     },
 
     listModuleFilePaths: () => findValModuleFilePaths(valRoot),
+    async runFixHandler({ moduleFilePath, sourcePath, validationError }) {
+      const handlerName = validationError.fixes?.find(
+        (fix) => fixHandlers[fix] !== undefined,
+      );
+      if (!handlerName) {
+        return undefined;
+      }
+      const resolved = await getService();
+      if (resolved.status === "error") {
+        return undefined;
+      }
+      const moduleResult = await project.getModule(moduleFilePath, {
+        validate: false,
+      });
+      if (moduleResult.status === "error") {
+        return undefined;
+      }
+      return fixHandlers[handlerName]({
+        sourcePath,
+        validationError,
+        valModule: moduleResult.content,
+        projectRoot: valRoot,
+        // Report only. Applying a fix from here would write to disk behind the
+        // editor's back; an accepted quick fix travels as a WorkspaceEdit.
+        fix: false,
+        service: resolved.service,
+        valFiles: findValModuleFilePaths(valRoot).map((p) => p.slice(1)),
+        moduleFilePath,
+        file: moduleFilePath.slice(1),
+        fs: host,
+        remoteFiles: {},
+        remoteFilesCounter: 0,
+        remote: reportOnlyRemote,
+        project: undefined,
+      });
+    },
 
     getSnapshot() {
       // `snapshot` is one shared object handed to every caller, so a second
@@ -393,4 +481,5 @@ export function createValProject({
       cache.clear();
     },
   };
+  return project;
 }

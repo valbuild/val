@@ -13,6 +13,32 @@ export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { analyzeValModule } from "./patch/ts/valModule";
 export type { ValModuleAnalysis } from "./patch/ts/valModule";
 export { createFixPatch } from "./createFixPatch";
+// The precondition layer behind `val validate --fix`: read the file, check it is
+// on disk, extract metadata, pick a bucket, upload or download the bytes. The
+// CLI drove this alone until the language server needed the same fixes; keeping
+// one copy here is what stops an editor fix drifting from a CLI fix.
+export {
+  fixHandlers,
+  currentFixHandlers,
+  createDefaultValFSHost,
+  handleFileMetadata,
+  handleRemoteFileUpload,
+  handleRemoteGalleryFileUpload,
+  handleRemoteFileDownload,
+  handleRemoteFileCheck,
+  handleUniqueFolderCheck,
+  handleCheckAllFiles,
+  handleJsonValuesExtractEntry,
+} from "./fixHandlers";
+export type {
+  FixHandler,
+  FixHandlerContext,
+  FixHandlerResult,
+  IValRemote,
+  ValidationEvent,
+  ValidationError,
+  ValModule,
+} from "./fixHandlers";
 export * from "./jwt";
 export type { ValServer } from "./ValServer";
 export { getSettings } from "./getSettings";

@@ -36,8 +36,14 @@ import {
   createValDiagnostics,
   createMissingModuleDiagnostic,
   createProjectErrorDiagnostic,
+  resolveGalleryChecks,
+  type ValDiagnosticData,
 } from "./diagnostics";
-import { createValCodeActions } from "./codeActions";
+import {
+  createValCodeActions,
+  createMissingModuleCodeAction,
+  adjudicateGalleryCheck,
+} from "./codeActions";
 import { createValCompletions, resolveValCompletion } from "./completions";
 import {
   createPublicValFiles,
@@ -315,6 +321,27 @@ export function createValLanguageServer(connection: Connection): {
       // Needed to resolve keyOf/route validation, which has to look at other
       // modules. Built once and refreshed per changed module.
       const snapshotResult = await project.getSnapshot();
+      // Core attaches the gallery checks to every gallery module whether or not
+      // anything is wrong, so they have to be adjudicated by the same fix
+      // handlers `val validate` uses before any of them is shown.
+      // Narrowed once: `project` is module-level and reassigned on shutdown, so
+      // the closures below need a local binding.
+      const activeProject = project;
+      const galleryChecks =
+        result.content.errors !== false && result.content.errors.validation
+          ? await resolveGalleryChecks({
+              validation: result.content.errors.validation,
+              runHandler: (sourcePath, validationError) =>
+                adjudicateGalleryCheck({
+                  sourcePath,
+                  validationError,
+                  moduleFilePath,
+                  valRoot: activeProject.valRoot,
+                  content: result.content,
+                  runFixHandler: (args) => activeProject.runFixHandler(args),
+                }),
+            })
+          : undefined;
       const diagnostics = createValDiagnostics({
         moduleFilePath,
         content: result.content,
@@ -323,6 +350,7 @@ export function createValLanguageServer(connection: Connection): {
         ...(snapshotResult.status === "ok"
           ? { snapshot: snapshotResult.snapshot }
           : {}),
+        ...(galleryChecks ? { galleryChecks } : {}),
       });
       const unregistered = findMissingModuleDiagnostic(
         project.valRoot,
@@ -389,6 +417,7 @@ export function createValLanguageServer(connection: Connection): {
       "fix/gallery",
       "completions/galleryKey",
       "completions/richtextLink",
+      "fix/missing-module",
     ];
     const commands: string[] = [];
 
@@ -521,16 +550,41 @@ export function createValLanguageServer(connection: Connection): {
       return [];
     }
     try {
+      const actions: CodeAction[] = [];
+
+      // Registering a module in val.modules is not a content fix, so it is not
+      // part of the createFixPatch pipeline: it is offered whenever the
+      // diagnostic is present, even if the module could not be evaluated -- a
+      // module Val does not serve is exactly the kind that fails to evaluate.
+      const unregistered = params.context.diagnostics.some(
+        (diagnostic) =>
+          (diagnostic.data as ValDiagnosticData | undefined)?.code ===
+          "val/missing-module",
+      );
+      if (unregistered) {
+        const action = createMissingModuleCodeAction({
+          valRoot: project.valRoot,
+          moduleFilePath,
+          read: readOpenDocument,
+        });
+        if (action) {
+          actions.push(action);
+        }
+      }
+
       const result = await project.getModule(moduleFilePath);
       if (result.status === "error") {
-        return [];
+        return actions;
       }
-      return await createValCodeActions({
-        document,
-        diagnostics: params.context.diagnostics,
-        content: result.content,
-        valRoot: project.valRoot,
-      });
+      actions.push(
+        ...(await createValCodeActions({
+          document,
+          diagnostics: params.context.diagnostics,
+          content: result.content,
+          valRoot: project.valRoot,
+        })),
+      );
+      return actions;
     } catch (e) {
       connection.console.error(
         `Val: failed to build code actions for ${params.textDocument.uri}: ${

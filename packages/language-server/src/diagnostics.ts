@@ -73,6 +73,14 @@ export type ValDiagnosticData = {
   value?: unknown;
   /** Absolute path of the missing file, for `val/file-not-found`. */
   filePath?: string;
+  /**
+   * The path to hand `createFixPatch`, when it differs from
+   * {@link ValDiagnosticData.sourcePath}.
+   *
+   * Only the gallery checks use this: they are reported on the entry that is
+   * wrong but fixed against the record that contains it.
+   */
+  fixSourcePath?: string;
 };
 
 /**
@@ -142,6 +150,7 @@ export function createValDiagnostics({
   text,
   valRoot,
   snapshot,
+  galleryChecks,
 }: {
   moduleFilePath: ModuleFilePath;
   content: ValModuleContent;
@@ -163,6 +172,13 @@ export function createValDiagnostics({
    * unactionable noise on correct code.
    */
   snapshot?: SchemaSourceSnapshot;
+  /**
+   * Verdicts for the gallery placeholders core emits unconditionally, from
+   * {@link resolveGalleryChecks}. Without it the placeholders are dropped: two
+   * permanent warnings on every gallery module is worse than a missed one, and
+   * the caller that can adjudicate them is the one that has a `Service`.
+   */
+  galleryChecks?: ReadonlyMap<string, GalleryCheckVerdict>;
 }): Diagnostic[] {
   if (content.errors === false) {
     return [];
@@ -201,6 +217,27 @@ export function createValDiagnostics({
   for (const [sourcePath, errors] of Object.entries(validation)) {
     for (const error of errors) {
       const fixes = error.fixes;
+
+      // An unconditional gallery placeholder: show it only if the fix handler
+      // found something, and then with the handler's own message rather than
+      // the placeholder's "may have files not tracked by this gallery".
+      if (fixes?.some(isGalleryCheckFix)) {
+        const verdict = galleryChecks?.get(galleryCheckKey(sourcePath, error));
+        for (const finding of verdict ?? []) {
+          diagnostics.push(
+            build(rangeOf(finding.sourcePath, modulePathMap), finding.message, {
+              code: "val/validation",
+              sourcePath: finding.sourcePath,
+              ...(finding.fixes ? { fixes: finding.fixes } : {}),
+              ...(finding.fixSourcePath
+                ? { fixSourcePath: finding.fixSourcePath }
+                : {}),
+              ...(finding.value !== undefined ? { value: finding.value } : {}),
+            }),
+          );
+        }
+        continue;
+      }
 
       // A file-related fix cannot succeed if the file is not there, and
       // "metadata is incorrect" is a misleading way to say "the file is
@@ -355,6 +392,127 @@ function rangeOf(
   }
   const range = getModulePathRange(modulePath, modulePathMap);
   return range ? { start: range.start, end: range.end } : FALLBACK_RANGE;
+}
+
+/**
+ * Gallery checks core emits unconditionally.
+ *
+ * `RecordSchema.validate` attaches these to every `s.images()` / `s.files()`
+ * module whether or not anything is actually wrong (see
+ * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
+ * go and look. `val validate` looks by running the matching fix handler, which
+ * reports success when the directory is unique and every file is accounted for.
+ *
+ * An editor has to do the same. Publishing them as-is put two permanent warnings
+ * on every gallery module in the project — which is worse than useless, because
+ * a warning that is always there is one nobody reads.
+ */
+const GALLERY_CHECK_FIXES: readonly string[] = [
+  "images:check-unique-folder",
+  "files:check-unique-folder",
+  "images:check-all-files",
+  "files:check-all-files",
+];
+
+export function isGalleryCheckFix(fix: string): boolean {
+  return GALLERY_CHECK_FIXES.includes(fix);
+}
+
+/**
+ * One real problem found behind a gallery placeholder.
+ *
+ * A single placeholder can expand into several of these, each pointing at its
+ * own entry: `handleCheckAllFiles` reporting `shouldApplyPatch` means "no
+ * membership problem, now check the metadata", and `createFixPatch` then returns
+ * one error per entry whose stored metadata disagrees with its file. This is why
+ * the verdict is a list rather than a message, and why each carries its own
+ * source path.
+ */
+export type GalleryCheckFinding = {
+  /** Where to show it: the entry the problem is about. */
+  sourcePath: string;
+  message: string;
+  fixes?: ValidationFix[];
+  /**
+   * Where to *fix* it, when that is not where it is shown.
+   *
+   * The gallery fix is expressed against the record as a whole — it walks every
+   * entry — so `createFixPatch` must be given the record's path and the
+   * placeholder's value, while the diagnostic itself belongs on the offending
+   * entry. Splitting the two is what lets the message be precise without
+   * breaking the fix.
+   */
+  fixSourcePath?: string;
+  /** The placeholder's `value`, which the fix reads. */
+  value?: unknown;
+};
+
+/**
+ * The verdict on one gallery check. Empty means nothing is wrong and the
+ * placeholder is dropped.
+ */
+export type GalleryCheckVerdict = GalleryCheckFinding[];
+
+/**
+ * Adjudicate every gallery placeholder in `validation`, by running the same fix
+ * handler `val validate` runs.
+ *
+ * Async and therefore separate from {@link createValDiagnostics}, which stays
+ * synchronous so it can be tested without a project. The caller runs this first
+ * and passes the result in.
+ */
+export async function resolveGalleryChecks({
+  validation,
+  runHandler,
+}: {
+  validation: Record<SourcePath, ValidationError[]>;
+  /**
+   * Runs the fix handler for one error and reports what it found. Injected so
+   * that this module needs no `Service`, and so tests can drive both outcomes.
+   */
+  runHandler: (
+    sourcePath: SourcePath,
+    error: ValidationError,
+  ) => Promise<GalleryCheckVerdict>;
+}): Promise<Map<string, GalleryCheckVerdict>> {
+  const verdicts = new Map<string, GalleryCheckVerdict>();
+  for (const [sourcePath, errors] of Object.entries(validation) as [
+    SourcePath,
+    ValidationError[],
+  ][]) {
+    for (const error of errors) {
+      if (!error.fixes?.some(isGalleryCheckFix)) {
+        continue;
+      }
+      const key = galleryCheckKey(sourcePath, error);
+      try {
+        verdicts.set(key, await runHandler(sourcePath, error));
+      } catch {
+        // A handler that threw tells us nothing about the gallery. Keep the
+        // placeholder rather than silently claiming the gallery is fine.
+        verdicts.set(key, [
+          {
+            sourcePath,
+            message: error.message,
+            ...(error.fixes ? { fixes: error.fixes } : {}),
+            ...(error.value !== undefined ? { value: error.value } : {}),
+          },
+        ]);
+      }
+    }
+  }
+  return verdicts;
+}
+
+/**
+ * Key for one placeholder. A gallery module carries several, all at the same
+ * source path, so the fix names have to be part of the key.
+ */
+export function galleryCheckKey(
+  sourcePath: string,
+  error: ValidationError,
+): string {
+  return `${sourcePath}|${(error.fixes ?? []).join(",")}`;
 }
 
 /** Fixes core cannot resolve without a project-wide snapshot. */
