@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { clearPatchChain, openStudio, patchThroughStore } from "./studio";
 import type { Locator, Page } from "@playwright/test";
 
 const MODULE = "/content/lists.val.ts";
@@ -53,13 +53,9 @@ test.describe("the compare view diffs a list of primitives", () => {
 
     // Move the last item to the front, through the store, because a drag in
     // Playwright is a different test than this one.
-    await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const system = ((window as any).__VAL_STORES__ as any)?.system;
-      return system.patchStore.createPatch("/content/lists.val.ts", [
-        { op: "move", from: ["keywords", "4"], path: ["keywords", "0"] },
-      ]);
-    });
+    await patchThroughStore(page, MODULE, [
+      { op: "move", from: ["keywords", "4"], path: ["keywords", "0"] },
+    ]);
 
     await openCompare(page, studio);
     const lines = await diffLines(studio);
@@ -91,18 +87,14 @@ test.describe("the compare view diffs a list of primitives", () => {
       timeout: 30000,
     });
 
-    await page.evaluate(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const system = ((window as any).__VAL_STORES__ as any)?.system;
-      await system.patchStore.createPatch("/content/lists.val.ts", [
-        { op: "add", path: ["keywords", "1"], value: "inserted" },
-      ]);
-      // "publish" is now at index 4, having been at 3. Editing it is the case
-      // that used to show its "before" as whatever else was at index 4.
-      await system.patchStore.createPatch("/content/lists.val.ts", [
-        { op: "replace", path: ["keywords", "4"], value: "publishing" },
-      ]);
-    });
+    await patchThroughStore(page, MODULE, [
+      { op: "add", path: ["keywords", "1"], value: "inserted" },
+    ]);
+    // "publish" is now at index 4, having been at 3. Editing it is the case that
+    // used to show its "before" as whatever else was at index 4.
+    await patchThroughStore(page, MODULE, [
+      { op: "replace", path: ["keywords", "4"], value: "publishing" },
+    ]);
 
     await openCompare(page, studio);
     const lines = await diffLines(studio);
@@ -127,13 +119,9 @@ test.describe("the compare view diffs a list of primitives", () => {
       timeout: 30000,
     });
 
-    await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const system = ((window as any).__VAL_STORES__ as any)?.system;
-      return system.patchStore.createPatch("/content/lists.val.ts", [
-        { op: "remove", path: ["keywords", "2"] },
-      ]);
-    });
+    await patchThroughStore(page, MODULE, [
+      { op: "remove", path: ["keywords", "2"] },
+    ]);
 
     await openCompare(page, studio);
     const lines = await diffLines(studio);
