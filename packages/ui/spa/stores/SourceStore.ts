@@ -1075,6 +1075,93 @@ export class SourceStore {
    * So: take them out of the chain and leave `sources` alone. Pair it with
    * {@link promoteToBase} and the displayed value never moves.
    */
+  /**
+   * Bake SOME of a module's chain into the base, and keep the rest.
+   *
+   * {@link promoteToBase} bakes the whole displayed value, which is right only
+   * when everything on screen shipped. Auto-save makes that no longer the normal
+   * case: it publishes the snapshot it named, and a field carries on being typed
+   * into while the request is in flight, so the patches that shipped are a PREFIX
+   * of the chain rather than all of it.
+   *
+   * Baking the whole value there is a silent double-apply — the tail's effect
+   * goes into the base AND the tail stays in the chain to be applied again on
+   * top. Invisible for a `replace`, which is most typing, and content-corrupting
+   * for an array `add`: the item appears twice, and nothing reports anything.
+   *
+   * So the new base is recomputed as base + the published prefix, and the tail
+   * stays in the chain where it belongs. The displayed value does not move —
+   * base + published + surviving is what it already was — which is the same
+   * property {@link promoteToBase} has and the reason neither of them bumps a
+   * revision.
+   */
+  promotePublished(
+    publishedIds: readonly PatchId[],
+    modules: readonly ModuleFilePath[],
+  ): void {
+    const published = new Set(publishedIds);
+    for (const moduleFilePath of modules) {
+      const chain = this.chains.get(moduleFilePath) ?? [];
+      const surviving = chain.filter(
+        (entry) => !published.has(entry.record.patchId),
+      );
+      if (surviving.length === chain.length) {
+        // None of this module's chain shipped. Nothing to bake.
+        continue;
+      }
+      if (surviving.length === 0) {
+        // Everything shipped, so what is on screen IS the new base and no
+        // recompute is needed. The common case, and the cheap one.
+        this.promoteToBase([moduleFilePath]);
+        this.chains.set(moduleFilePath, []);
+        continue;
+      }
+      const base = this.baseSources[moduleFilePath];
+      if (base === undefined) {
+        // Never loaded, so there is no base to move. The chain edit still has to
+        // happen or the published patches re-land when it does load.
+        this.chains.set(moduleFilePath, surviving);
+        continue;
+      }
+      let next: JSONValue = deepClone(base as JSONValue);
+      let rebuilt = true;
+      for (const entry of chain) {
+        if (!published.has(entry.record.patchId)) continue;
+        // `file` ops carry bytes, not source edits — the same filter the apply
+        // path uses.
+        const patchableOps = entry.record.patch.filter(
+          (op) => op.op !== "file",
+        );
+        if (patchableOps.length === 0) continue;
+        this.activity.work("source:apply-patch", entry.record.patchId);
+        const res = applyPatch(deepClone(next), ops, patchableOps);
+        if (!result.isOk(res)) {
+          /*
+           * The server applied it and this could not.
+           *
+           * Bailing out rather than storing a half-built base: a base that is
+           * neither the old one nor the new one is worse than a stale one, and a
+           * stale one is what the next intake replaces anyway. The mismatch
+           * itself is worth knowing about — the two sides apply the same ops to
+           * the same JSON, so they should not disagree.
+           */
+          console.error(
+            "Val: could not rebuild the base after a partial save. The value on screen is right; the base behind it is stale until the next load.",
+            { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+          );
+          rebuilt = false;
+          break;
+        }
+        next = res.value;
+      }
+      if (rebuilt) {
+        this.activity.work("source:promote-to-base", moduleFilePath);
+        this.baseSources[moduleFilePath] = next;
+      }
+      this.chains.set(moduleFilePath, surviving);
+    }
+  }
+
   forgetPublished(patchIds: readonly PatchId[]): void {
     const published = new Set(patchIds);
     for (const [moduleFilePath, chain] of this.chains) {

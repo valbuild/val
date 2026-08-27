@@ -322,7 +322,9 @@ export function createValSystem(
         };
       }
       if (res.status === 200) {
-        return { status: "published" };
+        // `removed` is what the save threw away to be able to write anything at
+        // all — fs mode only, and empty on the happy path.
+        return { status: "published", removed: res.json.removed };
       }
       if (res.status === 409) {
         return { status: "not-fast-forward", message: res.json.message };
@@ -340,6 +342,26 @@ export function createValSystem(
             ) {
               errors[detail.patchId as PatchId] = String(detail.message);
             }
+          }
+        } else if (
+          typeof details === "object" &&
+          details !== null &&
+          "unappliablePatches" in details &&
+          details.unappliablePatches !== undefined
+        ) {
+          /*
+           * The shape `prepare` actually reports, and the one that was being
+           * dropped on the floor.
+           *
+           * This only read the array form, so every per-patch error from a
+           * refused commit arrived as `{}` — the studio could say "Failed to
+           * publish" and nothing else, and the gate that is supposed to stop
+           * retrying a patch that can never apply never saw one.
+           */
+          for (const [patchId, failure] of Object.entries(
+            details.unappliablePatches,
+          )) {
+            errors[patchId as PatchId] = failure.message;
           }
         }
         return { status: "patch-errors", message: res.json.message, errors };
