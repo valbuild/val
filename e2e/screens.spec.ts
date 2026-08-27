@@ -36,7 +36,17 @@ async function openBlogPost(page: Page) {
   return studio;
 }
 
-test.describe.configure({ mode: "serial" });
+/**
+ * Serial, and given far longer than the suite's 90s.
+ *
+ * Every step here waits a fixed amount for the shell to settle, so the
+ * screenshot is of a resting state rather than a transition — which adds up to
+ * most of the default budget before anything has been clicked. Alone that fits;
+ * in a full run, with `next dev` compiling routes for the specs either side, it
+ * does not, and the timeout lands on whatever step happened to be next. That
+ * failure reads as a broken shell and is a slow screenshot script.
+ */
+test.describe.configure({ mode: "serial", timeout: 240_000 });
 
 test("the shell", async ({ page }) => {
   await openStudio(page);
