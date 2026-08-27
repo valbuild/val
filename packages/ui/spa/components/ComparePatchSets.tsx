@@ -38,6 +38,7 @@ import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import { useDeletePatches, Profile } from "./ValProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
+import { PrimitiveListDiff } from "./PrimitiveListDiff";
 import { AuthorPatchInfo, FieldPatchAuthorsPure } from "./FieldPatchAuthors";
 import { Button } from "./designSystem/button";
 import {
@@ -409,6 +410,28 @@ function ModuleGroup({
   );
 }
 
+/**
+ * Whether this node is an array of primitives, whose diff belongs to the LIST.
+ *
+ * A hook, so the schema lookup is a hook rather than a prop threaded down from
+ * the module. `undefined` while the schema is still resolving: the caller has to
+ * be able to wait rather than guess, since guessing "not a list" renders the per
+ * index rows and then swaps them for the list diff a moment later.
+ */
+function useIsPrimitiveList(
+  sourcePath: SourcePath | ModuleFilePath,
+): boolean | undefined {
+  const schemaAtPath = useSchemaAtPath(sourcePath as SourcePath);
+  if (schemaAtPath.status === "loading") {
+    return undefined;
+  }
+  if (schemaAtPath.status !== "success" || schemaAtPath.data.type !== "array") {
+    return false;
+  }
+  const item = schemaAtPath.data.item.type;
+  return item === "string" || item === "number" || item === "boolean";
+}
+
 function RenderTree({
   node,
   rowProps,
@@ -416,6 +439,21 @@ function RenderTree({
   node: ChangeTreeNode;
   rowProps: RowProps;
 }) {
+  /*
+   * A list of primitives is diffed AS A LIST, and its children are not rendered.
+   *
+   * The per-index rows were the wrong unit for a list twice over — see
+   * `PrimitiveListDiff` — and showing both would be the same change described two
+   * incompatible ways on the same screen.
+   */
+  const isPrimitiveList = useIsPrimitiveList(node.sourcePath);
+  if (isPrimitiveList === undefined) {
+    return null;
+  }
+  if (isPrimitiveList) {
+    return <ListChangeRow key={node.sourcePath} row={node} {...rowProps} />;
+  }
+
   if (node.change) {
     if (
       node.change.changeType === "added" ||
@@ -550,6 +588,99 @@ function ModulePathLabel({
 }
 
 // #region ChangeRow
+
+/**
+ * One row for a whole list of primitives.
+ *
+ * The header is the same as any other change row; the body is the list's diff
+ * rather than the touched indices. Its patch ids and authors are collected from
+ * the node AND its subtree, because the per-index rows are no longer rendered and
+ * their Discard has to stay reachable from somewhere.
+ *
+ * The change type is deliberately fixed to `field-change`: a list whose items
+ * moved is not "added" or "removed" at the list's own path, whatever the ops
+ * inside it were, and the badge would be claiming something about the array that
+ * is only true of one of its items.
+ */
+function ListChangeRow({
+  row,
+  moduleFilePath,
+  isRouterModule,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  canDiscard,
+}: {
+  row: ChangeTreeNode;
+  moduleFilePath: ModuleFilePath;
+  isRouterModule: boolean;
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  canDiscard: boolean;
+}) {
+  const { deletePatches } = useDeletePatches();
+  const [now] = useState(() => new Date());
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  const sourcePath = row.sourcePath as SourcePath;
+  const beforeSource = useServerSourceAtPath(sourcePath);
+  const afterSource = useSourceAtPath(sourcePath);
+  const isEqual =
+    beforeSource.status === "success" &&
+    afterSource.status === "success" &&
+    deepEqual(
+      beforeSource.data as ReadonlyJSONValue,
+      afterSource.data as ReadonlyJSONValue,
+    );
+
+  const patchIds = useMemo(() => collectModulePatchIds(row), [row]);
+  const { patchesByAuthorIds } = useMemo(
+    () => collectModuleAuthorsAndPatches(row),
+    [row],
+  );
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
+  const isRouterPageKey = isRouterModule && segments.length === 1;
+  const lastSegment = segments[segments.length - 1] ?? "";
+
+  // Nothing to say: no patch touched this list, or they cancelled out.
+  if (patchIds.length === 0) {
+    return null;
+  }
+
+  return (
+    <article
+      data-val-studio-path={row.sourcePath}
+      className={classNames("px-5 py-5", { "opacity-60": isEqual })}
+    >
+      <ChangeRowHeader
+        sourcePath={sourcePath}
+        changeType="field-change"
+        segment={lastSegment}
+        modulePath={modulePath}
+        moduleFilePath={moduleFilePath}
+        isRouterPageKey={isRouterPageKey}
+        patchesByAuthorIds={patchesByAuthorIds}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        now={now}
+        onDiscard={() => deletePatches(patchIds)}
+        isExpanded={isExpanded}
+        onToggleExpand={() => setIsExpanded((prev) => !prev)}
+        isEqual={isEqual}
+        canDiscard={canDiscard}
+      />
+      {isExpanded && (
+        <div className="mt-4">
+          <PrimitiveListDiff sourcePath={sourcePath} />
+        </div>
+      )}
+    </article>
+  );
+}
 
 function ChangeRow({
   row,
