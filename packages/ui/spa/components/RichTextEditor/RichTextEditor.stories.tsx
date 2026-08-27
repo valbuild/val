@@ -12,13 +12,54 @@ import type {
   EditorStyleConfig,
   RichTextEditorRef,
 } from "./types";
+import { placeholderImage } from "../stories/placeholderAssets";
 
 const SAMPLE_IMAGES: EditorImage[] = [
-  { url: "https://placehold.co/600x400/e2e8f0/475569?text=Mountains" },
-  { url: "https://placehold.co/600x400/fce7f3/9d174d?text=Sunset" },
-  { url: "https://placehold.co/600x400/d1fae5/065f46?text=Forest" },
-  { url: "https://placehold.co/600x400/dbeafe/1e40af?text=Ocean" },
-  { url: "https://placehold.co/600x400/fef3c7/92400e?text=Desert" },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "Mountains",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fce7f3",
+      fg: "#9d174d",
+      text: "Sunset",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "Forest",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "Ocean",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fef3c7",
+      fg: "#92400e",
+      text: "Desert",
+    }),
+  },
 ];
 
 const meta: Meta<typeof RichTextEditor> = {
@@ -109,7 +150,10 @@ const fullFeaturedDoc: EditorDocument = [
     tag: "p",
     children: [
       "Inline image: ",
-      { tag: "img", src: "https://placehold.co/100x30?text=Inline" },
+      {
+        tag: "img",
+        src: placeholderImage({ width: 100, height: 30, text: "Inline" }),
+      },
     ],
   },
 ];
@@ -254,7 +298,10 @@ export const LinksAndImages: Story = {
         children: [
           { tag: "a", href: "https://example.com", children: ["A link"] },
           " and inline image: ",
-          { tag: "img", src: "https://placehold.co/100x30?text=Inline" },
+          {
+            tag: "img",
+            src: placeholderImage({ width: 100, height: 30, text: "Inline" }),
+          },
         ],
       },
     ],
@@ -601,7 +648,7 @@ const linkCatalogItems: EditorLinkCatalogItem[] = [
   {
     title: "Acme Corp",
     subtitle: "https://acme.example.com",
-    image: "https://placehold.co/64x64?text=A",
+    image: placeholderImage({ width: 64, height: 64, text: "A" }),
     href: "https://acme.example.com",
   },
   {
@@ -612,7 +659,7 @@ const linkCatalogItems: EditorLinkCatalogItem[] = [
   {
     title: "Docs Portal",
     subtitle: "Internal documentation hub",
-    image: "https://placehold.co/64x64?text=D",
+    image: placeholderImage({ width: 64, height: 64, text: "D" }),
     href: "https://docs.example.com",
   },
 ];
@@ -735,7 +782,13 @@ const imagePickerDoc: EditorDocument = [
       "An inline image: ",
       {
         tag: "img",
-        src: "https://placehold.co/120x40/fce7f3/9d174d?text=Inline",
+        src: placeholderImage({
+          width: 120,
+          height: 40,
+          bg: "#fce7f3",
+          fg: "#9d174d",
+          text: "Inline",
+        }),
       },
       " sits within text.",
     ],
