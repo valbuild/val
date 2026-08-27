@@ -5,6 +5,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
+import { toLegacyMediaSource } from "../source/media";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
@@ -109,7 +110,10 @@ export class ImageSchema<
     );
   }
 
-  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, srcInput: Src): ValidationErrors {
+    // TEMPORARY: accept the flat `{path, ...}` shape while the write paths are
+    // being flipped. Removed when this validator is rewritten for it.
+    const src = toLegacyMediaSource(srcInput);
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
         path,
@@ -318,8 +322,10 @@ export class ImageSchema<
 
   protected executeAssert(
     path: SourcePath,
-    src: unknown,
+    srcInput: unknown,
   ): SchemaAssertResult<Src> {
+    // TEMPORARY: see executeValidate.
+    const src = toLegacyMediaSource(srcInput);
     if (this.opt && src === null) {
       return {
         success: true,

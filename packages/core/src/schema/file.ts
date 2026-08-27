@@ -1,4 +1,5 @@
 import { Json } from "../Json";
+import { toLegacyMediaSource } from "../source/media";
 import { FILE_REF_PROP, FileSource } from "../source/file";
 
 import {
@@ -98,7 +99,10 @@ export class FileSchema<
     );
   }
 
-  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, srcInput: Src): ValidationErrors {
+    // TEMPORARY: accept the flat `{path, ...}` shape while the write paths are
+    // being flipped. Removed when this validator is rewritten for it.
+    const src = toLegacyMediaSource(srcInput);
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
         path,
@@ -275,8 +279,10 @@ export class FileSchema<
 
   protected executeAssert(
     path: SourcePath,
-    src: unknown,
+    srcInput: unknown,
   ): SchemaAssertResult<Src> {
+    // TEMPORARY: see executeValidate.
+    const src = toLegacyMediaSource(srcInput);
     if (this.opt && src === null) {
       return {
         success: true,

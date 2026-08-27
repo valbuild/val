@@ -23,6 +23,12 @@ export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export type {
+  MediaHotspot,
+  MediaSource,
+  GalleryImageSource,
+  GalleryFileSource,
+} from "./source/media";
+export type {
   AllRichTextOptions,
   Bold,
   Styles,
@@ -109,6 +115,12 @@ import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import { convertRemoteSource } from "./schema/remote";
 import {
+  fillFromGallery,
+  isRemoteMediaPath,
+  mediaUrl,
+  resolveMedia,
+} from "./source/media";
+import {
   colorToHex,
   convertColor,
   detectColorFormat,
@@ -191,6 +203,12 @@ const Internal = {
   },
   convertFileSource,
   convertRemoteSource,
+  mediaUrl,
+  resolveMedia,
+  isRemoteMediaPath,
+  media: {
+    fillFromGallery,
+  },
   getSchema,
   getValPath,
   getSource,
