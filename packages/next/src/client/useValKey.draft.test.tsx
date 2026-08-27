@@ -9,36 +9,6 @@ import { raw } from "@valbuild/react/stega";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
 
-// React 18 in tests; production requires 19. See useValStega.suspense.test.ts.
-if (!("use" in React)) {
-  type Entry = {
-    status: "pending" | "resolved" | "rejected";
-    result?: unknown;
-  };
-  const cache = new WeakMap<Promise<unknown>, Entry>();
-  Reflect.set(React, "use", function use<T>(promise: Promise<T>): T {
-    let entry = cache.get(promise);
-    if (!entry) {
-      const newEntry: Entry = { status: "pending" };
-      entry = newEntry;
-      cache.set(promise, newEntry);
-      promise.then(
-        (v) => {
-          newEntry.status = "resolved";
-          newEntry.result = v;
-        },
-        (e) => {
-          newEntry.status = "rejected";
-          newEntry.result = e;
-        },
-      );
-    }
-    if (entry.status === "resolved") return entry.result as T;
-    if (entry.status === "rejected") throw entry.result;
-    throw promise;
-  });
-}
-
 const { s, c } = initVal();
 
 const path = "/pages.val.ts" as ModuleFilePath;

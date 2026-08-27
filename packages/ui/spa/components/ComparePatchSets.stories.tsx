@@ -23,6 +23,7 @@ import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRouter } from "./ValRouter";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { TooltipProvider } from "./designSystem/tooltip";
+import { placeholderAvatar } from "./stories/placeholderAssets";
 
 // --- Mock client ---
 
@@ -340,7 +341,7 @@ const mockProfiles: Record<string, Profile> = {
   alice: { fullName: "Alice Andersen", avatar: null },
   bob: {
     fullName: "Bob Bakke",
-    avatar: { url: "https://i.pravatar.cc/150?u=bob" },
+    avatar: { url: placeholderAvatar("bob", 150) },
   },
   carol: { fullName: "Carol Chen", avatar: null },
   dan: { fullName: "Dan Hansen", avatar: null },
@@ -909,24 +910,31 @@ export const NoChanges: Story = {
 
 const IMAGES_MODULE_FILE_PATH = "/content/images.val.ts" as ModuleFilePath;
 
+/**
+ * The refs point at the sample images Storybook serves out of `public/`, so
+ * the thumbnails in these stories are real pixels: `refToUrl` strips the
+ * leading `/public`, which turns `/public/sample-image-1.jpg` into the
+ * `/sample-image-1.jpg` the dev server and the static build both hand out.
+ * Dimensions below match the actual files.
+ */
 const imagesModule = c.define(
   "/content/images.val.ts",
   s.images({
-    accept: "image/webp",
-    directory: "/public/val/images",
+    accept: "image/jpeg",
+    directory: "/public",
   }),
   {
-    "/public/val/images/hero-abc123.webp": {
-      width: 1920,
-      height: 1080,
-      mimeType: "image/webp",
+    "/public/sample-image-3.jpg": {
+      width: 1200,
+      height: 800,
+      mimeType: "image/jpeg",
       alt: "Hero banner",
       hotspot: { x: 0.5, y: 0.3 },
     },
-    "/public/val/images/logo-def456.webp": {
-      width: 200,
-      height: 200,
-      mimeType: "image/webp",
+    "/public/sample-image-2.jpg": {
+      width: 600,
+      height: 800,
+      mimeType: "image/jpeg",
       alt: "Company logo",
     },
   },
@@ -950,11 +958,11 @@ export const ImageAdded: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
               },
             },
@@ -982,7 +990,7 @@ export const ImageRemoved: Story = {
           patch: [
             {
               op: "remove",
-              path: ["/public/val/images/logo-def456.webp"],
+              path: ["/public/sample-image-2.jpg"],
             },
           ],
           createdAt: "2025-04-15T11:00:00Z",
@@ -1008,7 +1016,7 @@ export const ImageAltTextChanged: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "alt"],
+              path: ["/public/sample-image-3.jpg", "alt"],
               value: "Updated hero banner — redesigned",
             },
           ],
@@ -1035,7 +1043,7 @@ export const ImageHotspotChanged: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "hotspot"],
+              path: ["/public/sample-image-3.jpg", "hotspot"],
               value: { x: 0.8, y: 0.6 },
             },
           ],
@@ -1062,11 +1070,11 @@ export const ImageAddedWithHotspot: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
                 hotspot: { x: 0.65, y: 0.4 },
               },
@@ -1096,11 +1104,11 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
               },
             },
@@ -1112,7 +1120,7 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "remove",
-              path: ["/public/val/images/logo-def456.webp"],
+              path: ["/public/sample-image-2.jpg"],
             },
           ],
           createdAt: "2025-04-15T11:00:00Z",
@@ -1122,7 +1130,7 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "alt"],
+              path: ["/public/sample-image-3.jpg", "alt"],
               value: "Updated hero banner — redesigned",
             },
           ],

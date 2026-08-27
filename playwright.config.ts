@@ -141,7 +141,8 @@ export default defineConfig({
        * product code and no second config file. `NEXT_DIST_DIR` keeps its build
        * output away from the `fs`-mode server's.
        */
-      command: `pnpm exec next dev -p ${HTTP_APP_PORT}`,
+      // `--webpack` for the same reason the `dev` script has it, see next.config.js.
+      command: `pnpm exec next dev --webpack -p ${HTTP_APP_PORT}`,
       url: `http://localhost:${HTTP_APP_PORT}`,
       reuseExistingServer: true,
       timeout: 180_000,

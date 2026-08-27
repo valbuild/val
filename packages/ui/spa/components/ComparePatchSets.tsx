@@ -23,7 +23,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
+import {
+  ChangeTreeNode,
+  ChangeTreePatch,
+  ChangeType,
+} from "../utils/computeChangedSourcePaths";
 import type { SourceOverride } from "./ValFieldProvider";
 import {
   FieldSourceOverrideContext,
@@ -515,6 +519,72 @@ function hasAnyChange(node: ChangeTreeNode): boolean {
   return node.children.some(hasAnyChange);
 }
 
+/**
+ * Fold every change inside a media entry into the entry's own row.
+ *
+ * `s.images()` / `s.files()` modules are records keyed by file ref, so an alt
+ * text or hotspot edit produces a patch on `<ref>."alt"`, not on `<ref>`.
+ * Rendering that descendant as a row of its own gives a media card for a file
+ * named "alt" - `MediaEntryDiff` reads the thumbnail URL, the filename and the
+ * before/after metadata off the row's path, and the path it would get ends in
+ * the metadata key. Entries are therefore leaves: the card is the unit of
+ * change for media, and the metadata diff belongs inside it.
+ *
+ * The descendants' patches are merged up so the row still credits everyone who
+ * touched the entry.
+ */
+function asMediaEntryRow(entry: ChangeTreeNode): ChangeTreeNode {
+  const patchIds: PatchId[] = [];
+  const authors: string[] = [];
+  const patchesByAuthorIds: Record<string, ChangeTreePatch[]> = {};
+  const seenPatchIds = new Set<string>();
+  const seenAuthors = new Set<string>();
+  let lastUpdated = "";
+  let lastUpdatedBy: string | null = null;
+  function walk(node: ChangeTreeNode) {
+    const change = node.change;
+    if (change) {
+      for (const patchId of change.patchIds) {
+        if (!seenPatchIds.has(patchId)) {
+          seenPatchIds.add(patchId);
+          patchIds.push(patchId);
+        }
+      }
+      for (const authorId of change.authors) {
+        if (!seenAuthors.has(authorId)) {
+          seenAuthors.add(authorId);
+          authors.push(authorId);
+        }
+      }
+      for (const [authorId, patches] of Object.entries(
+        change.patchesByAuthorIds,
+      )) {
+        if (!patchesByAuthorIds[authorId]) {
+          patchesByAuthorIds[authorId] = [];
+        }
+        patchesByAuthorIds[authorId].push(...patches);
+      }
+      if (node.lastUpdated > lastUpdated) {
+        lastUpdated = node.lastUpdated;
+        lastUpdatedBy = change.lastUpdatedBy;
+      }
+    }
+    for (const child of node.children) walk(child);
+  }
+  walk(entry);
+  return {
+    ...entry,
+    children: [],
+    change: {
+      changeType: entry.change?.changeType ?? "field-change",
+      patchIds,
+      authors,
+      lastUpdatedBy,
+      patchesByAuthorIds,
+    },
+  };
+}
+
 function ChangeCluster({
   parent,
   rowProps,
@@ -529,20 +599,29 @@ function ChangeCluster({
       ? schemaAtPath.data.mediaType
       : undefined;
 
-  const childRowProps: RowProps = mediaType
-    ? { ...rowProps, parentMediaType: mediaType }
-    : rowProps;
+  if (mediaType) {
+    return (
+      <>
+        {parent.children
+          .filter((c) => hasAnyChange(c))
+          .map((child) => (
+            <ChangeRow
+              key={child.sourcePath}
+              row={asMediaEntryRow(child)}
+              {...rowProps}
+              parentMediaType={mediaType}
+            />
+          ))}
+      </>
+    );
+  }
 
   return (
     <>
       {parent.children
         .filter((c) => hasAnyChange(c))
         .map((child) => (
-          <RenderTree
-            key={child.sourcePath}
-            node={child}
-            rowProps={childRowProps}
-          />
+          <RenderTree key={child.sourcePath} node={child} rowProps={rowProps} />
         ))}
     </>
   );
@@ -875,7 +954,9 @@ function ChangeTargetLabel({
   const label = ((): string => {
     if (parentMediaType) {
       const { filename, folder } = getRefParts(segment);
-      return `${folder}/${filename}`;
+      // `folder` is "/" for a ref that sits directly in the media directory, so
+      // joining the two with a slash would render "//hero.webp".
+      return folder === "/" ? `/${filename}` : `${folder}/${filename}`;
     }
     if (!modulePath) {
       return prettifyFilename(
