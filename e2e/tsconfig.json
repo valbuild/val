@@ -4,7 +4,11 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
-    "lib": ["ES2022", "DOM"],
+    // `DOM.Iterable` because these tests spread DOM collections
+    // (`[...shadowRoot.querySelectorAll(...)]`). Without it that is a type error,
+    // and it went unnoticed for a while: whether it surfaced depended on which
+    // `@types/node` pnpm happened to resolve, so the check passed by luck.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": true,

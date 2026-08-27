@@ -88,7 +88,9 @@ describe("c.json + .jsonValues()", () => {
   });
 
   test(".jsonValues() throws on image galleries", () => {
-    expect(() => images().jsonValues()).toThrow(/jsonValues/);
+    expect(() => images({ directory: "/public/val" }).jsonValues()).toThrow(
+      /jsonValues/,
+    );
   });
 
   describe("validation", () => {
