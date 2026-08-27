@@ -832,7 +832,7 @@ function CompareView() {
       patchSets={patchSetsResult.data}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      readonly={false}
+      canDiscard
       reloadKey={publishCount}
     />
   );

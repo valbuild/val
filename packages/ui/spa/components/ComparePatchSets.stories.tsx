@@ -212,13 +212,13 @@ function StorySetup({
   patches,
   moduleFilePath,
   serializedSchema,
-  readonly,
+  canDiscard,
 }: {
   mockData: MockData;
   patches: TestPatch[];
   moduleFilePath: ModuleFilePath;
   serializedSchema: SerializedSchema;
-  readonly?: boolean;
+  canDiscard?: boolean;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const { system, patchSets } = useMemo(() => {
@@ -236,7 +236,7 @@ function StorySetup({
       <ComparePatchSets
         patchSets={patchSets}
         profilesByAuthorIds={mockProfiles}
-        readonly={readonly}
+        canDiscard={canDiscard}
       />
     </StoryProviders>
   );
@@ -547,7 +547,7 @@ export const PageUpdatedEditable: Story = {
       mockData={mockData}
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
-      readonly={false}
+      canDiscard
       patches={[
         {
           patch: [
@@ -865,7 +865,7 @@ export const UnchangedValue: Story = {
       mockData={mockData}
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
-      readonly={false}
+      canDiscard
       patches={[
         {
           patch: [

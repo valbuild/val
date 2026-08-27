@@ -71,18 +71,33 @@ import { servedPath } from "../utils/mediaPath";
  *
  * Page-level chrome (titles, global Publish/Discard) is intentionally NOT
  * part of this component — it lives in the surrounding screen.
+ *
+ * Nothing here is editable
+ * ------------------------
+ * Every field this view renders is `readonly`, without exception, and the fields
+ * are not a way in. It used to be possible to type into the "After" side, which
+ * reads as a feature and is not one: the value under the cursor is the result of
+ * a chain of patch sets, each with its own author and its own Discard button, so
+ * an edit made here belongs to none of them and lands as yet another patch on
+ * top — while the row it was typed into goes on describing the change it used to
+ * describe. Reviewing and editing are different jobs; this view does the first
+ * one, and the editor is one click away on the row's own link.
+ *
+ * `canDiscard` is therefore about the DISCARD controls only. It was one boolean
+ * for both, which is why turning editing off would have taken discarding with
+ * it — and discarding is what this view is for.
  */
 export function ComparePatchSets({
   patchSets,
   profilesByAuthorIds,
   mode = "unknown",
-  readonly = true,
+  canDiscard = false,
   reloadKey,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
   mode?: "fs" | "http" | "unknown";
-  readonly?: boolean;
+  canDiscard?: boolean;
   /**
    * Change to rebuild the view from scratch instead of leaving the previous
    * result on screen while the new one is computed. See `usePatchSetsWorker`.
@@ -127,7 +142,7 @@ export function ComparePatchSets({
           portalContainer={portalContainer}
           mode={mode}
           schemas={schemasData}
-          readonly={readonly}
+          canDiscard={canDiscard}
         />
       ))}
     </div>
@@ -197,14 +212,14 @@ export function CompareSummaryStrip({
   profilesByAuthorIds,
   mode,
   allPatchIds,
-  readonly,
+  canDiscard,
   portalContainer,
 }: {
   authorIds: string[];
   profilesByAuthorIds: Record<string, Profile>;
   mode: "fs" | "http" | "unknown";
   allPatchIds: PatchId[];
-  readonly: boolean;
+  canDiscard: boolean;
   portalContainer: HTMLElement | null;
 }) {
   const { deletePatches } = useDeletePatches();
@@ -220,7 +235,7 @@ export function CompareSummaryStrip({
         </span>
       </div>
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        {!readonly && allPatchIds.length > 0 && (
+        {canDiscard && allPatchIds.length > 0 && (
           <DiscardConfirmPopover
             description="Discard all pending changes? This cannot be undone."
             onConfirm={() => deletePatches(allPatchIds)}
@@ -247,7 +262,7 @@ type RowProps = {
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 };
 
@@ -308,14 +323,14 @@ function ModuleGroup({
   portalContainer,
   mode,
   schemas,
-  readonly,
+  canDiscard,
 }: {
   tree: ChangeTreeNode;
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   schemas?: Record<ModuleFilePath, SerializedSchema>;
-  readonly: boolean;
+  canDiscard: boolean;
 }) {
   const moduleFilePath = tree.sourcePath as ModuleFilePath;
   const moduleSchema = schemas?.[moduleFilePath];
@@ -347,7 +362,7 @@ function ModuleGroup({
     profilesByAuthorIds,
     portalContainer,
     mode,
-    readonly,
+    canDiscard,
   };
 
   return (
@@ -358,7 +373,7 @@ function ModuleGroup({
       <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
         <ModulePathLabel moduleFilePath={moduleFilePath} />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!readonly && modulePatchIds.length > 0 && (
+          {canDiscard && modulePatchIds.length > 0 && (
             <DiscardControl
               isEqual={isModuleEqual}
               onDiscard={() => deletePatches(modulePatchIds)}
@@ -543,7 +558,7 @@ function ChangeRow({
   profilesByAuthorIds,
   portalContainer,
   mode,
-  readonly,
+  canDiscard,
   parentMediaType,
 }: {
   row: ChangeTreeNode;
@@ -552,7 +567,7 @@ function ChangeRow({
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
@@ -617,14 +632,13 @@ function ChangeRow({
         isExpanded={isExpanded}
         onToggleExpand={() => setIsExpanded((prev) => !prev)}
         isEqual={isEqual}
-        readonly={readonly}
+        canDiscard={canDiscard}
         parentMediaType={parentMediaType}
       />
       <div className="mt-4">
         <ChangeRowBody
           sourcePath={sourcePath}
           changeType={change.changeType}
-          readonly={readonly}
           isExpanded={isExpanded}
           isEqual={isEqual}
           parentMediaType={parentMediaType}
@@ -650,7 +664,7 @@ function ChangeRowHeader({
   isExpanded,
   onToggleExpand,
   isEqual,
-  readonly,
+  canDiscard,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
@@ -668,7 +682,7 @@ function ChangeRowHeader({
   isExpanded: boolean;
   onToggleExpand: () => void;
   isEqual: boolean;
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 }) {
   return (
@@ -684,7 +698,7 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {!readonly && (
+        {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
             onDiscard={onDiscard}
@@ -841,14 +855,12 @@ function ChangeTypeIcon({
 function ChangeRowBody({
   sourcePath,
   changeType,
-  readonly,
   isExpanded,
   isEqual,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
   parentMediaType?: "images" | "files";
@@ -859,7 +871,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         changeType={changeType}
         mediaType={parentMediaType}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -869,7 +880,6 @@ function ChangeRowBody({
     return (
       <FieldChangeDiff
         sourcePath={sourcePath}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -882,7 +892,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         side="after"
         diffStyle="added"
-        readonly={readonly}
       />
     );
   }
@@ -891,12 +900,7 @@ function ChangeRowBody({
   }
   // moved: just show after for now
   return (
-    <SingleSideContent
-      sourcePath={sourcePath}
-      side="after"
-      diffStyle="added"
-      readonly={readonly}
-    />
+    <SingleSideContent sourcePath={sourcePath} side="after" diffStyle="added" />
   );
 }
 
@@ -955,11 +959,9 @@ function MediaEntryMetadata({
 
 function MediaEntryAlt({
   sourcePath,
-  readonly,
   showValidation = false,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   showValidation?: boolean;
 }) {
   const altPath = Internal.createValPathOfItem(sourcePath, "alt");
@@ -971,7 +973,7 @@ function MediaEntryAlt({
       <AnyField
         path={altPath as SourcePath}
         schema={schemaAtPath.data}
-        readonly={readonly}
+        readonly
         errorDisplay={showValidation ? "compact" : "none"}
       />
     </div>
@@ -1045,14 +1047,12 @@ function MediaEntryDiff({
   sourcePath,
   changeType,
   mediaType,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
   mediaType: "images" | "files";
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1091,7 +1091,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly
             showValidation
           />
         </div>
@@ -1112,7 +1111,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1135,7 +1133,6 @@ function MediaEntryDiff({
               hotspot={beforeHotspot}
               metadata={beforeMetadata}
               sourcePath={sourcePath}
-              altReadonly
             />
           </DiffSide>
         </div>
@@ -1161,7 +1158,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1184,16 +1180,10 @@ function MediaEntryDiff({
             variant="media"
             before={
               <BeforeSourceOverride sourcePath={sourcePath}>
-                <MediaEntryAlt sourcePath={sourcePath} readonly />
+                <MediaEntryAlt sourcePath={sourcePath} />
               </BeforeSourceOverride>
             }
-            after={
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            }
+            after={<MediaEntryAlt sourcePath={sourcePath} showValidation />}
           />
         </div>
       </div>
@@ -1209,7 +1199,6 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
         sourcePath={sourcePath}
         side="after"
         diffStyle="removed"
-        readonly
       />
     </BeforeSourceOverride>
   );
@@ -1217,12 +1206,10 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
 
 function FieldChangeDiff({
   sourcePath,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1262,7 +1249,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             hideUpload
@@ -1280,7 +1267,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1310,7 +1297,7 @@ function FieldChangeDiff({
         <AnyField
           path={effectivePath}
           schema={schema}
-          readonly={readonly}
+          readonly
           compact
           inline
           errorDisplay="compact"
@@ -1324,12 +1311,10 @@ function SingleSideContent({
   sourcePath,
   side,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   side: "before" | "after";
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const [moduleFilePath] = useMemo(
     () => Internal.splitModuleFilePathAndModulePath(sourcePath),
@@ -1354,32 +1339,22 @@ function SingleSideContent({
   if (side === "before") {
     return (
       <FieldSourceOverrideContext.Provider value={beforeOverride}>
-        <SingleSideContentInner
-          sourcePath={sourcePath}
-          diffStyle={diffStyle}
-          readonly={readonly}
-        />
+        <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
       </FieldSourceOverrideContext.Provider>
     );
   }
 
   return (
-    <SingleSideContentInner
-      sourcePath={sourcePath}
-      diffStyle={diffStyle}
-      readonly={readonly}
-    />
+    <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
   );
 }
 
 function SingleSideContentInner({
   sourcePath,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(sourcePath);
   if (schemaAtPath.status !== "success") return null;
@@ -1404,7 +1379,7 @@ function SingleSideContentInner({
           <AnyField
             path={sourcePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1687,7 +1662,6 @@ function MediaEntryCard({
   diffStyle,
   metadata,
   sourcePath,
-  altReadonly,
   showValidation,
 }: {
   isImage: boolean;
@@ -1697,7 +1671,6 @@ function MediaEntryCard({
   diffStyle?: "added" | "removed";
   metadata: Record<string, unknown> | null;
   sourcePath: SourcePath;
-  altReadonly: boolean;
   showValidation?: boolean;
 }) {
   return (
@@ -1714,7 +1687,6 @@ function MediaEntryCard({
         <div className="flex-1 min-w-0">
           <MediaEntryAlt
             sourcePath={sourcePath}
-            readonly={altReadonly}
             showValidation={showValidation}
           />
         </div>
