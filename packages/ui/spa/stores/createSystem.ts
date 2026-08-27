@@ -192,6 +192,13 @@ export type System = HostRealm &
       options?: PublishOptions,
     ): Promise<PublishResult>;
     /**
+     * Validate every loaded module, announcing start and finish.
+     *
+     * A second call while one is running is a no-op rather than a queue: the
+     * answer the first one produces is the answer the second one wanted.
+     */
+    validateEverything(): Promise<void>;
+    /**
      * Throw patches away.
      *
      * The opposite of publish in the one way that matters here: a discarded
@@ -445,6 +452,8 @@ export function createSystem(options: SystemOptions): System {
   const patchSetChain = new PatchSetChain();
   /** One publish at a time. See `publish`. */
   let publishing = false;
+  /** One whole-project validation at a time. See `validateEverything`. */
+  let fullValidationRunning = false;
   /**
    * `fs` by default — dev, and the mode a wrong guess is cheapest in. Replaced
    * by {@link System.setMode} once `/stat` says which one this really is.
@@ -1017,6 +1026,40 @@ export function createSystem(options: SystemOptions): System {
      * the caller's list instead is how a project ships without its newest edit,
      * or ships a broken patch whose fix was still local.
      */
+    /**
+     * Validate every module that has been loaded, and say while it runs.
+     *
+     * For the quiet moment after auto-save has caught up. The per-save gate only
+     * checks the modules the batch touched, which is what keeps typing cheap —
+     * but it means a module nobody has edited this session is never checked, and
+     * a cross-module break (a `keyOf` pointing at a key another file just lost)
+     * belongs to neither module's patches.
+     *
+     * Sequential on purpose: the validation worker is a single FIFO queue, so
+     * firing all of them at once would put a whole project ahead of the next
+     * keystroke's module in that queue. One at a time leaves gaps for it.
+     */
+    async validateEverything() {
+      if (fullValidationRunning) {
+        return;
+      }
+      fullValidationRunning = true;
+      validationStore.events.emit({
+        type: "validation:full-pass",
+        running: true,
+      });
+      try {
+        for (const moduleFilePath of sourceStore.loadedModules()) {
+          await validationStore.validate(moduleFilePath);
+        }
+      } finally {
+        fullValidationRunning = false;
+        validationStore.events.emit({
+          type: "validation:full-pass",
+          running: false,
+        });
+      }
+    },
     async publish(requestedPatchIds, message, publishOptions) {
       const exact = publishOptions?.exact === true;
       if (options.publishPatches === undefined) {

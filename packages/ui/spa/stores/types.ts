@@ -263,6 +263,20 @@ export type SystemEvent =
    * retried quietly. See `FetchPatches`.
    */
   | { type: "patch:fetch-failed"; patches: PatchId[]; message: string }
+  /**
+   * A whole-project validation pass started or finished.
+   *
+   * Validation is otherwise demand-driven: a module is checked because a field
+   * is on screen, or because a patch touched it. That is right for typing and
+   * wrong for the moment before content is written to disk — a module nobody has
+   * opened has never been checked at all, and a save is exactly when "is any of
+   * this broken" stops being a per-field question.
+   *
+   * An event rather than an activity record, because something reacts to it: the
+   * pass is slow enough to need saying so. See `activity.ts` on why work records
+   * may never be reacted to.
+   */
+  | { type: "validation:full-pass"; running: boolean }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
   /**

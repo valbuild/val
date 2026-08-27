@@ -383,4 +383,60 @@ describe("publishing in exact mode", () => {
     expect(await titleOf(system)).toBe("one");
     system.dispose();
   });
+
+  describe("the whole-project pass", () => {
+    /**
+     * The per-save gate only checks the modules a batch touched, which is what
+     * keeps typing cheap. A module nobody has opened has never been checked at
+     * all, so once the chain is empty is the moment to check the rest.
+     */
+    it("validates every loaded module, not just the edited one", async () => {
+      const { system } = makeSystem();
+      const seen: string[] = [];
+      const original = system.validationStore.validate.bind(
+        system.validationStore,
+      );
+      system.validationStore.validate = async (moduleFilePath) => {
+        seen.push(moduleFilePath);
+        return original(moduleFilePath);
+      };
+
+      await system.validateEverything();
+
+      expect(seen.sort()).toEqual(["/a.val.ts", "/list.val.ts"]);
+      system.dispose();
+    });
+
+    it("says when it starts and when it stops", async () => {
+      const { system } = makeSystem();
+      const running: boolean[] = [];
+      system.validationStore.events.on("validation:full-pass", (event) => {
+        running.push(event.running);
+      });
+
+      await system.validateEverything();
+
+      // Both edges, in order: a spinner that is never taken down is worse than
+      // no spinner.
+      expect(running).toEqual([true, false]);
+      system.dispose();
+    });
+
+    it("does not start a second pass on top of one already running", async () => {
+      const { system } = makeSystem();
+      let starts = 0;
+      system.validationStore.events.on("validation:full-pass", (event) => {
+        if (event.running) starts++;
+      });
+
+      await Promise.all([
+        system.validateEverything(),
+        system.validateEverything(),
+      ]);
+
+      // The answer the first one produces is the answer the second one wanted.
+      expect(starts).toBe(1);
+      system.dispose();
+    });
+  });
 });
