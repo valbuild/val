@@ -48,7 +48,9 @@ const preview: Preview = {
     }),
   ],
   parameters: {
-    actions: { argTypesRegex: "^on[A-Z].*" },
+    // No `actions: { argTypesRegex }` here: Storybook 9 removed the implicit
+    // "any `on*` arg is an action" behaviour. A story that wants its handler
+    // logged in the Actions panel passes `fn()` from `storybook/test` itself.
     controls: {
       matchers: {
         color: /(background|color)$/i,
