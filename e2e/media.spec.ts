@@ -241,10 +241,32 @@ test.describe("an s.images() gallery in a non-default directory", () => {
     // file behind it yet, and `next dev` answers that path with the app's HTML,
     // so only decoding it can tell the difference.
     await expect(tile).toHaveAttribute("src", /\/api\/val\/files\/.*patch_id=/);
+
+    /*
+     * Ask the server for the same bytes the tile is asking for.
+     *
+     * Decoding alone is the stronger assertion but the worse diagnostic: when it
+     * fails, all it can say is that `naturalWidth` stayed 0, which is equally
+     * consistent with a 404, a slow answer, and a corrupt upload. This has been
+     * seen to fail only in a full-suite run — where the answer matters and is not
+     * recoverable after the fact, because the browser will not re-request an
+     * image whose src has not changed.
+     */
+    const src = await tile.getAttribute("src");
+    const served = await page.request.get(src!);
+    expect(
+      served.status(),
+      `the patch file was not served: ${served.status()} ${served.headers()["content-type"]}`,
+    ).toBe(200);
+    expect(
+      served.headers()["content-type"],
+      "the server answered with something that is not an image",
+    ).toContain("image");
+
     await expect
       .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
-        timeout: 20_000,
-        message: "the uploaded tile did not decode",
+        timeout: 30_000,
+        message: "the server served the bytes, but the tile never decoded them",
       })
       .toBe(8);
 
