@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import fsPath from "path";
 import { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { BaseSha } from "./ValOps";
 import {
   appendPatch,
   describePatchStoreProblems,
@@ -23,7 +24,7 @@ const record = (n: number): FSPatchRecord => ({
   path: "/content/authors.val.ts" as ModuleFilePath,
   patch: [{ op: "replace", path: ["name"], value: `name ${n}` }],
   patchId: `patch-${n}`,
-  baseSha: "base-sha",
+  baseSha: "base-sha" as BaseSha,
   authorId: null,
   createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString(),
   coreVersion: "0.102.0",

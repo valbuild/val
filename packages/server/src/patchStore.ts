@@ -4,7 +4,7 @@ import fs from "fs";
 import fsPath from "path";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import type { AuthorId } from "./ValOps";
+import type { AuthorId, BaseSha } from "./ValOps";
 import {
   appendPatchLogEntry,
   PATCH_LOG_FILE_NAME,
@@ -50,7 +50,7 @@ export const FSPatch = z.object({
     ),
   patch: Patch,
   patchId: z.string(),
-  baseSha: z.string(),
+  baseSha: z.string().refine((p): p is BaseSha => true),
   authorId: z
     .string()
     .refine((p): p is AuthorId => true)
@@ -62,7 +62,7 @@ export const FSPatch = z.object({
 export type FSPatchRecord = z.infer<typeof FSPatch>;
 
 export const FSPatchBase = z.object({
-  baseSha: z.string(),
+  baseSha: z.string().refine((p): p is BaseSha => true),
   timestamp: z.string().datetime(),
 });
 export type FSPatchBaseRecord = z.infer<typeof FSPatchBase>;

@@ -26,7 +26,6 @@ import {
   CommitSha,
   OrderedPatches,
   OrderedPatchesMetadata,
-  PatchReadError,
   SourcesSha,
 } from "./ValOps";
 import fsPath from "path";
@@ -39,8 +38,24 @@ import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
 import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
-import { ParentPatchId } from "@valbuild/core";
-import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
+import {
+  appendPatch,
+  describePatchStoreProblems,
+  FSPatchBaseRecord,
+  FSPatchRecord,
+  patchBaseFile,
+  patchBinaryFile,
+  patchBinaryFileMetadata,
+  patchDir,
+  patchesLogFile,
+  PatchStoreEntry,
+  readPatchStore,
+  ReadPatchStoreResult,
+  repairPatchStore,
+  resetPatchStore,
+} from "./patchStore";
+import { PATCH_LOCK_FILE_NAME, withPatchLock } from "./patchLock";
+import { writePatchLogFile } from "./patchLog";
 import { uploadRemoteFile } from "./uploadRemoteFile";
 import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
@@ -239,16 +254,17 @@ export class ValOpsFS extends ValOps {
       const jsonEntryFilePaths =
         this.jsonEntryFilesFingerprint.entryFilePaths(serializedSchemas);
 
-      const patchData = await this.readPatches();
-      const patches: PatchId[] = [];
-      // TODO: use proper patch sequences when available:
-      for (const [patchId] of Object.entries(patchData.patches).sort(
-        ([, a], [, b]) => {
-          return a.createdAt.localeCompare(b.createdAt, undefined);
-        },
-      )) {
-        patches.push(patchId as PatchId);
+      // The SAME read `fetchPatches` delivers from. Announcing out of one source
+      // and delivering out of another is what let this store tell a studio about
+      // 410 unpublished changes and then hand over 359 of them, with nothing in
+      // between reporting that anything was wrong.
+      const announceRes = await this.readStore();
+      if (announceRes.status === "error") {
+        return { type: "error", error: { message: announceRes.message } };
       }
+      const patches: PatchId[] = announceRes.entries.map(
+        (entry) => entry.patchId,
+      );
       // something changed: return immediately
       const didChange =
         !params ||
@@ -458,70 +474,125 @@ export class ValOpsFS extends ValOps {
     }
   }
 
-  private async readPatches(includes?: PatchId[]): Promise<FSPatches> {
-    const patchesCacheDir = this.getPatchesDir();
-    let patchJsonFiles: readonly string[] = [];
-    if (
-      !this.host.directoryExists ||
-      (this.host.directoryExists && this.host.directoryExists(patchesCacheDir))
-    ) {
-      patchJsonFiles = this.host.readDirectory(
-        patchesCacheDir,
-        ["patch.json"],
-        [],
-        [],
-      );
+  /**
+   * The one read every other read comes out of.
+   *
+   * `getStat` announces from this and `fetchPatches` delivers from this, so the
+   * two cannot disagree. They used to: `getStat` counted the directories on disk
+   * while `fetchPatches` walked the parent links between them, and when a single
+   * record went missing the first said 410 and the second said 359 — with no
+   * error anywhere, because a walk that runs out of links just stops.
+   *
+   * Anything wrong is reported, then repaired, and reset only if repair does not
+   * settle it. In that order, and never silently.
+   */
+  private async readStore(): Promise<
+    | { status: "ok"; entries: PatchStoreEntry[] }
+    | { status: "error"; message: string }
+  > {
+    const read = readPatchStore(this.getPatchesDir());
+    if (read.status === "legacy-layout") {
+      /*
+       * Refused, not converted.
+       *
+       * Rebuilding the order would mean following the very links that are
+       * unreliable here, and the stores that reach this code are the ones where
+       * that has already gone wrong. Guessing at someone's unpublished work on
+       * startup is not a thing to do quietly, so this stops and says so.
+       */
+      return {
+        status: "error",
+        message: `${read.message} Val cannot read patches in that layout. Move or delete ${read.patchesDir} to start over — or discard all changes in the studio, which does the same thing.`,
+      };
     }
-    const patches: FSPatches["patches"] = {};
-    const errors: NonNullable<FSPatches["errors"]> = [];
-
-    const parsedUnsortedFsPatches = patchJsonFiles
-      .map((file) => fsPath.basename(fsPath.dirname(file)) as ParentPatchId)
-      .map(
-        (patchDir) =>
-          [
-            patchDir,
-            this.parseJsonFile(this.getPatchFilePath(patchDir), FSPatch),
-            this.host.fileExists(this.getPatchBaseFile(patchDir))
-              ? this.parseJsonFile(this.getPatchBaseFile(patchDir), FSPatchBase)
-              : undefined,
-          ] as const,
-      );
-
-    parsedUnsortedFsPatches.forEach(([dir, parsedPatch, parsedBase]) => {
-      if (parsedPatch.error) {
-        errors.push({ ...parsedPatch.error, parentPatchId: dir });
-      } else if (parsedBase && parsedBase.error) {
-        errors.push({ ...parsedBase.error, parentPatchId: dir });
-      } else {
-        const patchId = parsedPatch.data.patchId as PatchId;
-        if (includes && includes.length > 0 && !includes.includes(patchId)) {
-          return;
-        }
-
-        patches[patchId] = {
-          path: parsedPatch.data.path,
-          patch: parsedPatch.data.patch,
-          parentRef: parsedPatch.data.parentRef,
-          baseSha: parsedPatch.data.baseSha as BaseSha,
-          createdAt: parsedPatch.data.createdAt,
-          authorId: parsedPatch.data.authorId,
-          appliedAt: null,
-        };
-      }
-    });
-
-    // If there are patches, but no head. error
-    if (Object.keys(errors).length > 0) {
-      return { patches, errors };
+    if (read.status === "unreadable") {
+      return { status: "error", message: read.message };
     }
-    return { patches };
+    if (read.problems.length === 0) {
+      return { status: "ok", entries: read.entries };
+    }
+    return this.repairStore(read);
   }
 
-  getParentPatchIdFromParentRef(parentRef: ParentRef): ParentPatchId {
-    return (
-      parentRef.type === "head" ? "head" : parentRef.patchId
-    ) as ParentPatchId;
+  /**
+   * Report, repair, and reset only if repair did not take.
+   *
+   * Reached only when something is actually wrong, so the healthy path — which
+   * is every stat poll — never touches the lock.
+   */
+  private async repairStore(
+    read: Extract<ReadPatchStoreResult, { status: "ok" }>,
+  ): Promise<
+    | { status: "ok"; entries: PatchStoreEntry[] }
+    | { status: "error"; message: string }
+  > {
+    const patchesDir = this.getPatchesDir();
+    for (const problem of describePatchStoreProblems(read.problems)) {
+      console.warn("Val: something is wrong with the patch store.", problem);
+    }
+    const locked = await withPatchLock(
+      this.getPatchLockFile(),
+      { ttlMs: 30_000, op: "repair the patch store" },
+      ():
+        | { status: "ok"; entries: PatchStoreEntry[] }
+        | { status: "error"; message: string } => {
+        // Read again under the lock. What was seen above was seen without it, so
+        // a write may have landed since — and repairing against a stale picture
+        // is how the old delete path destroyed live patches.
+        const current = readPatchStore(patchesDir);
+        if (current.status !== "ok") {
+          return {
+            status: "error",
+            message:
+              current.status === "legacy-layout"
+                ? current.message
+                : current.message,
+          };
+        }
+        if (current.problems.length === 0) {
+          return { status: "ok", entries: current.entries };
+        }
+        for (const action of repairPatchStore(patchesDir, current)) {
+          if (action.type === "dropped-from-log") {
+            console.warn(
+              `Val: dropped the unpublished change ${action.patchId} because ${action.because}. See ${patchesDir}/patches.repair.log.`,
+            );
+          } else if (action.type === "removed-orphan-directory") {
+            console.warn(
+              `Val: removed the unused patch directory ${action.name}.`,
+            );
+          }
+        }
+        const after = readPatchStore(patchesDir);
+        if (after.status === "ok" && after.problems.length === 0) {
+          return { status: "ok", entries: after.entries };
+        }
+        // Repair did not settle it, so the store is not something anyone can
+        // describe any more. Move it aside — a rename, never a delete — and say
+        // where it went.
+        const reset = resetPatchStore(
+          patchesDir,
+          "it could not be repaired automatically",
+        );
+        if ("error" in reset) {
+          return { status: "error", message: reset.error };
+        }
+        console.warn(
+          `Val: the patch store could not be repaired, so it was reset. The previous contents are in ${reset.movedTo}.`,
+        );
+        return { status: "ok", entries: [] };
+      },
+    );
+    if (locked.status !== "ok") {
+      // Someone else holds the lock, quite possibly to run this same repair.
+      // Serving what was read is safe — those entries are the ones that ARE
+      // readable — and the next read tries again.
+      console.warn(
+        `Val: could not repair the patch store now. ${locked.message}`,
+      );
+      return { status: "ok", entries: read.entries };
+    }
+    return locked.value;
   }
 
   override async fetchPatches<ExcludePatchOps extends boolean>(filters: {
@@ -530,105 +601,42 @@ export class ValOpsFS extends ValOps {
   }): Promise<
     ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
-    const fetchPatchesRes = await this.fetchPatchesFromFS(
-      !!filters.excludePatchOps,
-    );
-    const sortedPatches = (
-      this.createPatchChain(
-        fetchPatchesRes.patches,
-      ) as OrderedPatches["patches"]
-    )
-      .map((patchData) => {
-        if (filters.excludePatchOps) {
-          return {
-            ...patchData,
-            patch: undefined,
-          };
-        }
-        return patchData;
-      })
-      .filter((patchData) => {
-        if (filters.patchIds && filters.patchIds.length > 0) {
-          return filters.patchIds.includes(patchData.patchId);
-        }
-        return true;
-      });
-
-    return {
-      patches: sortedPatches,
-      errors: fetchPatchesRes.errors,
-    } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
-  }
-
-  async fetchPatchesFromFS<ExcludePatchOps extends boolean>(
-    excludePatchOps: ExcludePatchOps,
-  ): Promise<ExcludePatchOps extends true ? FSPatchesMetadata : FSPatches> {
-    const patches: (ExcludePatchOps extends true
-      ? FSPatchesMetadata
-      : FSPatches)["patches"] = {};
-    const { errors, patches: allPatches } = await this.readPatches();
-    for (const [patchIdS, patch] of Object.entries(allPatches)) {
-      const patchId = patchIdS as PatchId;
-      patches[patchId] = {
-        patch: excludePatchOps ? undefined : patch.patch,
-        parentRef: patch.parentRef,
-        path: patch.path,
-        baseSha: patch.baseSha,
-        createdAt: patch.createdAt,
-        authorId: patch.authorId,
-        appliedAt: patch.appliedAt,
-      };
+    const storeRes = await this.readStore();
+    if (storeRes.status === "error") {
+      // Surfaced, not returned as an empty list. An empty answer to "what is
+      // pending" is indistinguishable from "nothing is pending", and the studio
+      // would render published content over unpublished edits without a word.
+      const none: OrderedPatches["patches"] = [];
+      return {
+        patches: none,
+        error: { message: storeRes.message },
+        // The cast is unavoidable: the return type is conditional on a generic
+        // that TypeScript cannot narrow from a value.
+      } as ExcludePatchOps extends true
+        ? OrderedPatchesMetadata
+        : OrderedPatches;
     }
-    if (errors && errors.length > 0) {
-      return { patches, errors } as ExcludePatchOps extends true
-        ? FSPatchesMetadata
-        : FSPatches;
-    }
+    const requested =
+      filters.patchIds && filters.patchIds.length > 0
+        ? new Set<PatchId>(filters.patchIds)
+        : null;
+    const patches = storeRes.entries
+      .filter((entry) => requested === null || requested.has(entry.patchId))
+      .map((entry) => ({
+        patchId: entry.patchId,
+        path: entry.record.path,
+        patch: filters.excludePatchOps ? undefined : entry.record.patch,
+        createdAt: entry.record.createdAt,
+        authorId: entry.record.authorId,
+        baseSha: entry.record.baseSha,
+        // Publishing deletes the whole store, so in fs mode a patch that is
+        // still here has not been applied. `base.json` is read for its parse
+        // errors, not for this.
+        appliedAt: null,
+      }));
     return { patches } as ExcludePatchOps extends true
-      ? FSPatchesMetadata
-      : FSPatches;
-  }
-
-  // #region createPatchChain
-  private createPatchChain<
-    T extends FSPatches["patches"] | FSPatchesMetadata["patches"],
-  >(
-    unsortedPatchRecord: T,
-  ): T extends FSPatches["patches"]
-    ? OrderedPatches["patches"]
-    : OrderedPatchesMetadata["patches"] {
-    // TODO: Error handling
-    const nextPatch: Record<PatchId, PatchId | undefined> = {};
-    Object.keys(unsortedPatchRecord).forEach((patchId) => {
-      const patch = unsortedPatchRecord[patchId as PatchId];
-      if (patch.parentRef.type === "head") {
-        nextPatch["head" as PatchId] = patchId as PatchId;
-      } else {
-        nextPatch[patch.parentRef.patchId as PatchId] = patchId as PatchId;
-      }
-    });
-
-    const sortedPatches = [];
-
-    let nextPatchId: PatchId | undefined = Object.entries(
-      unsortedPatchRecord,
-    ).find(([, patch]) => patch.parentRef.type === "head")?.[0] as PatchId;
-
-    while (!!nextPatchId && nextPatchId in unsortedPatchRecord) {
-      const patch = unsortedPatchRecord[nextPatchId] as Partial<
-        (typeof unsortedPatchRecord)[PatchId]
-      >;
-      delete patch["parentRef"];
-      sortedPatches.push({
-        ...patch,
-        patchId: nextPatchId,
-      });
-      nextPatchId = nextPatch[nextPatchId];
-    }
-
-    return sortedPatches as unknown as T extends FSPatches["patches"]
-      ? OrderedPatches["patches"]
-      : OrderedPatchesMetadata["patches"];
+      ? OrderedPatchesMetadata
+      : OrderedPatches;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -727,58 +735,65 @@ export class ValOpsFS extends ValOps {
     authorId: AuthorId | null,
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
-    const patchDir = this.getParentPatchIdFromParentRef(parentRef);
-    try {
-      const baseSha = await this.getBaseSha();
-      const data: z.infer<typeof FSPatch> = {
-        patch,
-        patchId,
-        parentRef,
-        path,
-        authorId,
-        sessionId,
-        baseSha,
-        coreVersion: Internal.VERSION.core,
-        createdAt: new Date().toISOString(),
-      };
-      const headParentPatchId = "head" as ParentPatchId;
-      if (
-        patchDir !== headParentPatchId &&
-        !this.host.fileExists(this.getPatchFilePath(headParentPatchId))
-      ) {
-        console.error(
-          "Val: out-of-band patch detected.",
-          this.getPatchFilePath(headParentPatchId),
-        );
-        return result.err({ errorType: "patch-head-conflict" });
-      }
-      const writeRes = this.host.tryWriteUf8File(
-        this.getPatchFilePath(patchDir),
-        JSON.stringify(data),
-      );
-
-      if (writeRes.type === "error") {
-        return result.err({
-          errorType: "other",
-          error: writeRes.error,
-          message: "Failed to write patch file",
-        });
-      }
-      return result.ok({ patchId });
-    } catch (err) {
-      if (err instanceof Error) {
-        return result.err({
-          errorType: "other",
-          error: err,
-          message: err.message,
-        });
-      }
-      return result.err({
-        errorType: "other",
-        error: err,
-        message: "Unknown error",
-      });
+    const patchesDir = this.getPatchesDir();
+    const record: FSPatchRecord = {
+      patch,
+      patchId,
+      path,
+      authorId,
+      sessionId,
+      baseSha: await this.getBaseSha(),
+      coreVersion: Internal.VERSION.core,
+      createdAt: new Date().toISOString(),
+    };
+    const locked = await withPatchLock(
+      this.getPatchLockFile(),
+      { ttlMs: 10_000, op: "PUT /patches" },
+      (): SaveSourceFilePatchResult => {
+        const read = readPatchStore(patchesDir);
+        if (read.status !== "ok") {
+          return result.err({
+            errorType: "other",
+            message: read.message,
+          });
+        }
+        /*
+         * `parentRef` is a compare-and-swap token, not a place to write.
+         *
+         * It used to be neither. It named the directory the record went into and
+         * nothing ever checked it, so a client working from a stale view could
+         * write a patch whose parent had never landed — and every patch chained
+         * behind that one was then unreachable, with the studio waiting on ids
+         * the server would never send. Refusing here is what makes that state
+         * unreachable rather than merely unlikely.
+         *
+         * The client already knows how to handle the conflict: it resyncs and
+         * retries. The tail goes back with the refusal so it can rebase at once
+         * instead of waiting for the next stat.
+         */
+        const tail = read.entries[read.entries.length - 1]?.patchId;
+        const claimed =
+          parentRef.type === "head" ? undefined : parentRef.patchId;
+        if (claimed !== tail) {
+          return result.err({ errorType: "patch-head-conflict", tail });
+        }
+        try {
+          appendPatch(patchesDir, record);
+        } catch (err) {
+          return result.err({
+            errorType: "other",
+            message: `Failed to write the patch: ${
+              err instanceof Error ? err.message : "unknown error"
+            }`,
+          });
+        }
+        return result.ok({ patchId });
+      },
+    );
+    if (locked.status !== "ok") {
+      return result.err({ errorType: "other", message: locked.message });
     }
+    return locked.value;
   }
 
   protected override async getSourceFile(
@@ -813,15 +828,23 @@ export class ValOpsFS extends ValOps {
 
   override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    parentRef: ParentRef,
+    _parentRef: ParentRef,
     patchId: PatchId,
     data: string | null,
     _type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
-    const patchDir = this.getParentPatchIdFromParentRef(parentRef);
-    const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
-    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
+    // Keyed by the patch's own id, so the parent is not needed and is not asked
+    // for. Uploads arrive before the patch record does, which is fine: the
+    // directory sits there unreferenced until the log line that names it lands,
+    // and repair sweeps it up if that never happens.
+    const patchesDir = this.getPatchesDir();
+    const patchFilePath = patchBinaryFile(patchesDir, patchId, filePath);
+    const metadataFilePath = patchBinaryFileMetadata(
+      patchesDir,
+      patchId,
+      filePath,
+    );
     try {
       if (data === null) {
         this.host.deleteFile(patchFilePath);
@@ -852,15 +875,10 @@ export class ValOpsFS extends ValOps {
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
-    const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
-    if (result.isErr(patchDirRes)) {
-      return {
-        errors: [{ message: "Failed to get patch dir from patch id" }],
-      };
-    }
-    const metadataFilePath = this.getBinaryFileMetadataPath(
+    const metadataFilePath = patchBinaryFileMetadata(
+      this.getPatchesDir(),
+      patchId,
       filePath,
-      patchDirRes.value,
     );
 
     if (!this.host.fileExists(metadataFilePath)) {
@@ -896,11 +914,9 @@ export class ValOpsFS extends ValOps {
     filePath: string,
     patchId: PatchId,
   ): Promise<Buffer | null> {
-    const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
-    if (!result.isOk(patchDirRes)) {
-      return null;
-    }
-    const absPath = this.getBinaryFilePath(filePath, patchDirRes.value);
+    // Straight from the id. This used to read and parse every patch on disk to
+    // work out which directory the file was under, on every single image request.
+    const absPath = patchBinaryFile(this.getPatchesDir(), patchId, filePath);
     if (!this.host.fileExists(absPath)) {
       return null;
     }
@@ -915,122 +931,118 @@ export class ValOpsFS extends ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
-    const deleted: PatchId[] = [];
-    const errors: Record<PatchId, GenericErrorMessage> | null = null;
-    const patchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
-    if (result.isErr(patchDirMapRes)) {
-      return { error: { message: "Failed to get patch dir map" } };
+    const patchesDir = this.getPatchesDir();
+    const requested = new Set<PatchId>(patchIds);
+    const locked = await withPatchLock(
+      this.getPatchLockFile(),
+      { ttlMs: 30_000, op: "DELETE /patches" },
+      ():
+        | {
+            status: "ok";
+            deleted: PatchId[];
+            errors: Record<PatchId, GenericErrorMessage>;
+          }
+        | { status: "error"; message: string } => {
+        const read = readPatchStore(patchesDir);
+        if (read.status !== "ok") {
+          return { status: "error", message: read.message };
+        }
+        /*
+         * Deleting is now dropping lines from a list.
+         *
+         * It used to be a three-step re-link per surviving patch — rewrite a
+         * record, remove the destination directory, rename another one over it —
+         * with the plan computed from a snapshot taken before hundreds of file
+         * reads, every failure swallowed by a `console.error`, and one step that
+         * unconditionally removed whatever occupied the destination. An
+         * interruption anywhere in it stranded every patch after the hole.
+         */
+        writePatchLogFile(
+          patchesLogFile(patchesDir),
+          read.entries
+            .filter((entry) => !requested.has(entry.patchId))
+            .map((entry) => ({
+              patchId: entry.patchId,
+              createdAt: entry.record.createdAt,
+              path: entry.record.path,
+            })),
+        );
+        // The log first, then the directories. A crash in between leaves
+        // directories nothing names, which is inert and swept up on the next
+        // read; the other order would leave the log naming patches that are gone.
+        const deleted: PatchId[] = [];
+        const errors: Record<PatchId, GenericErrorMessage> = {};
+        for (const patchId of patchIds) {
+          try {
+            fs.rmSync(patchDir(patchesDir, patchId), {
+              recursive: true,
+              force: true,
+            });
+            deleted.push(patchId);
+          } catch (err) {
+            // Reported. This endpoint used to answer "deleted" unconditionally —
+            // `deleted` and `errors` were never written to at all — so a delete
+            // that failed looked exactly like one that worked.
+            errors[patchId] = {
+              message: `Could not remove the files for ${patchId}: ${
+                err instanceof Error ? err.message : "unknown error"
+              }`,
+            };
+          }
+        }
+        return { status: "ok", deleted, errors };
+      },
+    );
+    if (locked.status !== "ok") {
+      return { error: { message: locked.message } };
     }
-    const currentPatches = this.createPatchChain(
-      (await this.fetchPatchesFromFS(false)).patches,
-    );
-    this.updateOrderedPatches(
-      computeChangedPatchParentRefs(currentPatches, patchIds),
-      patchDirMapRes.value,
-      patchIds,
-    );
-    if (errors) {
+    if (locked.value.status === "error") {
+      return { error: { message: locked.value.message } };
+    }
+    const { deleted, errors } = locked.value;
+    if (Object.keys(errors).length > 0) {
       return { deleted, errors };
     }
     return { deleted };
   }
 
   async deleteAllPatches(): Promise<{ error?: GenericErrorMessage }> {
-    const patchesCacheDir = this.getPatchesDir();
-    const tmpDir = fsPath.join(
-      this.rootDir,
-      ValOpsFS.VAL_DIR,
-      "patches-deleted-" + crypto.randomUUID(),
-    );
-    try {
-      this.host.moveDir(patchesCacheDir, tmpDir);
-      this.host.deleteDir(tmpDir);
-      return {};
-    } catch (err) {
-      if (err instanceof Error) {
-        return {
-          error: {
-            message: `Got an error while deleting patches: ${err.message}`,
-          },
-        };
-      }
-      return {
-        error: { message: "Got an unexpected error while deleting patches" },
-      };
-    }
-  }
-
-  private updateOrderedPatches(
-    updates: {
-      changedPatches: Record<PatchId, ParentRef>;
-    },
-    patchDirMap: Record<PatchId, ParentPatchId | undefined>,
-    deletePatchIds: PatchId[],
-  ) {
-    for (const patchId of deletePatchIds) {
-      const patchDir = patchDirMap[patchId];
-      if (!patchDir) {
-        console.error(
-          "Could not find patch dir for patch id scheduled for deletion: ",
-          patchId,
-        );
-        continue;
-      }
-      try {
-        this.host.deleteDir(this.getFullPatchDir(patchDir));
-      } catch (err) {
-        console.error("Failed to delete patch dir", err);
-      }
-    }
-    for (const [patchIdS, parentRef] of Object.entries(
-      updates.changedPatches,
-    )) {
-      const prevParentPatchId = patchDirMap[patchIdS as PatchId];
-      if (!prevParentPatchId) {
-        console.error(
-          "Could not find previous parent patch id for deleted patch id: ",
-          patchIdS,
-        );
-        continue;
-      }
-      const newParentPatchId = (
-        parentRef.type === "head" ? "head" : parentRef.patchId
-      ) as ParentPatchId;
-      const currentPatchDataRes = this.parseJsonFile(
-        this.getPatchFilePath(prevParentPatchId),
-        FSPatch,
-      );
-      if (currentPatchDataRes.error) {
-        console.error(
-          "Failed to parse patch file while fixing patch chain after deleted patch",
-          { updates },
-          currentPatchDataRes.error,
-        );
-        continue;
-      }
-      const newPatchData = currentPatchDataRes.data;
-      newPatchData.parentRef = parentRef;
-
-      try {
-        this.host.writeUf8File(
-          this.getPatchFilePath(prevParentPatchId),
-          JSON.stringify(newPatchData),
-        );
-        if (this.host.directoryExists(this.getFullPatchDir(newParentPatchId))) {
-          this.host.deleteDir(this.getFullPatchDir(newParentPatchId));
+    const patchesDir = this.getPatchesDir();
+    const locked = await withPatchLock(
+      this.getPatchLockFile(),
+      { ttlMs: 30_000, op: "delete all patches" },
+      (): { error?: GenericErrorMessage } => {
+        if (!fs.existsSync(patchesDir)) {
+          return {};
         }
-        this.host.moveDir(
-          this.getFullPatchDir(prevParentPatchId),
-          this.getFullPatchDir(newParentPatchId),
+        const tmpDir = fsPath.join(
+          this.rootDir,
+          ValOpsFS.VAL_DIR,
+          "patches-deleted-" + crypto.randomUUID(),
         );
-      } catch (err) {
-        console.error(
-          "Failed fix patch chain after deleted patch",
-          { updates },
-          err,
-        );
-      }
+        try {
+          // One rename takes the log and the directories together, so the store
+          // is empty and self-consistent from the first instant rather than
+          // part-way through. It is also the cleanup route for a store this
+          // version refuses to read: discarding everything always works.
+          this.host.moveDir(patchesDir, tmpDir);
+          this.host.deleteDir(tmpDir);
+          return {};
+        } catch (err) {
+          return {
+            error: {
+              message: `Got an error while deleting patches: ${
+                err instanceof Error ? err.message : "unknown error"
+              }`,
+            },
+          };
+        }
+      },
+    );
+    if (locked.status !== "ok") {
+      return { error: { message: locked.message } };
     }
+    return locked.value;
   }
 
   async saveOrUploadFiles(
@@ -1118,29 +1130,14 @@ export class ValOpsFS extends ValOps {
       }
     }
 
-    const patchIdToPatchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
-    if (result.isErr(patchIdToPatchDirMapRes)) {
-      return {
-        updatedFiles,
-        uploadedRemoteRefs,
-        errors,
-      };
-    }
-    const patchIdToPatchDirMap = patchIdToPatchDirMapRes.value;
-
     for (const [ref, { patchId }] of localFileDescriptors) {
       const filePath = ref;
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
-        const patchDir = patchIdToPatchDirMap[patchId];
-        if (!patchDir) {
-          errors[absPath] = {
-            message: "Failed to find PatchDir for PatchId " + patchId,
-            filePath: filePath,
-          };
-          continue;
-        }
-        this.host.copyFile(this.getBinaryFilePath(filePath, patchDir), absPath);
+        this.host.copyFile(
+          patchBinaryFile(this.getPatchesDir(), patchId, filePath),
+          absPath,
+        );
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
@@ -1170,18 +1167,11 @@ export class ValOpsFS extends ValOps {
     }
 
     for (const patchId of Object.values(preparedCommit.appliedPatches).flat()) {
-      const appliedAt: z.infer<typeof FSPatchBase> = {
+      const appliedAt: FSPatchBaseRecord = {
         baseSha: await this.getBaseSha(),
         timestamp: new Date().toISOString(),
       };
-      const patchDir = patchIdToPatchDirMap[patchId];
-      if (!patchDir) {
-        errors[`patchId:${patchId}`] = {
-          message: "Failed to find PatchDir for PatchId " + patchId,
-        };
-        continue;
-      }
-      const absPath = this.getPatchBaseFile(patchDir);
+      const absPath = patchBaseFile(this.getPatchesDir(), patchId);
       try {
         this.host.writeUf8File(absPath, JSON.stringify(appliedAt));
       } catch (err) {
@@ -1233,80 +1223,17 @@ export class ValOpsFS extends ValOps {
     return createMetadataFromBuffer(type, mimeType, buffer);
   }
 
-  private async getParentPatchIdFromPatchId(
-    patchId: PatchId,
-  ): Promise<
-    result.Result<ParentPatchId, "failed-to-read-patches" | "patch-not-found">
-  > {
-    // This is not great. If needed we should find a better way
-    const patches = await this.readPatches();
-    if (patches.errors || patches.error) {
-      console.error("Failed to read patches", JSON.stringify(patches));
-      return result.err("failed-to-read-patches");
-    }
-    const patch = patches.patches[patchId];
-    if (!patch) {
-      console.error("Could not find patch with patchId: ", patchId);
-      return result.err("patch-not-found");
-    }
-
-    return result.ok(this.getParentPatchIdFromParentRef(patch.parentRef));
-  }
-
-  private async getParentPatchIdFromPatchIdMap(): Promise<
-    result.Result<
-      Record<PatchId, ParentPatchId | undefined>,
-      "failed-to-read-patches"
-    >
-  > {
-    const patches = await this.readPatches();
-    if (patches.errors || patches.error) {
-      console.error("Failed to read patches", JSON.stringify(patches));
-      return result.err("failed-to-read-patches");
-    }
-    return result.ok(
-      Object.fromEntries(
-        Object.entries(patches.patches).map(([patchId, value]) => [
-          patchId,
-          this.getParentPatchIdFromParentRef(value.parentRef),
-        ]),
-      ),
-    );
-  }
-
   // #region fs file path helpers
   private getPatchesDir() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, "patches");
   }
 
-  private getFullPatchDir(patchDir: ParentPatchId) {
-    return fsPath.join(this.getPatchesDir(), patchDir);
-  }
-
-  private getBinaryFilePath(filePath: string, patchDir: ParentPatchId) {
-    return fsPath.join(
-      this.getFullPatchDir(patchDir),
-      "files",
-      filePath,
-      fsPath.basename(filePath),
-    );
-  }
-
-  private getBinaryFileMetadataPath(filePath: string, patchDir: ParentPatchId) {
-    return fsPath.join(
-      this.getFullPatchDir(patchDir),
-      "files",
-      filePath,
-      "metadata.json",
-    );
-  }
-
-  private getPatchFilePath(patchDir: ParentPatchId) {
-    return fsPath.join(this.getFullPatchDir(patchDir), "patch.json");
-  }
-
-  private getPatchBaseFile(patchDir: ParentPatchId) {
-    return fsPath.join(this.getFullPatchDir(patchDir), "base.json");
+  /**
+   * Deliberately outside the patches directory: delete-all and reset rename that
+   * whole directory, and a lock that moves away with it is not holding anything.
+   */
+  private getPatchLockFile() {
+    return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, PATCH_LOCK_FILE_NAME);
   }
 }
 
@@ -1403,54 +1330,3 @@ class FSOpsHost {
     fs.copyFileSync(from, to);
   }
 }
-
-const FSPatch = z.object({
-  path: z
-    .string()
-    .refine(
-      (p): p is ModuleFilePath => p.startsWith("/") && p.includes(".val."),
-      "Path is not valid. Must start with '/' and include '.val.'",
-    ),
-  patch: Patch,
-  patchId: z.string(),
-  baseSha: z.string(),
-  parentRef: ParentRef,
-  authorId: z
-    .string()
-    .refine((p): p is AuthorId => true)
-    .nullable(),
-  createdAt: z.string().datetime(),
-  coreVersion: z.string().nullable(), // TODO: use this to check if patch is compatible with current core version?
-  sessionId: z.string().nullable(),
-});
-
-const FSPatchBase = z.object({
-  baseSha: z.string().refine((p): p is BaseSha => true),
-  timestamp: z.string().datetime(),
-});
-
-type FSPatches = {
-  patches: Record<
-    PatchId,
-    {
-      path: ModuleFilePath;
-      patch: Patch;
-      parentRef: ParentRef;
-      createdAt: string;
-      authorId: AuthorId | null;
-      baseSha: BaseSha;
-      appliedAt: null;
-    }
-  >;
-  error?: GenericErrorMessage;
-  errors?: PatchReadError[];
-};
-
-type FSPatchesMetadata = {
-  patches: Record<
-    PatchId,
-    Omit<FSPatches["patches"][PatchId], "patch"> & { patch?: undefined }
-  >;
-  error?: GenericErrorMessage;
-  errors?: FSPatches["errors"];
-};

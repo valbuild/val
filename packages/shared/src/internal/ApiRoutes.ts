@@ -721,6 +721,9 @@ export const Api = {
           json: z.object({
             type: z.literal("patch-head-conflict"),
             message: z.string(),
+            // What the server is actually at, so the client can rebase onto it
+            // immediately instead of waiting for the next stat to say.
+            tail: PatchId.optional(),
           }),
         }),
         z.object({
