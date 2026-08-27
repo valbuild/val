@@ -343,15 +343,24 @@ function AddArrayButton({
 export function splitIntoInitAndLastParts(path: SourcePath) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
-  const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath).map(
-    (part) => {
-      return {
-        text: prettifyFilename(part),
-        part,
-        sourcePath: moduleFilePath as unknown as SourcePath,
-      };
-    },
-  );
+  /*
+   * Every segment of the module file path, and only the LAST one is a place.
+   *
+   * `/content/authors.val.ts` splits into `content` and `authors.val.ts`, and
+   * both used to be handed the whole module file path as their `sourcePath` — so
+   * a trail rendered two links to the same destination, one of them labelled with
+   * a directory that is not a thing you can open. `isDirectory` says which are
+   * which; the scope trail renders those as text.
+   */
+  const moduleFilePathSegments = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleFilePathParts = moduleFilePathSegments.map((part, index) => {
+    return {
+      text: prettifyFilename(part),
+      part,
+      sourcePath: moduleFilePath as unknown as SourcePath,
+      isDirectory: index < moduleFilePathSegments.length - 1,
+    };
+  });
   if (!modulePath) {
     return moduleFilePathParts;
   }
@@ -360,6 +369,7 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
     text: string;
     part: string;
     sourcePath: SourcePath;
+    isDirectory: boolean;
   }[] = [];
   let lastPart = "";
   for (let i = 0; i < splittedModulePath.length; i++) {
@@ -378,6 +388,8 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
         moduleFilePath,
         modulePathPart as ModulePath,
       ),
+      // A path inside a module is always somewhere you can go.
+      isDirectory: false,
     });
   }
   return moduleFilePathParts.concat(modulePathParts);

@@ -129,6 +129,39 @@ describe("the scope trail", () => {
     expect(screen.getByText("d")).not.toBeNull();
   });
 
+  test("a directory is text, not a link", () => {
+    render(
+      trail([
+        {
+          text: "Content",
+          sourcePath: AUTHORS as SourcePath,
+          isDirectory: true,
+        },
+        part("Authors", AUTHORS),
+      ]),
+    );
+    // Both segments carry the module's own path, so linking the folder offered a
+    // second route to the same place under a name that is not a place.
+    expect(screen.getByText("Content").closest("a")).toBeNull();
+    expect(screen.getByText("Authors").closest("a")).not.toBeNull();
+  });
+
+  test("no arrow when the level above is only a directory", () => {
+    // On a module's own page the segment above it is its folder. "Up" there went
+    // to the module you were already looking at.
+    render(
+      trail([
+        {
+          text: "Content",
+          sourcePath: AUTHORS as SourcePath,
+          isDirectory: true,
+        },
+      ]),
+    );
+    expect(screen.queryByLabelText(/^Up one level/)).toBeNull();
+    expect(screen.getByText("Content")).not.toBeNull();
+  });
+
   test("nothing to show above the module means no trail at all", () => {
     const { container } = render(trail([]));
     expect(container.querySelector("nav")).toBeNull();

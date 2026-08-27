@@ -43,6 +43,35 @@ test.describe("a record key's description", () => {
     expect(scopeBox!.y).toBeGreaterThan(descriptionBox!.y);
   });
 
+  test("the folder in the trail is not a link", async ({ page }) => {
+    await openStudio(page, ENTRY);
+    const studio = page.locator("#val-shadow-root");
+    const scope = studio.getByRole("navigation", { name: "Scope" });
+
+    // `/content/authors.val.ts` reads as `Content / Authors`, and both segments
+    // carry the module's own path — so linking the folder offered a second route
+    // to the same place under a name that is not a place.
+    await expect(scope).toContainText("Content");
+    await expect(scope.getByRole("link")).toHaveCount(1);
+    await expect(scope.getByRole("link")).toContainText("Authors");
+  });
+
+  test("a module's own page offers no way up to its folder", async ({
+    page,
+  }) => {
+    await openStudio(page, "/val/~/content/authors.val.ts");
+    const studio = page.locator("#val-shadow-root");
+    const scope = studio.getByRole("navigation", { name: "Scope" });
+
+    // The level above a module is its directory, and "up" there navigated to the
+    // module you were already looking at.
+    await expect(scope).toContainText("Content");
+    await expect(scope.getByRole("link")).toHaveCount(0);
+    await expect(
+      studio.getByRole("link", { name: /^Up one level/ }),
+    ).toHaveCount(0);
+  });
+
   test("is said once in the rename popover, not twice", async ({ page }) => {
     await openStudio(page, ENTRY);
     const studio = page.locator("#val-shadow-root");

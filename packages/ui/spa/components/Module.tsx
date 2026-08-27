@@ -179,38 +179,46 @@ export function Module({
           <div className="flex gap-4 justify-between items-start min-h-6">
             {!hideHeader && (
               /*
-               * A heading, in the role sense: the editor column had none, so
-               * nothing announced what was being edited and nothing could jump
-               * to it. Not an `<h1>` element, because the title of a router page
-               * is a breadcrumb — and a `<nav>` inside a heading element is not
-               * valid HTML.
+               * The title and its description, in ONE column.
+               *
+               * The description was a sibling of this whole row, so its top
+               * margin was measured from the row's bottom — and the row is as
+               * tall as the tools on its right, not as tall as the title. That
+               * put a fixed 12px between title and description no matter what
+               * was asked for, the same 12px that then separated it from the
+               * scope: three evenly spaced lines, with nothing saying which one
+               * the description belonged to. Inside the column it sits against
+               * the title, and the tools cannot push it around.
                */
-              <div
-                role="heading"
-                aria-level={1}
-                className="min-w-0 flex-1 text-2xl leading-tight"
-              >
-                {titleNode}
+              <div className="min-w-0 flex-1">
+                {/*
+                 * A heading, in the role sense: the editor column had none, so
+                 * nothing announced what was being edited and nothing could jump
+                 * to it. Not an `<h1>` element, because the title of a router
+                 * page is a breadcrumb — and a `<nav>` inside a heading element
+                 * is not valid HTML.
+                 */}
+                <div
+                  role="heading"
+                  aria-level={1}
+                  className="text-2xl leading-tight"
+                >
+                  {titleNode}
+                </div>
+                {keyDescription && (
+                  <div className="mt-1 text-sm text-fg-tertiary">
+                    {keyDescription}
+                  </div>
+                )}
               </div>
             )}
             {tools}
           </div>
-          {/*
-           * The key's description belongs to the TITLE, so it goes directly
-           * under it — above the scope, which is provenance and belongs at the
-           * bottom of the block. Under the scope it read as a note about the
-           * path rather than about the thing being edited.
-           */}
-          {keyDescription && !hideHeader && (
-            <div className="mt-1 text-sm text-fg-tertiary">
-              {keyDescription}
-            </div>
-          )}
           {!hideHeader && init.length > 0 && (
             <ScopeTrail
               parts={init}
               portalContainer={portalContainer}
-              className="mt-1.5"
+              className={keyDescription ? "mt-3" : "mt-1.5"}
             />
           )}
           {keyErrors.length > 0 && (

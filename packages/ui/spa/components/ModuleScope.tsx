@@ -41,6 +41,16 @@ export type ScopePart = {
   /** What the path segment is called, before a render override improves on it. */
   text: string;
   sourcePath: SourcePath;
+  /**
+   * A folder in the module file path, which is not a place.
+   *
+   * `/content/authors.val.ts` reads as `Content / Authors`, and only `Authors` is
+   * a thing you can open — `content` is a directory on disk with no editor
+   * behind it. Both segments are handed the same `sourcePath` (the module), so
+   * without this the trail offered two links to one destination and one of them
+   * was labelled with a folder. Rendered as text instead.
+   */
+  isDirectory?: boolean;
 };
 
 /**
@@ -70,6 +80,14 @@ function ScopeLink({
    */
   const preview = useRefPreview(part.sourcePath);
   const label = preview?.title?.trim() || part.text;
+  if (part.isDirectory) {
+    // Text, not a link: see `ScopePart.isDirectory`.
+    return (
+      <span className={cn("truncate text-fg-quaternary", className)}>
+        {label}
+      </span>
+    );
+  }
   return (
     <a
       {...link}
@@ -107,11 +125,21 @@ function ScopeSeparator() {
 function ScopeMenuLink({ part }: { part: ScopePart }) {
   const link = useNavLink(part.sourcePath);
   const preview = useRefPreview(part.sourcePath);
+  const label = preview?.title?.trim() || part.text;
+  if (part.isDirectory) {
+    // A folder is not a destination here either — see `ScopePart.isDirectory`.
+    return (
+      <DropdownMenuItem disabled className="gap-1.5">
+        <ScopeSeparator />
+        <span className="truncate">{label}</span>
+      </DropdownMenuItem>
+    );
+  }
   return (
     <DropdownMenuItem asChild className="gap-1.5">
       <a {...link} title={part.sourcePath}>
         <ScopeSeparator />
-        <span className="truncate">{preview?.title?.trim() || part.text}</span>
+        <span className="truncate">{label}</span>
       </a>
     </DropdownMenuItem>
   );
@@ -140,7 +168,16 @@ export function ScopeTrail({
   portalContainer: HTMLElement | null;
   className?: string;
 }) {
-  const parent = parts.length > 0 ? parts[parts.length - 1] : null;
+  /*
+   * The parent, and only if going there means anything.
+   *
+   * The last segment above a module is its DIRECTORY — so on a module's own page
+   * the arrow used to offer "up" to a folder, which is not a place: it navigated
+   * to the module you were already on. No arrow there, and the folder reads as
+   * the label it is.
+   */
+  const last = parts.length > 0 ? parts[parts.length - 1] : null;
+  const parent = last !== null && last.isDirectory !== true ? last : null;
   const { visibleStart, collapsed, visibleEnd } = useMemo(() => {
     if (parts.length <= MAX_VISIBLE) {
       return { visibleStart: parts, collapsed: [], visibleEnd: [] };
@@ -152,7 +189,7 @@ export function ScopeTrail({
     };
   }, [parts]);
 
-  if (parent === null) {
+  if (last === null) {
     return null;
   }
 
