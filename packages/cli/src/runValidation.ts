@@ -9,7 +9,6 @@ import {
   IValFSHost,
 } from "@valbuild/server";
 import {
-  FILE_REF_PROP,
   Internal,
   type Json,
   ModuleFilePath,
@@ -169,7 +168,7 @@ export async function handleFileMetadata(
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fileRefProp = (fileSource.source as any)?.[FILE_REF_PROP];
+  const fileRefProp = (fileSource.source as any)?.path;
   if (!fileRefProp) {
     return {
       success: false,
@@ -389,9 +388,7 @@ export async function handleRemoteFileUpload(
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.[
-    FILE_REF_PROP
-  ];
+  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.path;
   if (!fileRefProp) {
     return {
       success: false,
@@ -417,10 +414,19 @@ export async function handleRemoteFileUpload(
     };
   }
 
+  // The metadata is everything the media source carries besides its path: the
+  // schema above already established that this IS media.
   const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
-  const fileSourceMetadata = Internal.isFile(actualRemoteFileSource)
-    ? actualRemoteFileSource.metadata
-    : undefined;
+  const fileSourceMetadata =
+    actualRemoteFileSource &&
+    typeof actualRemoteFileSource === "object" &&
+    "path" in actualRemoteFileSource
+      ? (() => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { path: _path, ...metadata } = actualRemoteFileSource;
+          return metadata;
+        })()
+      : undefined;
 
   return uploadRemoteFileCore(
     ctx,

@@ -1,19 +1,8 @@
-import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
-  RemoteSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ImageSource, Internal } from "@valbuild/core";
 import { ReactNode } from "react";
 import { cn } from "./designSystem/cn";
 
-export type DropdownPreviewImage =
-  | ImageSource
-  | RemoteSource<ImageMetadata>
-  | string
-  | null
-  | undefined;
+export type DropdownPreviewImage = ImageSource | string | null | undefined;
 
 export function DropdownPreviewRow({
   title,
@@ -79,11 +68,5 @@ function resolveImageUrl(image: DropdownPreviewImage): string | null {
   if (typeof image === "string") {
     return image;
   }
-  if (image[VAL_EXTENSION] === "file") {
-    return Internal.convertFileSource(image).url;
-  }
-  if (image[VAL_EXTENSION] === "remote") {
-    return Internal.convertRemoteSource(image).url;
-  }
-  return null;
+  return Internal.mediaUrl(image);
 }

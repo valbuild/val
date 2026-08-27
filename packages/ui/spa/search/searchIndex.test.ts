@@ -47,7 +47,7 @@ describe("buildSearchIndex", () => {
               ],
             },
           ],
-          image: c.image("/public/val/content/imageOfPerson.jpg"),
+          image: { path: "/public/val/content/imageOfPerson.jpg" },
         },
       ),
     ]);

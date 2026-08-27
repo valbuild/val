@@ -120,13 +120,16 @@ describe("code actions over LSP", () => {
   // the example app (944x944) but declares the wrong dimensions, so core reports
   // image:check-metadata and the fix has everything it needs. Disk is never
   // written, which is what proves the fix pipeline works on editor state alone.
+  //
+  // The dimensions are siblings of `path` in the object literal, which is what
+  // the substitution below keys off.
   const FIXTURE_FILE = path.join(EXAMPLE_APP, "app", "page.val.ts");
   const FIXTURE_URI = `file://${FIXTURE_FILE}`;
   const FIXTURE_ON_DISK = fs.readFileSync(FIXTURE_FILE, "utf8");
   const FIXTURE_IMAGE_REF = "/public/val/images/logo.png";
   const FIXTURE_TEXT = FIXTURE_ON_DISK.replace(
-    /c\.image\("[^"]*", \{(\s*)width: \d+,(\s*)height: \d+,/,
-    `c.image("${FIXTURE_IMAGE_REF}", {$1width: 800,$2height: 600,`,
+    /path: "[^"]*",(\s*)width: \d+,(\s*)height: \d+,/,
+    `path: "${FIXTURE_IMAGE_REF}",$1width: 800,$2height: 600,`,
   );
 
   test("the fixture really declares the wrong dimensions", () => {
@@ -134,7 +137,7 @@ describe("code actions over LSP", () => {
     // tests below waiting for a diagnostic that can never arrive.
     expect(FIXTURE_TEXT).not.toBe(FIXTURE_ON_DISK);
     expect(FIXTURE_TEXT).toMatch(/width:\s*800/);
-    expect(FIXTURE_TEXT).toContain(`c.image("${FIXTURE_IMAGE_REF}"`);
+    expect(FIXTURE_TEXT).toContain(`path: "${FIXTURE_IMAGE_REF}"`);
   });
 
   test("offers a quick fix that corrects image metadata", async () => {
@@ -168,7 +171,7 @@ describe("code actions over LSP", () => {
     expect(applied).not.toMatch(/width:\s*800/);
     // Narrow edit: surrounding code is untouched.
     expect(applied.split("\n")[0]).toBe(FIXTURE_ON_DISK.split("\n")[0]);
-    expect(applied).toContain(`c.image("${FIXTURE_IMAGE_REF}"`);
+    expect(applied).toContain(`path: "${FIXTURE_IMAGE_REF}"`);
   });
 
   test("applying the fix writes the image's real dimensions and adds no new errors", async () => {

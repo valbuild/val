@@ -39,8 +39,11 @@ export {
 } from "./completions";
 export {
   getValCompletionContext,
+  findMediaPathObject,
+  MEDIA_METADATA_KEYS,
+  type MediaMetadataKey,
+  type MediaPathObject,
   type ValCompletionContext,
-  type ValFileRefContext,
   type ValStringValueContext,
 } from "./completionContext";
 export {

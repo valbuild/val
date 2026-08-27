@@ -777,7 +777,9 @@ import { s, c } from "../val.config";
 
 export const schema = s.image();
 
-export default c.define("/image", schema, c.image("/public/myfile.jpg"));
+export default c.define("/image", schema, {
+  path: "/public/myfile.jpg",
+});
 ```
 
 **NOTE**: This will not validate, since images requires `width`, `height` and `mimeType`. You can fix validation errors like this by using the CLI or by using the VS Code plugin.

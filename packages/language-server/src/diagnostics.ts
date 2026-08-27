@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import {
-  FILE_REF_PROP,
   Internal,
   type ModuleFilePath,
   type SourcePath,
@@ -214,7 +213,7 @@ export function createValDiagnostics({
       if (missing) {
         diagnostics.push(
           build(
-            rangeOf(sourcePath, modulePathMap, "_ref"),
+            rangeOf(sourcePath, modulePathMap, "path"),
             `File ${missing} does not exist`,
             { code: "val/file-not-found", sourcePath, filePath: missing },
           ),
@@ -241,7 +240,7 @@ export function createValDiagnostics({
  * it is not on disk.
  *
  * Mirrors the precondition check in `handleFileMetadata`
- * (`packages/cli/src/runValidation.ts`): resolve the path, read `FILE_REF_PROP`,
+ * (`packages/cli/src/runValidation.ts`): resolve the path, read its `path`,
  * check the file exists.
  */
 function missingFileRef({
@@ -265,9 +264,7 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = (resolved.source as Record<string, unknown> | undefined)?.[
-      FILE_REF_PROP
-    ];
+    const ref = (resolved.source as Record<string, unknown> | undefined)?.path;
     if (typeof ref !== "string") {
       return undefined;
     }
@@ -328,7 +325,7 @@ export function createMissingModuleDiagnostic({
 function rangeOf(
   sourcePath: string,
   modulePathMap: ReturnType<typeof createModulePathMap>,
-  /** Optional child segment to prefer, for example `_ref`. */
+  /** Optional child segment to prefer, for example `path`. */
   preferChild?: string,
 ): Range {
   if (!modulePathMap) {

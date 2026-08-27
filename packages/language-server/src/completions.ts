@@ -14,8 +14,10 @@ import {
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import {
-  findFileRefArgument,
+  findMediaPathObject,
   getValCompletionContext,
+  MEDIA_METADATA_KEYS,
+  type MediaMetadataKey,
 } from "./completionContext";
 import { createModulePathMap, findModulePathAtPosition } from "./modulePathMap";
 import type { PublicValFiles } from "./publicValFiles";
@@ -24,27 +26,31 @@ import type { PublicValFiles } from "./publicValFiles";
  * Completions for file and image references.
  *
  * Offers the files that actually exist under the project's files directory, and
- * — when the item is accepted — fills in the metadata argument by reading the
+ * — when the item is accepted — fills in the metadata siblings by reading the
  * chosen file. Getting width/height/mimeType right by hand is tedious and a
  * frequent source of the very validation errors this server reports.
  */
 
 /** Stashed on the item so `resolve` can do the expensive work lazily. */
 export type ValCompletionItemData = {
-  kind: "file-ref";
+  kind: "media-path";
   uri: string;
   /** Val-style ref of the chosen file. */
   ref: string;
   /** Absolute path of the chosen file. */
   filePath: string;
-  subType: "image" | "file";
-  /** Where a metadata argument goes, or what it replaces. */
+  mediaType: "image" | "file";
   /**
-   * Start offset of the reference argument, used to re-find the call at resolve
-   * time. Offsets captured now cannot be replayed later: see
-   * {@link findFileRefArgument}.
+   * True when the field is backed by a gallery, in which case the dimensions
+   * and mime type live there and must not be written here too.
    */
-  refArgStart: number;
+  gallery: boolean;
+  /**
+   * Start offset of the `path` value, used to re-find its object at resolve
+   * time. Offsets captured now cannot be replayed later: see
+   * {@link findMediaPathObject}.
+   */
+  pathValueStart: number;
 };
 
 export function createValCompletions({
@@ -71,60 +77,25 @@ export function createValCompletions({
   if (!context) {
     return [];
   }
-
-  if (context.kind === "string-value") {
-    if (!moduleFilePath || !snapshot) {
-      return [];
-    }
-    return createSchemaDrivenCompletions({
-      document,
-      sourceFile,
-      offset,
-      moduleFilePath,
-      snapshot,
-      files,
-      isPropertyName: context.isPropertyName,
-      valueOfProperty: context.valueOfProperty,
-      contentStart: context.contentStart,
-      contentEnd: context.contentEnd,
-    });
+  if (!moduleFilePath || !snapshot) {
+    return [];
   }
-
-  // `c.image()` only accepts images; `c.file()` accepts anything.
-  const candidates =
-    context.subType === "image" ? files.images() : files.list();
-
-  // Replace the whole string contents rather than inserting at the cursor, so
-  // completing over an existing path does not concatenate the two.
-  const replaceRange: Range = {
-    start: document.positionAt(context.contentStart),
-    end: document.positionAt(context.contentEnd),
-  };
-
-  return candidates.map((file, index) => {
-    const data: ValCompletionItemData = {
-      kind: "file-ref",
-      uri: document.uri,
-      ref: file.ref,
-      filePath: file.filePath,
-      subType: context.subType,
-      refArgStart: context.refArgStart,
-    };
-    return {
-      label: file.ref,
-      kind: CompletionItemKind.File,
-      detail: file.mimeType,
-      textEdit: { range: replaceRange, newText: file.ref },
-      // Preserve directory ordering rather than letting the client sort
-      // alphabetically on the full path.
-      sortText: String(index).padStart(5, "0"),
-      data,
-    };
+  return createSchemaDrivenCompletions({
+    document,
+    sourceFile,
+    offset,
+    moduleFilePath,
+    snapshot,
+    files,
+    isPropertyName: context.isPropertyName,
+    valueOfProperty: context.valueOfProperty,
+    contentStart: context.contentStart,
+    contentEnd: context.contentEnd,
   });
 }
 
 /**
- * Fill in the metadata argument for an accepted file reference.
+ * Fill in the metadata siblings for an accepted media path.
  *
  * Done at resolve time because it reads the file from disk, and an editor
  * requests completions far more often than it accepts one.
@@ -137,7 +108,13 @@ export async function resolveValCompletion({
   documents: { get(uri: string): TextDocument | undefined };
 }): Promise<CompletionItem> {
   const data = item.data as ValCompletionItemData | undefined;
-  if (data?.kind !== "file-ref") {
+  if (data?.kind !== "media-path") {
+    return item;
+  }
+  // A gallery-backed field stores only the path: its dimensions and mime type
+  // live in the gallery module, and writing them here too is how two copies of
+  // one fact get to disagree.
+  if (data.gallery) {
     return item;
   }
   const document = documents.get(data.uri);
@@ -145,11 +122,11 @@ export async function resolveValCompletion({
     return item;
   }
 
-  // Re-derive the argument offsets against the document as it is *now*: the user
-  // may have typed to filter the list since it was computed, which moves
-  // everything after the reference string. `additionalTextEdits` are applied
-  // verbatim by the client, so a stale offset here corrupts the file.
-  const args = findFileRefArgument(
+  // Re-derive the offsets against the document as it is *now*: the user may
+  // have typed to filter the list since it was computed, which moves everything
+  // after the path string. `additionalTextEdits` are applied verbatim by the
+  // client, so a stale offset here corrupts the file.
+  const object = findMediaPathObject(
     ts.createSourceFile(
       data.uri,
       document.getText(),
@@ -157,9 +134,9 @@ export async function resolveValCompletion({
       false,
       ts.ScriptKind.TS,
     ),
-    data.refArgStart,
+    data.pathValueStart,
   );
-  if (!args) {
+  if (!object) {
     // The anchor no longer resolves, so there is no safe place to put the
     // metadata. `val validate --fix` and the metadata quick fix still cover it.
     return item;
@@ -170,26 +147,42 @@ export async function resolveValCompletion({
     return item;
   }
 
-  const edit: TextEdit =
-    args.metadataStart !== undefined && args.metadataEnd !== undefined
-      ? {
-          // Replace an existing metadata argument.
-          range: {
-            start: document.positionAt(args.metadataStart),
-            end: document.positionAt(args.metadataEnd),
-          },
-          newText: metadata,
-        }
-      : {
-          // Insert one after the reference argument.
-          range: {
-            start: document.positionAt(args.refArgEnd),
-            end: document.positionAt(args.refArgEnd),
-          },
-          newText: `, ${metadata}`,
-        };
+  const edits: TextEdit[] = [];
+  const missing: string[] = [];
+  for (const key of MEDIA_METADATA_KEYS) {
+    const value = metadata[key];
+    if (value === undefined) {
+      continue;
+    }
+    const at = object.existing[key];
+    if (at) {
+      edits.push({
+        range: {
+          start: document.positionAt(at.start),
+          end: document.positionAt(at.end),
+        },
+        newText: value,
+      });
+    } else {
+      missing.push(`${key}: ${value}`);
+    }
+  }
+  if (missing.length > 0) {
+    // One insertion after the `path` property, so the edits stay disjoint —
+    // a client applies them verbatim and two overlapping ranges corrupt the file.
+    edits.push({
+      range: {
+        start: document.positionAt(object.insertAfter),
+        end: document.positionAt(object.insertAfter),
+      },
+      newText: `, ${missing.join(", ")}`,
+    });
+  }
+  if (edits.length === 0) {
+    return item;
+  }
 
-  return { ...item, additionalTextEdits: [edit] };
+  return { ...item, additionalTextEdits: edits };
 }
 
 /**
@@ -200,10 +193,10 @@ export async function resolveValCompletion({
  */
 async function readMetadata(
   data: ValCompletionItemData,
-): Promise<string | undefined> {
+): Promise<Partial<Record<MediaMetadataKey, string>> | undefined> {
   try {
     const buffer = fs.readFileSync(data.filePath);
-    if (data.subType === "image") {
+    if (data.mediaType === "image") {
       const metadata = await extractImageMetadata(data.filePath, buffer);
       if (
         metadata.width === undefined ||
@@ -212,15 +205,17 @@ async function readMetadata(
       ) {
         return undefined;
       }
-      return `{ width: ${metadata.width}, height: ${metadata.height}, mimeType: ${JSON.stringify(
-        metadata.mimeType,
-      )} }`;
+      return {
+        width: String(metadata.width),
+        height: String(metadata.height),
+        mimeType: JSON.stringify(metadata.mimeType),
+      };
     }
     const metadata = await extractFileMetadata(data.filePath, buffer);
     if (!metadata.mimeType) {
       return undefined;
     }
-    return `{ mimeType: ${JSON.stringify(metadata.mimeType)} }`;
+    return { mimeType: JSON.stringify(metadata.mimeType) };
   } catch {
     // An unreadable or unrecognised file just means no metadata to offer.
     return undefined;
@@ -317,6 +312,36 @@ function createSchemaDrivenCompletions({
     );
   }
 
+  // Media is an object literal with a `path`, so the cursor's own module path is
+  // `…."image"."path"` — resolving that would try to descend INTO the image
+  // schema. The container is what says whether this is media at all, and which
+  // kind, and which directory its files come from. Before this was an object,
+  // the callee name (`c.image` vs `c.file`) said so, and per-field `directory`
+  // was ignored.
+  if (!isPropertyName && valueOfProperty === "path") {
+    const container = resolveSchemaAt(
+      parentModulePath(modulePath),
+      source,
+      schema,
+    );
+    if (
+      container &&
+      typeof container === "object" &&
+      "type" in container &&
+      (container.type === "image" || container.type === "file")
+    ) {
+      return mediaPathItems({
+        document,
+        container,
+        snapshot,
+        files,
+        range,
+        contentStart,
+      });
+    }
+    return [];
+  }
+
   const fieldSchema = resolveSchemaAt(modulePath, source, schema);
 
   // Checked before the schema is required, because Val describes richtext content
@@ -352,6 +377,72 @@ function createSchemaDrivenCompletions({
   }
 
   return [];
+}
+
+/**
+ * The files a media field can point at, as completion items.
+ *
+ * Where they come from, in order: the field's own `directory`, then the
+ * directory of the gallery it references, then the default.
+ */
+function mediaPathItems({
+  document,
+  container,
+  snapshot,
+  files,
+  range,
+  contentStart,
+}: {
+  document: TextDocument;
+  container: { type: "image" | "file" } & Record<string, unknown>;
+  snapshot: SchemaSourceSnapshot;
+  files: PublicValFiles;
+  range: Range;
+  contentStart: number;
+}): CompletionItem[] {
+  const referencedModule =
+    typeof container.referencedModule === "string"
+      ? container.referencedModule
+      : undefined;
+  const options = container.options as { directory?: unknown } | undefined;
+  let directory =
+    typeof options?.directory === "string" ? options.directory : undefined;
+  if (directory === undefined && referencedModule) {
+    const gallery = snapshot.schemas[referencedModule as never] as
+      | { type?: string; directory?: unknown }
+      | undefined;
+    if (gallery?.type === "record" && typeof gallery.directory === "string") {
+      directory = gallery.directory;
+    }
+  }
+  const candidates =
+    container.type === "image"
+      ? files.images(directory)
+      : files.list(directory);
+
+  return candidates.map((file, index) => {
+    const data: ValCompletionItemData = {
+      kind: "media-path",
+      uri: document.uri,
+      ref: file.ref,
+      filePath: file.filePath,
+      mediaType: container.type,
+      gallery: referencedModule !== undefined,
+      pathValueStart: contentStart - 1,
+    };
+    return {
+      label: file.ref,
+      kind: CompletionItemKind.File,
+      detail: file.mimeType,
+      // Replace the whole string contents rather than inserting at the cursor,
+      // so completing over an existing path does not concatenate the two.
+      textEdit: { range, newText: file.ref },
+      // Preserve directory ordering rather than letting the client sort
+      // alphabetically on the full path.
+      sortText: String(index).padStart(5, "0"),
+      data,
+    };
+  });
 }
 
 /** The routes the project defines, as completion items. */

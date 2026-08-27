@@ -1,5 +1,4 @@
 import {
-  FILE_REF_SUBTYPE_TAG,
   Internal,
   VAL_EXTENSION,
   initVal,
@@ -36,7 +35,7 @@ describe("planSessionKeyExpansion", () => {
       key: "session-key-abc",
       filePath: "/public/val/images/hero.png",
       [VAL_EXTENSION]: "ai_session_file",
-      [FILE_REF_SUBTYPE_TAG]: "image",
+      _tag: "image",
       alt: "the hero",
     };
     expect(isSessionKey(sessionKey)).toBe(true);
@@ -73,15 +72,11 @@ describe("planSessionKeyExpansion", () => {
         op: "replace",
         path: ["hero"],
         value: {
-          _ref: "/public/val/images/hero.png",
-          _type: "file",
-          _tag: "image",
-          metadata: {
-            width: 800,
-            height: 600,
-            mimeType: "image/png",
-            alt: "the hero",
-          },
+          path: "/public/val/images/hero.png",
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: "the hero",
         },
       },
       {
@@ -116,7 +111,7 @@ describe("planSessionKeyExpansion", () => {
       key: "session-key-rt",
       filePath: "/public/val/images/inline.png",
       [VAL_EXTENSION]: "ai_session_file",
-      [FILE_REF_SUBTYPE_TAG]: "image",
+      _tag: "image",
     };
     const inputPatch = Patch.parse([
       {
@@ -156,10 +151,10 @@ describe("planSessionKeyExpansion", () => {
         value: {
           tag: "img",
           src: {
-            _ref: "/public/val/images/inline.png",
-            _type: "file",
-            _tag: "image",
-            metadata: { width: 400, height: 300, mimeType: "image/png" },
+            path: "/public/val/images/inline.png",
+            width: 400,
+            height: 300,
+            mimeType: "image/png",
           },
         },
       },
@@ -192,13 +187,13 @@ describe("expandSessionKeysInPatch", () => {
       key: "session-key-hero",
       filePath: "/public/val/images/hero.png",
       [VAL_EXTENSION]: "ai_session_file",
-      [FILE_REF_SUBTYPE_TAG]: "image",
+      _tag: "image",
     };
     const bannerKey: SessionKey = {
       key: "session-key-banner",
       filePath: "/public/val/images/banner.png",
       [VAL_EXTENSION]: "ai_session_file",
-      [FILE_REF_SUBTYPE_TAG]: "image",
+      _tag: "image",
     };
     const inputPatch = Patch.parse([
       { op: "replace", path: ["hero"], value: heroKey },
@@ -260,7 +255,7 @@ describe("expandSessionKeysInPatch", () => {
       key: "shared-key",
       filePath: "/public/val/images/shared.png",
       [VAL_EXTENSION]: "ai_session_file",
-      [FILE_REF_SUBTYPE_TAG]: "image",
+      _tag: "image",
     };
     const inputPatch = Patch.parse([
       { op: "replace", path: ["hero"], value: sharedKey },

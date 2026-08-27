@@ -61,11 +61,9 @@ function setup() {
         testImage: s.image(),
       }),
       {
-        testImage: c.image("/public/val/initial.png", {
-          width: 1,
+        testImage: { path: "/public/val/initial.png", width: 1,
           height: 1,
-          mimeType: "image/png",
-        }),
+          mimeType: "image/png" },
       },
     );
     `,
@@ -113,9 +111,10 @@ function imagePatch(fileOpValue: string | null) {
       op: "replace" as const,
       path: ["testImage"],
       value: {
-        _ref: IMAGE_PATH,
-        _type: "file" as const,
-        metadata: { width: 8, height: 1, mimeType: "image/png" },
+        path: IMAGE_PATH,
+        width: 8,
+        height: 1,
+        mimeType: "image/png",
       },
     },
     {

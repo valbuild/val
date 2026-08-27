@@ -1,5 +1,4 @@
 import {
-  FILE_REF_PROP,
   Internal,
   Source,
   SerializedObjectSchema,
@@ -75,13 +74,13 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle file/image - extract filename from _ref
+  // Handle file/image
   if (schema.type === "file" || schema.type === "image") {
     if (
       source &&
       typeof source === "object" &&
-      FILE_REF_PROP in source &&
-      typeof source[FILE_REF_PROP] === "string"
+      "path" in source &&
+      typeof source.path === "string"
     ) {
       callback({ source, schema, path });
     }

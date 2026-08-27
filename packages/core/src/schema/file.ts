@@ -1,5 +1,9 @@
-import { Json } from "../Json";
-import { FILE_REF_PROP, FileSource } from "../source/file";
+import {
+  FileSource,
+  GalleryFileSource,
+  isRemoteMediaPath,
+} from "../source/media";
+export type { FileMetadata } from "../source/file";
 
 import {
   CustomValidateFunction,
@@ -7,13 +11,12 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { VAL_EXTENSION } from "../source";
 import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { Internal, RemoteSource, ValModule } from "..";
+import { Internal, ValModule } from "..";
 import { ReifiedRender } from "../render";
 import { FilesEntryMetadata } from "./files";
 import { getSource } from "../module";
@@ -34,15 +37,7 @@ export type SerializedFileSchema = {
   description?: string;
 };
 
-export type FileMetadata = {
-  mimeType?: string;
-};
-export class FileSchema<
-  Src extends
-    | FileSource<FileMetadata | undefined>
-    | RemoteSource<FileMetadata | undefined>
-    | null,
-> extends Schema<Src> {
+export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
   constructor(
     private readonly options?: FileOptions,
     private readonly opt: boolean = false,
@@ -72,7 +67,7 @@ export class FileSchema<
     );
   }
 
-  remote(): FileSchema<Src | RemoteSource<FileMetadata | undefined>> {
+  remote(): FileSchema<Src> {
     return new FileSchema(
       this.options,
       this.opt,
@@ -82,7 +77,7 @@ export class FileSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-    ) as FileSchema<Src | RemoteSource<FileMetadata | undefined>>;
+    );
   }
 
   validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
@@ -119,20 +114,21 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (typeof src[FILE_REF_PROP] !== "string") {
+    if (typeof src.path !== "string") {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `File did not have a file reference string. Got: ${typeof src[
-              FILE_REF_PROP
-            ]}`,
+            message: `File did not have a path string. Got: ${typeof src.path}`,
             value: src,
           },
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+    // Remote-ness is a property of the path, not of a marker on the value:
+    // anything outside /public is remote.
+    const isRemotePath = isRemoteMediaPath(src.path);
+    if (this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -144,7 +140,7 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -156,12 +152,12 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Expected locale file, but found remote.`,
+            message: `Expected local file, but found remote.`,
             value: src,
             fixes: ["file:download-remote"],
           },
@@ -169,20 +165,37 @@ export class FileSchema<
       } as ValidationErrors;
     }
 
-    if (src[VAL_EXTENSION] !== "file") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `File did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    const galleryEntries = this.galleryEntries();
+    if (galleryEntries) {
+      if (src.mimeType !== undefined) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `A file from a gallery must not carry its own mimeType: it is stored in the gallery module.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      if (!(src.path in galleryEntries)) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `The gallery does not have a file at '${src.path}'.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      return customValidationErrors.length > 0
+        ? ({ [path]: customValidationErrors } as ValidationErrors)
+        : false;
     }
 
     const { accept } = this.options || {};
-    const { mimeType } = src.metadata || {};
+    const { mimeType } = src;
 
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
@@ -223,13 +236,13 @@ export class FileSchema<
       }
     }
 
-    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src.path);
     if (!fileMimeType) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            message: `Could not determine mime type from file extension. Got: ${src.path}`,
             value: src,
           },
         ],
@@ -248,12 +261,15 @@ export class FileSchema<
       } as ValidationErrors;
     }
 
-    if (src.metadata) {
+    // The mime type read so far came from the filename. Whether it matches the
+    // bytes can only be answered by reading the file, which this package
+    // deliberately cannot do — so it is always handed on as a fix.
+    if (mimeType !== undefined) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found metadata, but it could not be validated. File metadata must be an object with the mimeType.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Found mimeType, but it could not be validated.`,
             value: src,
             fixes: ["file:check-metadata"],
           },
@@ -265,12 +281,24 @@ export class FileSchema<
       [path]: [
         ...customValidationErrors,
         {
-          message: `Missing File metadata.`,
+          message: `Missing File mimeType.`,
           value: src,
           fixes: ["file:add-metadata"],
         },
       ],
     } as ValidationErrors;
+  }
+
+  /**
+   * The entries of the gallery this field points at, or null when it is a
+   * standalone field.
+   */
+  private galleryEntries(): Record<string, FilesEntryMetadata> | null {
+    const modulePaths = Object.keys(this.moduleMetadata);
+    if (modulePaths.length === 0) {
+      return null;
+    }
+    return this.moduleMetadata[modulePaths[0] as ModulePath];
   }
 
   protected executeAssert(
@@ -306,26 +334,13 @@ export class FileSchema<
         },
       };
     }
-    if (!(FILE_REF_PROP in src)) {
+    if (!("path" in src) || typeof src.path !== "string") {
       return {
         success: false,
         errors: {
           [path]: [
             {
-              message: `Value of this schema must use: 'c.file' (error type: missing_ref_prop)`,
-              typeError: true,
-            },
-          ],
-        },
-      };
-    }
-    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
-      return {
-        success: false,
-        errors: {
-          [path]: [
-            {
-              message: `Value of this schema must use: 'c.file' (error type: missing_file_extension)`,
+              message: `A file must be an object with a 'path' (error type: missing_path)`,
               typeError: true,
             },
           ],
@@ -413,9 +428,18 @@ export class FileSchema<
   }
 }
 
-export const file = (
+/**
+ * A file picked from a gallery. Its mime type lives in the gallery, so the
+ * field carries only the path.
+ */
+export function file(
+  galleryModule: ValModule<Record<string, FilesEntryMetadata>>,
+): FileSchema<GalleryFileSource>;
+/** A file of its own, carrying its own mime type. */
+export function file(options?: FileOptions): FileSchema<FileSource>;
+export function file(
   options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
-): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
@@ -437,35 +461,7 @@ export const file = (
         FilesEntryMetadata
       >;
     }
-    return new FileSchema({}, false, false, [], allModules);
+    return new FileSchema<GalleryFileSource>({}, false, false, [], allModules);
   }
   return new FileSchema(options as FileOptions);
-};
-
-export function convertFileSource<
-  Metadata extends { readonly [key: string]: Json } | undefined =
-    | { readonly [key: string]: Json }
-    | undefined,
->(src: FileSource<Metadata>): { url: string; metadata?: Metadata } {
-  // TODO: /public should be configurable
-  if (!src[FILE_REF_PROP].startsWith("/public")) {
-    return {
-      url:
-        src[FILE_REF_PROP] +
-        (src.patch_id ? `?patch_id=${src["patch_id"]}` : ""),
-      metadata: src.metadata,
-    };
-  }
-
-  if (src.patch_id) {
-    return {
-      url:
-        "/api/val/files" + src[FILE_REF_PROP] + `?patch_id=${src["patch_id"]}`,
-      metadata: src.metadata,
-    };
-  }
-  return {
-    url: src[FILE_REF_PROP].slice("/public".length),
-    metadata: src.metadata,
-  };
 }

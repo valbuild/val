@@ -1,8 +1,6 @@
 import { Schema } from "./schema";
-import { ImageMetadata } from "./schema/image";
 import { SelectorSource } from "./selector";
-import { ImageSource } from "./source/image";
-import { RemoteSource } from "./source/remote";
+import { ImageSource } from "./source/media";
 import { splitModuleFilePathAndModulePath, splitModulePath } from "./module";
 import { ModuleFilePath, SourcePath } from "./val";
 
@@ -15,7 +13,7 @@ export type ListRecordRender = {
     value: {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
+      image?: ImageSource | null;
     },
   ][];
 };
@@ -39,7 +37,7 @@ export type ListArrayRender = {
     value: {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
+      image?: ImageSource | null;
     },
   ][];
 };

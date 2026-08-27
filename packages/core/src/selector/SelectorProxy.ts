@@ -1,9 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Path, GenericSelector, GetSource, GetSchema } from "./index";
 import { Schema } from "../schema";
-import { convertFileSource } from "../schema/file";
-import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
-import { FILE_REF_PROP } from "../source/file";
+import { Source, SourcePrimitive } from "../source";
 import {
   isSerializedVal,
   ModuleFilePath,
@@ -42,14 +40,6 @@ export function newSelectorProxy(
     } else if (isSerializedVal(source)) {
       return newSelectorProxy(source.val, source.valPath);
     }
-  }
-
-  if (source && source[FILE_REF_PROP] && source[VAL_EXTENSION] === "file") {
-    const fileRef = source[FILE_REF_PROP];
-    if (typeof fileRef !== "string") {
-      throw Error("Invalid file ref: " + fileRef);
-    }
-    return newSelectorProxy(convertFileSource(source), path, moduleSchema);
   }
 
   switch (typeof source) {

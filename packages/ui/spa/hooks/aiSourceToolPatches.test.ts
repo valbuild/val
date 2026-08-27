@@ -50,11 +50,12 @@ const nestedModule = serialize(
       items: [{ title: "One", order: 1 }],
       byKey: { a: { title: "A", order: 1 } },
       body: [{ tag: "h1", children: ["Heading"] }],
-      hero: c.image("/public/val/images/hero.png", {
+      hero: {
+        path: "/public/val/images/hero.png",
         width: 1,
         height: 1,
         mimeType: "image/png",
-      }),
+      },
       gallery: {
         "/public/val/images/one.png": {
           width: 1,

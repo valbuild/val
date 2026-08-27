@@ -277,11 +277,7 @@ describe("file and route references", () => {
         other: s.string(),
       }),
       {
-        hero: c.image("/public/val/hero.png", {
-          width: 1,
-          height: 1,
-          mimeType: "image/png",
-        }),
+        hero: { path: "/public/val/hero.png" },
         other: "text",
       },
     );
@@ -308,16 +304,8 @@ describe("file and route references", () => {
         b: s.image(gallery),
       }),
       {
-        a: c.image("/public/val/a.png", {
-          width: 1,
-          height: 1,
-          mimeType: "image/png",
-        }),
-        b: c.image("/public/val/b.png", {
-          width: 1,
-          height: 1,
-          mimeType: "image/png",
-        }),
+        a: { path: "/public/val/a.png" },
+        b: { path: "/public/val/b.png" },
       },
     );
 

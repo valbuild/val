@@ -56,9 +56,7 @@ Val has a dual type system: **Source** types define data shape, **Selector** typ
 ```
 Source (data)          →  Selector (access)
 ─────────────────────────────────────────────
-ImageSource            →  ImageSelector
-FileSource<M>          →  FileSelector<M>
-RemoteSource<M>        →  GenericSelector
+MediaSource            →  GenericSelector  (`url` is generated at resolve time)
 RichTextSource<O>      →  RichTextSelector<O>
 SourceObject           →  ObjectSelector<T>
 SourceArray            →  ArraySelector<T>
@@ -74,9 +72,8 @@ export type Source =
   | SourcePrimitive // string | number | boolean | null
   | SourceObject // { [key: string]: Source }
   | SourceArray // readonly Source[]
-  | RemoteSource
-  | FileSource
-  | ImageSource
+  | MediaSource // { path: string, ...optional }
+  | JsonSource
   | RichTextSource<RichTextOptions>;
 ```
 
@@ -88,9 +85,8 @@ export type SelectorSource =
   | undefined
   | readonly SelectorSource[]
   | { [key: string]: SelectorSource }
-  | ImageSource
-  | FileSource
-  | RemoteSource
+  | MediaSource
+  | JsonSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 ```
@@ -126,7 +122,7 @@ export type RichTextSelector<O> = GenericSelector<RichTextSource<O> & Source>;
 // ✅ CORRECT - Add missing types to SelectorSource union
 export type SelectorSource =
   | ...existing types...
-  | ImageSource  // Add missing type here
+  | MediaSource  // Add missing type here
 ```
 
 If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almost always adding a type to `SelectorSource`, NOT using intersections.
@@ -137,13 +133,14 @@ If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almos
 
 Each Schema class validates and types its corresponding Source type:
 
-| Schema              | Source              | Factory               |
-| ------------------- | ------------------- | --------------------- |
-| `ImageSchema<T>`    | `ImageSource`       | `s.image()`           |
-| `FileSchema<T>`     | `FileSource`        | `s.file()`            |
-| `RichTextSchema<O>` | `RichTextSource<O>` | `s.richtext(options)` |
-| `ObjectSchema<T>`   | `SourceObject`      | `s.object({...})`     |
-| `ArraySchema<T>`    | `SourceArray`       | `s.array(schema)`     |
+| Schema              | Source                                        | Factory               |
+| ------------------- | --------------------------------------------- | --------------------- |
+| `ImageSchema<T>`    | `ImageSource`                                 | `s.image()`           |
+| `FileSchema<T>`     | `FileSource`                                  | `s.file()`            |
+|                     | (both are `{path, …}`; see `source/media.ts`) |                       |
+| `RichTextSchema<O>` | `RichTextSource<O>`                           | `s.richtext(options)` |
+| `ObjectSchema<T>`   | `SourceObject`                                | `s.object({...})`     |
+| `ArraySchema<T>`    | `SourceArray`                                 | `s.array(schema)`     |
 
 ## Module System
 
@@ -157,17 +154,28 @@ c.define(
 )
 ```
 
-### Source Constructors
+### Media is a plain object, not a constructor
+
+There is no `c.image` / `c.file` / `c.remote`. Media is written as an object with
+a `path`, so the same value works in a `.val.ts` and in a `*.val.json` entry:
 
 ```typescript
-c.image("/public/val/logo.png", {
-  width: 100,
-  height: 100,
-  mimeType: "image/png",
-});
-c.file("/public/val/doc.pdf", { mimeType: "application/pdf" });
-c.remote("https://...", { mimeType: "image/jpeg" });
+// s.image()
+{ path: "/public/val/logo.png", width: 100, height: 100,
+  mimeType: "image/png", alt: "A logo", hotspot: { x: 0.5, y: 0.5 } }
+
+// s.image(galleryVal) — the gallery has the dimensions and mime type
+{ path: "/public/img/logo.png" }
+
+// s.file()
+{ path: "/public/val/doc.pdf", mimeType: "application/pdf" }
+
+// remote: the same object, with a remote URL in `path`
+{ path: "https://remote.val.build/file/p/…/logo.png", width: 100, … }
 ```
+
+Nothing decides "this is media" by looking at the value — the **schema** does
+(`type === "image" | "file"`). See [architecture/media.md](../architecture/media.md).
 
 ## UI Architecture
 
@@ -294,15 +302,22 @@ An `ImageSource` at runtime is:
 
 ```typescript
 {
-  _ref: string;          // FILE_REF_PROP — path like "/public/val/photo_a1b2c.jpg"
-  _type: "file";         // VAL_EXTENSION
-  _tag: "image";         // FILE_REF_SUBTYPE_TAG
-  metadata?: ImageMetadata;  // { width, height, mimeType, alt, hotspot }
-  patch_id?: string;     // set on uncommitted/draft images
+  path: string;          // "/public/val/photo_a1b2c.jpg", or a remote URL
+  width?: number;        // read from the bytes by --fix / the VS Code extension
+  height?: number;
+  mimeType?: string;
+  alt?: string;          // authored
+  hotspot?: { x: number; y: number };  // authored
+  patch_id?: string;     // set server-side on uncommitted/draft images
 }
 ```
 
-Defined in `packages/core/src/source/image.ts`. Constants `FILE_REF_PROP`, `FILE_REF_SUBTYPE_TAG` are in `packages/core/src/source/file.ts`.
+A gallery-backed field (`s.image(galleryVal)`) carries only `path`, `alt` and
+`hotspot`: the rest lives in the gallery, keyed by path.
+
+Defined in `packages/core/src/source/media.ts`, along with `mediaUrl`,
+`resolveMedia` and `fillFromGallery` — the one implementation each of "where are
+these bytes served from" and "what does the gallery know about this path".
 
 ### Creating an Image Patch
 
@@ -312,8 +327,10 @@ There are two distinct patch shapes depending on context:
 
 Use `createFilePatch` from `packages/ui/spa/components/fields/FileField.tsx`. It returns a `Patch` with two ops:
 
-1. **`replace`** — sets the field value to the new `ImageSource` object (`_ref`, `_type`, `_tag`, `metadata`)
-2. **`file`** — carries the binary data (base64 data URL string), `filePath` (the `_ref`), and `metadata`
+1. **`replace`** — sets the field value to the new media object (`path`, plus what
+   was read from the bytes, unless the field is gallery-backed)
+2. **`file`** — carries the binary data (base64 data URL string), `filePath` (the
+   `path`), and `metadata`
 
 ```typescript
 const { patch, filePath } = await createFilePatch(
@@ -325,6 +342,7 @@ const { patch, filePath } = await createFilePatch(
   "image", // subType
   remoteData, // remote config or null for local files
   directory, // defaults to "/public/val"
+  galleryBacked, // true → write only `path`; the gallery has the rest
 );
 ```
 
@@ -332,14 +350,14 @@ When the field has a `referencedModule` (gallery-backed), after uploading the im
 
 #### B) Gallery module (`ModuleGallery`)
 
-In `ModuleGallery` (`packages/ui/spa/components/fields/ModuleGallery.tsx`), patches are built inline without `createFilePatch`. The gallery stores images as a record keyed by `_ref`:
+In `ModuleGallery` (`packages/ui/spa/components/fields/ModuleGallery.tsx`), patches are built inline without `createFilePatch`. The gallery stores images as a record keyed by file path:
 
 ```typescript
 // Adding an image to a gallery
 const patch: Patch = [
   {
     op: "add",
-    path: [...patchPath, ref], // ref is the _ref / file path key
+    path: [...patchPath, ref], // ref is the file path key
     value: {
       width: metadata.width,
       height: metadata.height,
@@ -358,7 +376,7 @@ const patch: Patch = [
 ];
 ```
 
-Key difference: the `replace` op is an `add` (adding a new record entry), and the `value` is the flat metadata object (not a full `ImageSource`).
+Key difference: the `replace` op is an `add` (adding a new record entry), and the `value` is the metadata alone — the path is the key, so it is not repeated inside.
 
 **Deleting** from a gallery uses `remove` + a `file` op with `value: null`:
 
@@ -375,29 +393,20 @@ const patch: Patch = [
 ];
 ```
 
-**Selecting from a gallery** (via `ModuleMediaPicker`) uses a plain `replace` with the full `ImageSource` shape — no `file` op needed since the binary already exists in the gallery module:
+**Selecting from a gallery** (via `ModuleMediaPicker`) uses a plain `replace` with
+just the path — no `file` op, since the binary already exists in the gallery
+module, and no metadata, since the gallery is where it lives:
 
 ```typescript
 addPatch(
-  [
-    {
-      op: "replace",
-      path: patchPath,
-      value: {
-        [FILE_REF_PROP]: entry.filePath,
-        [VAL_EXTENSION]: "file",
-        [FILE_REF_SUBTYPE_TAG]: "image",
-        metadata: entry.metadata,
-      },
-    },
-  ],
+  [{ op: "replace", path: patchPath, value: { path: entry.filePath } }],
   "image",
 );
 ```
 
 #### Ref computation for remote files
 
-Both `ImageField` and `ModuleGallery` compute the `_ref` differently for remote vs local:
+Both `ImageField` and `ModuleGallery` compute the `path` differently for remote vs local:
 
 - **Local**: `ref = "${directory}/${filename}"` (e.g. `/public/val/photo_a1b2c.jpg`)
 - **Remote**: `ref = Internal.remote.createRemoteRef(remoteHost, { publicProjectId, coreVersion, bucket, validationHash, fileHash, filePath })` — a full URL encoding project/bucket/hash info
@@ -437,77 +446,39 @@ Key details:
 
 ### Getting the URL of an Image
 
-There are three approaches depending on context:
+One function: `Internal.mediaUrl({ path, patch_id? })`. Local and remote are the
+same shape, so there is nothing to branch on — remote is a path that does not
+start with `/public`. `Internal.resolveMedia(src)` is the same thing plus a
+spread, for when you want the whole resolved value.
 
-#### A) Core conversion functions
+| State                     | `path`                            | URL                                                          |
+| ------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| Published, local          | `/public/val/photo.jpg`           | `/val/photo.jpg` (strips `/public`)                          |
+| Draft, local              | `/public/val/photo.jpg`           | `/api/val/files/public/val/photo.jpg?patch_id=...`           |
+| Published, remote         | `https://remote.val.build/file/…` | the path itself                                              |
+| Draft, remote             | `https://remote.val.build/file/…` | `/api/val/files/{filePath}?patch_id=...&remote=true&ref=...` |
+| Absolute, outside /public | `/images/photo.jpg`               | the path itself                                              |
 
-Use `Internal.convertFileSource` (for local `_type: "file"` images) or `Internal.convertRemoteSource` (for `_type: "remote"` images). Both are on the `Internal` object from `@valbuild/core`.
-
-**URL rules for local images** (`convertFileSource` in `packages/core/src/schema/file.ts`):
-
-| State                     | `_ref`                  | URL                                                |
-| ------------------------- | ----------------------- | -------------------------------------------------- |
-| Published (no `patch_id`) | `/public/val/photo.jpg` | `/val/photo.jpg` (strips `/public`)                |
-| Draft (has `patch_id`)    | `/public/val/photo.jpg` | `/api/val/files/public/val/photo.jpg?patch_id=...` |
-| Non-public ref            | `some/other/path`       | `some/other/path` (used as-is)                     |
-
-**URL rules for remote images** (`convertRemoteSource` in `packages/core/src/schema/remote.ts`):
-
-| State                     | URL                                                          |
-| ------------------------- | ------------------------------------------------------------ |
-| Published (no `patch_id`) | The `_ref` string directly (full remote URL)                 |
-| Draft (has `patch_id`)    | `/api/val/files/{filePath}?patch_id=...&remote=true&ref=...` |
-
-#### B) `ImageField` / full `ImageSource` objects
-
-When you have an `ImageSource` object (with `_ref`, `_type`, etc.), use `useFilePatchIds()` to look up the `patch_id` for uncommitted patches, then call the appropriate convert function:
+In the Studio, look the `patch_id` up first — `useFilePatchIds()` is keyed by
+`path`:
 
 ```typescript
 const filePatchIds = useFilePatchIds();
-const patchId = filePatchIds.get(source[FILE_REF_PROP]);
-const url =
-  source[VAL_EXTENSION] === "remote"
-    ? Internal.convertRemoteSource({
-        ...source,
-        [VAL_EXTENSION]: "remote",
-        ...(patchId ? { patch_id: patchId } : {}),
-      }).url
-    : Internal.convertFileSource({
-        ...source,
-        [VAL_EXTENSION]: "file",
-        ...(patchId ? { patch_id: patchId } : {}),
-      }).url;
+const patchId = filePatchIds.get(source.path);
+const url = Internal.mediaUrl({
+  path: source.path,
+  ...(patchId ? { patch_id: patchId } : {}),
+});
 ```
 
-#### C) `ModuleGallery` / bare `_ref` strings
+A gallery gives you a bare path string rather than a media object (the record key
+is the path), and that is all `mediaUrl` needs.
 
-In gallery contexts you often only have the `_ref` string (the record key), not a full `ImageSource`. Use the `refToUrl` helper pattern from `ModuleGallery.tsx` or `ModuleMediaPicker`:
-
-```typescript
-function refToUrl(
-  ref: string,
-  filePatchIds: ReadonlyMap<string, string>,
-): string {
-  const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  if (remoteRefRes.status === "success") {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
-}
-```
-
-This handles both local and remote refs, with or without pending patches. The `MediaPicker` component accepts a `getUrl` prop using the same logic.
-
-#### D) In selectors (consumer code)
-
-`ImageSelector` extends `FileSelector` which has a `.url` property. The selector proxy (`SelectorProxy.ts`) automatically calls `convertFileSource` when it encounters a `_type: "file"` source, so `selector.url` just works.
+**In consumer code**, `url` is generated by `stegaEncode` (so it carries the edit
+tag) and read as `img.url` — along`img.path`, `img.width`, `img.alt` and the rest,
+which are the source's own fields. There is no `metadata` object: `url` is the
+only thing that was not authored. For a gallery-backed field, `fillFromGallery`
+supplies the dimensions and mime type at resolve time.
 
 #### Server-side file serving
 

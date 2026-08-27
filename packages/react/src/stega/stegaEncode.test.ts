@@ -1,6 +1,6 @@
 import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
 import {
-  ImageMetadata,
+  Internal,
   RawString,
   Schema,
   SelectorSource,
@@ -23,22 +23,23 @@ describe("stega transform", () => {
 
     const valModule = c.define("/test.val.ts", schema, [
       {
-        image: c.image("/public/val/test1.png", {
+        image: {
+          path: "/public/val/test1.png",
           width: 100,
           height: 100,
           mimeType: "image/png",
-        }),
+        },
         text: [{ tag: "p", children: ["Test"] }],
         n: 1,
         b: true,
       },
       {
-        image: c.image("/public/val/test2.png", {
+        image: {
+          path: "/public/val/test2.png",
           width: 100,
           height: 100,
           mimeType: "image/png",
-          patch_id: "123",
-        } as ImageMetadata),
+        },
         text: [{ tag: "p", children: ["Test"] }],
         n: 2,
         b: false,
@@ -99,18 +100,16 @@ describe("stega transform", () => {
     const schema = s.array(s.image().remote());
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, [
-        c.remote(
-          "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
-          {
-            width: 100,
-            height: 100,
-            mimeType: "image/png",
-            hotspot: {
-              x: 0.5,
-              y: 0.5,
-            },
+        {
+          path: "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          hotspot: {
+            x: 0.5,
+            y: 0.5,
           },
-        ),
+        },
       ]),
       {},
     );
@@ -427,3 +426,163 @@ describe("stegaEncode root seed (jsonValues entries)", () => {
 
 type SchemaOf<T extends Schema<SelectorSource>> =
   T extends Schema<infer S> ? S : never;
+
+describe("media is resolved from the schema, not from the value", () => {
+  test("an image still has a url when steganography is disabled", () => {
+    // `disabled: !enabled` is the normal production path. Media used to be
+    // recognised from a marker on the value, so it resolved regardless; now it
+    // is recognised from the schema, and dropping the schema here would strip
+    // the url from every image on every production page.
+    const schema = s.object({ image: s.image() });
+    const valModule = c.define("/disabled.val.ts", schema, {
+      image: {
+        path: "/public/val/logo.png",
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+      },
+    });
+    const res = stegaEncode(valModule, { disabled: true });
+    expect(res.image.url).toBe("/val/logo.png");
+    expect(vercelStegaDecode(res.image.url)).toBeUndefined();
+  });
+
+  test("an image whose bytes are not committed is served by the files API", () => {
+    const schema = s.object({ image: s.image() });
+    const valModule = c.define("/draft.val.ts", schema, {
+      image: {
+        path: "/public/val/logo.png",
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+        patch_id: "pt1",
+      },
+    });
+    const res = stegaEncode(valModule, {});
+    expect(vercelStegaSplit(res.image.url).cleaned).toBe(
+      "/api/val/files/public/val/logo.png?patch_id=pt1",
+    );
+  });
+
+  test("a richtext inline image has a url", () => {
+    // The richtext walker hands the RICHTEXT schema down to every key, so `src`
+    // would look like a plain object unless the inline image schema is passed
+    // to it explicitly.
+    const schema = s.object({
+      text: s.richtext({ inline: { img: true } }),
+    });
+    const valModule = c.define("/richtext.val.ts", schema, {
+      text: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              src: {
+                path: "/public/val/inline.png",
+                width: 8,
+                height: 8,
+                mimeType: "image/png",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const res = stegaEncode(valModule, {});
+    const img = res.text[0].children[0];
+    expect(vercelStegaSplit(img.src.url).cleaned).toBe("/val/inline.png");
+  });
+
+  test("an image inside a tagged union arm is resolved", () => {
+    const schema = s.object({
+      block: s.union(
+        "type",
+        s.object({ type: s.literal("hero"), image: s.image() }),
+        s.object({ type: s.literal("text"), body: s.string() }),
+      ),
+    });
+    const valModule = c.define("/union.val.ts", schema, {
+      block: {
+        type: "hero",
+        image: {
+          path: "/public/val/hero.png",
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+        },
+      },
+    });
+    const res = stegaEncode(valModule, {});
+    expect(vercelStegaSplit(res.block.image.url).cleaned).toBe("/val/hero.png");
+  });
+
+  test("a gallery-backed image gets its dimensions and alt from the gallery", () => {
+    const gallery = c.define(
+      "/gallery.val.ts",
+      s.images({ directory: "/public/img" }),
+      {
+        "/public/img/hero.png": {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+          alt: "The gallery's alt",
+        },
+      },
+    );
+    const schema = s.object({ hero: s.image(gallery) });
+    const valModule = c.define("/gallery-field.val.ts", schema, {
+      hero: { path: "/public/img/hero.png" },
+    });
+    const res = stegaEncode(valModule, {
+      getModule: (modulePath) =>
+        modulePath === "/gallery.val.ts"
+          ? Internal.getSource(gallery)
+          : undefined,
+    });
+    expect(res.hero.width).toBe(8);
+    expect(res.hero.mimeType).toBe("image/png");
+    // Dropping this makes every gallery-backed image render with an empty alt.
+    expect(res.hero.alt).toBe("The gallery's alt");
+  });
+
+  test("a per-image alt beats the gallery's", () => {
+    const gallery = c.define(
+      "/gallery2.val.ts",
+      s.images({ directory: "/public/img" }),
+      {
+        "/public/img/hero.png": {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+          alt: "The gallery's alt",
+        },
+      },
+    );
+    const schema = s.object({ hero: s.image(gallery) });
+    const valModule = c.define("/gallery-field2.val.ts", schema, {
+      hero: { path: "/public/img/hero.png", alt: "This one only" },
+    });
+    const res = stegaEncode(valModule, {
+      getModule: (modulePath) =>
+        modulePath === "/gallery2.val.ts"
+          ? Internal.getSource(gallery)
+          : undefined,
+    });
+    expect(res.hero.alt).toBe("This one only");
+  });
+
+  test("a plain object that happens to have a path is left alone", () => {
+    const schema = s.object({
+      link: s.object({ path: s.string(), title: s.string() }),
+    });
+    const valModule = c.define("/plain.val.ts", schema, {
+      link: { path: "/public/val/not-an-image.png", title: "A link" },
+    });
+    const res = stegaEncode(valModule, {});
+    expect("url" in res.link).toBe(false);
+    expect(vercelStegaSplit(res.link.path).cleaned).toBe(
+      "/public/val/not-an-image.png",
+    );
+  });
+});

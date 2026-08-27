@@ -7,6 +7,6 @@ export default c.define(
     image: s.image(basicGalleryVal),
   }),
   {
-    image: c.image("/public/val/images/image.png"),
+    image: { path: "/public/val/images/image.png" },
   },
 );

@@ -1,12 +1,10 @@
 import * as React from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
   ListRecordRender,
   ModuleFilePath,
   ModulePath,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -56,7 +54,7 @@ export interface RouteSelectorRoute {
   preview?: {
     title: string;
     subtitle?: string | null;
-    image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+    image?: ImageSource | string | null;
   } | null;
 }
 

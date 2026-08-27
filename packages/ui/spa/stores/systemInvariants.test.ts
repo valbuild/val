@@ -667,11 +667,12 @@ describe("source store: patches that carry files", () => {
   const { c, s } = initVal();
   const imageModule = () =>
     c.define("/img.val.ts", s.object({ hero: s.image() }), {
-      hero: c.image("/public/val/initial.png", {
+      hero: {
+        path: "/public/val/initial.png",
         width: 1,
         height: 1,
         mimeType: "image/png",
-      }),
+      },
     });
 
   /**
@@ -694,9 +695,10 @@ describe("source store: patches that carry files", () => {
           op: "replace",
           path: ["hero"],
           value: {
-            _ref: "/public/val/uploaded.png",
-            _type: "file",
-            metadata: { width: 8, height: 1, mimeType: "image/png" },
+            path: "/public/val/uploaded.png",
+            width: 8,
+            height: 1,
+            mimeType: "image/png",
           },
         },
         {
@@ -715,7 +717,7 @@ describe("source store: patches that carry files", () => {
     const read = await sourceStore.get('/img.val.ts?p="hero"', null);
     expect(read).toMatchObject({
       status: "resolved-head",
-      data: { _ref: "/public/val/uploaded.png" },
+      data: { path: "/public/val/uploaded.png" },
     });
     dispose();
   });

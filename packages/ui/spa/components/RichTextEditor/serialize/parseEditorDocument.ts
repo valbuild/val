@@ -1,5 +1,4 @@
 import type { Node as PMNode, Mark, Schema } from "prosemirror-model";
-import { FILE_REF_PROP } from "@valbuild/core";
 import type {
   EditorDocument,
   EditorBlockNode,
@@ -149,18 +148,13 @@ function parseInlineNodes(
     } else if (child.tag === "img") {
       if (schema.nodes.image) {
         const srcObj = typeof child.src === "string" ? null : child.src;
-        const src = srcObj
-          ? ((srcObj as Record<string, unknown>)?.[FILE_REF_PROP] ?? "")
-          : child.src;
-        const metadata =
-          srcObj && "metadata" in srcObj ? srcObj.metadata : null;
         result.push(
           schema.node("image", {
-            src,
+            src: srcObj ? srcObj.path : child.src,
             alt: child.alt ?? null,
-            width: metadata?.width ?? null,
-            height: metadata?.height ?? null,
-            mimeType: metadata?.mimeType ?? null,
+            width: srcObj?.width ?? null,
+            height: srcObj?.height ?? null,
+            mimeType: srcObj?.mimeType ?? null,
           }),
         );
       }

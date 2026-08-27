@@ -10,7 +10,6 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
-  FILE_REF_PROP,
   hasRemoteFileSchema,
   ImageMetadata,
   Internal,
@@ -1754,12 +1753,16 @@ export type ShallowSource = EnsureAllTypes<{
   dateTime: string;
   color: string;
   file: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    mimeType?: string;
   };
   image: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    alt?: string;
+    hotspot?: { x: number; y: number };
   };
   literal: string;
   richtext: unknown[];
@@ -2304,22 +2307,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (type === "file" || type === "image") {
     if (
       typeof source !== "object" ||
-      !(FILE_REF_PROP in source) ||
-      source[FILE_REF_PROP] === undefined
+      !("path" in source) ||
+      typeof source.path !== "string"
     ) {
       return {
         status: "error",
-        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
-      };
-    }
-    if (
-      "metadata" in source &&
-      source.metatadata &&
-      typeof source.metatadata !== "object"
-    ) {
-      return {
-        status: "error",
-        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+        error: `Expected object with a path property, got ${typeof source}`,
       };
     }
     // TODO: verify that metadata values is of type Json

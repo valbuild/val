@@ -30,7 +30,7 @@ export function ValImage(props: ValImageProps) {
       valPaths.push(valPath);
     }
   }
-  const hotspot = src?.metadata?.hotspot;
+  const hotspot = src?.hotspot;
   const imageStyle =
     hotspot && !disableHotspot
       ? {
@@ -39,11 +39,14 @@ export function ValImage(props: ValImageProps) {
         }
       : style;
   const preferMetadataDims =
-    src?.metadata !== undefined && !rest.fill && !width && !height;
+    (src?.width !== undefined || src?.height !== undefined) &&
+    !rest.fill &&
+    !width &&
+    !height;
   const isUnoptimized =
     rest.unoptimized !== undefined
       ? rest.unoptimized
-      : src?.metadata?.mimeType === "image/svg+xml"; // SVGs are unoptimized by default
+      : src?.mimeType === "image/svg+xml"; // SVGs are unoptimized by default
   return (
     <NextImage
       {...{
@@ -66,13 +69,13 @@ export function ValImage(props: ValImageProps) {
       alt={
         alt
           ? raw(alt as ValEncodedString)
-          : src?.metadata?.alt
-            ? raw(src?.metadata?.alt as ValEncodedString)
+          : src?.alt
+            ? raw(src?.alt as ValEncodedString)
             : ""
       }
       fill={rest.fill}
-      width={preferMetadataDims ? src?.metadata?.width : width}
-      height={preferMetadataDims ? src?.metadata?.height : height}
+      width={preferMetadataDims ? src?.width : width}
+      height={preferMetadataDims ? src?.height : height}
       unoptimized={isUnoptimized}
     ></NextImage>
   );
