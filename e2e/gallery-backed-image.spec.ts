@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { clearPatchChain, discardAll, openStudio } from "./studio";
+import {
+  clearPatchChain,
+  discardAll,
+  openStudio,
+  peekThroughStore,
+} from "./studio";
 
 const MODULE = "/content/mediaFields.val.ts";
 const IMAGE = "e2e/fixtures/blue-8x8.png";
@@ -38,18 +43,10 @@ test.describe("an image field backed by a gallery", () => {
 
     // The upload really did work: the gallery holds the dimensions, and the
     // thumbnail decoded. Asserted first, so a silent FAILURE cannot pass this.
-    const gallery = await page.evaluate(() => {
-      const stores = (
-        window as unknown as { __VAL_STORES__?: { system?: unknown } }
-      ).__VAL_STORES__;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const system = (stores as any)?.system;
-      const peeked = system.sourceStore.peek("/content/mediaFixtures.val.ts");
-      return peeked.data as Record<
-        string,
-        { width?: unknown; height?: unknown }
-      > | null;
-    });
+    const gallery = (await peekThroughStore(
+      page,
+      "/content/mediaFixtures.val.ts",
+    )) as Record<string, { width?: unknown; height?: unknown }> | null;
     const uploaded = gallery?.["/public/test/subdir/blue-8x8_8b441.png"];
     expect(uploaded?.width).toBe(8);
     expect(uploaded?.height).toBe(8);
@@ -102,22 +99,13 @@ test.describe("an image field backed by a gallery", () => {
 
     // And it is in source, not only on screen.
     await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const stores = (
-            window as unknown as { __VAL_STORES__?: { system?: unknown } }
-          ).__VAL_STORES__;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const system = (stores as any)?.system;
-          const peeked = system.sourceStore.peek(
-            '/content/mediaFields.val.ts?p="fromGallery"',
-          );
-          const metadata = (
-            peeked.data as { metadata?: { hotspot?: unknown } } | null
-          )?.metadata;
-          return JSON.stringify(metadata?.hotspot ?? null);
-        }),
-      )
+      .poll(async () => {
+        const value = (await peekThroughStore(
+          page,
+          '/content/mediaFields.val.ts?p="fromGallery"',
+        )) as { metadata?: { hotspot?: unknown } } | null;
+        return JSON.stringify(value?.metadata?.hotspot ?? null);
+      })
       .toBe(JSON.stringify({ x: 0.5, y: 0.5 }));
 
     // The partial metadata the toggle just wrote is correct for this field, so
