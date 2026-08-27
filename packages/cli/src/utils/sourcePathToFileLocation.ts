@@ -29,7 +29,7 @@ type Range = { start: Position; end: Position };
 
 /**
  * Resolves a validation `sourcePath` (e.g.
- * `/content/page.val.ts?p="image"."metadata"`) to a clickable
+ * `/content/page.val.ts?p="image"."width"`) to a clickable
  * `relativePath:line:col` location pointing at the offending source literal in
  * the val file.
  *

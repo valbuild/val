@@ -207,7 +207,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
           [path]: [
             ...customValidationErrors,
             {
-              message: `An image from a gallery must not carry its own ${repeated.join(", ")}: they are stored in the gallery module.`,
+              message: `An image from a gallery must not carry its own ${repeated.join(", ")}: ${repeated.length === 1 ? "it is" : "they are"} stored in the gallery module.`,
               value: src,
             },
           ],
