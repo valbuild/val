@@ -36,7 +36,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
-import { ScopeTrail, StickyScopeBar, useScrolledPast } from "./ModuleScope";
+import { ScopeTrail } from "./ModuleScope";
 
 export function Module({
   path,
@@ -75,7 +75,6 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
-  const [headerEndRef, headerScrolledPast] = useScrolledPast();
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -132,10 +131,7 @@ export function Module({
       ? parentSchema.key?.description
       : undefined;
 
-  /**
-   * The tools, which appear twice: in the header and in the sticky bar it
-   * collapses into. Built once so the two cannot drift.
-   */
+  /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
     <div className="shrink-0 flex gap-2 items-center">
       {hasPendingPatches && (
@@ -149,7 +145,7 @@ export function Module({
     </div>
   );
 
-  /** What this module is called, in the header and in the sticky bar. */
+  /** What this module is called. */
   const titleNode = showNumber ? (
     <span className="shrink-0">#{Number(last.text)}</span>
   ) : isParentRouter ? (
@@ -165,21 +161,6 @@ export function Module({
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
-      {/*
-       * The header, once it has been scrolled past.
-       *
-       * A long module puts its own header out of reach, and "up" is the thing
-       * you are most likely to want by the time you are editing the tenth
-       * field. See `StickyScopeBar`.
-       */}
-      {!hideHeader && init.length > 0 && (
-        <StickyScopeBar
-          parent={init[init.length - 1]}
-          title={titleNode}
-          trailing={tools}
-          visible={headerScrolledPast}
-        />
-      )}
       <div className="flex flex-col gap-2 text-left overflow-hidden">
         <div
           className={cn({
@@ -232,11 +213,6 @@ export function Module({
           {schema.description && (
             <div className="text-sm text-fg-tertiary">{schema.description}</div>
           )}
-          {/*
-           * Marks the bottom of the header: once this is above the top of the
-           * column, the header is gone and the sticky bar takes over.
-           */}
-          <div ref={headerEndRef} aria-hidden className="h-0" />
         </div>
       </div>
       <div>

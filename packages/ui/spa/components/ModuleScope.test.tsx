@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { SourcePath } from "@valbuild/core";
-import { ScopePart, ScopeTrail, StickyScopeBar } from "./ModuleScope";
+import { ScopePart, ScopeTrail } from "./ModuleScope";
 
 /**
  * The scope line is made of links.
@@ -132,50 +132,5 @@ describe("the scope trail", () => {
   test("nothing to show above the module means no trail at all", () => {
     const { container } = render(trail([]));
     expect(container.querySelector("nav")).toBeNull();
-  });
-});
-
-describe("the sticky scope bar", () => {
-  test("is out of reach until the header has been scrolled past", () => {
-    const { container, rerender } = render(
-      <StickyScopeBar
-        parent={part("Authors", AUTHORS)}
-        title="one"
-        visible={false}
-      />,
-    );
-    const bar = container.querySelector("[aria-hidden]");
-    expect(bar?.className).toContain("invisible");
-    rerender(
-      <StickyScopeBar
-        parent={part("Authors", AUTHORS)}
-        title="one"
-        visible={true}
-      />,
-    );
-    expect(
-      container.querySelector("[aria-hidden='false']")?.className,
-    ).toContain("visible");
-  });
-
-  test("sticks below whatever is covering the column", () => {
-    const { container } = render(
-      <div data-scroll-clearance={96}>
-        <StickyScopeBar parent={null} title="one" visible={true} />
-      </div>,
-    );
-    const flow = container.querySelector(".sticky");
-    expect(flow).not.toBeNull();
-    // Flush to the scroller's top edge would put it behind the floating top bar.
-    expect((flow as HTMLElement).style.top).toBe("96px");
-  });
-
-  test("takes up no room, so revealing it moves nothing", () => {
-    const { container } = render(
-      <StickyScopeBar parent={null} title="one" visible={true} />,
-    );
-    // The flow box is zero-height and sticky; the bar floats out of it.
-    expect(container.firstElementChild?.className).toContain("h-0");
-    expect(container.firstElementChild?.className).toContain("sticky");
   });
 });
