@@ -695,9 +695,10 @@ describe("source store: patches that carry files", () => {
           op: "replace",
           path: ["hero"],
           value: {
-            _ref: "/public/val/uploaded.png",
-            _type: "file",
-            metadata: { width: 8, height: 1, mimeType: "image/png" },
+            path: "/public/val/uploaded.png",
+            width: 8,
+            height: 1,
+            mimeType: "image/png",
           },
         },
         {
@@ -716,7 +717,7 @@ describe("source store: patches that carry files", () => {
     const read = await sourceStore.get('/img.val.ts?p="hero"', null);
     expect(read).toMatchObject({
       status: "resolved-head",
-      data: { _ref: "/public/val/uploaded.png" },
+      data: { path: "/public/val/uploaded.png" },
     });
     dispose();
   });

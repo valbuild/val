@@ -53,9 +53,10 @@ const setImage = (field: string, filePath: string, data: string) => [
     op: "replace" as const,
     path: [field],
     value: {
-      _ref: filePath,
-      _type: "file" as const,
-      metadata: { width: 8, height: 1, mimeType: "image/png" },
+      path: filePath,
+      width: 8,
+      height: 1,
+      mimeType: "image/png",
     },
   },
   {

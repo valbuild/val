@@ -56,6 +56,27 @@ function parentPatchPathOfMediaEntry(sourcePath: SourcePath, entryKey: string) {
 
 // TODO: find a better name? transformFixesToPatch?
 /**
+ * A whole media value, for the fixes that replace one outright.
+ *
+ * The three remote fixes each wrote this shape out by hand, and one of them was
+ * left behind when the shape changed. One name, so the next change cannot miss a
+ * site.
+ *
+ * `path` last is deliberate: it is the field the fix is about, and a stray
+ * `path` inside the metadata must not win over it.
+ */
+export function mediaValue(
+  path: string,
+  metadata: unknown,
+): Record<string, JSONValue> {
+  const fields =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, JSONValue>)
+      : {};
+  return { ...fields, path };
+}
+
+/**
  * The media value a validation error flagged, read as a plain record.
  *
  * A `ValidationError` carries only a value, never the schema that rejected it,
@@ -243,10 +264,7 @@ export async function createFixPatch(
       } else {
         patch.push({
           op: "replace",
-          value: {
-            path: remoteFile.ref,
-            ...(metadata as Record<string, JSONValue>),
-          },
+          value: mediaValue(remoteFile.ref, metadata),
           path: sourceToPatchPath(sourcePath),
         });
       }
@@ -315,7 +333,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(v._ref);
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(v.path);
       if (splitRemoteRefDataRes.status === "error") {
         remainingErrors.push({
           ...validationError,
@@ -324,7 +342,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const url = v._ref;
+      const url = v.path;
       const filePath = splitRemoteRefDataRes.filePath;
       if (!filePath) {
         remainingErrors.push({
@@ -362,10 +380,7 @@ export async function createFixPatch(
       patch.push({
         op: "replace",
         path: sourceToPatchPath(sourcePath),
-        value: {
-          path: `/${filePath}`,
-          ...((v.metadata ?? {}) as Record<string, JSONValue>),
-        },
+        value: mediaValue(`/${filePath}`, v.metadata),
       });
     } else if (
       fix === "images:check-all-files" ||
@@ -506,7 +521,7 @@ export async function createFixPatch(
       if (schemaAtPath.type === "image" || schemaAtPath.type === "file") {
         const res = await checkRemoteRef(
           config.remoteHost,
-          v._ref,
+          v.path,
           config.projectRoot,
           schemaAtPath,
           v.metadata,
@@ -524,11 +539,7 @@ export async function createFixPatch(
             patch.push({
               op: "replace",
               path: sourceToPatchPath(sourcePath),
-              value: {
-                _type: "remote",
-                _ref: res.ref,
-                metadata: res.metadata,
-              },
+              value: mediaValue(res.ref, res.metadata),
             });
           } else {
             remainingErrors.push({
@@ -574,7 +585,7 @@ function getRemoteValueFromValidationError(v: ValidationError):
     }
   | {
       success: true;
-      _ref: string;
+      path: string;
       metadata?: Record<string, unknown>;
     } {
   if (v.value && typeof v.value !== "object") {
@@ -602,12 +613,12 @@ function getRemoteValueFromValidationError(v: ValidationError):
     };
   }
   // Everything but the path is what Val read from the bytes.
-  const { path: ref, ...metadata } = v.value as Record<string, unknown> & {
+  const { path, ...metadata } = v.value as Record<string, unknown> & {
     path: string;
   };
   return {
     success: true,
-    _ref: ref,
+    path,
     metadata,
   };
 }

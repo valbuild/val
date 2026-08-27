@@ -236,8 +236,8 @@ export function RichTextField({
           "value" in patch[0] &&
           typeof patch[0].value === "object" &&
           patch[0].value !== null &&
-          "_ref" in patch[0].value
-            ? (patch[0].value._ref as string)
+          "path" in patch[0].value
+            ? (patch[0].value.path as string)
             : filePath;
 
         const fileOps = patch.filter((op) => op.op === "file");

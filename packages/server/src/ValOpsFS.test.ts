@@ -149,13 +149,10 @@ describe("ValOpsFS", () => {
           op: "replace",
           path: ["testImage"],
           value: {
-            _ref: "/public/val/images/smallest.png",
-            _type: "file",
-            metadata: {
-              width: 8,
-              height: 1,
-              mimeType: "image/png",
-            },
+            path: "/public/val/images/smallest.png",
+            width: 8,
+            height: 1,
+            mimeType: "image/png",
           },
         },
         {
@@ -239,13 +236,10 @@ describe("ValOpsFS", () => {
             op: "replace",
             path: ["testImage"],
             value: {
-              _ref: "/public/val/images/smallest.png",
-              _type: "file",
-              metadata: {
-                width: 8,
-                height: 1,
-                mimeType: "image/png",
-              },
+              path: "/public/val/images/smallest.png",
+              width: 8,
+              height: 1,
+              mimeType: "image/png",
             },
           },
           {
