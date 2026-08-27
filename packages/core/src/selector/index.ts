@@ -4,42 +4,40 @@ import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as PrimitiveSelector } from "./primitive";
-import { FileSelector } from "./file";
 import { SourcePath } from "../val";
 import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
-import { FileSource } from "../source/file";
+import { MediaSource } from "../source/media";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
-import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
 import { JsonSource } from "../source/json";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
-  : T extends ImageSource
-    ? ImageSelector
-    : T extends FileSource<infer M>
-      ? FileSelector<M>
-      : T extends JsonSource
-        ? GenericSelector<JsonSource>
-        : T extends RichTextSource<infer O>
-          ? RichTextSelector<O>
-          : T extends SourceObject
-            ? ObjectSelector<T>
-            : T extends SourceArray
-              ? ArraySelector<T>
-              : T extends string
-                ? StringSelector<T>
-                : T extends number
-                  ? NumberSelector<T>
-                  : T extends boolean
-                    ? BooleanSelector<T>
-                    : T extends null
-                      ? PrimitiveSelector<null>
-                      : never;
+  : // Media is an ObjectSelector like any other object: `url` is generated at
+    // resolve time, not reachable through a selector. The arm exists because
+    // `SourceObject` cannot express optional properties, so media would
+    // otherwise fall through to `never`.
+    T extends MediaSource
+    ? GenericSelector<T>
+    : T extends JsonSource
+      ? GenericSelector<JsonSource>
+      : T extends RichTextSource<infer O>
+        ? RichTextSelector<O>
+        : T extends SourceObject
+          ? ObjectSelector<T>
+          : T extends SourceArray
+            ? ArraySelector<T>
+            : T extends string
+              ? StringSelector<T>
+              : T extends number
+                ? NumberSelector<T>
+                : T extends boolean
+                  ? BooleanSelector<T>
+                  : T extends null
+                    ? PrimitiveSelector<null>
+                    : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -48,9 +46,7 @@ export type SelectorSource =
   | {
       [key: string]: SelectorSource;
     }
-  | ImageSource
-  | FileSource
-  | RemoteSource
+  | MediaSource
   | JsonSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;

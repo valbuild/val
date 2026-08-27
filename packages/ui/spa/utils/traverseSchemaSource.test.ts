@@ -86,9 +86,9 @@ describe("traverseSchemaSource", () => {
   });
 
   describe("file and image", () => {
-    test("file extracts _ref", () => {
+    test("file yields its path", () => {
       const module = c.define("/test.val.ts", s.object({ file: s.file() }), {
-        file: c.file("/public/val/test.pdf"),
+        file: { path: "/public/val/test.pdf" },
       });
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; source: SelectorSource }> = [];
@@ -97,12 +97,12 @@ describe("traverseSchemaSource", () => {
       });
       expect(visited.length).toBe(1);
       expect(visited[0].path).toBe('/test.val.ts?p="file"');
-      expect(visited[0].source).toHaveProperty("_ref");
+      expect(visited[0].source).toHaveProperty("path");
     });
 
-    test("image extracts _ref", () => {
+    test("image yields its path", () => {
       const module = c.define("/test.val.ts", s.object({ image: s.image() }), {
-        image: c.image("/public/val/test.jpg"),
+        image: { path: "/public/val/test.jpg" },
       });
       const { schema, source, path } = getTestData(module);
       const visited: Array<{ path: SourcePath; source: SelectorSource }> = [];
@@ -111,7 +111,7 @@ describe("traverseSchemaSource", () => {
       });
       expect(visited.length).toBe(1);
       expect(visited[0].path).toBe('/test.val.ts?p="image"');
-      expect(visited[0].source).toHaveProperty("_ref");
+      expect(visited[0].source).toHaveProperty("path");
     });
   });
 
@@ -376,8 +376,8 @@ describe("traverseSchemaSource", () => {
         {
           item1: {
             media: [
-              { type: "image", image: c.image("/public/val/test.jpg") },
-              { type: "file", file: c.file("/public/val/test.pdf") },
+              { type: "image", image: { path: "/public/val/test.jpg" } },
+              { type: "file", file: { path: "/public/val/test.pdf" } },
             ],
           },
         },
@@ -392,8 +392,8 @@ describe("traverseSchemaSource", () => {
       const fileVisits = visited.filter((v) => v.path.includes("file"));
       expect(imageVisits.length).toBe(1);
       expect(fileVisits.length).toBe(1);
-      expect(imageVisits[0].source).toHaveProperty("_ref");
-      expect(fileVisits[0].source).toHaveProperty("_ref");
+      expect(imageVisits[0].source).toHaveProperty("path");
+      expect(fileVisits[0].source).toHaveProperty("path");
     });
   });
 });

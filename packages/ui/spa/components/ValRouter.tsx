@@ -8,12 +8,32 @@ import React, {
 } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 
-const VAL_COMPARE_ROUTE = "/val/compare";
+export const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
 
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
+  /**
+   * The URL a navigation would go to, without navigating.
+   *
+   * So that something the user can click can be a real LINK: an `<a href>` that
+   * middle-clicks into a new tab, offers "Copy link address", and shows the
+   * destination in the status bar — none of which a `<button>` calling
+   * `navigate` can do. The href and the navigation come from one function, so a
+   * link cannot advertise one destination and take you to another.
+   */
+  hrefOf: (
+    path:
+      | SourcePath
+      | ModuleFilePath
+      | typeof VAL_COMPARE_ROUTE
+      | typeof VAL_ERRORS_ROUTE,
+    params?: {
+      scrollToPath?: SourcePath | ModuleFilePath;
+      errorFields?: SourcePath[];
+    },
+  ) => string;
   navigate: (
     path:
       | SourcePath
@@ -27,6 +47,19 @@ type ValRouterContextValue = {
     },
   ) => void;
   currentSourcePath: SourcePath;
+  /**
+   * The exact field the route is focused on, when it is deeper than the module
+   * `currentSourcePath` names.
+   *
+   * The two differ because opening one field should not hide the rest of the
+   * page it is on. A pick on the canvas, a search hit or a validation error all
+   * name a leaf, and the editor is opened at the nearest sensible ancestor of it
+   * — see `getNavPath` — so the field arrives in context, with its siblings
+   * around it. This is the leaf itself, kept so the thing that was asked for can
+   * still be pointed at: scrolled to, outlined on the page, marked in the fields
+   * list. Null when the route is already the module the editor shows.
+   */
+  focusedSourcePath: SourcePath | null;
   isCompareView: boolean;
   isErrorsView: boolean;
   errorFields: SourcePath[];
@@ -48,6 +81,23 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
+/**
+ * Query params a route builds for itself, and which must not be carried.
+ *
+ * `p` is the module path — it is part of the source path the route is built
+ * from, not a separate piece of state — so carrying it appends the previous
+ * page's path to the next one's and the URL ends up naming two.
+ *
+ * `error-field` belongs to the errors view: carrying it would mean the fields
+ * from one visit followed you to the next, which is how a view ends up showing
+ * errors nobody asked about.
+ *
+ * `field` is the leaf the route is focused on, which belongs to the navigation
+ * that set it: carrying it would leave the previous field outlined on a page it
+ * is not on.
+ */
+const ROUTE_OWNED_PARAMS = ["p", "error-field", "field"];
+
 const STUDIO_PATH_ATTR = "data-val-studio-path";
 
 function findStudioPathTarget(
@@ -63,11 +113,61 @@ function findStudioPathTarget(
   return null;
 }
 
+/**
+ * Scroll to a path once something renders it.
+ *
+ * Retried rather than done once, because the target does not exist yet: the
+ * navigation has only just set the route, and the field being scrolled to is
+ * somewhere in a module tree that is still mounting — and on a cold load, still
+ * being fetched.
+ */
+export function scrollToStudioPath(path: string, retries = 100) {
+  const execScroll = () => {
+    const shadowRoot = document.getElementById("val-shadow-root")?.shadowRoot;
+    const element = shadowRoot ? findStudioPathTarget(shadowRoot, path) : null;
+    if (element && shadowRoot) {
+      doScroll(shadowRoot, element);
+    } else if (retries > 0) {
+      retries--;
+      setTimeout(execScroll, 100);
+    }
+  };
+  execScroll();
+}
+
+/** Clearance to leave above a field when nothing says otherwise. */
+const DEFAULT_SCROLL_CLEARANCE = 16;
+
+/**
+ * Bring a field to the top of the editor, below whatever floats over it.
+ *
+ * Measured from bounding rects rather than from `offsetTop`. `offsetTop` is
+ * relative to the nearest *positioned* ancestor, and the field tree has plenty
+ * of those, so what it reports is usually a fraction of the distance to the
+ * scroll container — the scroll then stopped short and left the field below the
+ * fold. Rects plus the container's current `scrollTop` is the real distance
+ * whatever the tree looks like.
+ *
+ * The clearance comes from the container, because only the layout knows what is
+ * covering it: the shell's top bar floats over the editor column, and in the
+ * canvas the view switch takes a row of its own instead. A field scrolled to
+ * `top` in the first case lands underneath the bar.
+ */
 function doScroll(shadowRoot: ShadowRoot, element: HTMLElement) {
-  shadowRoot.getElementById("val-content-area")?.scrollTo({
-    top: Math.max(0, element.offsetTop - 16),
-    behavior: "smooth",
-  });
+  const container = shadowRoot.getElementById("val-content-area");
+  if (container) {
+    const declared = Number(container.dataset.scrollClearance);
+    const clearance = Number.isFinite(declared)
+      ? declared
+      : DEFAULT_SCROLL_CLEARANCE;
+    const distance =
+      element.getBoundingClientRect().top -
+      container.getBoundingClientRect().top;
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + distance - clearance),
+      behavior: "smooth",
+    });
+  }
   element.classList.remove("val-scroll-highlight");
   void element.offsetWidth;
   element.classList.add("val-scroll-highlight");
@@ -90,6 +190,9 @@ export function ValRouter({
 }) {
   const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
+  const [focusedSourcePath, setFocusedSourcePath] = useState<SourcePath | null>(
+    null,
+  );
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
@@ -143,6 +246,8 @@ export function ValRouter({
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
+        const focused = new URLSearchParams(location.search).get("field");
+        setFocusedSourcePath(focused ? (focused as SourcePath) : null);
         // reset scroll position
         const prevScrollPos = historyState.current.pop();
         if (prevScrollPos) {
@@ -162,23 +267,13 @@ export function ValRouter({
             "",
             location.pathname + location.search,
           );
-          let retriesLeft = 100;
-          const execScroll = () => {
-            if (scrollToPath) {
-              const shadowRoot =
-                document.getElementById("val-shadow-root")?.shadowRoot;
-              const element = shadowRoot
-                ? findStudioPathTarget(shadowRoot, scrollToPath)
-                : null;
-              if (element && shadowRoot) {
-                doScroll(shadowRoot, element);
-              } else if (retriesLeft > 0) {
-                retriesLeft--;
-                setTimeout(execScroll, 100);
-              }
-            }
-          };
-          execScroll();
+          if (scrollToPath) {
+            scrollToStudioPath(scrollToPath);
+          }
+        } else if (focused) {
+          // A link that named a field means it: land on the field rather than at
+          // the top of whatever module contains it.
+          scrollToStudioPath(focused);
         }
       } else if (
         location.pathname === "/val" ||
@@ -196,6 +291,101 @@ export function ValRouter({
       window.removeEventListener("popstate", listener);
     };
   }, []);
+  /**
+   * Build the URL a navigation goes to. See {@link ValRouterContextValue.hrefOf}.
+   *
+   * The whole body of what `navigate` used to compute, lifted out unchanged so
+   * that a link's `href` and the navigation its click performs cannot drift
+   * apart — the failure that would produce is a link showing one destination in
+   * the status bar and opening another, which is worse than no link at all.
+   */
+  const hrefOf = useCallback(
+    (
+      path:
+        | SourcePath
+        | ModuleFilePath
+        | typeof VAL_COMPARE_ROUTE
+        | typeof VAL_ERRORS_ROUTE,
+      params?: {
+        scrollToPath?: SourcePath | ModuleFilePath;
+        errorFields?: SourcePath[];
+      },
+    ): string => {
+      const isCompare = path === VAL_COMPARE_ROUTE;
+      const isErrors = path === VAL_ERRORS_ROUTE;
+      const errorFieldsQuery =
+        isErrors && params?.errorFields && params.errorFields.length > 0
+          ? "?" +
+            params.errorFields
+              .map((p) => `error-field=${encodeURIComponent(p)}`)
+              .join("&")
+          : "";
+      const navigateTo = isCompare
+        ? VAL_COMPARE_ROUTE
+        : isErrors
+          ? VAL_ERRORS_ROUTE + errorFieldsQuery
+          : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+      /**
+       * Carry the studio's own state across the navigation.
+       *
+       * A navigation replaces the whole URL, so anything the studio had put in
+       * the query — the AI session, which canvas is open and where it is
+       * looking — is gone unless it is carried. Everything is carried except
+       * the params a route owns, which are rebuilt above for the route being
+       * navigated to.
+       *
+       * Generic rather than a list of names, because the alternative is that
+       * every new piece of studio state has to remember to add itself here,
+       * and the failure when it forgets is silent: a link that looks right and
+       * restores half of what it should.
+       */
+      const carried = new URLSearchParams(
+        typeof window === "undefined" ? "" : window.location.search,
+      );
+      for (const owned of ROUTE_OWNED_PARAMS) {
+        carried.delete(owned);
+      }
+      // In overlay mode the host page URL has no `?session=`, so fall back to
+      // sessionStorage: AI navigate_to (and overlay→studio nav generally)
+      // should bring the active chat along to the studio.
+      let sid: string | null = sessionParam;
+      if (overlay && sid == null) {
+        try {
+          sid = sessionStorage.getItem(VAL_AI_SESSION_STORAGE_KEY);
+        } catch {
+          sid = null;
+        }
+      }
+      if (sid) {
+        carried.set("session", sid);
+      } else {
+        carried.delete("session");
+      }
+      /**
+       * The leaf this navigation was asked for, when it is not the module being
+       * opened.
+       *
+       * Durable rather than a one-shot scroll: the field is what someone
+       * actually picked, and it has to survive being copied as a link, being
+       * come back to with the back button, and the canvas switching views. It
+       * lives in the query for the same reason `p` does — the alternative was a
+       * hash, which the studio strips on read and which never reaches a reload.
+       */
+      const focused =
+        !isCompare && !isErrors && params?.scrollToPath !== path
+          ? (params?.scrollToPath ?? null)
+          : null;
+      if (focused) {
+        carried.set("field", focused);
+      }
+      const carriedQuery = carried.toString();
+      return carriedQuery
+        ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}${carriedQuery}`
+        : navigateTo;
+    },
+    [overlay, sessionParam],
+  );
+
   const navigate = useCallback(
     (
       path:
@@ -211,43 +401,18 @@ export function ValRouter({
     ) => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
-      const errorFieldsQuery =
-        isErrors && params?.errorFields && params.errorFields.length > 0
-          ? "?" +
-            params.errorFields
-              .map((p) => `error-field=${encodeURIComponent(p)}`)
-              .join("&")
-          : "";
-      const navigateTo = isCompare
-        ? VAL_COMPARE_ROUTE
-        : isErrors
-          ? VAL_ERRORS_ROUTE + errorFieldsQuery
-          : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
-      // Preserve `?session=` across in-studio navigations. Without this every
-      // sidebar/compare/errors click would strip the AI chat session id from
-      // the URL. URL only — useAI does not re-read this after mount, so chat
-      // state is intentionally not affected by navigations.
-      //
-      // In overlay mode the host page URL has no `?session=`, so fall back to
-      // sessionStorage so AI navigate_to (and overlay→studio nav generally)
-      // brings the active chat along to the studio.
-      let sid: string | null = sessionParam;
-      if (overlay && sid == null) {
-        try {
-          sid = sessionStorage.getItem(VAL_AI_SESSION_STORAGE_KEY);
-        } catch {
-          sid = null;
-        }
-      }
-      const finalTo = sid
-        ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}session=${encodeURIComponent(sid)}`
-        : navigateTo;
+      const finalTo = hrefOf(path, params);
+      const focused =
+        !isCompare && !isErrors && params?.scrollToPath !== path
+          ? (params?.scrollToPath ?? null)
+          : null;
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
       setSourcePath(
         isCompare || isErrors ? ("" as SourcePath) : (path as SourcePath),
       );
+      setFocusedSourcePath(focused as SourcePath | null);
       if (!overlay) {
         const shadowRoot =
           document.getElementById("val-shadow-root")?.shadowRoot;
@@ -286,7 +451,7 @@ export function ValRouter({
             : "");
       }
     },
-    [overlay, sessionParam],
+    [overlay, hrefOf],
   );
   const setSessionParam = useCallback(
     (id: string | null, opts?: { replace?: boolean }) => {
@@ -310,7 +475,9 @@ export function ValRouter({
       value={{
         hardLink: !!overlay,
         currentSourcePath,
+        focusedSourcePath,
         navigate,
+        hrefOf,
         ready,
         isCompareView,
         isErrorsView,
@@ -327,7 +494,9 @@ export function ValRouter({
 export function useNavigation() {
   const {
     navigate,
+    hrefOf,
     currentSourcePath,
+    focusedSourcePath,
     ready,
     isCompareView,
     isErrorsView,
@@ -335,7 +504,9 @@ export function useNavigation() {
   } = useContext(ValRouterContext);
   return {
     navigate,
+    hrefOf,
     currentSourcePath,
+    focusedSourcePath,
     ready,
     isCompareView,
     isErrorsView,

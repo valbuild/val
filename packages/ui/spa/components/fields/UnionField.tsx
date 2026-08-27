@@ -31,8 +31,8 @@ import { useEffect, useRef } from "react";
 import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
-import { ValidationErrors } from "../../components/ValidationError";
 import { isJsonArray } from "../../utils/isJsonArray";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -108,7 +108,6 @@ export function UnionField({
     }
     const stringUnionContent = (
       <div id={path}>
-        <ValidationErrors path={path} />
         <SelectField
           path={path}
           source={source}
@@ -126,11 +125,7 @@ export function UnionField({
       </div>
     );
     if (readonly) {
-      return (
-        <div className="pointer-events-none opacity-70" aria-disabled="true">
-          {stringUnionContent}
-        </div>
-      );
+      return <ReadonlyGuard>{stringUnionContent}</ReadonlyGuard>;
     }
     return stringUnionContent;
   } else if (!isStringUnion(schemaAtPath.data)) {
@@ -154,7 +149,6 @@ export function UnionField({
     }
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <ObjectUnionField
           path={path}
           schema={schemaAtPath.data}

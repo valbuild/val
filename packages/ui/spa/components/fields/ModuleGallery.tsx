@@ -27,7 +27,6 @@ import {
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { getRefParts } from "../../utils/getFilenameFromRef";
-import { ValidationErrors } from "../ValidationError";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
@@ -36,15 +35,27 @@ import { readImage, readImageFromFile } from "../../utils/readImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 import { refToUrl } from "../MediaPicker/refToUrl";
+import { useUploadRequest } from "../UploadRequest";
 
 const textEncoder = new TextEncoder();
 
 export function ModuleGallery({
   path,
   showChildPath: showChild,
+  readonly,
 }: {
   path: SourcePath;
   showChildPath?: SourcePath;
+  /**
+   * `s.images().readonly()` — look, do not touch.
+   *
+   * The gallery had no notion of it at all, so a readonly module still offered
+   * upload, delete and alt text, and every one of them wrote a patch. The three
+   * handlers are simply withheld: `FileGallery` already hides an action it was
+   * given no handler for, which is better than a disabled button that invites a
+   * click and then explains itself.
+   */
+  readonly?: boolean;
 }) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
@@ -61,6 +72,15 @@ export function ModuleGallery({
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
   const inputRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * The Media panel can ask this gallery to open its file dialog.
+   *
+   * The panel knows which gallery you meant; only this component knows how to
+   * upload into one — the ref from the hash and the directory, local or remote,
+   * the metadata entry and the file op as one patch. So the panel asks and this
+   * answers, rather than the upload existing twice.
+   */
+  useUploadRequest(moduleFilePath, () => inputRef.current?.click());
   const dragCounterRef = React.useRef(0);
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -636,7 +656,6 @@ export function ModuleGallery({
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <ValidationErrors path={path} />
       {uploadError && (
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
           {uploadError}
@@ -662,9 +681,11 @@ export function ModuleGallery({
         files={files}
         parentPath={moduleFilePath}
         imageMode={imageMode}
-        onAltTextChange={imageMode ? handleAltTextChange : undefined}
-        onFileDelete={handleFileDelete}
-        onUploadClick={() => inputRef.current?.click()}
+        onAltTextChange={
+          imageMode && !readonly ? handleAltTextChange : undefined
+        }
+        onFileDelete={readonly ? undefined : handleFileDelete}
+        onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
         uploading={uploading}
         defaultOpenFileRef={showChildRef ?? undefined}
         isDraggingOver={isDraggingOver}

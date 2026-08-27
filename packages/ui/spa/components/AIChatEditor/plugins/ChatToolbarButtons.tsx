@@ -116,7 +116,7 @@ export function ChatToolbarButtons({
           <ChevronDown size={12} />
         </button>
         {headingOpen && (
-          <div className="absolute left-0 top-8 z-10 min-w-[8em] rounded-md border border-border-primary bg-bg-primary shadow-md py-1">
+          <div className="absolute left-0 top-8 z-window min-w-[8em] rounded-md border border-border-primary bg-bg-primary shadow-md py-1">
             {(["P", "H1", "H2", "H3"] as const).map((label) => (
               <button
                 key={label}

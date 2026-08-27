@@ -16,6 +16,9 @@ import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
+import { ValidationErrors } from "./ValidationError";
+import { useFieldErrorsOwned } from "./FieldErrorsOwner";
+import { usePendingWriteHold } from "./PendingWriteHold";
 
 export type ErrorDisplay = "default" | "compact" | "none";
 
@@ -38,10 +41,22 @@ export function AnyField({
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
 }) {
+  // Before the guard: a hook below an early return is a hook-order trap — see
+  // `architecture/quirks.md`.
+  const writeHeld = usePendingWriteHold();
   if (schema.hidden) {
     return null;
   }
-  const effectiveReadonly = readonly || schema.readonly;
+  /*
+   * The schema's own `readonly`, the caller's, and the write hold.
+   *
+   * The hold is the first load's patches not being in yet — see
+   * `PendingChangesGate`. Folded in here rather than handled separately because
+   * "you may look at this field but not change it" is a state fields already
+   * implement, and a second mechanism for it would be a second thing to keep
+   * right in every field.
+   */
+  const effectiveReadonly = readonly || schema.readonly || writeHeld;
   const leafProps = { readonly: effectiveReadonly, compact };
   let leaf: React.ReactNode;
   if (schema.type === "string") {
@@ -155,5 +170,32 @@ export function AnyField({
       </div>
     );
   }
-  return <>{leaf}</>;
+  return (
+    <>
+      {leaf}
+      {/*
+       * The errors, when nothing above is already showing them.
+       *
+       * A field inside an object has a `Field` wrapper that puts them under the
+       * labelled row, which is the right place and where they should stay. A
+       * field opened on its own — the module editor, the canvas's fields column —
+       * has no wrapper, so without this it would show none at all.
+       *
+       * The leaves used to render their own copy unconditionally, which is what
+       * put the same message above the input and below it. See
+       * `FieldErrorsOwner`.
+       */}
+      {errorDisplay === "default" && <UnownedFieldErrors path={path} />}
+    </>
+  );
+}
+
+function UnownedFieldErrors({ path }: { path: SourcePath }) {
+  // A component of its own so the hook is not called for a leaf whose errors
+  // are somebody else's business.
+  const owned = useFieldErrorsOwned();
+  if (owned) {
+    return null;
+  }
+  return <ValidationErrors path={path} />;
 }

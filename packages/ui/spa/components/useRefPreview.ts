@@ -1,11 +1,9 @@
 import { useMemo } from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
   ListArrayRender,
   ListRecordRender,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { useParent } from "../hooks/useParent";
@@ -14,7 +12,7 @@ import { useRenderOverrideAtPath } from "./ValFieldProvider";
 export type RefPreview = {
   title: string;
   subtitle?: string | null;
-  image?: ImageSource | RemoteSource<ImageMetadata> | null;
+  image?: ImageSource | null;
 };
 
 export function useRefPreview(path: SourcePath): RefPreview | undefined {

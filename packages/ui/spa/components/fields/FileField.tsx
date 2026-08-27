@@ -1,12 +1,9 @@
 import {
   FileMetadata,
   ImageMetadata,
-  FILE_REF_PROP,
-  VAL_EXTENSION,
   Internal,
   ModuleFilePath,
   SourcePath,
-  FILE_REF_SUBTYPE_TAG,
   SerializedImageSchema,
   SerializedFileSchema,
 } from "@valbuild/core";
@@ -16,7 +13,6 @@ import { FieldNotFound } from "../FieldNotFound";
 import { FieldSchemaError } from "../FieldSchemaError";
 import { FieldSchemaMismatchError } from "../FieldSchemaMismatchError";
 import { FieldSourceError } from "../FieldSourceError";
-import { ValidationErrors } from "../ValidationError";
 import {
   useValConfig,
   useSchemaAtPath,
@@ -31,14 +27,17 @@ import {
   useRemoteFiles,
 } from "../ValRemoteProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
-import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
+import { File, SquareArrowOutUpRight, Upload } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
+import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
+import { MediaSummaryRow } from "./MediaSummaryRow";
+import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
 const textEncoder = new TextEncoder();
@@ -57,7 +56,11 @@ export async function createFilePatch(
     remoteHost: string;
   } | null,
   directory: string | undefined = "/public/val",
-  skipMetadataInReplace: boolean = false,
+  /**
+   * True when the field is backed by a gallery. The dimensions and mime type
+   * then live in the gallery module, so the field carries only the path.
+   */
+  galleryBacked: boolean = false,
 ): Promise<{ patch: Patch; filePath: string }> {
   const newFilePath = Internal.createFilename(
     data,
@@ -93,10 +96,8 @@ export async function createFilePatch(
     patch: [
       {
         value: {
-          [FILE_REF_PROP]: ref,
-          [VAL_EXTENSION]: remote ? "remote" : "file",
-          ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
-          ...(skipMetadataInReplace ? {} : { metadata }),
+          path: ref,
+          ...(galleryBacked ? {} : metadata),
         },
         op: "replace",
         path,
@@ -141,6 +142,14 @@ export function FileField({
     addModuleFilePatch,
   } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
+  /**
+   * The hidden file input, clicked by name.
+   *
+   * A `<label htmlFor>` would open the dialog without any script, but a label is
+   * not announced as a button and cannot be tabbed to as one — and "Choose
+   * asset" is the field's primary action.
+   */
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
@@ -150,26 +159,16 @@ export function FileField({
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
     if (maybeSourceData) {
-      if (maybeSourceData.metadata) {
-        // We can't set the url before it is server side (since the we will be loading)
-        if (!maybeClientSideOnly) {
-          const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
-          const nextUrl =
-            VAL_EXTENSION in maybeSourceData &&
-            maybeSourceData[VAL_EXTENSION] === "remote"
-              ? Internal.convertRemoteSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "remote",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url
-              : Internal.convertFileSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "file",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url;
-          setUrl(nextUrl);
-          setLoading(false);
-        }
+      // We can't set the url before it is server side (since the we will be loading)
+      if (!maybeClientSideOnly) {
+        const patchId = filePatchIds.get(maybeSourceData.path);
+        setUrl(
+          Internal.mediaUrl({
+            path: maybeSourceData.path,
+            ...(patchId ? { patch_id: patchId } : {}),
+          }),
+        );
+        setLoading(false);
       }
     }
   }, [sourceAtPath, filePatchIds]);
@@ -185,8 +184,8 @@ export function FileField({
       setShowAsVideo(true);
     }
     if (maybeSourceData) {
-      if (typeof maybeSourceData.metadata?.mimeType === "string") {
-        if (maybeSourceData.metadata.mimeType.startsWith("video/")) {
+      if (typeof maybeSourceData.mimeType === "string") {
+        if (maybeSourceData.mimeType.startsWith("video/")) {
           setShowAsVideo(true);
         } else {
           setShowAsVideo(false);
@@ -301,16 +300,14 @@ export function FileField({
         }
       : null;
   let filePathRef = null;
-  if (source?._ref) {
+  if (source?.path) {
     if (schemaAtPath.data.remote) {
-      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(
-        source?._ref,
-      );
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(source.path);
       if (splitRemoteRefDataRes.status === "success") {
         filePathRef = splitRemoteRefDataRes.filePath;
       }
     } else {
-      filePathRef = source?._ref;
+      filePathRef = source.path;
     }
   }
 
@@ -318,9 +315,17 @@ export function FileField({
   if (filePathRef) {
     filename = filePathRef.split("/").slice(-1)[0];
   }
+  /**
+   * What the summary row says under the name.
+   *
+   * An `s.file()` records only the mime type — no byte size — so that is all
+   * there is to say, and it is absent rather than guessed when even that is
+   * missing.
+   */
+  const fileDetail =
+    typeof source?.mimeType === "string" ? source.mimeType : null;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       {missingModules.length > 0 && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {missingModules.length === 1
@@ -333,105 +338,106 @@ export function FileField({
           {error}
         </div>
       )}
-      <div className="grid gap-2">
-        {filename && (
-          <div className="flex gap-2 items-center">
-            <div className="text-sm text-fg-secondary">{filename}</div>
-            {loading && (
-              <Loader2
-                className={`animate-spin text-fg-secondary ${
-                  loading ? "block" : "hidden"
-                }`}
-                size={16}
-              />
-            )}
-            {progressPercentage !== null && (
-              <div className="text-sm text-fg-secondary">
-                {progressPercentage}%
-              </div>
-            )}
-          </div>
-        )}
-        {referencedModule && (
-          <ModuleMediaPicker
-            modulePath={referencedModule as ModuleFilePath}
-            selectedRef={source?._ref ?? null}
-            onSelect={(entry: GalleryEntry) => {
-              addPatch(
-                [
-                  {
-                    op: "replace",
-                    path: patchPath,
-                    value: {
-                      [FILE_REF_PROP]: entry.filePath,
-                      [VAL_EXTENSION]: "file",
-                      metadata: entry.metadata as JSONValue,
-                    },
-                  },
-                ],
-                "file",
-              );
-            }}
-            isImage={false}
-            disabled={disabled}
-            portalContainer={portalContainer}
-          />
-        )}
-        <div className="flex gap-4 items-center">
-          {source &&
-            (showAsVideo ? (
-              <div className="flex flex-col gap-2">
-                <video
-                  className="w-full h-auto rounded-lg"
-                  controls
-                  src={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
-                />
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
+      <div className="flex flex-col gap-5">
+        {/*
+         * The same summary row the image field uses: which file, then what can
+         * be done with it. A file has no picture to identify it by, so the name
+         * and type are the whole answer and used to be a bare line of text with
+         * the controls somewhere below.
+         */}
+        <MediaSummaryRow
+          url={url}
+          name={filename}
+          detail={fileDetail}
+          isImage={false}
+          uploading={loading}
+          progressPercentage={progressPercentage}
+          actions={
+            <>
+              {/*
+               * One control for "which file". A field that owns its file opens
+               * the dialog directly; one pointing into a collection opens the
+               * list, with the upload inside it — choosing a file and adding one
+               * to the collection are the same decision from here.
+               */}
+              {!referencedModule && (
+                <Button
+                  variant={"outline"}
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  {source ? "Replace" : "Choose asset"}
                 </Button>
-              </div>
-            ) : (
-              <>
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
-                </Button>
+              )}
+              {source && (
                 <a
-                  className="flex gap-2 items-center"
+                  className="inline-flex items-center gap-1.5 text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
                   target="_blank"
                   rel="noopener noreferrer"
-                  download={filename}
-                  href={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
+                  download={filename ?? undefined}
+                  href={Internal.mediaUrl(source)}
                 >
-                  <span> Open file</span>
-                  <SquareArrowOutUpRight />
+                  Open file
+                  <SquareArrowOutUpRight size={12} />
                 </a>
-              </>
-            ))}
+              )}
+              {referencedModule && (
+                <ModuleMediaPicker
+                  compact
+                  footer={
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                        "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                        "disabled:pointer-events-none disabled:opacity-50",
+                      )}
+                    >
+                      <Upload size={13} />
+                      Upload into {prettyModuleName(referencedModule)}
+                    </button>
+                  }
+                  modulePath={referencedModule as ModuleFilePath}
+                  selectedRef={source?.path ?? null}
+                  onSelect={(entry: GalleryEntry) => {
+                    // Only the path: the mime type stays in the gallery, which
+                    // is the one place that has it.
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath,
+                          value: { path: entry.filePath },
+                        },
+                      ],
+                      "file",
+                    );
+                  }}
+                  isImage={false}
+                  disabled={disabled}
+                  portalContainer={portalContainer}
+                />
+              )}
+            </>
+          }
+        />
+        {/* A video is worth showing at size; anything else is a name. */}
+        {source && showAsVideo && (
+          <video
+            className="w-full h-auto rounded-lg"
+            controls
+            src={Internal.mediaUrl(source)}
+          />
+        )}
+        <div>
           <input
             disabled={disabled}
             hidden
+            ref={fileInputRef}
             id={`file_input:${path}`}
             type="file"
             accept={acceptOptions}

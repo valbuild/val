@@ -10,6 +10,7 @@ import type {
 } from "@valbuild/core";
 import { SchemaValidator } from "../validation/validateModule";
 import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
@@ -53,6 +54,23 @@ import type {
   ReferenceBridge,
   SearchBridge,
 } from "./workerBridge";
+
+/**
+ * How long a chain movement waits before the pending modules are validated.
+ *
+ * Short enough that the publish gate is right by the time anyone reaches for
+ * the button, long enough that a burst of keystrokes is one validation rather
+ * than one per patch. See `scheduleValidationOfPendingModules`.
+ */
+const PENDING_VALIDATION_DEBOUNCE_MS = 300;
+
+/**
+ * How long a publish waits for local edits to reach the server.
+ *
+ * One save round trip, with room to spare. Past it the publish refuses rather
+ * than waiting on: see `publish`, which has to answer the Save button.
+ */
+const SAVE_FLUSH_TIMEOUT_MS = 5000;
 
 /**
  * Stores in the HOST realm: they either hold user closures, or need to read
@@ -224,6 +242,14 @@ export type SystemOptions = {
    * parent and can only fail again.
    */
   resyncChain?: ResyncChain;
+  /**
+   * How long `publish` waits for local edits to reach the server.
+   *
+   * Defaults to {@link SAVE_FLUSH_TIMEOUT_MS}. Past it the publish refuses with
+   * `unsaved-changes` rather than waiting on, because it has to answer the Save
+   * button — see `publish`.
+   */
+  saveFlushTimeoutMs?: number;
   /** `POST /save`. Omitting it means this system cannot publish. */
   publishPatches?: PublishPatches;
   /** `DELETE /patches`. Omitting it means this system cannot discard. */
@@ -524,6 +550,32 @@ export function createSystem(options: SystemOptions): System {
     }
   }
 
+  /**
+   * Coalesce the pass above, so typing costs one validation per burst.
+   *
+   * `patch:chain` fires on every chain movement, which for a field being typed
+   * into is once per patch. Validating on each would put the whole
+   * per-keystroke cost this design removed straight back — so the pass is
+   * deferred and collapsed, and the timer is cleared on dispose so a torn-down
+   * system cannot wake up and validate.
+   */
+  let validatePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleValidationOfPendingModules(): void {
+    if (validatePendingTimer !== null) return;
+    validatePendingTimer = setTimeout(() => {
+      validatePendingTimer = null;
+      const modules = new Set<ModuleFilePath>();
+      for (const record of patchStore.allRecords()) {
+        modules.add(record.moduleFilePath);
+      }
+      for (const moduleFilePath of modules) {
+        // Fire and forget: the result reaches readers as `validation:result`,
+        // and a failure to validate is the validation store's to report.
+        void validationStore.validate(moduleFilePath);
+      }
+    }, PENDING_VALIDATION_DEBOUNCE_MS);
+  }
+
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
@@ -548,18 +600,52 @@ export function createSystem(options: SystemOptions): System {
      * rejection needs.
      */
     /**
-     * Unpublished changes the server named and then did not send.
+     * The chain could not be READ, which is as bad as it not saving.
      *
-     * Reported for the same reason a rejected save is: what is on screen is not
-     * what the server says exists, and the person editing has no way to tell.
-     * Anything they change now is written on top of content missing those edits.
+     * Stat names the pending patches, so the editor knows they exist; without
+     * their ops it renders published content instead. Nothing on screen
+     * distinguishes that from the edits having been discarded, so it cannot be
+     * left to the console — this is the one signal an editor has that what they
+     * are looking at is not what the project holds.
      *
-     * This is the visible half of the failure that motivated the patch store
-     * rewrite - a studio told about 410 unpublished changes, sent 359, and left
-     * waiting on the rest with nothing said. The store no longer produces that
-     * disagreement; this makes sure that if anything ever does, it is not
-     * silent.
+     * Sticky until dismissed, like every `StatusStore` error, and de-duplicated
+     * by message there, so a retry loop that keeps failing says it once.
      */
+    patchStore.events.on("patch:fetch-failed", (event) => {
+      status.reportError(
+        // Deliberately count-free, so the message is STABLE: `StatusStore`
+        // de-duplicates by message, and a retry loop that fails on a different
+        // number of patches each round would otherwise stack a fresh toast per
+        // round. The count belongs to the occurrence, so it goes in the details.
+        "Unpublished changes could not be loaded.",
+        `${event.patches.length} ${
+          event.patches.length === 1 ? "change is" : "changes are"
+        } affected: ${event.message} Until this succeeds, the editor shows published content for the fields they touch.`,
+      );
+    }),
+    /**
+     * Stat announced these, and a 200 came back without them.
+     *
+     * The sibling of `patch:fetch-failed` and the harder half: nothing failed,
+     * so nothing would otherwise say anything. The store no longer produces that
+     * disagreement — see `architecture/patch-store.md` — but a studio told about
+     * 410 unpublished changes, sent 359, and left waiting on the rest with
+     * nothing said is what this exists to make impossible a second time.
+     */
+    patchStore.events.on("patch:announced-not-delivered", (event) => {
+      status.reportError(
+        event.patches.length === 1
+          ? "An unpublished change could not be loaded."
+          : `${event.patches.length} unpublished changes could not be loaded.`,
+        "The server listed them but did not send them, so they are not shown. " +
+          "Reload before editing: anything you change now is written on top of " +
+          "content that is missing them.",
+      );
+      console.error(
+        "Val: the server announced these unpublished changes and did not send them.",
+        { patchIds: event.patches },
+      );
+    }),
     /**
      * The server threw someone's unpublished changes away.
      *
@@ -581,20 +667,6 @@ export function createSystem(options: SystemOptions): System {
         event.removed,
       );
     }),
-    patchStore.events.on("patch:announced-not-delivered", (event) => {
-      status.reportError(
-        event.patches.length === 1
-          ? "An unpublished change could not be loaded."
-          : `${event.patches.length} unpublished changes could not be loaded.`,
-        "The server listed them but did not send them, so they are not shown. " +
-          "Reload before editing: anything you change now is written on top of " +
-          "content that is missing them.",
-      );
-      console.error(
-        "Val: the server announced these unpublished changes and did not send them.",
-        { patchIds: event.patches },
-      );
-    }),
     patchSync.events.on("patch:save-rejected", (event) => {
       status.reportError(
         event.patches.length === 1
@@ -610,6 +682,28 @@ export function createSystem(options: SystemOptions): System {
           : event.message,
       );
     }),
+    /**
+     * A save that keeps failing has to reach the USER.
+     *
+     * The retry itself is right and continues — an edit must not be thrown away
+     * because the network blinked — but it used to be entirely silent: nothing
+     * read the sync's `retrying` state, so the status bar said "Saving…" for as
+     * long as the fault lasted, and the reason the client already had went
+     * nowhere. A save that can never succeed then looks exactly like a slow one.
+     *
+     * Sticky until dismissed, like every `StatusStore` error, and de-duplicated
+     * by title there — which is why `describeStuckSave` keeps the attempt count
+     * out of the title and in the detail.
+     */
+    patchSync.events.on("patch:save-stuck", (event) => {
+      const report = describeStuckSave(
+        event.reason,
+        event.message,
+        event.attempt,
+        event.patches.length,
+      );
+      status.reportError(report.title, report.detail);
+    }),
     // The parent ref is computed from stat, so the sync has to see every stat.
     // Read from the store rather than carried on the event, so the event stays
     // an announcement rather than becoming the API — see `currentBaseSha`.
@@ -623,6 +717,29 @@ export function createSystem(options: SystemOptions): System {
     }),
     renderStore.listenTo(),
     validationStore.listenTo(),
+
+    /**
+     * Every module with a PENDING CHANGE is validated, whether or not anyone is
+     * looking at it.
+     *
+     * The rest of this system is demand-driven and should stay that way: nothing
+     * validates a module because it exists. But "can this project be published"
+     * is a question with no field behind it — the publish button asks it, and it
+     * has to be answered about every pending change, including ones made in a
+     * view that has since been closed, in another tab, or by the AI. Left to
+     * on-screen demand it was answered from whatever happened to have been
+     * looked at, which is how an invalid edit could sit in the chain with the
+     * publish button offering to ship it.
+     *
+     * Bounded by the pending chain, not by the project: a project with three
+     * edited modules validates three modules, however many it has. And bounded
+     * again by `ValidationStore`'s own cache — a module whose source has not
+     * moved since its last result is a cache hit, so a burst of unrelated chain
+     * events costs nothing.
+     */
+    patchStore.events.on("patch:chain", () => {
+      scheduleValidationOfPendingModules();
+    }),
 
     /**
      * A patch that cannot be applied is deleted, and says so loudly.
@@ -860,16 +977,25 @@ export function createSystem(options: SystemOptions): System {
       searchStale.covers(result.all);
       return result;
     },
-    async publish(patchIds, message) {
+    /**
+     * `requestedPatchIds` is the CALLER's view of the chain, not the set that
+     * gets published.
+     *
+     * The studio reads it from the server's list, which by the time Save is
+     * clicked can be missing a patch the user has just typed — a field writes on
+     * a pause. What is published is the pending chain after everything local has
+     * been saved, which is also the source the gate below validates. Publishing
+     * the caller's list instead is how a project ships without its newest edit,
+     * or ships a broken patch whose fix was still local.
+     */
+    async publish(requestedPatchIds, message) {
+      void requestedPatchIds;
       if (options.publishPatches === undefined) {
         return {
           status: "failed",
           message: "This system has no publish seam configured.",
           retryable: false,
         };
-      }
-      if (patchIds.length === 0) {
-        return { status: "nothing-to-publish" };
       }
       if (publishing) {
         // Two publishes of overlapping patches is a race whose loser publishes
@@ -880,16 +1006,99 @@ export function createSystem(options: SystemOptions): System {
       }
       publishing = true;
       try {
-        // Validate the affected modules FIRST, and validate them rather than
-        // reading what is cached. The engine's own comment explains why: custom
+        /**
+         * Everything typed reaches the server BEFORE anything is decided.
+         *
+         * A field writes on a pause, so at the moment Save is clicked the last
+         * word may still be a local patch the server has never seen — and the
+         * caller's `patchIds` came from the SERVER's list, so it does not
+         * include it. Publishing that list would ship the project without the
+         * last thing the user typed, while the validation below — which reads
+         * local source — would have been about a document including it.
+         */
+        if (
+          options.savePatches !== undefined &&
+          patchStore.unsavedRecords().length > 0
+        ) {
+          /**
+           * Bounded, because `flush` is not.
+           *
+           * `PatchSync.drain` retries a failed save for as long as the network is
+           * down — which is right for the sync and fatal here: awaiting it would
+           * leave Save spinning forever with no way to say why. And if the sync
+           * is ALREADY retrying, the answer is known: the server cannot be
+           * reached, so there is nothing to wait for.
+           */
+          if (patchSync.currentState().status !== "retrying") {
+            await Promise.race([
+              patchSync.flush().catch(() => undefined),
+              new Promise<void>((resolve) => {
+                const timer = setTimeout(
+                  resolve,
+                  options.saveFlushTimeoutMs ?? SAVE_FLUSH_TIMEOUT_MS,
+                );
+                // Node keeps the process alive for a pending timer; nothing here
+                // needs it to.
+                if (typeof timer === "object" && "unref" in timer) {
+                  timer.unref();
+                }
+              }),
+            ]);
+          }
+        }
+        // Only where a save is possible at all. A system with no save seam holds
+        // patches that are local by definition — there is nothing to wait for,
+        // and refusing would make publish unreachable rather than safe.
+        const stillUnsaved =
+          options.savePatches === undefined ? [] : patchStore.unsavedRecords();
+        if (stillUnsaved.length > 0) {
+          // The flush could not get everything up. Refused rather than
+          // published-in-part: the alternative publishes a chain whose tail is
+          // missing, and the tail is the newest edit.
+          return {
+            status: "refused",
+            reason: "unsaved-changes",
+            patchIds: stillUnsaved.map((record) => record.patchId),
+          };
+        }
+
+        /**
+         * The chain as it is NOW, which is what the validation below is about.
+         *
+         * Not the list the caller captured: it was taken before the flush, and
+         * the point of the gate is that the patches validated and the patches
+         * published are the same set. The server's chain is linear, so "the
+         * pending chain" is the only meaningful thing to publish anyway —
+         * publishing a proper subset would mean committing a patch while keeping
+         * an earlier one pending.
+         */
+        const toPublish = patchStore
+          .allRecords()
+          .map((record) => record.patchId);
+        if (toPublish.length === 0) {
+          return { status: "nothing-to-publish" };
+        }
+
+        // Validate the affected modules, and validate them rather than reading
+        // what is cached. The engine's own comment explains why: custom
         // validators run on their own module's change, so a module edited before
         // a validator existed — or edited in another session — has never had them
         // run. Reading a cached result would make the gate recent rather than
         // complete.
         const affected = new Set<ModuleFilePath>();
-        for (const record of patchStore.recordsFor(patchIds)) {
+        for (const record of patchStore.recordsFor(toPublish)) {
           affected.add(record.moduleFilePath);
         }
+        /**
+         * Proof that nothing moved while the gate ran.
+         *
+         * Validation is asynchronous — a worker, and possibly the user's own
+         * `validate` closures — so an edit can land while it runs, and the
+         * answer would then be about a document that is not the one being
+         * published. Compared after the loop below, and the whole gate is redone
+         * if it moved.
+         */
+        const chainAt = patchStore.chainVersion();
         const invalid: ModuleFilePath[] = [];
         for (const moduleFilePath of affected) {
           const result = await validationStore.validate(moduleFilePath);
@@ -925,8 +1134,22 @@ export function createSystem(options: SystemOptions): System {
             modules: invalid,
           };
         }
+        if (patchStore.chainVersion() !== chainAt) {
+          // An edit landed while the gate was running, so what was just checked
+          // is not what would be published. Refused, and retryable: the caller
+          // clicks Save again — or the UI does — and the gate runs against the
+          // chain that now exists. Passing this through would be the exact
+          // failure the gate is for, one race narrower.
+          return {
+            status: "refused",
+            reason: "chain-moved",
+          };
+        }
 
-        const outcome = await options.publishPatches({ patchIds, message });
+        const outcome = await options.publishPatches({
+          patchIds: toPublish,
+          message,
+        });
         if (outcome.status === "patch-errors") {
           // Recorded, not just returned. A server refusal never resolves itself,
           // so the publish gate has to keep seeing it after the caller that made
@@ -956,7 +1179,7 @@ export function createSystem(options: SystemOptions): System {
         // Recorded before the mode split, because it is true in both: these
         // patches are in a commit now. `filePatchIds` needs it in `http` mode,
         // where the chain keeps them — see `PatchStore.publishedIds`.
-        patchStore.markPublished(patchIds);
+        patchStore.markPublished(toPublish);
         if (mode === "fs") {
           // ORDER MATTERS, and this is the whole reason both methods exist.
           // Promote first: the patched value becomes the base, so when the chain
@@ -964,13 +1187,15 @@ export function createSystem(options: SystemOptions): System {
           // field would flash back to its pre-publish text until the next source
           // fetch landed.
           sourceStore.promoteToBase([...affected]);
-          sourceStore.forgetPublished(patchIds);
-          patchStore.forgetPublished(patchIds);
+          sourceStore.forgetPublished(toPublish);
+          patchStore.forgetPublished(toPublish);
         }
         // In `http` mode the patches stay server-side and are re-applied, so the
         // chain stays too — removing it would show the value without them until
         // the next fetch, and promoting the base would then double-apply.
-        return { status: "published", patchIds };
+        // The ids that were actually published, which is what the caller has to
+        // forget — it asked with a list taken before the flush.
+        return { status: "published", patchIds: toPublish };
       } finally {
         publishing = false;
       }
@@ -999,6 +1224,10 @@ export function createSystem(options: SystemOptions): System {
     },
     dispose() {
       for (const off of unsubscribe) off();
+      if (validatePendingTimer !== null) {
+        clearTimeout(validatePendingTimer);
+        validatePendingTimer = null;
+      }
       // Before the unsubscribes would be wrong-ish and after is right: a retry
       // mid-backoff has to be told to stop, or it wakes up and writes to a
       // torn-down system — in a test, after the test that made it has finished.

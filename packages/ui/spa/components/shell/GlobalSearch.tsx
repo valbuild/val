@@ -4,15 +4,25 @@ import {
   ExternalLink,
   FileText,
   Image as ImageIcon,
+  Loader2,
+  History,
   Search,
+  TextSearch,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellData } from "./types";
 
 /** One thing the global search can take you to. */
 export type SearchResult = {
+  /**
+   * What selecting this row opens.
+   *
+   * For a navigation row it is the row's id, which is also its path. For a
+   * content hit it is the source path of the field that matched — deeper than
+   * any row, which is the point of finding it.
+   */
   id: string;
-  kind: "page" | "external" | "media" | "data";
+  kind: "page" | "external" | "media" | "data" | "content" | "recent";
   /** What the row shows. */
   label: string;
   /** Secondary line: url path, directory or module file path. */
@@ -24,6 +34,8 @@ const KIND_ICON: Record<SearchResult["kind"], typeof FileText> = {
   external: ExternalLink,
   media: ImageIcon,
   data: Braces,
+  content: TextSearch,
+  recent: History,
 };
 
 const KIND_LABEL: Record<SearchResult["kind"], string> = {
@@ -31,8 +43,16 @@ const KIND_LABEL: Record<SearchResult["kind"], string> = {
   external: "External pages",
   media: "Media",
   data: "Data",
+  content: "In content",
+  recent: "Recently changed",
 };
 
+/**
+ * The navigation groups, in the order they are shown.
+ *
+ * `content` is not here: it is not filtered locally and it always comes last,
+ * so it is appended rather than being one of the groups walked over.
+ */
 const GROUP_ORDER: SearchResult["kind"][] = [
   "page",
   "data",
@@ -83,7 +103,35 @@ export function collectSearchResults(data: ShellData): SearchResult[] {
 }
 
 export type GlobalSearchProps = {
+  /**
+   * The places you can go: pages, data modules, galleries, external links.
+   *
+   * Filtered here, on the client, by name and path. That is the right shape for
+   * "take me to Pricing" — the list is small and the answer is instant.
+   */
   results: SearchResult[];
+  /**
+   * Content matches, from Val's own index.
+   *
+   * A separate input because it is a genuinely different search: it looks
+   * *inside* the content, so it answers "which page says `asked`" — which no
+   * amount of filtering over row names ever can. It arrives asynchronously and
+   * is already filtered by the query, so it is not filtered again here.
+   */
+  contentResults?: SearchResult[];
+  /**
+   * The last few things that changed, newest first.
+   *
+   * Offered for the empty query only, above everything else. Opening search
+   * without typing is most often "take me back to what I was just editing", and
+   * a list of every page in the project does not answer that — it answers "take
+   * me somewhere", which is what typing is for.
+   */
+  recentResults?: SearchResult[];
+  /** True while the content index is still answering, or still filling. */
+  isSearchingContent?: boolean;
+  /** Called as the query changes, so the app can run the content search. */
+  onQueryChange?: (query: string) => void;
   onSelect: (result: SearchResult) => void;
   onClose: () => void;
 };
@@ -97,10 +145,20 @@ export type GlobalSearchProps = {
  */
 export function GlobalSearch({
   results,
+  contentResults,
+  recentResults,
+  isSearchingContent,
+  onQueryChange,
   onSelect,
   onClose,
 }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
+  // The content search is the app's to run, and it needs the query. Reported
+  // from an effect rather than from the input's handler so it also fires for
+  // the empty query, which is what clears the previous answer.
+  useEffect(() => {
+    onQueryChange?.(query);
+  }, [query, onQueryChange]);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -113,11 +171,26 @@ export function GlobalSearch({
             result.detail.toLowerCase().includes(q),
         )
       : results;
-    // Grouped, but kept as one flat list so arrow keys move across groups.
-    return GROUP_ORDER.flatMap((kind) =>
+    /**
+     * Navigation first, then content.
+     *
+     * Someone typing a page's name wants that page, not the first paragraph
+     * that happens to mention it. Content hits are deduplicated against the
+     * navigation rows so a page does not appear twice for the same query.
+     */
+    const navigation = GROUP_ORDER.flatMap((kind) =>
       filtered.filter((result) => result.kind === kind),
-    ).slice(0, 40);
-  }, [results, query]);
+    );
+    const seen = new Set(navigation.map((result) => result.id));
+    const content = (q ? (contentResults ?? []) : []).filter(
+      (result) => !seen.has(result.id),
+    );
+    // Recently changed answers the empty query and nothing else: once there is
+    // a query, what you asked for beats what you happened to touch last.
+    const recent = q ? [] : (recentResults ?? []);
+    // Kept as one flat list so arrow keys move across the groups.
+    return [...recent, ...navigation, ...content].slice(0, 40);
+  }, [results, contentResults, recentResults, query]);
 
   // A stale highlight after retyping would send Enter somewhere unexpected.
   useEffect(() => setActiveIndex(0), [query]);
@@ -189,7 +262,9 @@ export function GlobalSearch({
         >
           {matches.length === 0 ? (
             <p className="px-4 py-6 text-xs text-fg-secondary-alt">
-              Nothing matches “{query}”.
+              {isSearchingContent
+                ? "Searching…"
+                : `Nothing matches “${query}”.`}
             </p>
           ) : (
             matches.map((result, index) => {
@@ -237,6 +312,18 @@ export function GlobalSearch({
                 </div>
               );
             })
+          )}
+          {/*
+           * Said while results are already on screen, because content hits
+           * arrive after the navigation rows and can keep arriving: a
+           * `.jsonValues()` index fills in batches, so an answer at 20% is not
+           * the final one. Without this the list looks complete when it is not.
+           */}
+          {isSearchingContent && matches.length > 0 && (
+            <p className="flex items-center gap-1.5 px-4 py-2 text-[0.6875rem] text-fg-secondary-alt">
+              <Loader2 size={11} className="animate-spin" />
+              Still searching content…
+            </p>
           )}
         </div>
         <div className="flex items-center gap-3 h-8 px-3 shrink-0 border-t border-border-float text-[0.625rem] text-fg-secondary-alt">

@@ -10,11 +10,9 @@ import React, {
 import {
   DEFAULT_APP_HOST,
   DEFAULT_VAL_REMOTE_HOST,
-  FILE_REF_PROP,
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
   ReifiedRender,
@@ -28,6 +26,7 @@ import type { SourcePeek } from "../stores/SourceStore";
 import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
 import { getNavPathFromAll } from "./getNavPath";
+import { concatModulePath } from "../utils/sourcePath";
 
 // --- Source override context ---
 // When rendering the "before" side of a diff, the parent `Field` component
@@ -879,7 +878,7 @@ export function useSchemaAtPath(
  * Like {@link useSchemaAtPath} but also returns the effective source path
  * that the schema resolved to. For most schema types, this equals the input
  * path. For leaf schemas like `image` / `file` that absorb sub-paths
- * (e.g. `metadata.hotspot`), the resolved path is truncated to the
+ * (e.g. `hotspot`), the resolved path is truncated to the
  * schema boundary.
  */
 export function useSchemaWithResolvedPath(
@@ -1140,12 +1139,16 @@ type ShallowSource = {
   dateTime: string;
   color: string;
   file: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    mimeType?: string;
   };
   image: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    alt?: string;
+    hotspot?: { x: number; y: number };
   };
   literal: string;
   richtext: unknown[];
@@ -1260,22 +1263,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (type === "file" || type === "image") {
     if (
       typeof source !== "object" ||
-      !(FILE_REF_PROP in source) ||
-      source[FILE_REF_PROP] === undefined
+      !("path" in source) ||
+      typeof source.path !== "string"
     ) {
       return {
         status: "error",
-        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
-      };
-    }
-    if (
-      "metadata" in source &&
-      source.metadata &&
-      typeof source.metadata !== "object"
-    ) {
-      return {
-        status: "error",
-        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+        error: `Expected object with a path property, got ${typeof source}`,
       };
     }
     return {
@@ -1338,21 +1331,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
-}
-
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
 }
 
 export function useShallowSourceAtPath<

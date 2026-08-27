@@ -475,26 +475,35 @@ describe("validation store", () => {
     dispose();
   });
   /**
-   * CLAIM (`ValidationStore.run`): a result is only marked fresh if nothing
-   * invalidated while it was being computed.
+   * CLAIM (`ValidationStore.run`): a request is answered from source that has
+   * not moved since — and a result computed from source that HAS moved is never
+   * cached as current.
    *
    * Both halves of validation are awaited — the schema half across a WORKER
    * since `schemaValidationBridge.ts` — so an edit can land mid-flight. Clearing
    * `stale` unconditionally cached a result computed from the pre-edit source
-   * and marked it current, and `peek` then returned it forever: the reader's
-   * effect only re-asks on `stale`, so nothing would ever ask again. A field
-   * would show errors for text the user had already replaced.
+   * and marked it current, and a field then showed errors for text the user had
+   * already replaced.
+   *
+   * Marking it stale and stopping there was not enough either, and that was the
+   * bug behind "typing an invalid value in the canvas shows no error at all":
+   * `peek` answers stale with one shared object so repeated peeks are `===`, and
+   * the reader re-asks from an effect keyed on the result it rendered — so
+   * stale → raced → stale is the same object twice, the effect never re-runs,
+   * and validation stops for that module until the field remounts. So the store
+   * finishes the job itself.
+   *
+   * Both halves are pinned below: the intermediate result is not current, and
+   * the answer the caller gets describes the edit.
    */
-  it("does not mark a result fresh if the source moved while it ran", async () => {
+  it("recomputes when the source moves under a running validation", async () => {
     const { c, s } = initVal();
-    // A box, not a `let`: TypeScript narrows a `let` assigned only inside a
-    // callback to its initial type at every later use. Same reason the sync
-    // status test uses one.
-    const gate: { release: (() => void) | null } = { release: null };
-    const gated = new Promise<void>((resolve) => {
-      gate.release = resolve;
-    });
-    let waiting = true;
+    /**
+     * One gate per call into the bridge, so the test can stand between the two
+     * passes. A queue rather than a flag: what is being asserted is that there
+     * IS a second pass, which a single gate cannot observe.
+     */
+    const waiting: (() => void)[] = [];
     const validator = new SchemaValidator();
     const system = createSystem({
       fetchPatches: async () => ({ patches: [] }),
@@ -504,10 +513,7 @@ describe("validation store", () => {
       })(),
       schemaValidation: {
         async validate(moduleFilePath, source, serializedSchema, version) {
-          if (waiting) {
-            waiting = false;
-            await gated;
-          }
+          await new Promise<void>((resolve) => waiting.push(resolve));
           return validator.validate(
             moduleFilePath,
             source,
@@ -517,24 +523,52 @@ describe("validation store", () => {
         },
       },
     });
+    // `minLength(4)`, so the two sources differ in whether they are VALID: the
+    // pre-edit title passes and the edit does not. That is what makes "which
+    // source did the answer describe" observable rather than inferred.
     system.host.receive([
-      c.define("/t.val.ts", s.object({ title: s.string() }), {
+      c.define("/t.val.ts", s.object({ title: s.string().minLength(4) }), {
         title: "Hello",
       }),
     ]);
 
+    const until = async (predicate: () => boolean) => {
+      for (let i = 0; i < 100 && !predicate(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(predicate()).toBe(true);
+    };
+
     const running = system.validationStore.validate(mfp("/t.val.ts"));
+    await until(() => waiting.length === 1);
     // The edit lands while the first validation is still inside the bridge.
     await system.patchStore.createPatch(mfp("/t.val.ts"), [
-      { op: "replace", path: ["title"], value: "moved" },
+      { op: "replace", path: ["title"], value: "no" },
     ]);
-    gate.release?.();
-    await running;
+    waiting.shift()?.();
 
-    // Stale, not fresh: the result that just landed describes the OLD source.
+    // A second pass, because the first one's answer was about source that has
+    // since moved.
+    await until(() => waiting.length === 1);
+    // And in between, the pre-edit result is NOT served as current.
     expect(system.validationStore.peek(mfp("/t.val.ts"))).toMatchObject({
       status: "stale",
     });
+
+    waiting.shift()?.();
+    const result = await running;
+
+    // The answer describes the edit: "no" is too short, "Hello" was not.
+    if (result.status !== "validated" || result.errors === false) {
+      throw new Error(
+        `expected the recomputed result to carry the edit's error, got ${JSON.stringify(result)}`,
+      );
+    }
+    expect(JSON.stringify(result.errors)).toContain(
+      "at least 4 characters long",
+    );
+    // And it is current now, so the next reader is served from cache.
+    expect(system.validationStore.peek(mfp("/t.val.ts"))).toBe(result);
     system.dispose();
   });
 });
@@ -633,11 +667,12 @@ describe("source store: patches that carry files", () => {
   const { c, s } = initVal();
   const imageModule = () =>
     c.define("/img.val.ts", s.object({ hero: s.image() }), {
-      hero: c.image("/public/val/initial.png", {
+      hero: {
+        path: "/public/val/initial.png",
         width: 1,
         height: 1,
         mimeType: "image/png",
-      }),
+      },
     });
 
   /**
@@ -660,9 +695,10 @@ describe("source store: patches that carry files", () => {
           op: "replace",
           path: ["hero"],
           value: {
-            _ref: "/public/val/uploaded.png",
-            _type: "file",
-            metadata: { width: 8, height: 1, mimeType: "image/png" },
+            path: "/public/val/uploaded.png",
+            width: 8,
+            height: 1,
+            mimeType: "image/png",
           },
         },
         {
@@ -681,7 +717,7 @@ describe("source store: patches that carry files", () => {
     const read = await sourceStore.get('/img.val.ts?p="hero"', null);
     expect(read).toMatchObject({
       status: "resolved-head",
-      data: { _ref: "/public/val/uploaded.png" },
+      data: { path: "/public/val/uploaded.png" },
     });
     dispose();
   });

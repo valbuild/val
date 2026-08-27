@@ -235,6 +235,22 @@ export class SourceStore {
    * substitutes in `getPatchedSource`; this is that, moved to where source lives.
    */
   private jsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /**
+   * The same content as the server sent it, before any local patch.
+   *
+   * `jsonEntries` above is the PATCHED content: `storePatched` writes each
+   * applied patch's result back into it, because that is what every reader of the
+   * patched realm has to see. Which left `peekBase` with nothing of its own —
+   * it read `baseSources` and then substituted the patched entries into it, so
+   * for any path inside an entry the "before" side of a compare WAS the after
+   * side, byte for byte. Only `.jsonValues()` modules were affected, because they
+   * are the only ones whose content is substituted rather than in source.
+   *
+   * So base entry content is kept apart, exactly as `baseSources` is kept apart
+   * from `sources`, and for the same reason: the two realms are two answers, and
+   * one map cannot hold both.
+   */
+  private baseJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -265,6 +281,12 @@ export class SourceStore {
    * revision can say the answer moved.
    *
    * A `WeakMap`, so a source object replaced by a patch takes its entry with it.
+   *
+   * Keying on the input is also what keeps the two realms' answers apart now that
+   * each substitutes its OWN entry map: `sources[m]` and `baseSources[m]` are
+   * always distinct objects (every write to either clones), so a cached
+   * substitution can never be handed to the other realm. Anything that starts
+   * sharing one object between the two maps breaks that silently.
    */
   private substituted = new WeakMap<object, { n: number; source: Json }>();
 
@@ -494,6 +516,20 @@ export class SourceStore {
       this.jsonEntries.set(moduleFilePath, byKey);
     }
     byKey.set(key, content);
+    /*
+     * And the same content as the base, cloned.
+     *
+     * This IS the base: it is what the server answered, before any local patch —
+     * the Studio reads entries with `apply_patches: false`. Cloned because
+     * `storePatched` overwrites the patched copy in place, and sharing the object
+     * would make the base follow every edit, which is the bug this exists to fix.
+     */
+    let baseByKey = this.baseJsonEntries.get(moduleFilePath);
+    if (baseByKey === undefined) {
+      baseByKey = new Map();
+      this.baseJsonEntries.set(moduleFilePath, baseByKey);
+    }
+    baseByKey.set(key, deepClone(content as JSONValue));
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
     if (this.batchDepth > 0) {
@@ -532,6 +568,9 @@ export class SourceStore {
   markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
     if (!this.jsonEntries.has(moduleFilePath)) return;
     this.jsonEntries.delete(moduleFilePath);
+    // The base copy too: the file on disk changed, so what the server last said
+    // about it is exactly what is now stale.
+    this.baseJsonEntries.delete(moduleFilePath);
     this.bump(moduleFilePath);
   }
 
@@ -757,7 +796,7 @@ export class SourceStore {
    * break it. The same reasoning as `PatchSetChain`'s prefix test.
    */
   peek(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path, this.sources);
+    const next = this.computePeek(path, this.sources, this.jsonEntries);
     const previous = this.peeked.get(path);
     if (previous !== undefined && samePeek(previous, next)) {
       return previous;
@@ -769,6 +808,14 @@ export class SourceStore {
   private computePeek(
     path: SourcePath,
     from: Record<ModuleFilePath, Json>,
+    /*
+     * The entry content to substitute into `from`, which must be the copy that
+     * belongs to the same realm. Passed rather than looked up because that
+     * pairing is the whole correctness condition: substituting the patched
+     * entries into `baseSources` is what made a compare show the same value on
+     * both sides.
+     */
+    entriesFrom: Map<ModuleFilePath, Map<string, Json>>,
   ): SourcePeek {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
@@ -780,7 +827,7 @@ export class SourceStore {
       return { status: "module-loading" };
     }
     const resolved = resolveAtModulePath(
-      this.substitutedSource(moduleFilePath, source),
+      this.substitutedSource(moduleFilePath, source, entriesFrom),
       modulePath,
     );
     if (resolved.status === "needs-entry") {
@@ -915,7 +962,7 @@ export class SourceStore {
    * compare view is a `useSyncExternalStore` consumer too.
    */
   peekBase(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path, this.baseSources);
+    const next = this.computePeek(path, this.baseSources, this.baseJsonEntries);
     const previous = this.peekedBase.get(path);
     if (previous !== undefined && samePeek(previous, next)) {
       return previous;
@@ -997,6 +1044,21 @@ export class SourceStore {
       if (patched === undefined) continue;
       this.activity.work("source:promote-to-base", moduleFilePath);
       this.baseSources[moduleFilePath] = deepClone(patched as JSONValue);
+      // The entry content is part of the value, so it bakes with it. Left behind,
+      // a published edit inside a `.jsonValues()` entry would keep showing in a
+      // compare as an outstanding change against the pre-publish text.
+      const patchedEntries = this.jsonEntries.get(moduleFilePath);
+      if (patchedEntries !== undefined) {
+        this.baseJsonEntries.set(
+          moduleFilePath,
+          new Map(
+            [...patchedEntries].map(([key, value]) => [
+              key,
+              deepClone(value as JSONValue),
+            ]),
+          ),
+        );
+      }
     }
   }
 
@@ -1123,6 +1185,26 @@ export class SourceStore {
       }
       this.activity.work("source:rebuild-module", moduleFilePath);
       this.sources[moduleFilePath] = deepClone(base as JSONValue);
+      /*
+       * And the entry content back to base, for the same reason source goes back.
+       *
+       * `storePatched` writes each applied patch's result into `jsonEntries`, so a
+       * rebuild that only reset source left every edit INSIDE a `.jsonValues()`
+       * entry standing — the dropped patch's effect survived the drop, in the one
+       * place the rebuild could not see.
+       */
+      const baseEntries = this.baseJsonEntries.get(moduleFilePath);
+      if (baseEntries !== undefined) {
+        this.jsonEntries.set(
+          moduleFilePath,
+          new Map(
+            [...baseEntries].map(([key, value]) => [
+              key,
+              deepClone(value as JSONValue),
+            ]),
+          ),
+        );
+      }
       this.bump(moduleFilePath);
       rebuilt.push(moduleFilePath);
     }
@@ -1367,8 +1449,9 @@ export class SourceStore {
   private substitutedSource(
     moduleFilePath: ModuleFilePath,
     source: Json,
+    from: Map<ModuleFilePath, Map<string, Json>> = this.jsonEntries,
   ): Json {
-    const entries = this.jsonEntries.get(moduleFilePath);
+    const entries = from.get(moduleFilePath);
     if (entries === undefined || entries.size === 0) return source;
     if (!isJsonObject(source)) return source;
     const n = this.revisions.get(moduleFilePath) ?? 0;

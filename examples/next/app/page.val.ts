@@ -58,19 +58,18 @@ export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
   "/": {
     video: {
       text: "Val is more than just basics - here's a video for example",
-      file: c.file("/public/val/file_example.webm", {
-        mimeType: "video/webm",
-      }),
+      file: { path: "/public/val/file_example.webm", mimeType: "video/webm" },
     },
     link: "/blogs/blog1",
     hero: {
       title: "Content as code",
-      image: c.image("/public/val/logo_7adc7.png", {
+      image: {
+        path: "/public/val/logo_7adc7.png",
         width: 944,
         height: 944,
         mimeType: "image/png",
         alt: "Val logo",
-      }),
+      },
       link: {
         text: "Example blog article",
         href: "/blogs/blog1",

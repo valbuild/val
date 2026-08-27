@@ -372,12 +372,12 @@ describe("runValidation", () => {
           .flatMap((e) => e.fixes ?? []);
         expect(allFixes).not.toContain("image:add-metadata");
       }
+      // The fix writes the fields it read from the bytes next to `path`.
       expect(result.source).toMatchObject({
-        metadata: {
-          width: 1,
-          height: 1,
-          mimeType: "image/png",
-        },
+        path: "/public/val/image.png",
+        width: 1,
+        height: 1,
+        mimeType: "image/png",
       });
     } finally {
       service.dispose();

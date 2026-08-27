@@ -23,9 +23,27 @@ import type { ParentRef } from "@valbuild/shared/internal";
  * async one on purpose: this is genuinely a network call in the app, and the
  * `external-partial` head only exists because it can be in flight.
  */
-export type FetchPatches = (
-  patchIds: PatchId[],
-) => Promise<{ patches: PatchRecord[]; errors?: Record<PatchId, string> }>;
+export type FetchPatches = (patchIds: PatchId[]) => Promise<{
+  patches: PatchRecord[];
+  /**
+   * Per patch: why THIS patch could not be read.
+   *
+   * An id in here is kept in the chain — see `reconcileVanished`, which treats
+   * "I could not read it" as evidence of nothing.
+   */
+  errors?: Record<PatchId, string>;
+  /**
+   * The REQUEST failed, so nothing was read.
+   *
+   * Separate from `errors` because it is one thing that went wrong rather than
+   * N, and because it is the case worth telling the user about: a chain that
+   * cannot be loaded means the editor is showing published content while
+   * pending changes exist, which looks exactly like changes having been lost.
+   * `errors` should still name every requested id, so nothing concludes the
+   * patches are gone.
+   */
+  error?: string;
+}>;
 
 export type CreatePatchId = () => PatchId;
 
@@ -296,10 +314,20 @@ export class PatchStore {
    * removed-and-restored, because a patch that turns out to exist must not have
    * its value flicker out of source and back.
    */
+  /**
+   * Whether a stat has ever arrived.
+   *
+   * Distinct from "the chain is empty": before the first stat this client does
+   * not know whether there are pending changes at all, and a field rendered then
+   * may be about to move. See {@link chainSettled}.
+   */
+  private statSeen = false;
+
   private async onStatPatchIds(
     patchIds: PatchId[],
     baseMoved = false,
   ): Promise<void> {
+    this.statSeen = true;
     const announced = new Set(patchIds);
     for (const patchId of patchIds) {
       if (!this.originById.has(patchId)) {
@@ -336,6 +364,13 @@ export class PatchStore {
     // ids" would be unable to tell that from five fetches otherwise.
     this.activity.work("patch:fetch", undefined, missing.length);
     const res = await this.fetchPatches(missing);
+    if (res.error !== undefined) {
+      this.events.emit({
+        type: "patch:fetch-failed",
+        patches: missing,
+        message: res.error,
+      });
+    }
     const received: PatchId[] = [];
     for (const record of res.patches) {
       this.fetching.delete(record.patchId);
@@ -436,6 +471,13 @@ export class PatchStore {
     this.activity.work("patch:verify-vanished", undefined, ask.length);
     try {
       const res = await this.fetchPatches(ask);
+      if (res.error !== undefined) {
+        this.events.emit({
+          type: "patch:fetch-failed",
+          patches: ask,
+          message: res.error,
+        });
+      }
       const held = new Set<PatchId>();
       for (const record of res.patches) {
         held.add(record.patchId);
@@ -976,6 +1018,83 @@ export class PatchStore {
    * {@link StoreBus} — so making them await would buy nothing and would make
    * the apply/emit ordering in {@link SourceStore} impossible to guarantee.
    */
+  /**
+   * Whether every patch the server has announced is loaded and applied.
+   *
+   * False before the first stat, and false while any announced patch's ops are
+   * still on their way. A patch that FAILED counts as settled: its effect is
+   * never going to arrive, and something else is already telling the user about
+   * it — waiting on it would mean waiting forever.
+   *
+   * What this is for: an editor must not be shown published content in an
+   * editable field while the pending change to it is still in flight. Typing
+   * over what looks like a stale value produces a "fix" for something that was
+   * never wrong, and the patch lands underneath it a moment later.
+   */
+  chainSettled(): boolean {
+    if (!this.statSeen) return false;
+    for (const patchId of this.ordered) {
+      if (this.failedById.has(patchId)) continue;
+      if (!this.dataById.has(patchId)) return false;
+      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Why {@link chainSettled} is still false, in the words a report needs.
+   *
+   * There is no bound on how long the wait can be — a `GET /patches` that never
+   * answers leaves the chain unsettled for as long as the tab is open, and
+   * "Loading unpublished changes…" with a spinner is then a lie told forever. So
+   * whatever is holding it has to be nameable: the counts say how far it got,
+   * and the ids say which patches to go and look for on the server.
+   *
+   * `unfetched` are announced but have no ops yet — the fetch is the suspect.
+   * `unapplied` arrived and the source store has not taken them, which is a
+   * different fault in a different place.
+   */
+  chainProgress(): {
+    total: number;
+    settled: number;
+    unfetched: PatchId[];
+    unapplied: PatchId[];
+    failed: PatchId[];
+    /** False before the first stat: nothing has even said what to expect. */
+    statSeen: boolean;
+  } {
+    const unfetched: PatchId[] = [];
+    const unapplied: PatchId[] = [];
+    const failed: PatchId[] = [];
+    let settled = 0;
+    for (const patchId of this.ordered) {
+      if (this.failedById.has(patchId)) {
+        failed.push(patchId);
+        settled++;
+        continue;
+      }
+      if (!this.dataById.has(patchId)) {
+        unfetched.push(patchId);
+        continue;
+      }
+      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+        unapplied.push(patchId);
+        continue;
+      }
+      settled++;
+    }
+    return {
+      total: this.ordered.length,
+      settled,
+      unfetched,
+      unapplied,
+      failed,
+      statSeen: this.statSeen,
+    };
+  }
+
   /**
    * The last patch in the chain.
    *

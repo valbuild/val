@@ -45,8 +45,15 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
+  // `hidden()` and `readonly()`, which the Studio is the only thing enforcing.
+  { def: () => import("./content/access.val") },
+  // Lists of primitives, the one shape the compare view diffs by content.
+  { def: () => import("./content/lists.val") },
+  // A plain router read from a SERVER component — see app/notes/[note]/page.val.ts.
+  { def: () => import("./app/notes/[note]/page.val") },
   // A gallery backed by Val's remote file host, when it is switched on. See
   // `remoteMedia` above, and content/remoteImages.val.ts for why this is a
   // gallery rather than a single remote image field.
+  // Last, because a conditional spread reads as the tail of the list.
   ...(remoteMedia ? [{ def: () => import("./content/remoteImages.val") }] : []),
 ]);

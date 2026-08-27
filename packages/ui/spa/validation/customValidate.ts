@@ -6,7 +6,7 @@ import {
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { sourcePathConcat } from "../components/traverseSchemas";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
 /**
  * Does this schema tree declare ANY custom validate function?
@@ -102,7 +102,7 @@ export function collectCustomValidateTargets(
           if (!(key in source)) {
             continue; // absent optional field: nothing to validate
           }
-          go(sourcePathConcat(path, key), schema.items[key], source[key]);
+          go(sourcePathOfChild(path, key), schema.items[key], source[key]);
         }
         return;
       }
@@ -128,7 +128,7 @@ export function collectCustomValidateTargets(
             }
             continue;
           }
-          go(sourcePathConcat(path, key), schema.item, value);
+          go(sourcePathOfChild(path, key), schema.item, value);
         }
         return;
       }
@@ -137,7 +137,7 @@ export function collectCustomValidateTargets(
           return;
         }
         for (let i = 0; i < source.length; i++) {
-          go(sourcePathConcat(path, i), schema.item, source[i]);
+          go(sourcePathOfChild(path, i), schema.item, source[i]);
         }
         return;
       }
@@ -177,7 +177,7 @@ export function collectCustomValidateTargets(
             if (!(key in source)) {
               continue; // absent optional field: nothing to validate
             }
-            go(sourcePathConcat(path, key), branch.items[key], source[key]);
+            go(sourcePathOfChild(path, key), branch.items[key], source[key]);
           }
         }
         return;

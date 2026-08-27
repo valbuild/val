@@ -276,6 +276,114 @@ describe("editing inside a `.jsonValues()` entry", () => {
   });
 });
 
+/**
+ * What a COMPARE view asks: what did this look like before I touched it.
+ *
+ * `peekBase` answers from `baseSources`, and for a `.jsonValues()` module the
+ * value is not in source — it is substituted in from the entry map on read. That
+ * map held only the PATCHED content, because `storePatched` writes each applied
+ * patch's result back into it. So the base realm substituted the patched content
+ * into the base source and answered with the edit: the compare view showed the
+ * same value on both sides, for `.jsonValues()` modules only.
+ */
+describe("the base value inside a `.jsonValues()` entry", () => {
+  it("keeps the before value when the entry is edited", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+
+    const patched = sourceStore.peek('/blogs.val.ts?p="/a"."title"' as never);
+    const base = sourceStore.peekBase('/blogs.val.ts?p="/a"."title"' as never);
+    if (patched.status !== "ready" || base.status !== "ready") {
+      throw new Error(
+        `expected both realms to be ready, got ${patched.status} and ${base.status}`,
+      );
+    }
+    expect(patched.data).toBe("Alpha edited");
+    expect(base.data).toBe("Alpha");
+    dispose();
+  });
+
+  /**
+   * And at the module root, where the substitution is of the whole record.
+   *
+   * A separate case because the root is where the substituted object is CACHED
+   * (`substituted`, keyed on the source object): the two realms must each get
+   * their own answer out of that cache rather than whichever was computed last.
+   */
+  it("keeps the before record when an entry is edited", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+
+    // Read in this order deliberately: the patched realm first, so a cache that
+    // did not distinguish the realms would hand its answer to the base read.
+    const patched = sourceStore.peek("/blogs.val.ts" as never);
+    const base = sourceStore.peekBase("/blogs.val.ts" as never);
+    if (patched.status !== "ready" || base.status !== "ready") {
+      throw new Error(
+        `expected both realms to be ready, got ${patched.status} and ${base.status}`,
+      );
+    }
+    const patchedData = patched.data as Record<string, { title?: string }>;
+    const baseData = base.data as Record<string, { title?: string }>;
+    expect(patchedData["/a"].title).toBe("Alpha edited");
+    expect(baseData["/a"].title).toBe("Alpha");
+    dispose();
+  });
+
+  /** An unedited entry reads the same in both realms — there is nothing to show. */
+  it("reads the same in both realms when nothing was edited", async () => {
+    const { sourceStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    const patched = sourceStore.peek('/blogs.val.ts?p="/a"."title"' as never);
+    const base = sourceStore.peekBase('/blogs.val.ts?p="/a"."title"' as never);
+    if (patched.status !== "ready" || base.status !== "ready") {
+      throw new Error(
+        `expected both realms to be ready, got ${patched.status} and ${base.status}`,
+      );
+    }
+    expect(patched.data).toBe("Alpha");
+    expect(base.data).toBe("Alpha");
+    dispose();
+  });
+
+  /**
+   * Discarding the patch takes the edit out of the entry content too.
+   *
+   * The rebuild resets source from base and re-applies what survived, and the
+   * entry content has to come back with it: it is where the edit actually landed,
+   * and it is the one place the source rebuild cannot reach.
+   */
+  it("returns to the base value when the patch is discarded", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    const created = await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+    patchStore.drop([created.patchId]);
+
+    const patched = sourceStore.peek('/blogs.val.ts?p="/a"."title"' as never);
+    if (patched.status !== "ready") {
+      throw new Error(`expected ready, got ${patched.status}`);
+    }
+    expect(patched.data).toBe("Alpha");
+    dispose();
+  });
+});
+
 describe("peeking a `.jsonValues()` record", () => {
   /**
    * The module root must peek to the SAME OBJECT once an entry is loaded.

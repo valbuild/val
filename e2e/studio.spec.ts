@@ -385,6 +385,35 @@ test.describe("the Studio runs on the store system", () => {
   test("discards a patch and the value returns", async ({ page }) => {
     await openStudio(page);
 
+    /*
+     * Wait for the chain this page loaded WITH to be applied, before reading
+     * anything.
+     *
+     * The assertion below is relative to the value at the start of this test,
+     * and the earlier tests in this file left patches on `teddy.name` — so the
+     * value read here is only meaningful once those have landed. `openStudio`
+     * waits for intake, which is a fetch earlier than that: read too soon and
+     * `before` is the committed value, the discard rebuilds source from base
+     * plus the surviving chain, and the test fails claiming a discard changed a
+     * field it never touched.
+     */
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const bag = window as unknown as {
+              __VAL_STORES__?: {
+                system: { patchStore: { chainSettled(): boolean } };
+              };
+            };
+            return (
+              bag.__VAL_STORES__?.system.patchStore.chainSettled() ?? false
+            );
+          }),
+        { message: "the loaded patch chain never finished applying" },
+      )
+      .toBe(true);
+
     const before = await page.evaluate(() => {
       const bag = window as unknown as {
         __VAL_STORES__: {

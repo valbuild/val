@@ -1,12 +1,10 @@
 import * as React from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
   ListRecordRender,
   ModuleFilePath,
   ModulePath,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -39,7 +37,6 @@ import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown, Earth, Plus } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
 import {
@@ -49,6 +46,7 @@ import {
 } from "../useCreateRouteEntry";
 import { NewPageForm, AvailableRoute } from "../NavMenu/NewPageForm";
 import { CommandSeparator } from "../designSystem/command";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export interface RouteSelectorRoute {
   route: string;
@@ -56,7 +54,7 @@ export interface RouteSelectorRoute {
   preview?: {
     title: string;
     subtitle?: string | null;
-    image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+    image?: ImageSource | string | null;
   } | null;
 }
 
@@ -473,7 +471,6 @@ export function RouteField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <RouteSelector
           routes={routesWithPreview}
@@ -518,11 +515,7 @@ export function RouteField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

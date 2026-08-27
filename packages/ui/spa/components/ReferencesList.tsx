@@ -1,4 +1,4 @@
-import { Check, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Fragment } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
@@ -37,6 +37,35 @@ export type ReferencesListItem = {
   fallbackLabel: string;
 };
 
+/**
+ * The rows, grouped by the module they are in.
+ *
+ * Which is how the canvas's fields column shows a page's content, and a
+ * references list has the same shape: several fields in one or two modules. Flat,
+ * every row repeated its module path as a subtitle — the same string over and
+ * over, taking a line per row from the part that differs.
+ *
+ * Insertion order is kept: the scan produces references in tree order, which puts
+ * the module the reader is already in first more often than any sort would.
+ */
+function groupByModule(items: readonly ReferencesListItem[]): {
+  moduleFilePath: ModuleFilePath;
+  label: string;
+  items: ReferencesListItem[];
+}[] {
+  const groups = new Map<ModuleFilePath, ReferencesListItem[]>();
+  for (const item of items) {
+    const existing = groups.get(item.moduleFilePath);
+    if (existing) existing.push(item);
+    else groups.set(item.moduleFilePath, [item]);
+  }
+  return Array.from(groups.entries()).map(([moduleFilePath, groupItems]) => ({
+    moduleFilePath,
+    label: prettifyModuleFilePath(moduleFilePath),
+    items: groupItems,
+  }));
+}
+
 export interface ReferencesListProps {
   items: ReferencesListItem[];
   currentPath?: SourcePath | null;
@@ -58,16 +87,24 @@ export function ReferencesList({
         {items.length === 0 ? (
           <CommandEmpty>No references found.</CommandEmpty>
         ) : (
-          <CommandGroup>
-            {items.map((item) => (
-              <ReferenceRow
-                key={item.path}
-                item={item}
-                isCurrent={currentPath === item.path}
-                onSelect={() => onSelect(item)}
-              />
-            ))}
-          </CommandGroup>
+          groupByModule(items).map((group) => (
+            <CommandGroup
+              key={group.moduleFilePath}
+              heading={group.label}
+              // The module path in full on hover: the heading is prettified, and
+              // the path is what a developer wants.
+              title={group.moduleFilePath}
+            >
+              {group.items.map((item) => (
+                <ReferenceRow
+                  key={item.path}
+                  item={item}
+                  isCurrent={currentPath === item.path}
+                  onSelect={() => onSelect(item)}
+                />
+              ))}
+            </CommandGroup>
+          ))
         )}
       </CommandList>
     </Command>
@@ -118,21 +155,27 @@ export function ConnectedReferencesList({
         {items.length === 0 ? (
           <CommandEmpty>No references found.</CommandEmpty>
         ) : (
-          <CommandGroup>
-            {items.map((item) => (
-              <ConnectedReferenceRow
-                key={item.path}
-                item={item}
-                isCurrent={currentPath === item.path}
-                onSelect={() => {
-                  const navPath =
-                    getNavPathFromAll(item.path, allSources, schemas) ??
-                    item.path;
-                  onSelect(navPath, { scrollToPath: item.path });
-                }}
-              />
-            ))}
-          </CommandGroup>
+          groupByModule(items).map((group) => (
+            <CommandGroup
+              key={group.moduleFilePath}
+              heading={group.label}
+              title={group.moduleFilePath}
+            >
+              {group.items.map((item) => (
+                <ConnectedReferenceRow
+                  key={item.path}
+                  item={item}
+                  isCurrent={currentPath === item.path}
+                  onSelect={() => {
+                    const navPath =
+                      getNavPathFromAll(item.path, allSources, schemas) ??
+                      item.path;
+                    onSelect(navPath, { scrollToPath: item.path });
+                  }}
+                />
+              ))}
+            </CommandGroup>
+          ))
         )}
       </CommandList>
     </Command>
@@ -200,14 +243,17 @@ function ReferenceRowView({
     <CommandItem
       value={`${item.preview?.title ?? ""} ${item.fallbackLabel}`}
       onSelect={onSelect}
-      className="flex items-center gap-2"
+      // The canvas's field row, in a menu: a bordered card, and the one you are
+      // already on marked by its border rather than by a tick in a gutter every
+      // other row leaves empty.
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-[0.8125rem]",
+        isCurrent
+          ? "border-border-brand-primary bg-bg-float-raised"
+          : "border-border-float",
+      )}
+      title={item.path}
     >
-      <Check
-        className={cn(
-          "h-4 w-4 shrink-0",
-          isCurrent ? "opacity-100" : "opacity-0",
-        )}
-      />
       <DropdownPreviewRow
         title={
           hasPatchPath ? (
@@ -219,8 +265,10 @@ function ReferenceRowView({
             moduleFilePathLabel
           )
         }
-        subtitle={hasPatchPath ? moduleFilePathLabel : undefined}
+        // No module path here: the group heading above says it, once, instead of
+        // every row saying the same thing.
         image={image}
+        imageSize="sm"
       />
     </CommandItem>
   );
@@ -242,7 +290,7 @@ function ReferenceLabel({
 }) {
   const [entryKey, ...fields] = patchPath;
   return (
-    <span className="whitespace-normal [overflow-wrap:anywhere]">
+    <span className="block truncate">
       {isRouter ? (
         <RouteKey route={entryKey} />
       ) : (

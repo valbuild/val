@@ -2,7 +2,7 @@
 export { Schema, type SerializedSchema } from "@valbuild/core";
 export type { SourceObject, SourcePrimitive, Source } from "@valbuild/core";
 export type { ValModule, SerializedModule } from "@valbuild/core";
-export type { FileSource } from "@valbuild/core";
+export type { FileSource, ImageSource, MediaSource } from "@valbuild/core";
 export type { RichTextSource } from "@valbuild/core";
 export {
   type Val,
@@ -17,7 +17,6 @@ export type { Json, JsonPrimitive } from "@valbuild/core";
 export type { ValidationErrors, ValidationError } from "@valbuild/core";
 export type { ValidationFix } from "@valbuild/core";
 export * as expr from "@valbuild/core";
-export { FILE_REF_PROP } from "@valbuild/core";
 export { VAL_EXTENSION, type SourceArray } from "@valbuild/core";
 export { derefPatch } from "@valbuild/core";
 export {

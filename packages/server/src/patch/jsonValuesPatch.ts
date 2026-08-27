@@ -224,8 +224,11 @@ export function rebaseContentOp(
     case "copy":
       return result.ok({ ...op, path, from: op.from.slice(prefixLen) });
     case "file":
+      // A file op carries bytes, not content. The binary goes through the
+      // normal upload pipeline; what lands in the entry is the `patch_id` that
+      // marks the bytes as not yet committed, which the caller writes.
       return result.err(
-        new PatchError("Cannot apply a file op to a jsonValues entry"),
+        new PatchError("A file op is not a content op: rebase it via its path"),
       );
   }
 }
@@ -263,9 +266,6 @@ export function applyJsonValuesEntryPatches(args: {
   for (const { patchId, patch } of patches) {
     let touched = false;
     for (const op of patch) {
-      if (op.op === "file") {
-        continue;
-      }
       const cls = serializedSchema
         ? classifyJsonValuesOp(serializedSchema, op.path)
         : ({ kind: "normal" } as const);
@@ -277,6 +277,32 @@ export function applyJsonValuesEntryPatches(args: {
         continue;
       }
       touched = true;
+      // A file op does not edit the entry's content — its bytes go through the
+      // upload pipeline. What the entry needs is the `patch_id` saying those
+      // bytes are not committed yet, so `mediaUrl` serves them from the patch
+      // directory instead of a `/public` path that holds nothing. Without this a
+      // just-uploaded image inside an entry renders broken.
+      if (op.op === "file") {
+        if (op.value === null || content === undefined) {
+          // A delete carries no bytes to point at, and there is nothing to mark
+          // on an entry that does not exist.
+          continue;
+        }
+        const applied = applyPatch(deepClone(content), jsonOps, [
+          {
+            op: "add",
+            path: cls.subPath
+              .concat(...(op.nestedFilePath ?? []))
+              .concat("patch_id"),
+            value: patchId,
+          },
+        ]);
+        if (result.isErr(applied)) {
+          return { kind: "error", message: applied.error.message, patchId };
+        }
+        content = applied.value;
+        continue;
+      }
       if (cls.subPath.length === 0) {
         if (op.op === "add" || op.op === "replace") {
           content = op.value as JSONValue;

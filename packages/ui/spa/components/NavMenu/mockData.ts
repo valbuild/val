@@ -229,6 +229,7 @@ export const mockExternal: ExternalModule = {
  * Complete mock nav data for stories.
  */
 export const mockNavMenuData: NavMenuData = {
+  hasRouters: true,
   sitemap: mockSitemap,
   explorer: mockExplorer,
   external: mockExternal,
@@ -238,6 +239,7 @@ export const mockNavMenuData: NavMenuData = {
  * Mock data with only sitemap (no explorer or external).
  */
 export const mockNavMenuDataSitemapOnly: NavMenuData = {
+  hasRouters: true,
   sitemap: mockSitemap,
 };
 
@@ -245,6 +247,7 @@ export const mockNavMenuDataSitemapOnly: NavMenuData = {
  * Mock data with only explorer (no sitemap or external).
  */
 export const mockNavMenuDataExplorerOnly: NavMenuData = {
+  hasRouters: false,
   explorer: mockExplorer,
 };
 

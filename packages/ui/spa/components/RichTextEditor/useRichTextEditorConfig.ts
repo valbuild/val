@@ -5,7 +5,6 @@ import {
   type ModuleFilePath,
   type ListRecordRender,
   Internal,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 import { useAllRenders } from "../ValFieldProvider";
@@ -15,13 +14,8 @@ import type { EditorFeatures, EditorLinkCatalogItem } from "./types";
 function imageSourceToUrl(
   src: { readonly [key: string]: unknown } | null | undefined,
 ): string | undefined {
-  if (!src) return undefined;
-  if (src[VAL_EXTENSION] === "file") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Internal.convertFileSource(src as any).url;
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return Internal.convertRemoteSource(src as any).url;
+  if (!src || typeof src.path !== "string") return undefined;
+  return Internal.mediaUrl({ path: src.path });
 }
 
 export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {

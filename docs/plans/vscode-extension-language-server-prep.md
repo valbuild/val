@@ -80,7 +80,7 @@ drives the failure messaging in Task 5.
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `diagnostics`           | Validation and schema errors, fatal module errors, missing file references, modules absent from `val.modules`. Includes `keyOf`/`route` resolution with did-you-mean suggestions. |
 | `fix/metadata`          | Quick fixes for image/file metadata, computed by the same pipeline as `val validate --fix`.                                                                                       |
-| `completions/mediaPath` | File and image paths in `c.image()` / `c.file()`, with the metadata argument filled in on accept.                                                                                 |
+| `completions/mediaPath` | The `path` of an image or file field, with `width`/`height`/`mimeType` filled in on accept.                                                                                       |
 | `completions/keyOf`     | Keys of the record or object an `s.keyOf()` field points at.                                                                                                                      |
 | `completions/route`     | Routes the project defines, internal pages and registered external URLs alike.                                                                                                    |
 

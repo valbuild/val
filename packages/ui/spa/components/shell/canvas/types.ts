@@ -42,12 +42,39 @@ export type CanvasPageData = {
 };
 
 /** Widths the canvas can render the page at. */
+/**
+ * What the canvas is showing, and therefore what the column beside it holds.
+ *
+ * `normal` is the page as a visitor sees it: links work, nothing is outlined,
+ * and the column keeps the module editor. `fields` is the page as Val sees
+ * it: every element it tracks is outlined, and the column swaps to the fields
+ * actually found on the page. One control drives both, because they are one
+ * idea — whether you are looking at the page or at its content.
+ */
+export type CanvasView = "normal" | "fields";
+
 export type CanvasDevice = "desktop" | "tablet" | "mobile";
 
 export const CANVAS_DEVICE_WIDTHS: Record<CanvasDevice, number> = {
   desktop: 1280,
   tablet: 834,
   mobile: 390,
+};
+
+/**
+ * Heights to give a page that does not have one of its own.
+ *
+ * The demo page is as tall as its content, but a real page arrives in an
+ * iframe, and an iframe has no intrinsic height — left to itself it collapses
+ * to a couple of hundred pixels regardless of what is inside it. These are the
+ * viewport heights that go with the widths above, so what the canvas shows is
+ * the page at a plausible screen size rather than at whatever an unsized frame
+ * happens to be.
+ */
+export const CANVAS_DEVICE_HEIGHTS: Record<CanvasDevice, number> = {
+  desktop: 800,
+  tablet: 1112,
+  mobile: 844,
 };
 
 /** Pan and zoom state. */

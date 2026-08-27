@@ -1,12 +1,11 @@
 import {
-  FILE_REF_PROP,
   Internal,
-  ModuleFilePathSep,
   Source,
   SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { sourcePathOfChild } from "./sourcePath";
 
 /**
  * Traverses a schema and source pair, calling a callback for each leaf node.
@@ -75,13 +74,13 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle file/image - extract filename from _ref
+  // Handle file/image
   if (schema.type === "file" || schema.type === "image") {
     if (
       source &&
       typeof source === "object" &&
-      FILE_REF_PROP in source &&
-      typeof source[FILE_REF_PROP] === "string"
+      "path" in source &&
+      typeof source.path === "string"
     ) {
       callback({ source, schema, path });
     }
@@ -145,7 +144,7 @@ export function traverseSchemaSource(
       );
     }
     for (let i = 0; i < source.length; i++) {
-      const subPath = sourcePathConcat(path, i);
+      const subPath = sourcePathOfChild(path, i);
       traverseSchemaSource(source[i], schema.item, subPath, callback);
     }
     return;
@@ -166,7 +165,7 @@ export function traverseSchemaSource(
       if (!subSchema) {
         continue;
       }
-      const subPath = sourcePathConcat(path, key);
+      const subPath = sourcePathOfChild(path, key);
       traverseSchemaSource(
         (source as Record<string, Source>)[key],
         subSchema,
@@ -218,24 +217,6 @@ export function traverseSchemaSource(
   throw new Error(
     "Unsupported schema type: " + JSON.stringify(exhaustiveCheck),
   );
-}
-
-/**
- * Concatenates a key to a source path, handling root paths correctly.
- */
-function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  const isRoot = sourcePath.endsWith("?p=");
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}${isRoot ? "" : "."}${JSON.stringify(
-      key,
-    )}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
 }
 
 /**
