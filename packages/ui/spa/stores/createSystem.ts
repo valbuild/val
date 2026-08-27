@@ -560,6 +560,27 @@ export function createSystem(options: SystemOptions): System {
      * disagreement; this makes sure that if anything ever does, it is not
      * silent.
      */
+    /**
+     * The server threw someone's unpublished changes away.
+     *
+     * It repairs its own store on read, so a change whose file it cannot use is
+     * removed rather than kept to fail on every load. That is the right call —
+     * but the fields then go quietly back to their published values, and finding
+     * that out by noticing is the worst version of it.
+     */
+    stat.events.on("patch:removed-by-server", (event) => {
+      status.reportError(
+        event.removed.length === 1
+          ? "An unpublished change was removed because the server could not read it."
+          : `${event.removed.length} unpublished changes were removed because the server could not read them.`,
+        "They are gone and the fields are back to their published values. The " +
+          "server log and .val/patches/patches.repair.log say which, and why.",
+      );
+      console.error(
+        "Val: the server removed these unpublished changes.",
+        event.removed,
+      );
+    }),
     patchStore.events.on("patch:announced-not-delivered", (event) => {
       status.reportError(
         event.patches.length === 1

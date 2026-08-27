@@ -184,6 +184,12 @@ export abstract class ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        /**
+         * Unpublished changes the store threw away because it could not read
+         * them. FS mode only: the content api owns its own patches and does not
+         * discard them behind the client's back.
+         */
+        removed?: { patchId: PatchId; reason: string }[];
         /** FS mode only — see the `params` counterpart. */
         jsonEntriesSha?: string;
       }
@@ -1834,7 +1840,7 @@ export abstract class ValOps {
         createdAt: string;
       },
       | { errorType: "other"; error: GenericErrorMessage }
-      | { errorType: "patch-head-conflict"; tail?: PatchId }
+      | { errorType: "patch-head-conflict" }
     >
   > {
     const saveRes = await this.saveSourceFilePatch(
@@ -1850,10 +1856,7 @@ export abstract class ValOps {
         `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
-        return result.err({
-          errorType: "patch-head-conflict",
-          tail: saveRes.error.tail,
-        });
+        return result.err({ errorType: "patch-head-conflict" });
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
@@ -1969,18 +1972,7 @@ export type GenericErrorMessage = {
 export type SaveSourceFilePatchResult = result.Result<
   { patchId: PatchId },
   | ({ errorType: "other" } & GenericErrorMessage)
-  | {
-      errorType: "patch-head-conflict";
-      /**
-       * The patch the store is actually at, when it knows.
-       *
-       * Handed back so a client whose idea of the chain was stale can rebase and
-       * retry at once, rather than waiting for the next stat to tell it. Absent
-       * when the store is empty, and absent from `ValOpsHttp`, which does not
-       * own the ordering it is reporting on.
-       */
-      tail?: PatchId;
-    }
+  | { errorType: "patch-head-conflict" }
 >;
 
 export type PatchAnalysis = {

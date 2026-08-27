@@ -66,12 +66,22 @@ you touch the write path, keep that order.**
 **A torn last line is discarded.** Appends are serialized by the lock, so an
 unterminated final line can only be a write that did not finish.
 
-**`parentRef` is a compare-and-swap token, not a place to write.** It used to be
-neither — it named the directory and nothing checked it, so a client working from
-a stale view could write a patch whose parent had never landed. A parent that is
-not the current tail is now refused with a 409 that carries the real tail. Two
-concurrent writes leave one winner and one refusal; before, the second silently
-overwrote the first.
+**`parentRef` is ignored in `fs` mode.** It used to be the directory name, which
+is how a client working from a stale view could write a patch whose parent had
+never landed and strand everything behind it. With the order in one append-only
+list the server decides where a patch goes — last — so there is no parent to name
+and nothing that can point at nothing. Two concurrent writes are two lines in a
+list; before, the second silently overwrote the first.
+
+The parameter stays on `ValOps` because `ValOpsHttp` genuinely needs it: the
+content api runs its own chain and is told the parent. In `fs` mode a stale
+parent is not an error to refuse, it is a fact with no consequences.
+
+What that gives up is early detection of a patch computed against a different
+state — two tabs editing the same array can produce an op that no longer fits.
+That is caught where it shows, applying the patch, and handled by dropping it and
+saying so, rather than by refusing writes up front and making every interleaved
+edit a round trip.
 
 **Deleting is dropping lines from a list.** The log is flat, so removing an entry
 cannot orphan the entries after it. This is why repair can run unattended, which
@@ -81,15 +91,26 @@ re-parenting a chain never safely could.
 
 In that order, and never silently.
 
-- **Report** — every problem is described and logged, and reaches the API rather
-  than shortening a list.
-- **Repair** — under the lock: drop log entries whose record is missing or
-  unreadable, sweep unreferenced directories, rewrite the log. Appended to
-  `patches.repair.log`, because discarding someone's unpublished edits without
-  saying so anywhere durable is how you get a person certain they saved something
-  and no way to tell them what happened to it.
+- **Report** — every problem is described and logged.
+- **Repair** — under the lock: remove directories that cannot be used as patches,
+  sweep unreferenced ones, rewrite the log. Appended to `patches.repair.log`,
+  because discarding someone's unpublished edits without saying so anywhere
+  durable is how you get a person certain they saved something and no way to tell
+  them what happened to it.
 - **Reset** — only if repair does not settle it. `.val/patches` is **renamed** to
   `.val/patches-corrupt-<timestamp>`, never deleted.
+
+**The person editing is told**, on `/stat`. Not on `GET /patches`: the case worth
+reporting is a repair that removed everything, and then there is nothing left to
+fetch, so a notice riding on the fetch is never collected. The server drains the
+notice when it hands it over, so it arrives exactly once — a permanent flag would
+put a toast on the screen forever.
+
+Directories are told apart by whether they hold a usable record. One that does
+not is an **unreadable patch**: work is gone, and it is reported. One that holds a
+perfectly good record the log does not name is a **crash leftover** — a record
+written before its log line — which nothing ever read, so nothing is lost and
+nobody is told.
 
 Repair only runs when something is wrong, so the healthy path — every stat poll —
 never touches the lock.
@@ -113,23 +134,24 @@ skip is how a store ends up locked by a process that has long since moved on.
 
 ## Old stores
 
-A store written before this layout — a `head` directory, or records with
-`parentRef` — is **refused, not converted**. Rebuilding the order would mean
-trusting the very links that are unreliable there, and the stores that hit this
-are the ones where that has already gone wrong.
+There is **no detection for the old layout**, and that is deliberate. It named a
+directory after the record's _parent_, so "the directory does not hold the patch
+it is named after" already catches it — and catches a directory renamed by hand,
+and a half-finished move. One rule instead of a special case that has to be kept
+in step with a format nobody supports.
 
-The only way out is deleting `.val/patches`, and the error names the absolute
-path for exactly that reason: `DELETE /patches` takes the ids to remove, and a
-store Val refuses to read is one whose ids the Studio never learns, so no button
-in the Studio can clear it.
+So an old store is read as a pile of unusable directories and removed like any
+other, and the Studio loads. There is nothing to recover: the order lived in the
+links that are exactly what goes wrong. The person editing is told how many
+changes went, and why.
 
 ## Where to look
 
-| what                                          | where                                                  |
-| --------------------------------------------- | ------------------------------------------------------ |
-| the log format, append and rewrite            | `packages/server/src/patchLog.ts`                      |
-| the lock                                      | `packages/server/src/patchLock.ts`                     |
-| layout, read, repair, reset, legacy detection | `packages/server/src/patchStore.ts`                    |
-| the wiring, and the CAS on `parentRef`        | `packages/server/src/ValOpsFS.ts`                      |
-| the invariant, under injected faults          | `packages/server/src/ValOpsFS.patchStore.test.ts`      |
-| the Studio side of the same failure           | `packages/ui/spa/stores/announcedNotDelivered.test.ts` |
+| what                                                | where                                                  |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| the log format, append and rewrite                  | `packages/server/src/patchLog.ts`                      |
+| the lock                                            | `packages/server/src/patchLock.ts`                     |
+| layout, read, repair, reset, legacy detection       | `packages/server/src/patchStore.ts`                    |
+| the wiring: read, repair, reset, the removal notice | `packages/server/src/ValOpsFS.ts`                      |
+| the invariant, under injected faults                | `packages/server/src/ValOpsFS.patchStore.test.ts`      |
+| the Studio side of the same failure                 | `packages/ui/spa/stores/announcedNotDelivered.test.ts` |

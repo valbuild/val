@@ -1135,16 +1135,12 @@ export const ValServer = (
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {
-              const tail = createPatchRes.error.tail;
               return {
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
                   message:
-                    tail === undefined
-                      ? "The change was written against a different starting point than the server has."
-                      : `The change was written against a different starting point than the server has. The server is at ${tail}.`,
-                  tail,
+                    "The change was written against a different starting point than the server has.",
                 },
               };
             } else {

@@ -6,7 +6,6 @@ import type { BaseSha } from "./ValOps";
 import {
   appendPatch,
   describePatchStoreProblems,
-  detectLegacyLayout,
   FSPatchRecord,
   patchesLogFile,
   patchDir,
@@ -222,8 +221,8 @@ describe("patchStore", () => {
       const actions = repairPatchStore(patchesDir, readOk().raw);
       expect(actions).toContainEqual(
         expect.objectContaining({
-          type: "dropped-from-log",
-          patchId: "patch-2",
+          type: "removed-unreadable-patch",
+          name: "patch-2",
         }),
       );
 
@@ -256,7 +255,7 @@ describe("patchStore", () => {
       repairPatchStore(patchesDir, readOk().raw);
 
       const audit = fs.readFileSync(patchRepairLogFile(patchesDir), "utf-8");
-      expect(audit).toContain("dropped patch-1");
+      expect(audit).toContain("removed patch-1");
     });
 
     test("does nothing to a healthy store", () => {
@@ -308,40 +307,53 @@ describe("patchStore", () => {
       );
     };
 
-    test('is recognised by its "head" directory', () => {
-      writeLegacy("head", { ...record(1), parentRef: { type: "head" } });
-      expect(detectLegacyLayout(patchesDir)).toMatchObject({ isLegacy: true });
-    });
-
-    test("is recognised by a record that still points at its parent", () => {
+    /**
+     * There is no separate detection for it, and that is deliberate.
+     *
+     * The old layout named a directory after the record's PARENT. So "the
+     * directory does not hold the patch it is named after" catches it, catches a
+     * directory someone renamed by hand, and catches a half-finished move — one
+     * rule instead of a special case that has to be kept in step with a format
+     * nobody supports any more.
+     */
+    test("is unreadable for the same reason any misnamed directory is", () => {
       writeLegacy("some-parent-id", {
         ...record(1),
         parentRef: { type: "patch", patchId: "some-parent-id" },
       });
-      expect(detectLegacyLayout(patchesDir)).toMatchObject({ isLegacy: true });
+
+      const { entries, problems } = readOk();
+      expect(entries).toEqual([]);
+      expect(problems.join("\n")).toContain(
+        "not the patch its directory is named after",
+      );
     });
 
-    test("is refused rather than converted, and nothing is touched", () => {
+    test('the "head" directory is unreadable too', () => {
       writeLegacy("head", { ...record(1), parentRef: { type: "head" } });
-      const before = fs.readFileSync(
-        fsPath.join(patchesDir, "head", "patch.json"),
-        "utf-8",
+      expect(readOk().entries).toEqual([]);
+      expect(readOk().problems).toHaveLength(1);
+    });
+
+    test("repair removes it and the store works again", () => {
+      writeLegacy("head", { ...record(1), parentRef: { type: "head" } });
+
+      const actions = repairPatchStore(patchesDir, readOk().raw);
+
+      expect(actions).toContainEqual(
+        expect.objectContaining({
+          type: "removed-unreadable-patch",
+          name: "head",
+        }),
       );
-
-      const res = readPatchStore(patchesDir);
-      if (res.status !== "legacy-layout") {
-        throw new Error(`expected legacy-layout, got ${res.status}`);
-      }
-      expect(res.message).toContain("older version of Val");
-
-      expect(
-        fs.readFileSync(fsPath.join(patchesDir, "head", "patch.json"), "utf-8"),
-      ).toBe(before);
+      expect(readOk().problems).toEqual([]);
+      appendPatch(patchesDir, record(1));
+      expect(readOk().entries.map((e) => e.patchId)).toEqual(["patch-1"]);
     });
 
     test("a store this version wrote is not mistaken for it", () => {
       seed(2);
-      expect(detectLegacyLayout(patchesDir)).toEqual({ isLegacy: false });
+      expect(readOk().problems).toEqual([]);
     });
   });
 

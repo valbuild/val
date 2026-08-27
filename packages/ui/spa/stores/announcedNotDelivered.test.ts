@@ -110,6 +110,60 @@ describe("changes the server announced and did not send", () => {
     dispose();
   });
 
+  describe("changes the server threw away because it could not read them", () => {
+    it("tells the person editing, because the fields just went back", async () => {
+      const { server, status, dispose } = await setup();
+
+      server.simulateServerRemovedUnreadable([
+        { patchId: "unreadable" as PatchId, reason: "there is no patch.json" },
+      ]);
+      await settle();
+
+      const [error] = status.current().errors;
+      expect(error?.message).toBe(
+        "An unpublished change was removed because the server could not read it.",
+      );
+      expect(error?.details).toContain("patches.repair.log");
+      dispose();
+    });
+
+    it("counts them", async () => {
+      const { server, status, dispose } = await setup();
+
+      server.simulateServerRemovedUnreadable([
+        { patchId: "a" as PatchId, reason: "gone" },
+        { patchId: "b" as PatchId, reason: "gone" },
+      ]);
+      await settle();
+
+      expect(status.current().errors[0]?.message).toBe(
+        "2 unpublished changes were removed because the server could not read them.",
+      );
+      dispose();
+    });
+
+    /**
+     * Distinct from a discard by another session, which is silent because
+     * somebody meant it. This is work disappearing on its own.
+     */
+    it("says nothing when a change is simply discarded elsewhere", async () => {
+      const { patchStore, stat, server, status, dispose } = await setup();
+
+      const foreign = externalPatch("foreign", "/t.val.ts", [
+        { op: "replace", path: ["title"], value: "will be discarded" },
+      ]);
+      stat.simulateExternal([foreign]);
+      await settle();
+      await patchStore.getHead();
+
+      server.simulateForeignDiscard(["foreign" as PatchId]);
+      await settle();
+
+      expect(status.current().errors).toEqual([]);
+      dispose();
+    });
+  });
+
   /**
    * The other half of the rule, and the reason this is not simply "absence is an
    * error".

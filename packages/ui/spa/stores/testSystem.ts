@@ -492,6 +492,17 @@ export type TestServer = {
    */
   simulateAnnouncedNotDelivered(patchIds: PatchId[]): void;
   /**
+   * The server repaired its own store and threw these unpublished changes away.
+   *
+   * In fs mode a patch whose file cannot be read is removed rather than kept to
+   * fail on every load, and the next fetch says so. Not a discard by another
+   * session - {@link simulateForeignDiscard} is that, and it is silent because
+   * somebody meant it.
+   */
+  simulateServerRemovedUnreadable(
+    removed: { patchId: PatchId; reason: string }[],
+  ): void;
+  /**
    * Another session PUBLISHES patches this client holds.
    *
    * Indistinguishable from a discard by the patch list alone — `/save` in `fs`
@@ -1108,6 +1119,21 @@ export function initTestSystem(): TestSystem {
         system.stat.receiveStat({
           patches: [...announced],
           baseSha: publishedBaseSha,
+        });
+      },
+      simulateServerRemovedUnreadable(removed) {
+        for (const entry of removed) {
+          serverPatches.delete(entry.patchId);
+          const at = announced.indexOf(entry.patchId);
+          if (at !== -1) announced.splice(at, 1);
+        }
+        // On the stat, exactly as ValOpsFS reports it: the repair that produced
+        // this may have removed everything, and then there is no fetch left for
+        // a notice to ride on. Said once, so it is not carried to the next stat.
+        system.stat.receiveStat({
+          patches: [...announced],
+          baseSha,
+          removed,
         });
       },
       simulateAnnouncedNotDelivered(patchIds) {

@@ -26,6 +26,15 @@ export type StatSnapshot = {
    * attempted, which is the honest consequence rather than a guessed sha.
    */
   baseSha?: string;
+  /**
+   * Unpublished changes the server threw away because it could not read them.
+   *
+   * Carried on stat rather than fetched, because the case worth reporting is a
+   * repair that removed EVERYTHING — and then there is nothing left to fetch, so
+   * a notice riding on `GET /patches` would never be collected. The server
+   * drains it when it hands it over, so it arrives exactly once.
+   */
+  removed?: { patchId: PatchId; reason: string }[];
 };
 
 /**
@@ -54,6 +63,15 @@ export class StatStore {
       this.baseSha = snapshot.baseSha;
     }
     this.events.emit({ type: "stat:receive", patches: [...this.patches] });
+    if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
+      // A separate event, after the id list: what this says is not "the chain
+      // moved", it is "work you made no longer exists anywhere". Only one thing
+      // listens for it, and that thing is the toast.
+      this.events.emit({
+        type: "patch:removed-by-server",
+        removed: snapshot.removed,
+      });
+    }
   }
 
   currentPatchIds(): PatchId[] {

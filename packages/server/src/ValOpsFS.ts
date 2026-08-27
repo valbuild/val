@@ -48,6 +48,7 @@ import {
   patchBinaryFileMetadata,
   patchDir,
   patchesLogFile,
+  PATCH_REPAIR_LOG_FILE_NAME,
   PatchStoreEntry,
   readPatchStore,
   ReadPatchStoreResult,
@@ -90,6 +91,22 @@ export class ValOpsFS extends ValOps {
    * content lives behind a thunk that `JSON.stringify` drops).
    */
   private readonly jsonEntryFilesFingerprint: JsonEntryFilesFingerprint;
+
+  /**
+   * Unpublished changes repair threw away, waiting to be told to somebody.
+   *
+   * Held here and drained by the next `getStat`, because stat is the channel
+   * that always flows. The case worth reporting is a repair that removed
+   * EVERYTHING - which is what an old store looks like - and then there is
+   * nothing left for the studio to fetch, so a notice riding on `fetchPatches`
+   * would never be collected. Drained rather than kept, because this has to be
+   * said once: a permanent flag would put a toast on the screen forever.
+   *
+   * Held in memory only: a restart loses it, and that is the right trade. The
+   * durable record is `patches.repair.log`.
+   */
+  private readonly removedPatchNotices: { patchId: PatchId; reason: string }[] =
+    [];
 
   override async onInit(): Promise<void> {
     // do nothing
@@ -215,6 +232,7 @@ export class ValOpsFS extends ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        removed?: { patchId: PatchId; reason: string }[];
         jsonEntriesSha?: string;
       }
     | {
@@ -265,6 +283,16 @@ export class ValOpsFS extends ValOps {
       const patches: PatchId[] = announceRes.entries.map(
         (entry) => entry.patchId,
       );
+      // Drained here, on the channel that always flows. A repair that removed
+      // everything leaves the studio nothing to fetch, so a notice riding on
+      // `GET /patches` would sit here unread.
+      const removed = this.removedPatchNotices.splice(
+        0,
+        this.removedPatchNotices.length,
+      );
+      const removedNotice: {
+        removed?: { patchId: PatchId; reason: string }[];
+      } = removed.length > 0 ? { removed } : {};
       // something changed: return immediately
       const didChange =
         !params ||
@@ -285,6 +313,7 @@ export class ValOpsFS extends ValOps {
           schemaSha: currentSchemaSha,
           sourcesSha: currentSourcesSha,
           patches,
+          ...removedNotice,
           jsonEntriesSha: currentJsonEntriesSha,
         };
       }
@@ -464,6 +493,7 @@ export class ValOpsFS extends ValOps {
         schemaSha: currentSchemaSha,
         sourcesSha: currentSourcesSha,
         patches,
+        ...removedNotice,
         jsonEntriesSha: currentJsonEntriesSha,
       };
     } catch (err) {
@@ -491,20 +521,6 @@ export class ValOpsFS extends ValOps {
     | { status: "error"; message: string }
   > {
     const read = readPatchStore(this.getPatchesDir());
-    if (read.status === "legacy-layout") {
-      /*
-       * Refused, not converted.
-       *
-       * Rebuilding the order would mean following the very links that are
-       * unreliable here, and the stores that reach this code are the ones where
-       * that has already gone wrong. Guessing at someone's unpublished work on
-       * startup is not a thing to do quietly, so this stops and says so.
-       */
-      return {
-        status: "error",
-        message: `${read.message} Val cannot read patches in that layout. Move or delete ${read.patchesDir} to start over. The unpublished changes it holds cannot be recovered into the current format.`,
-      };
-    }
     if (read.status === "unreadable") {
       return { status: "error", message: read.message };
     }
@@ -541,23 +557,26 @@ export class ValOpsFS extends ValOps {
         // is how the old delete path destroyed live patches.
         const current = readPatchStore(patchesDir);
         if (current.status !== "ok") {
-          return {
-            status: "error",
-            message:
-              current.status === "legacy-layout"
-                ? current.message
-                : current.message,
-          };
+          return { status: "error", message: current.message };
         }
         if (current.problems.length === 0) {
           return { status: "ok", entries: current.entries };
         }
         for (const action of repairPatchStore(patchesDir, current)) {
-          if (action.type === "dropped-from-log") {
+          if (action.type === "removed-unreadable-patch") {
             console.warn(
-              `Val: dropped the unpublished change ${action.patchId} because ${action.because}. See ${patchesDir}/patches.repair.log.`,
+              `Val: removed the unpublished change ${action.name} because ${action.because}. See ${patchesDir}/${PATCH_REPAIR_LOG_FILE_NAME}.`,
             );
+            // Queued rather than only logged: this is someone's unpublished
+            // work being thrown away, and a server console is not somewhere the
+            // person editing is looking.
+            this.removedPatchNotices.push({
+              patchId: action.name as PatchId,
+              reason: action.because,
+            });
           } else if (action.type === "removed-orphan-directory") {
+            // Not queued. Nothing ever read this - it is a record whose log line
+            // never landed - so there is no edit to tell anyone about.
             console.warn(
               `Val: removed the unused patch directory ${action.name}.`,
             );
@@ -731,7 +750,7 @@ export class ValOpsFS extends ValOps {
     path: ModuleFilePath,
     patch: Patch,
     patchId: PatchId,
-    parentRef: ParentRef,
+    _parentRef: ParentRef,
     authorId: AuthorId | null,
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult> {
@@ -746,37 +765,29 @@ export class ValOpsFS extends ValOps {
       coreVersion: Internal.VERSION.core,
       createdAt: new Date().toISOString(),
     };
+    /*
+     * `parentRef` is ignored here, and that is the point of the log.
+     *
+     * It used to be the directory name, which is how a client working from a
+     * stale view could write a patch whose parent had never landed and strand
+     * every patch behind it. With the order held in one append-only list the
+     * server decides where a patch goes: it goes last. There is no parent to
+     * name, nothing to point at, and so nothing that can point at nothing.
+     *
+     * The parameter stays because `ValOpsHttp` genuinely needs it — the content
+     * api runs its own chain and is told the parent — but in fs mode a stale
+     * parent is not an error to refuse, it is a fact with no consequences.
+     *
+     * What that gives up is early detection of a patch computed against a
+     * different state: two tabs editing the same array can produce an op that no
+     * longer fits. That is caught where it actually shows — applying the patch —
+     * and handled by dropping it and saying so, rather than by refusing writes
+     * up front and making every interleaved edit a round trip.
+     */
     const locked = await withPatchLock(
       this.getPatchLockFile(),
       { ttlMs: 10_000, op: "PUT /patches" },
       (): SaveSourceFilePatchResult => {
-        const read = readPatchStore(patchesDir);
-        if (read.status !== "ok") {
-          return result.err({
-            errorType: "other",
-            message: read.message,
-          });
-        }
-        /*
-         * `parentRef` is a compare-and-swap token, not a place to write.
-         *
-         * It used to be neither. It named the directory the record went into and
-         * nothing ever checked it, so a client working from a stale view could
-         * write a patch whose parent had never landed — and every patch chained
-         * behind that one was then unreachable, with the studio waiting on ids
-         * the server would never send. Refusing here is what makes that state
-         * unreachable rather than merely unlikely.
-         *
-         * The client already knows how to handle the conflict: it resyncs and
-         * retries. The tail goes back with the refusal so it can rebase at once
-         * instead of waiting for the next stat.
-         */
-        const tail = read.entries[read.entries.length - 1]?.patchId;
-        const claimed =
-          parentRef.type === "head" ? undefined : parentRef.patchId;
-        if (claimed !== tail) {
-          return result.err({ errorType: "patch-head-conflict", tail });
-        }
         try {
           appendPatch(patchesDir, record);
         } catch (err) {

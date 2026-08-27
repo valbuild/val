@@ -241,6 +241,18 @@ export type SystemEvent =
    * is written on top of content that is missing them.
    */
   | { type: "patch:announced-not-delivered"; patches: PatchId[] }
+  /**
+   * The server discarded these unpublished changes because it could not read
+   * them, and is saying so.
+   *
+   * Different from a rejected save, which is one patch the server refused at the
+   * moment it was written. This is work that was already accepted and is now
+   * gone — from a repair on the other side, not from anything happening here.
+   */
+  | {
+      type: "patch:removed-by-server";
+      removed: { patchId: PatchId; reason: string }[];
+    }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
   /**

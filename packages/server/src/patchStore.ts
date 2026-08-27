@@ -83,20 +83,33 @@ export type PatchStoreEntry = {
  */
 export type PatchStoreProblem =
   | { type: "log"; problem: PatchLogProblem }
-  /** The log names a patch, and its record is not there. */
-  | { type: "missing-patch"; patchId: PatchId; expectedFile: string }
+  /**
+   * A directory that cannot be used as a patch: no record, a record that does
+   * not parse, or one whose `patchId` is not the directory it sits in.
+   *
+   * That last case is what a store from before this layout looks like - its
+   * directories are named after each record's PARENT - and it is deliberately
+   * not special-cased. There is nothing to recover: the order lived in links
+   * that are exactly what goes wrong, so an old store is read as a pile of
+   * unusable directories and removed like any other.
+   *
+   * This is the problem the person editing is told about, because it is the one
+   * where unpublished work disappears.
+   */
   | {
       type: "unreadable-patch";
-      patchId: PatchId;
-      file: string;
+      /** The directory name, which for a usable patch IS the patch id. */
+      name: string;
+      dir: string;
       message: string;
     }
   /**
-   * A patch directory the log does not name.
+   * A perfectly good record the log does not name.
    *
    * The benign half of a crash: a record is written before its log line, so an
-   * interrupted append leaves the directory behind. Nothing reads it, and repair
-   * sweeps it up.
+   * interrupted append leaves this behind. Nothing ever read it, so nothing is
+   * lost by sweeping it up, and the person editing does not need to hear about
+   * a patch that never existed as far as they were concerned.
    */
   | { type: "orphan-directory"; name: string; dir: string }
   /**
@@ -109,15 +122,6 @@ export type PatchStoreProblem =
 
 export type ReadPatchStoreResult =
   | { status: "ok"; entries: PatchStoreEntry[]; problems: PatchStoreProblem[] }
-  /**
-   * The store predates this layout: records that point at their parent, and
-   * directories named after the parent rather than the patch.
-   *
-   * Deliberately not converted. A migration would have to guess at a chain that
-   * is, in the cases that matter, already broken - and quietly rewriting someone's
-   * unpublished work on startup is not a thing to do on a guess.
-   */
-  | { status: "legacy-layout"; message: string; patchesDir: string }
   | { status: "unreadable"; message: string };
 
 export function patchesLogFile(patchesDir: string): string {
@@ -214,53 +218,6 @@ function listPatchDirNames(patchesDir: string): string[] {
 }
 
 /**
- * Tell a store written by an older Val from this one.
- *
- * Two signals, either of which is conclusive: a directory literally called
- * `head` (the old chain's root), or a record that still carries `parentRef`. The
- * second is the one that matters - it is in the file content, so it survives
- * someone moving directories around.
- */
-export function detectLegacyLayout(
-  patchesDir: string,
-): { isLegacy: true; reason: string } | { isLegacy: false } {
-  let names: string[];
-  try {
-    names = listPatchDirNames(patchesDir);
-  } catch {
-    return { isLegacy: false };
-  }
-  if (names.includes("head")) {
-    return {
-      isLegacy: true,
-      reason:
-        'it contains a "head" directory, which only the old chain layout wrote',
-    };
-  }
-  for (const name of names) {
-    const file = fsPath.join(patchesDir, name, "patch.json");
-    let raw: string;
-    try {
-      raw = fs.readFileSync(file, "utf-8");
-    } catch {
-      continue;
-    }
-    try {
-      const json: unknown = JSON.parse(raw);
-      if (typeof json === "object" && json !== null && "parentRef" in json) {
-        return {
-          isLegacy: true,
-          reason: `${fsPath.join(name, "patch.json")} still has a "parentRef", which means it was written by an older Val`,
-        };
-      }
-    } catch {
-      continue;
-    }
-  }
-  return { isLegacy: false };
-}
-
-/**
  * Read the whole store: the order, the records, and everything wrong with it.
  *
  * One call, one answer. Callers that need only the ids and callers that need the
@@ -294,19 +251,13 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
     if (dirNames.length === 0) {
       return { status: "ok", entries: [], problems: [] };
     }
-    const legacy = detectLegacyLayout(patchesDir);
-    if (legacy.isLegacy) {
-      return {
-        status: "legacy-layout",
-        patchesDir,
-        message: `${patchesDir} was written by an older version of Val: ${legacy.reason}.`,
-      };
-    }
     logEntries = reconstructLogEntries(patchesDir, dirNames);
-    problems.push({
-      type: "reconstructed-log",
-      entryCount: logEntries.length,
-    });
+    if (logEntries.length > 0) {
+      problems.push({
+        type: "reconstructed-log",
+        entryCount: logEntries.length,
+      });
+    }
   } else {
     logEntries = logRes.entries;
     for (const problem of logRes.problems) {
@@ -318,22 +269,13 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
   const named = new Set<string>();
   for (const logEntry of logEntries) {
     named.add(logEntry.patchId);
-    const file = patchRecordFile(patchesDir, logEntry.patchId);
-    if (!fs.existsSync(file)) {
-      problems.push({
-        type: "missing-patch",
-        patchId: logEntry.patchId,
-        expectedFile: file,
-      });
-      continue;
-    }
-    const recordRes = readJsonFile(file, FSPatch);
-    if (recordRes.error !== undefined) {
+    const read = readPatchRecord(patchesDir, logEntry.patchId);
+    if (read.error !== undefined) {
       problems.push({
         type: "unreadable-patch",
-        patchId: logEntry.patchId,
-        file,
-        message: recordRes.error,
+        name: logEntry.patchId,
+        dir: patchDir(patchesDir, logEntry.patchId),
+        message: read.error,
       });
       continue;
     }
@@ -343,13 +285,27 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
       : undefined;
     entries.push({
       patchId: logEntry.patchId,
-      record: recordRes.data,
+      record: read.data,
       base: baseRes?.data ?? null,
     });
   }
 
   for (const name of dirNames) {
-    if (!named.has(name)) {
+    if (named.has(name)) {
+      continue;
+    }
+    // Told apart by whether the directory holds a usable record. One is a patch
+    // whose contents are lost and has to be reported; the other is a crash
+    // leftover nothing ever read.
+    const read = readPatchRecord(patchesDir, name);
+    if (read.error !== undefined) {
+      problems.push({
+        type: "unreadable-patch",
+        name,
+        dir: fsPath.join(patchesDir, name),
+        message: read.error,
+      });
+    } else {
       problems.push({
         type: "orphan-directory",
         name,
@@ -359,6 +315,34 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
   }
 
   return { status: "ok", entries, problems };
+}
+
+/**
+ * Read one patch directory, insisting it holds the patch it is named after.
+ *
+ * The name check is not a formality. A directory named after something other
+ * than the record inside is how the previous layout worked - the name was the
+ * record's PARENT - so this is what tells a store this version can use from one
+ * it cannot.
+ */
+function readPatchRecord(
+  patchesDir: string,
+  name: string,
+): { data: FSPatchRecord; error?: undefined } | { error: string } {
+  const file = patchRecordFile(patchesDir, name as PatchId);
+  if (!fs.existsSync(file)) {
+    return { error: `there is no ${file}` };
+  }
+  const res = readJsonFile(file, FSPatch);
+  if (res.error !== undefined) {
+    return { error: res.error };
+  }
+  if (res.data.patchId !== name) {
+    return {
+      error: `it holds ${res.data.patchId}, not the patch its directory is named after`,
+    };
+  }
+  return { data: res.data };
 }
 
 /**
@@ -436,7 +420,11 @@ export function appendPatch(
 }
 
 export type RepairAction =
-  | { type: "dropped-from-log"; patchId: PatchId; because: string }
+  | {
+      type: "removed-unreadable-patch";
+      name: string;
+      because: string;
+    }
   | { type: "removed-orphan-directory"; name: string }
   | { type: "rewrote-log"; entryCount: number };
 
@@ -448,6 +436,12 @@ export type RepairAction =
  * re-link, which is why this can run unattended where re-parenting a chain could
  * not.
  *
+ * A patch that cannot be read is removed rather than kept around to fail again
+ * on every load. That does discard unpublished work, which is why
+ * {@link RepairAction} carries the reason, why it is written to
+ * `patches.repair.log`, and why the caller is expected to tell the person
+ * editing.
+ *
  * Callers must hold the patch lock.
  */
 export function repairPatchStore(
@@ -457,33 +451,22 @@ export function repairPatchStore(
   const actions: RepairAction[] = [];
   const needsRewrite = read.problems.some(
     (problem) =>
-      problem.type === "missing-patch" ||
       problem.type === "unreadable-patch" ||
       problem.type === "reconstructed-log" ||
       problem.type === "log",
   );
 
   for (const problem of read.problems) {
-    if (problem.type === "missing-patch") {
+    if (problem.type === "unreadable-patch") {
+      remove(problem.dir);
       actions.push({
-        type: "dropped-from-log",
-        patchId: problem.patchId,
-        because: `its record is missing (expected ${problem.expectedFile})`,
-      });
-    } else if (problem.type === "unreadable-patch") {
-      actions.push({
-        type: "dropped-from-log",
-        patchId: problem.patchId,
-        because: `its record could not be read: ${problem.message}`,
+        type: "removed-unreadable-patch",
+        name: problem.name,
+        because: problem.message,
       });
     } else if (problem.type === "orphan-directory") {
-      try {
-        fs.rmSync(problem.dir, { recursive: true, force: true });
-        actions.push({ type: "removed-orphan-directory", name: problem.name });
-      } catch {
-        // Left in place. It is inert either way - nothing reads a directory the
-        // log does not name.
-      }
+      remove(problem.dir);
+      actions.push({ type: "removed-orphan-directory", name: problem.name });
     }
   }
 
@@ -505,6 +488,15 @@ export function repairPatchStore(
   return actions;
 }
 
+function remove(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Left in place. It is inert either way - nothing reads a directory the log
+    // does not name, and the log has already been rewritten without it.
+  }
+}
+
 /**
  * Leave a trail. Repair drops a person's unpublished edits, and doing that
  * without saying so anywhere durable is how you get someone certain they saved
@@ -513,8 +505,8 @@ export function repairPatchStore(
 function recordRepair(patchesDir: string, actions: RepairAction[]): void {
   const at = new Date().toISOString();
   const lines = actions.map((action) => {
-    if (action.type === "dropped-from-log") {
-      return `${at} dropped ${action.patchId}: ${action.because}`;
+    if (action.type === "removed-unreadable-patch") {
+      return `${at} removed ${action.name}: ${action.because}`;
     }
     if (action.type === "removed-orphan-directory") {
       return `${at} removed orphan directory ${action.name}`;
@@ -578,10 +570,8 @@ export function describePatchStoreProblems(
 ): string[] {
   return problems.map((problem) => {
     switch (problem.type) {
-      case "missing-patch":
-        return `The change ${problem.patchId} is listed in the log, but ${problem.expectedFile} is not there.`;
       case "unreadable-patch":
-        return `The change ${problem.patchId} could not be read from ${problem.file}: ${problem.message}`;
+        return `The change ${problem.name} could not be read: ${problem.message} (${problem.dir})`;
       case "orphan-directory":
         return `${problem.dir} is not listed in the log and is not being used.`;
       case "reconstructed-log":

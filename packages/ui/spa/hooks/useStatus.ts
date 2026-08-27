@@ -95,6 +95,14 @@ const StatData = z.object({
    * markers and the content sits behind a thunk.
    */
   jsonEntriesSha: z.string().optional(),
+  /**
+   * FS mode only: unpublished changes the store threw away because it could not
+   * read them. Said once — the server drains it when it hands it over — so this
+   * is absent on every stat but the one that reports it.
+   */
+  removed: z
+    .array(z.object({ patchId: PatchId, reason: z.string() }))
+    .optional(),
   sourcesSha: z.string(),
   schemaSha: z.string(),
   baseSha: z.string(),

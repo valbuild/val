@@ -106,6 +106,22 @@ describe("ValOpsFS patch store", () => {
     return stat.patches;
   };
 
+  /** What the next stat tells the studio it threw away. */
+  const removedNotice = async (): Promise<
+    { patchId: PatchId; reason: string }[] | undefined
+  > => {
+    const stat = await ops.getStat({
+      baseSha: "never-matches" as BaseSha,
+      schemaSha: "never-matches" as SchemaSha,
+      sourcesSha: "never-matches" as SourcesSha,
+      patches: [],
+    });
+    if (stat.type !== "did-change") {
+      throw new Error(`expected did-change, got ${stat.type}`);
+    }
+    return stat.removed;
+  };
+
   const delivered = async (): Promise<PatchId[]> => {
     const res = await ops.fetchPatches({ excludePatchOps: false });
     if (res.error) {
@@ -192,33 +208,49 @@ describe("ValOpsFS patch store", () => {
     }
   });
 
-  describe("parentRef is checked, not just used as a name", () => {
-    test("a patch naming a parent the server never accepted is refused", async () => {
+  describe("parentRef", () => {
+    /**
+     * It is ignored, and that is the point of the log.
+     *
+     * It used to be the directory name, which is how a client working from a
+     * stale view could write a patch whose parent had never landed and strand
+     * every patch behind it. With the order in one append-only list the server
+     * decides where a patch goes — last — so there is no parent to name and
+     * nothing that can point at nothing.
+     */
+    test("naming a parent that never existed just appends", async () => {
       await createPatches(2);
 
       const res = await ops.createPatch(
         MODULE_PATH,
-        [{ op: "replace", path: ["title"], value: "written on a ghost" }],
-        "orphan" as PatchId,
-        // A parent that does not exist. This used to be written happily, into a
-        // directory named after the missing id, and everything chained behind it
-        // was then unreachable.
+        [
+          {
+            op: "replace",
+            path: ["title"],
+            value: "on a parent that is not there",
+          },
+        ],
+        "no-such-parent" as PatchId,
         { type: "patch", patchId: "never-existed" as PatchId },
         null,
         null,
       );
 
-      if (res.kind !== "err") {
-        throw new Error("expected the patch to be refused");
-      }
-      expect(res.error.errorType).toBe("patch-head-conflict");
-      expect(await delivered()).toEqual(["patch-0", "patch-1"]);
+      expect(res.kind).toBe("ok");
+      expect(await delivered()).toEqual([
+        "patch-0",
+        "patch-1",
+        "no-such-parent",
+      ]);
+      expect(await announced()).toEqual(await delivered());
     });
 
-    test("a patch naming a stale parent is refused, and told where the server is", async () => {
+    test("naming a stale parent appends in arrival order, not at the parent", async () => {
       await createPatches(3);
 
-      const res = await ops.createPatch(
+      // A second tab that missed the last two writes. Its edit is still an edit;
+      // putting it last is the only ordering that exists.
+      await ops.createPatch(
         MODULE_PATH,
         [{ op: "replace", path: ["title"], value: "from a stale tab" }],
         "stale" as PatchId,
@@ -227,14 +259,15 @@ describe("ValOpsFS patch store", () => {
         null,
       );
 
-      if (res.kind !== "err" || res.error.errorType !== "patch-head-conflict") {
-        throw new Error("expected a patch-head-conflict");
-      }
-      // Enough for the client to rebase without waiting for the next stat.
-      expect(res.error.tail).toBe("patch-2");
+      expect(await delivered()).toEqual([
+        "patch-0",
+        "patch-1",
+        "patch-2",
+        "stale",
+      ]);
     });
 
-    test("a patch naming head is refused once the store is not empty", async () => {
+    test("naming head on a store that is not empty appends too", async () => {
       await createPatches(1);
 
       const res = await ops.createPatch(
@@ -246,10 +279,8 @@ describe("ValOpsFS patch store", () => {
         null,
       );
 
-      if (res.kind !== "err") {
-        throw new Error("expected the patch to be refused");
-      }
-      expect(res.error.errorType).toBe("patch-head-conflict");
+      expect(res.kind).toBe("ok");
+      expect(await delivered()).toEqual(["patch-0", "second-head"]);
     });
   });
 
@@ -286,6 +317,8 @@ describe("ValOpsFS patch store", () => {
 
   describe("a store written by an older Val", () => {
     const writeLegacyStore = (): void => {
+      // The old layout: a directory named after the record's PARENT, and a
+      // record that points at it.
       const dir = path.join(patchesDir(), "head");
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
@@ -304,53 +337,81 @@ describe("ValOpsFS patch store", () => {
       );
     };
 
-    test("is refused loudly rather than read as an empty store", async () => {
+    /**
+     * Not special-cased, and not converted. There is nothing to recover: the
+     * order lived in links that are exactly what goes wrong, so an old store is
+     * read as a pile of directories that do not hold the patch they are named
+     * after — the same as any other unusable directory — and removed.
+     */
+    test("is cleaned up rather than refused, so the studio still loads", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
       writeLegacyStore();
 
       const res = await ops.fetchPatches({ excludePatchOps: false });
+
+      expect(res.error).toBeUndefined();
       expect(res.patches).toEqual([]);
-      expect(res.error?.message).toContain("older version of Val");
-      // An empty answer with no error would be read as "nothing is pending", and
-      // the studio would quietly render published content over unpublished work.
-      expect(res.error).toBeDefined();
+      expect(fs.existsSync(path.join(patchesDir(), "head"))).toBe(false);
+      warn.mockRestore();
     });
 
-    test("is not silently converted or deleted", async () => {
+    test("tells the person editing that their changes were thrown away", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
       writeLegacyStore();
-      const before = fs.readFileSync(
-        path.join(patchesDir(), "head", "patch.json"),
-        "utf-8",
-      );
+
+      // On STAT, not on the fetch. Repair here removes everything, so there is
+      // nothing left for the studio to fetch - a notice riding on GET /patches
+      // would never be collected. Discarding unpublished work silently is the
+      // one thing this must not do.
+      expect(await removedNotice()).toEqual([
+        {
+          patchId: "head",
+          reason: expect.stringContaining(
+            "not the patch its directory is named after",
+          ),
+        },
+      ]);
+      warn.mockRestore();
+    });
+
+    test("says it once, not on every stat", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
+
+      await removedNotice();
+
+      // A notice that never clears is a toast on the screen forever.
+      expect(await removedNotice()).toBeUndefined();
+      warn.mockRestore();
+    });
+
+    test("writes down what it removed, for whoever has to explain it later", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
 
       await ops.fetchPatches({ excludePatchOps: false });
 
-      expect(
-        fs.readFileSync(path.join(patchesDir(), "head", "patch.json"), "utf-8"),
-      ).toBe(before);
+      const audit = fs.readFileSync(
+        path.join(patchesDir(), "patches.repair.log"),
+        "utf-8",
+      );
+      expect(audit).toContain("removed head");
+      warn.mockRestore();
     });
 
-    test("says exactly what to delete, because nothing else can clear it", async () => {
+    test("does not take a healthy store's patches with it", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      await createPatches(2);
       writeLegacyStore();
 
       const res = await ops.fetchPatches({ excludePatchOps: false });
 
-      // The path, not just "the patches directory". There is no route that
-      // clears this from the studio - `DELETE /patches` takes the ids to remove,
-      // and a store Val refuses to read is one whose ids it never learns - so
-      // this message is the only way out and it has to be actionable.
-      expect(res.error?.message).toContain(patchesDir());
-      expect(res.error?.message).toContain("Move or delete");
-    });
-
-    test("is cleared by deleting the directory, which is what the message says", async () => {
-      writeLegacyStore();
-
-      // What the message asks the person to do, done.
-      expect(await ops.deleteAllPatches()).toEqual({});
-
-      const res = await ops.fetchPatches({ excludePatchOps: false });
-      expect(res.error).toBeUndefined();
-      expect(res.patches).toEqual([]);
+      expect(res.patches.map((patch) => patch.patchId)).toEqual([
+        "patch-0",
+        "patch-1",
+      ]);
+      expect(await removedNotice()).toHaveLength(1);
+      warn.mockRestore();
     });
   });
 
@@ -392,17 +453,17 @@ describe("ValOpsFS patch store", () => {
     });
   });
 
-  test("concurrent creates against the same parent do not lose one", async () => {
+  test("concurrent creates against the same parent both survive", async () => {
     await createPatches(1);
     const parentRef: ParentRef = {
       type: "patch",
       patchId: "patch-0" as PatchId,
     };
 
-    // Both name patch-0 as their parent. Exactly one can win - and the loser must
-    // be REFUSED, not written on top of the winner. The old store had neither
-    // guard: the write that arrived second silently overwrote the first, and
-    // everything chained behind the overwritten patch became unreachable.
+    // Both name patch-0 as their parent. The old store wrote both into a
+    // directory named after that parent, so the one that arrived second silently
+    // overwrote the first and everything chained behind the overwritten patch
+    // became unreachable. Now they are two lines in a list.
     const [a, b] = await Promise.all([
       ops.createPatch(
         MODULE_PATH,
@@ -422,12 +483,10 @@ describe("ValOpsFS patch store", () => {
       ),
     ]);
 
-    const winners = [a, b].filter((res) => res.kind === "ok");
-    expect(winners).toHaveLength(1);
-
+    expect([a.kind, b.kind]).toEqual(["ok", "ok"]);
     const ids = await delivered();
-    expect(ids).toHaveLength(2);
     expect(ids[0]).toBe("patch-0");
+    expect(ids.slice(1).sort()).toEqual(["concurrent-a", "concurrent-b"]);
     expect(await announced()).toEqual(ids);
   });
 });

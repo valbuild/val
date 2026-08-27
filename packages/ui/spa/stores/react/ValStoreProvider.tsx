@@ -51,7 +51,12 @@ export function ValStoreProvider({
    * done in another session) and `baseSha` (so a write has an honest `parentRef`
    * — without it `PatchSync` reports every edit unsaveable).
    */
-  stat: { baseSha: string; patches: PatchId[] } | null;
+  stat: {
+    baseSha: string;
+    patches: PatchId[];
+    /** See {@link StatSnapshot.removed}. Cleared by the next stat. */
+    removed?: { patchId: PatchId; reason: string }[];
+  } | null;
   children: ReactNode;
 }) {
   const [received, setReceived] = useState(false);
@@ -116,7 +121,11 @@ export function ValStoreProvider({
     if (stat === null || !received) {
       return;
     }
-    system.stat.receiveStat({ patches: stat.patches, baseSha: stat.baseSha });
+    system.stat.receiveStat({
+      patches: stat.patches,
+      baseSha: stat.baseSha,
+      removed: stat.removed,
+    });
   }, [system, stat, received]);
 
   /*

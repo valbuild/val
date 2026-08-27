@@ -90,11 +90,7 @@ export type {
  * snapshot back with the same code the server uses rather than a second
  * implementation of the layout.
  */
-export {
-  readPatchStore,
-  describePatchStoreProblems,
-  detectLegacyLayout,
-} from "./patchStore";
+export { readPatchStore, describePatchStoreProblems } from "./patchStore";
 export type {
   PatchStoreEntry,
   PatchStoreProblem,
