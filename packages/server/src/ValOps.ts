@@ -183,6 +183,12 @@ export abstract class ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        /**
+         * Unpublished changes the store threw away because it could not read
+         * them. FS mode only: the content api owns its own patches and does not
+         * discard them behind the client's back.
+         */
+        removed?: { patchId: PatchId; reason: string }[];
         /** FS mode only — see the `params` counterpart. */
         jsonEntriesSha?: string;
       }

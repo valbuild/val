@@ -587,6 +587,20 @@ export const Api = {
               schemaSha: z.string(),
               sourcesSha: z.string(),
               patches: z.array(PatchId),
+              /**
+               * Unpublished changes the store threw away because it could not
+               * read them.
+               *
+               * On stat rather than on `GET /patches` because stat is the
+               * channel that always flows: the case worth reporting is a repair
+               * that removed EVERYTHING, and then there is nothing left for the
+               * studio to fetch, so a notice riding on the fetch is never
+               * collected. Said once - the server drains it when it hands it
+               * over.
+               */
+              removed: z
+                .array(z.object({ patchId: PatchId, reason: z.string() }))
+                .optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),

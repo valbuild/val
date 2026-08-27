@@ -13,6 +13,10 @@ expensive to re-derive from the code:
 - [`architecture/media.md`](../architecture/media.md) — `s.images()` / `s.files()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly).
+- [`architecture/patch-store.md`](../architecture/patch-store.md) — where
+  unpublished edits live in local dev: the ordering log, the lock, and the
+  incident that decided the layout. **Read this before touching `ValOpsFS` or
+  anything under `.val/patches`.**
 - [`architecture/quirks.md`](../architecture/quirks.md) — true, surprising things
   that each cost someone an afternoon. **Skim this before debugging the Studio**,
   and add to it when you lose time to something a comment could not have said.

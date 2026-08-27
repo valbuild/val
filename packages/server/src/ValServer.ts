@@ -1139,7 +1139,8 @@ export const ValServer = (
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
-                  message: "Patch id conflict",
+                  message:
+                    "The change was written against a different starting point than the server has.",
                 },
               };
             } else {

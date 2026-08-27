@@ -234,6 +234,26 @@ export type SystemEvent =
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }
   /**
+   * `/stat` announced these ids, and the fetch came back without them.
+   *
+   * A server contradicting itself, and the reason it is an event rather than a
+   * silence: the edits these ids carry are not on screen, so anything typed now
+   * is written on top of content that is missing them.
+   */
+  | { type: "patch:announced-not-delivered"; patches: PatchId[] }
+  /**
+   * The server discarded these unpublished changes because it could not read
+   * them, and is saying so.
+   *
+   * Different from a rejected save, which is one patch the server refused at the
+   * moment it was written. This is work that was already accepted and is now
+   * gone — from a repair on the other side, not from anything happening here.
+   */
+  | {
+      type: "patch:removed-by-server";
+      removed: { patchId: PatchId; reason: string }[];
+    }
+  /**
    * `GET /patches` itself failed, so these ids have no data.
    *
    * Distinct from a per-patch error: the chain is announced but unreadable, so

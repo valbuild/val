@@ -7,7 +7,7 @@ import { createSystem } from "./createSystem";
  * The case that produced this: a chain of a few hundred pending patches put one
  * `patch_id` per id in the query string, and the request was refused before it
  * reached the handler — 431 from Node's 16KB header cap, 413 from a proxy in
- * front of it. `planPatchIdQuery` stops building that URL, but every other way
+ * front of it. `chunkPatchIds` stops building that URL, but every other way
  * of failing this request still exists (offline, a 500, a proxy), and what made
  * the original hard to place was that nothing said anything: stat named the
  * patches, their ops never arrived, and the editor rendered published content
@@ -92,9 +92,18 @@ describe("a patch fetch that fails as a request", () => {
     system.dispose();
   });
 
-  it("reports nothing when the fetch merely holds no such patch", async () => {
-    // An id the server does not have is ABSENT from the result, not an error —
-    // that is how a deleted patch is observed. It must not raise a system error.
+  it("reports an id stat named that the fetch did not return", async () => {
+    /*
+     * This case USED to assert silence, on the reading that an id absent from
+     * the result is how a deleted patch is observed.
+     *
+     * That reading is what let the production failure hide: a studio told about
+     * 410 unpublished changes, sent 359, and left waiting on the rest with
+     * nothing said. Deletion is observed by stat no longer NAMING an id — see
+     * "still treats a change stat stopped naming as deleted" in
+     * `announcedNotDelivered.test.ts`. Stat naming an id whose ops never arrive
+     * is the opposite: the person is editing on top of content that is missing.
+     */
     const system = createSystem({
       fetchPatches: async () => ({ patches: [] }),
       createPatchId: () => "unused" as PatchId,
@@ -102,7 +111,10 @@ describe("a patch fetch that fails as a request", () => {
     system.host.receive([module()]);
     system.stat.receiveStat({ patches: ["gone" as PatchId], baseSha: "sha" });
     await settle();
-    expect(system.status.current().errors).toEqual([]);
+    expect(system.status.current().errors).toHaveLength(1);
+    expect(system.status.current().errors[0].message).toBe(
+      "An unpublished change could not be loaded.",
+    );
     system.dispose();
   });
 });

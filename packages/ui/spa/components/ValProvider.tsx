@@ -383,12 +383,21 @@ export function ValProvider({
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
   const statMode = "data" in stat && stat.data ? stat.data.mode : undefined;
+  /**
+   * Unpublished changes the server threw away because it could not read them.
+   *
+   * Cleared by the next stat, because the server drains the notice when it hands
+   * it over — so this changes only when `statPatches` does, and the effect that
+   * feeds the stores cannot deliver it twice.
+   */
+  const statRemoved =
+    "data" in stat && stat.data ? stat.data.removed : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
-        ? { baseSha, patches: statPatches }
+        ? { baseSha, patches: statPatches, removed: statRemoved }
         : null,
-    [baseSha, statPatches],
+    [baseSha, statPatches, statRemoved],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<

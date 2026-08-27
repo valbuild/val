@@ -110,3 +110,15 @@ export type {
   PatchSourceError,
   PreparedCommit,
 } from "./ValOps";
+
+/**
+ * The local-dev patch store, exported so the CLI's debug tooling can read a
+ * snapshot back with the same code the server uses rather than a second
+ * implementation of the layout.
+ */
+export { readPatchStore, describePatchStoreProblems } from "./patchStore";
+export type {
+  PatchStoreEntry,
+  PatchStoreProblem,
+  ReadPatchStoreResult,
+} from "./patchStore";

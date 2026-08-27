@@ -22,8 +22,6 @@ export type SnapshotPatch = {
   authorId: string | null;
   baseSha: string;
   appliedAt: { commitSha: string } | null;
-  /** Parent in the chain: null means it is the first ("head"). */
-  parentPatchId: PatchId | null;
   patch: unknown;
 };
 
@@ -199,9 +197,21 @@ export async function buildSnapshot(
     for (const p of elided.elided) {
       elidedPatchValues.push({ patchId: patch.patchId, path: p });
     }
-    entries[`.val/patches/${patch.parentPatchId ?? "head"}/patch.json`] =
-      JSON.stringify(toFsPatch(patch), null, 2);
+    entries[`.val/patches/${patch.patchId}/patch.json`] = JSON.stringify(
+      toFsPatch(patch),
+      null,
+      2,
+    );
   }
+  // The order lives in the log, not in the records, so it has to be written too
+  // or the unzipped snapshot is a store with no order at all.
+  entries[".val/patches/patches.log"] = [
+    "val-patch-log v1",
+    ...patches.map(
+      (patch) => `${patch.patchId} ${patch.createdAt} ${patch.path}`,
+    ),
+    "",
+  ].join("\n");
 
   let includesBinaryFiles = false;
   if (options.includeFiles) {
@@ -296,31 +306,29 @@ function toSnapshotPatches(
     appliedAt: { commitSha: string } | null;
   }[],
 ): SnapshotPatch[] {
-  return orderedPatches.map((patch, i) => ({
+  return orderedPatches.map((patch) => ({
     patchId: patch.patchId,
     path: patch.path,
     createdAt: patch.createdAt,
     authorId: patch.authorId,
     baseSha: patch.baseSha,
     appliedAt: patch.appliedAt,
-    parentPatchId: i === 0 ? null : orderedPatches[i - 1].patchId,
     patch: patch.patch,
   }));
 }
 
 /**
  * The shape ValOpsFS writes per patch, so an unzipped snapshot is a patch store
- * a plain ValOpsFS can read. The directory is named after the PARENT, and
- * createPatchChain walks the linked list from "head".
+ * a plain ValOpsFS can read.
+ *
+ * The directory is named after the patch itself and the record points at
+ * nothing: the order is in `patches.log` beside it. A record that named its
+ * parent is how a snapshot could carry a chain that had already lost a link.
  */
 function toFsPatch(patch: SnapshotPatch) {
   return {
     patch: patch.patch,
     patchId: patch.patchId,
-    parentRef:
-      patch.parentPatchId === null
-        ? { type: "head", headBaseSha: patch.baseSha }
-        : { type: "patch", patchId: patch.parentPatchId },
     path: patch.path,
     authorId: patch.authorId,
     sessionId: null,
@@ -339,16 +347,13 @@ async function writeBinaryFiles(
   patches: SnapshotPatch[],
   entries: Record<string, string>,
 ): Promise<boolean> {
-  const parentByPatchId = new Map(
-    patches.map((p) => [p.patchId, p.parentPatchId ?? "head"]),
-  );
+  const known = new Set(patches.map((p) => p.patchId));
   let wrote = false;
   for (const [filePath, data] of Object.entries(fileLastUpdatedByPatchId)) {
     if (data.isDelete) {
       continue;
     }
-    const parentPatchId = parentByPatchId.get(data.patchId);
-    if (parentPatchId === undefined) {
+    if (!known.has(data.patchId)) {
       continue;
     }
     const buffer = await ctx.serverOps.getBase64EncodedBinaryFileFromPatch(
@@ -361,7 +366,7 @@ async function writeBinaryFiles(
     }
     // Base64 so the snapshot stays a text-only entry map; the replay decodes it.
     entries[
-      `.val/patches/${parentPatchId}/files${filePath}/${path.posix.basename(filePath)}.base64`
+      `.val/patches/${data.patchId}/files${filePath}/${path.posix.basename(filePath)}.base64`
     ] = buffer.toString("base64");
     wrote = true;
   }

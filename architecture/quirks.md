@@ -173,6 +173,33 @@ renders `useDeployments()`, and nothing imports it as a component. Deployments a
 commits still arrive over the WebSocket and still land in provider state; there is
 just nothing on screen.
 
+## Patches
+
+**`GET /patches` with no `patch_id` returns every patch.** The filter is applied
+to a table the endpoint already holds, so an absent filter is not "none" — it is
+"all". Two ways to trip on it:
+
+- Building the query from a list that happens to be empty sends an unfiltered
+  request and pulls the whole project's pending changes.
+- "I asked for 5 and got 400 back" is not a bug in the server.
+
+The ids go on the query string as repeated `patch_id` params, and there is no
+paging. At ~46 characters each, a few hundred pending changes overruns the 16KB
+of request head Node accepts, so the studio chunks them
+(`packages/ui/spa/stores/react/patchIdChunks.ts`). Dropping the filter instead
+would return the same set today, but then "did I get what I asked for" has no
+answer — which is the question that catches a server sending back less than it
+announced.
+
+**An id that comes back in neither `patches` nor `errors` means "the server does
+not hold it".** That silence is how a deleted patch is observed, so it is not an
+error in itself. Whether it is a _fault_ depends on something outside the
+response: if `/stat` announced the id, the server has contradicted itself and the
+studio reports it; if stat has stopped naming it, it is simply gone. Get those
+two backwards and you either resurrect deleted edits as permanent failures, or
+wait forever on changes that will never arrive — the second of which is a real
+bug that shipped. See `architecture/patch-store.md`.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in
