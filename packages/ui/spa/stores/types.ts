@@ -293,6 +293,27 @@ export type SystemEvent =
       errors?: Record<ModuleFilePath, string[]>;
     }
   /**
+   * A save has been failing long enough that someone should be told.
+   *
+   * The sync retries a failed save forever, which is right — an edit must not be
+   * thrown away because the network blinked — but it meant a save that could
+   * never succeed retried in silence, with the status bar saying "Saving…" and
+   * the reason the client already had going nowhere. This is emitted once the
+   * attempts stop being plausibly transient, so the retry can carry on while the
+   * user finds out.
+   *
+   * Carries the reason and the attempt count because "still trying, attempt 6,
+   * because the server's answer could not be read" is actionable and "saving" is
+   * not.
+   */
+  | {
+      type: "patch:save-stuck";
+      patches: PatchId[];
+      reason: "conflict" | "network-error" | "unparseable-response";
+      message: string;
+      attempt: number;
+    }
+  /**
    * Something the editor should be told changed: an error, the network, the
    * schema's freshness. One event for all of them because a UI shows them
    * together — see `StatusStore`.

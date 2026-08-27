@@ -42,6 +42,17 @@ export type CanvasPageData = {
 };
 
 /** Widths the canvas can render the page at. */
+/**
+ * What the canvas is showing, and therefore what the column beside it holds.
+ *
+ * `normal` is the page as a visitor sees it: links work, nothing is outlined,
+ * and the column keeps the module editor. `fields` is the page as Val sees
+ * it: every element it tracks is outlined, and the column swaps to the fields
+ * actually found on the page. One control drives both, because they are one
+ * idea — whether you are looking at the page or at its content.
+ */
+export type CanvasView = "normal" | "fields";
+
 export type CanvasDevice = "desktop" | "tablet" | "mobile";
 
 export const CANVAS_DEVICE_WIDTHS: Record<CanvasDevice, number> = {

@@ -26,6 +26,22 @@ import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
 import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
 import { PendingChangesGate } from "./PendingChangesGate";
+import type { ChainProgress } from "../../utils/describePendingChangesStall";
+
+/**
+ * What the gate reports when nobody supplied diagnostics.
+ *
+ * `statSeen: true` with nothing outstanding, so the report reads as "slow"
+ * rather than inventing a fault the caller never claimed.
+ */
+const noProgress = (): ChainProgress => ({
+  total: 0,
+  settled: 0,
+  unfetched: [],
+  unapplied: [],
+  failed: [],
+  statSeen: true,
+});
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
@@ -229,11 +245,20 @@ export type ShellProps = {
    * Whether the server's pending changes have been applied yet.
    *
    * Absent means yes, which is what a story or a preview wants. The shell holds
-   * the fields — dimmed and inert — while this is false: see
-   * `PendingChangesGate` for why showing an editable field that is about to
-   * change under the editor is worse than showing nothing.
+   * WRITING to the fields — dimmed, readonly, still navigable — while this is
+   * false: see `PendingChangesGate` for why showing an editable field that is
+   * about to change under the editor is worse than showing nothing.
    */
   pendingChangesLoaded?: boolean;
+  /**
+   * What is outstanding, for the report shown if the wait never ends.
+   *
+   * Absent means the shell has no diagnostics to offer, which is right for a
+   * story: it then reports the wait itself and nothing about its cause.
+   */
+  pendingChangesProgress?: () => ChainProgress;
+  /** The last error from fetching patches, for that same report. */
+  pendingChangesError?: string | null;
   onSelectValidationError?: (error: ShellValidationError) => void;
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
@@ -306,6 +331,8 @@ export function Shell({
   aiUnavailable,
   aiEnabled = false,
   pendingChangesLoaded = true,
+  pendingChangesProgress,
+  pendingChangesError = null,
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
@@ -608,7 +635,11 @@ export function Shell({
            * views above are their own thing, and neither offers a field to type
            * the wrong value into.
            */
-          <PendingChangesGate ready={pendingChangesLoaded}>
+          <PendingChangesGate
+            ready={pendingChangesLoaded}
+            progress={pendingChangesProgress ?? noProgress}
+            fetchError={pendingChangesError}
+          >
             {renderEditor ? (
               renderEditor(selection)
             ) : (

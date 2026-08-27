@@ -1016,3 +1016,246 @@ describe("a patch that cannot be applied", () => {
     dispose();
   });
 });
+
+/**
+ * The re-sync is not optional, and the app forgot it.
+ *
+ * Every conflict test above passes because `testSystem` supplies a
+ * `resyncChain`. `createValSystem` — the one the Studio actually runs — did not,
+ * so `PatchSync.resync()` was the no-op default and the retry re-sent the parent
+ * the server had just refused. It could then only fail again, backing off 500ms →
+ * 1s → 2s → … → 30s, until an unrelated `/stat` poll happened to move the parent.
+ * In FS mode that poll is quick; behind a websocket it waits twenty minutes.
+ *
+ * So what is pinned here is the MECHANISM, from both sides: with the seam the
+ * retry names a fresh parent, and without it the retry names the same one. The
+ * second half is the regression test — it is what the app was doing.
+ */
+describe("recovering from a conflict needs the re-sync seam", () => {
+  /** A server that refuses the first parent it is given, then accepts. */
+  function conflictOnce() {
+    const seen: string[] = [];
+    let refused = false;
+    return {
+      seen,
+      save: async ({
+        patches,
+        parentRef,
+      }: {
+        patches: { patchId: PatchId }[];
+        parentRef: { type: string; patchId?: string; headBaseSha?: string };
+      }) => {
+        seen.push(JSON.stringify(parentRef));
+        if (!refused) {
+          refused = true;
+          return { status: "conflict" as const, message: "head moved" };
+        }
+        return {
+          status: "saved" as const,
+          newPatchIds: patches.map((entry) => entry.patchId),
+          parentRef: {
+            type: "patch" as const,
+            patchId: patches[patches.length - 1].patchId,
+          },
+        };
+      },
+    };
+  }
+
+  it("names a fresh parent on the retry, when the chain can be re-synced", async () => {
+    const server = conflictOnce();
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `resync-${++next}` as PatchId;
+      })(),
+      savePatches: server.save,
+      // What the app now does: ask what the chain is now, and feed it in.
+      resyncChain: async () => {
+        system.stat.receiveStat({
+          patches: ["theirs-1" as PatchId],
+          baseSha: "sha",
+        });
+      },
+      saveBackoffMs: () => 0,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    expect(server.seen.length).toBeGreaterThan(1);
+    // The point: the second attempt did not repeat the refused parent.
+    expect(server.seen[1]).not.toBe(server.seen[0]);
+    expect(system.patchSync.currentState().status).toBe("in-sync");
+    system.dispose();
+  });
+
+  it("repeats the refused parent when it cannot — which is the bug", async () => {
+    const server = conflictOnce();
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `noresync-${++next}` as PatchId;
+      })(),
+      savePatches: server.save,
+      // No `resyncChain`, exactly as the app was configured.
+      saveBackoffMs: () => 0,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    expect(server.seen.length).toBeGreaterThan(1);
+    /*
+     * The same parent, twice. This server accepts the second attempt anyway, so
+     * the save lands — a real one would refuse it again, which is the loop the
+     * seam exists to break.
+     */
+    expect(server.seen[1]).toBe(server.seen[0]);
+    system.dispose();
+  });
+});
+
+/**
+ * A save that keeps failing gets said out loud, without giving up on it.
+ *
+ * The retry loop is unbounded on purpose — an edit must not be discarded because
+ * a laptop's lid was shut — but that made a save which could NEVER succeed
+ * indistinguishable from a slow one: `saveState` in `ValShell` is derived from
+ * the pending count alone, nothing reads the sync's `retrying` state, and the one
+ * useful sentence the client has ("Response could not be validated…") went
+ * nowhere. A version mismatch between the app and the editor therefore retried
+ * every thirty seconds, silently, for as long as the tab was open.
+ */
+describe("a save that keeps failing", () => {
+  /**
+   * Fails `times` times, then accepts.
+   *
+   * Bounded rather than permanent, because the loop retries with no delay here:
+   * a seam that always failed would spin the microtask queue and the test would
+   * never get a turn. The failures still outlast the report threshold, which is
+   * what these tests are about.
+   */
+  function failsTimes(
+    times: number,
+    status: "network-error" | "unparseable-response",
+  ) {
+    let attempts = 0;
+    return {
+      attempts: () => attempts,
+      save: async ({ patches }: { patches: { patchId: PatchId }[] }) => {
+        attempts++;
+        if (attempts <= times) {
+          return {
+            status,
+            message: "the server said something unreadable",
+          } as const;
+        }
+        return {
+          status: "saved" as const,
+          newPatchIds: patches.map((entry) => entry.patchId),
+          parentRef: {
+            type: "patch" as const,
+            patchId: patches[patches.length - 1].patchId,
+          },
+        };
+      },
+    };
+  }
+
+  it("is reported once the attempts stop looking transient", async () => {
+    const server = failsTimes(4, "unparseable-response");
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: () => "stuck-1" as PatchId,
+      savePatches: server.save,
+      saveBackoffMs: () => 0,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    expect(system.status.current().errors).toHaveLength(0);
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    const errors = system.status.current().errors;
+    expect(errors).toHaveLength(1);
+    // The reason, in words that name the likely fix.
+    expect(errors[0].message).toContain("not understood");
+    expect(errors[0].details).toContain("@valbuild/next");
+    // And the server's own sentence, which is the part a developer needs.
+    expect(errors[0].details).toContain("unreadable");
+    system.dispose();
+  });
+
+  it("is not reported for a single blip", async () => {
+    // One failure is a dev server recompiling an API route. Reporting that would
+    // train everyone to ignore the report.
+    const server = failsTimes(1, "network-error");
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: () => "stuck-blip" as PatchId,
+      savePatches: server.save,
+      saveBackoffMs: () => 0,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    expect(server.attempts()).toBe(2);
+    expect(system.status.current().errors).toHaveLength(0);
+    expect(system.patchSync.currentState().status).toBe("in-sync");
+    system.dispose();
+  });
+
+  it("says it once, not once per attempt, and lands in the end", async () => {
+    const server = failsTimes(6, "network-error");
+    const states: string[] = [];
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: () => "stuck-2" as PatchId,
+      savePatches: server.save,
+      saveBackoffMs: () => 0,
+    });
+    system.patchSync.events.on("patch:sync-state", (event) => {
+      states.push(event.state.status);
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "ours" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    // Many attempts, one error.
+    expect(server.attempts()).toBe(7);
+    expect(system.status.current().errors).toHaveLength(1);
+    // Reporting is not giving up: it went on retrying and the edit landed.
+    expect(states).toContain("retrying");
+    expect(system.patchSync.currentState().status).toBe("in-sync");
+    expect(system.patchStore.pendingPatchIds()).toHaveLength(0);
+    system.dispose();
+  });
+});

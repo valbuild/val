@@ -94,4 +94,72 @@ test.describe("the pending-changes gate", () => {
     await released.click();
     expect(await isFocused(released)).toBe(true);
   });
+
+  /**
+   * Held is not stuck.
+   *
+   * The hold used to be `inert` on the whole editor, which also took out
+   * everything in it that merely NAVIGATES — the scope trail in the header, a
+   * record's rows, a reference. And it had no deadline and no dismiss, so for one
+   * chain it never released and the only recovery anyone found was to delete
+   * every patch on the server. Both halves are checked here, because both were
+   * reachable from an ordinary first load.
+   */
+  test("stays navigable while held, and can be dismissed", async ({ page }) => {
+    await openStudio(page, HOME);
+    const title = page.locator("input").first();
+    await expect(title).toHaveValue("Content as code");
+    await title.fill("Edited before reload");
+    await expect
+      .poll(async () => {
+        const res = await page.request.get("/api/val/patches");
+        const body = (await res.json()) as { patches: unknown[] };
+        return body.patches.length;
+      })
+      .toBeGreaterThan(0);
+
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      (url) => url.pathname.endsWith("/api/val/patches"),
+      async (route) => {
+        if (route.request().method() !== "GET") {
+          await route.fallback();
+          return;
+        }
+        await held;
+        await route.fallback();
+      },
+    );
+    await page.goto(HOME);
+
+    const note = page.getByText("Loading unpublished changes…");
+    await expect(note).toBeVisible({ timeout: 15000 });
+
+    // The header's scope trail is inside the held editor, and it is a link to
+    // somewhere — `inert` on the subtree made it unreachable.
+    const up = page.getByRole("link", { name: /^Up one level/ });
+    await expect(
+      up,
+      "the way out of the editor was held along with the fields",
+    ).toBeVisible();
+    expect(await up.getAttribute("href")).toBeTruthy();
+
+    // And the wait has a way out of its own.
+    await page
+      .getByLabel("Stop waiting for unpublished changes")
+      .click({ timeout: 5000 });
+    await expect(note).toHaveCount(0);
+
+    const field = page.locator("input").first();
+    await field.click();
+    expect(
+      await isFocused(field),
+      "dismissing the wait did not release the fields",
+    ).toBe(true);
+
+    release();
+  });
 });

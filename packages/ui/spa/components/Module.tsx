@@ -36,7 +36,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
-import { ScopeTrail, StickyScopeBar, useScrolledPast } from "./ModuleScope";
+import { ScopeTrail } from "./ModuleScope";
 
 export function Module({
   path,
@@ -75,7 +75,6 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
-  const [headerEndRef, headerScrolledPast] = useScrolledPast();
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -132,10 +131,7 @@ export function Module({
       ? parentSchema.key?.description
       : undefined;
 
-  /**
-   * The tools, which appear twice: in the header and in the sticky bar it
-   * collapses into. Built once so the two cannot drift.
-   */
+  /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
     <div className="shrink-0 flex gap-2 items-center">
       {hasPendingPatches && (
@@ -149,7 +145,7 @@ export function Module({
     </div>
   );
 
-  /** What this module is called, in the header and in the sticky bar. */
+  /** What this module is called. */
   const titleNode = showNumber ? (
     <span className="shrink-0">#{Number(last.text)}</span>
   ) : isParentRouter ? (
@@ -165,21 +161,6 @@ export function Module({
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
-      {/*
-       * The header, once it has been scrolled past.
-       *
-       * A long module puts its own header out of reach, and "up" is the thing
-       * you are most likely to want by the time you are editing the tenth
-       * field. See `StickyScopeBar`.
-       */}
-      {!hideHeader && init.length > 0 && (
-        <StickyScopeBar
-          parent={init[init.length - 1]}
-          title={titleNode}
-          trailing={tools}
-          visible={headerScrolledPast}
-        />
-      )}
       <div className="flex flex-col gap-2 text-left overflow-hidden">
         <div
           className={cn({
@@ -198,18 +179,37 @@ export function Module({
           <div className="flex gap-4 justify-between items-start min-h-6">
             {!hideHeader && (
               /*
-               * A heading, in the role sense: the editor column had none, so
-               * nothing announced what was being edited and nothing could jump
-               * to it. Not an `<h1>` element, because the title of a router page
-               * is a breadcrumb — and a `<nav>` inside a heading element is not
-               * valid HTML.
+               * The title and its description, in ONE column.
+               *
+               * The description was a sibling of this whole row, so its top
+               * margin was measured from the row's bottom — and the row is as
+               * tall as the tools on its right, not as tall as the title. That
+               * put a fixed 12px between title and description no matter what
+               * was asked for, the same 12px that then separated it from the
+               * scope: three evenly spaced lines, with nothing saying which one
+               * the description belonged to. Inside the column it sits against
+               * the title, and the tools cannot push it around.
                */
-              <div
-                role="heading"
-                aria-level={1}
-                className="min-w-0 flex-1 text-2xl leading-tight"
-              >
-                {titleNode}
+              <div className="min-w-0 flex-1">
+                {/*
+                 * A heading, in the role sense: the editor column had none, so
+                 * nothing announced what was being edited and nothing could jump
+                 * to it. Not an `<h1>` element, because the title of a router
+                 * page is a breadcrumb — and a `<nav>` inside a heading element
+                 * is not valid HTML.
+                 */}
+                <div
+                  role="heading"
+                  aria-level={1}
+                  className="text-2xl leading-tight"
+                >
+                  {titleNode}
+                </div>
+                {keyDescription && (
+                  <div className="mt-1 text-sm text-fg-tertiary">
+                    {keyDescription}
+                  </div>
+                )}
               </div>
             )}
             {tools}
@@ -218,13 +218,8 @@ export function Module({
             <ScopeTrail
               parts={init}
               portalContainer={portalContainer}
-              className="mt-1"
+              className={keyDescription ? "mt-3" : "mt-1.5"}
             />
-          )}
-          {keyDescription && !hideHeader && (
-            <div className="mt-1 text-sm text-fg-tertiary">
-              {keyDescription}
-            </div>
           )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
@@ -232,11 +227,6 @@ export function Module({
           {schema.description && (
             <div className="text-sm text-fg-tertiary">{schema.description}</div>
           )}
-          {/*
-           * Marks the bottom of the header: once this is above the top of the
-           * column, the header is gone and the sticky bar takes over.
-           */}
-          <div ref={headerEndRef} aria-hidden className="h-0" />
         </div>
       </div>
       <div>

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
+import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
@@ -31,18 +32,12 @@ import {
   CanvasDevice,
   CanvasPageData,
   CanvasTransform,
+  CanvasView,
 } from "./types";
 
-/**
- * What the canvas is showing, and therefore what the column beside it holds.
- *
- * `normal` is the page as a visitor sees it: links work, nothing is outlined,
- * and the column keeps the module editor. `fields` is the page as Val sees
- * it: every element it tracks is outlined, and the column swaps to the fields
- * actually found on the page. One control drives both, because they are one
- * idea — whether you are looking at the page or at its content.
- */
-export type CanvasView = "normal" | "fields";
+// Re-exported: this module named the type before the canvas had a types file,
+// and the whole shell imports it from here.
+export type { CanvasView };
 
 export type PageWorkspaceProps = {
   /** The module editor for the current selection. Shown when it is on. */
@@ -501,18 +496,9 @@ export function PageWorkspace({
     [page, onAttachToChat],
   );
 
-  /**
-   * Whether a click on the page selects what it hits.
-   *
-   * Its own state with its own button, not a consequence of the view. Each view
-   * has an obvious default — the fields view exists to aim at things, the normal
-   * view is the page as a visitor meets it, links and all — so switching views
-   * sets it, and the button is how you disagree with the default. Deriving it
-   * from the view meant the only way to point at something on the page was to
-   * give up the module editor for the fields list, and no way at all to read the
-   * page normally while still being able to select a piece of it.
-   */
-  const [isPicking, setIsPicking] = useState(view === "fields");
+  /** See {@link usePickingDefault} — the view sets the default, the button disagrees. */
+  const [isPicking, setIsPicking] = usePickingDefault(view);
+
   /**
    * Whether the page is re-rendering because of an edit.
    *
@@ -522,11 +508,6 @@ export function PageWorkspace({
    * typing and the canvas changing looks like the canvas being stuck.
    */
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const lastView = useRef(view);
-  if (lastView.current !== view) {
-    lastView.current = view;
-    setIsPicking(view === "fields");
-  }
 
   /**
    * Clears the floating rail, which the narrowed column now reaches under.

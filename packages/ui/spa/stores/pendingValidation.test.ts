@@ -99,4 +99,59 @@ describe("validation of pending modules", () => {
     ).toBe(1);
     dispose();
   });
+
+  /**
+   * The pass costs one validation per TOUCHED module, and nothing per untouched
+   * one — measured, because this is the one term in it that grows.
+   *
+   * Counted rather than timed: what matters is the shape, and a wall-clock
+   * assertion on a loaded CI box measures the box. `O(touched)` is the intended
+   * cost and is what the publish gate needs; anything multiplied by the chain
+   * length or by the project's size would put whole-project work back on a burst
+   * of typing, which is exactly what the debounce above exists to prevent.
+   */
+  it("scales with the modules touched, not with the project or the chain", async () => {
+    const { c, s } = initVal();
+    const PROJECT = 30;
+    const modules = Array.from({ length: PROJECT }, (_, index) =>
+      c.define(`/m${index}.val.ts`, s.object({ title: s.string() }), {
+        title: `Module ${index}`,
+      }),
+    );
+
+    /** `[modules touched, chain length, validations]`, collected then asserted. */
+    const measured: [number, number, number][] = [];
+    for (const touched of [1, 3, 10]) {
+      const { sourceStore, patchStore, activity, dispose } = initTestSystem();
+      await sourceStore.testReceive(modules);
+
+      const before = activity.position();
+      // Several patches per module, so the chain is longer than the set of
+      // modules it touches: the count must follow the modules, not the chain.
+      const ROUNDS = 4;
+      for (let round = 0; round < ROUNDS; round++) {
+        for (let index = 0; index < touched; index++) {
+          await patchStore.createPatch(`/m${index}.val.ts`, [
+            { op: "replace", path: ["title"], value: `edit ${round}` },
+          ]);
+        }
+      }
+      await afterDebounce();
+
+      measured.push([
+        touched,
+        touched * ROUNDS,
+        activity.count("validation:schema-validate", { since: before }),
+      ]);
+      dispose();
+    }
+
+    // Asserted as a whole so a failure shows every case: one validation per
+    // touched module, whatever the chain length or the project size.
+    expect(measured).toEqual([
+      [1, 4, 1],
+      [3, 12, 3],
+      [10, 40, 10],
+    ]);
+  });
 });

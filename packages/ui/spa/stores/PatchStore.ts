@@ -1000,6 +1000,58 @@ export class PatchStore {
   }
 
   /**
+   * Why {@link chainSettled} is still false, in the words a report needs.
+   *
+   * There is no bound on how long the wait can be — a `GET /patches` that never
+   * answers leaves the chain unsettled for as long as the tab is open, and
+   * "Loading unpublished changes…" with a spinner is then a lie told forever. So
+   * whatever is holding it has to be nameable: the counts say how far it got,
+   * and the ids say which patches to go and look for on the server.
+   *
+   * `unfetched` are announced but have no ops yet — the fetch is the suspect.
+   * `unapplied` arrived and the source store has not taken them, which is a
+   * different fault in a different place.
+   */
+  chainProgress(): {
+    total: number;
+    settled: number;
+    unfetched: PatchId[];
+    unapplied: PatchId[];
+    failed: PatchId[];
+    /** False before the first stat: nothing has even said what to expect. */
+    statSeen: boolean;
+  } {
+    const unfetched: PatchId[] = [];
+    const unapplied: PatchId[] = [];
+    const failed: PatchId[] = [];
+    let settled = 0;
+    for (const patchId of this.ordered) {
+      if (this.failedById.has(patchId)) {
+        failed.push(patchId);
+        settled++;
+        continue;
+      }
+      if (!this.dataById.has(patchId)) {
+        unfetched.push(patchId);
+        continue;
+      }
+      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+        unapplied.push(patchId);
+        continue;
+      }
+      settled++;
+    }
+    return {
+      total: this.ordered.length,
+      settled,
+      unfetched,
+      unapplied,
+      failed,
+      statSeen: this.statSeen,
+    };
+  }
+
+  /**
    * The last patch in the chain.
    *
    * Describes the CHAIN, and nothing reads it to decide whether a value is

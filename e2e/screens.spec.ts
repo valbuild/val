@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
+  clearPatchChain,
   closeNavPanel,
   discardAll,
   expandRow,
@@ -36,7 +37,33 @@ async function openBlogPost(page: Page) {
   return studio;
 }
 
-test.describe.configure({ mode: "serial" });
+/**
+ * Serial, and given far longer than the suite's 90s.
+ *
+ * Every step here waits a fixed amount for the shell to settle, so the
+ * screenshot is of a resting state rather than a transition — which adds up to
+ * most of the default budget before anything has been clicked. Alone that fits;
+ * in a full run, with `next dev` compiling routes for the specs either side, it
+ * does not, and the timeout lands on whatever step happened to be next. That
+ * failure reads as a broken shell and is a slow screenshot script.
+ */
+test.describe.configure({ mode: "serial", timeout: 240_000 });
+
+/**
+ * From a clean chain, like the suites that assert things.
+ *
+ * This one only takes screenshots, so it looked like it could run against
+ * whatever was there — and it cannot. A leftover patch from another spec is
+ * still applied, and one of them leaves the home page's title too short to
+ * validate: the `/` row in the Pages panel then carries an error badge, the
+ * badge's number is inside the row's own button, and the row's accessible name
+ * becomes `/1`. `getByRole("button", { name: "/", exact: true })` matches
+ * nothing, and the script times out on a step that has nothing to do with what
+ * it was photographing.
+ */
+test.beforeAll(async ({ request }) => {
+  await clearPatchChain(request);
+});
 
 test("the shell", async ({ page }) => {
   await openStudio(page);

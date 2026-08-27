@@ -86,6 +86,40 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**A ref mutated during render survives a discarded render; the `setState` beside
+it does not.** So the "adjust state when a prop changes" pattern must hold the
+previous prop in **state**, never a ref:
+
+```tsx
+// ❌ WRONG — one committed render with the new value, then stuck on the old one
+const lastView = useRef(view);
+if (lastView.current !== view) {
+  lastView.current = view; // survives
+  setIsPicking(view === "fields"); // does not
+}
+
+// ✅ CORRECT — a discarded render discards both, a committed one commits both
+const [viewSource, setViewSource] = useState(view);
+if (viewSource !== view) {
+  setViewSource(view);
+  setIsPicking(view === "fields");
+}
+```
+
+React is free to throw a render away and start again from the last committed
+state. The retained pass then sees the ref already equal to the new prop, skips
+the branch, and the derived state stays at its old value **for good**. This is
+not a fringe case: `StrictMode` invokes the body twice and keeps the second
+result, so it reproduces on demand — which is what makes it testable
+(`usePickingDefault.test.tsx` renders the hook inside `StrictMode`; two of its
+cases fail against the ref version).
+
+It cost the canvas's select mode: switching to the fields view stopped arming
+picking, so the fields list rendered, the Select button read as off, and clicking
+anything on the page reported nothing — the bridge only reports while picking.
+Nothing in that looks like a missed state update, which is why it went unnoticed
+while a real e2e failure sat on it.
+
 **React blames the wrong component for a render loop.** The error surfaces
 wherever the update budget ran out — typically a Radix ref callback, whose JS
 stack is pure Radix. Do not start there; census the fiber tree instead
@@ -113,6 +147,46 @@ a fresh element each time or the probe never runs again.
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## A request "pending" in dev is usually queued, not slow
+
+The devtools show a request as pending from the moment it is _created_, which
+includes the time it spends in the browser's own queue. A browser runs about six
+connections per origin over HTTP/1.1, so the seventh simultaneous request to
+`/api/val` has not been sent yet — and it looks identical to a request the server
+is sitting on.
+
+**The tell is the shape of the wait.** A request that was queued sits for
+seconds and then completes in milliseconds; one the server is actually slow on
+takes its time in the response. Observed on a `GET /patches` that appeared stuck:
+13 seconds pending, then under 50ms to answer. Resource Timing separates the two
+directly — `requestStart - fetchStart` is the queue, `responseStart -
+requestStart` is the server — which is what `scripts/valRequestReport.js` prints.
+
+**The dev studio is what fills that queue.** In development
+`packages/ui/src/server.ts` is the static handler, and it proxies every
+`/api/val/static/*` through the Next server to the Vite dev server on `:5173`,
+which serves the SPA unbundled — one request per source file. Measured on
+`examples/next`: **608 requests, peaking at 152 in flight.** Anything the editor
+asks for during that window queues behind them: `GET /patches`, `POST /stat`, the
+next navigation. This is why a save can take a very long time to go green in dev
+and then recover on its own. Dev-only — production serves a prebuilt bundle from
+`packages/ui/src/vite-server.ts`.
+
+**A parked long poll holds one of those connections.** `POST /stat` in FS mode is
+held open for `statPollingInterval`, default **20 seconds** (`ValOpsFS.getStat`).
+A request the browser has assigned behind it on the same socket cannot go out
+until it returns, which is why a `/stat` and a `/patches` are seen finishing at
+the same moment after ~20 seconds — not a shared lock, just a freed connection.
+
+Separately, and real but much smaller: `ValOpsFS.readPatches` reads and
+`JSON.parse`s **every** patch on disk before filtering to the `patch_id` that was
+asked for, all synchronously on the event loop. Measured against `examples/next`
+with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
+**35–46ms at 650** — and the response is 394 bytes at every length. Called from
+`fetchPatches`, `getStat` and `getParentPatchIdFromPatchId`, so the stat poll pays
+it too. Enough to notice on a long chain, nowhere near enough to explain a request
+that appears to hang.
 
 ## The canvas can refresh before the server has the edit
 
