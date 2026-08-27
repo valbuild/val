@@ -6,7 +6,7 @@ import pageVal from "./page.val";
 export default function GenericPage({
   params,
 }: {
-  params: { path: string[] };
+  params: Promise<{ path: string[] }>;
 }) {
   const content = useValRoute(pageVal, params);
   if (!content) {

@@ -64,6 +64,36 @@ The honest reading is that the effect has a latent race and the batching exposes
 it. Fix the race first, with a test that pins it at the `Shell` level, and only
 then wire the seam — the seam change is measured and ready.
 
+## An array of OBJECTS is still diffed by index
+
+`s.array(s.string() | s.number() | s.boolean())` is diffed by content — see
+`utils/listDiff.ts` and `PrimitiveListDiff.tsx` — so a reorder reads as a
+reorder and an insertion as one line. `s.array(s.object(...))` is not: it keeps
+the per-index rows, which for a list is wrong in the two ways that module's
+header describes. Inserting an item shifts every later index, so one insertion
+reads as a cascade of changes, and each row's "before" — read from the base
+source at the row's own index — names a different element than its "after".
+
+The line is there because content matching needs two things that primitives have
+and objects do not:
+
+**Item identity.** Deep equality finds an item that moved unchanged, and nothing
+else: an item that moved AND was edited matches nothing, so it reads as one
+deletion plus one addition — which is what happens today anyway, but the diff
+would now be claiming to know better. A schema-level notion of which field
+identifies an item (the way `s.record` has a key) would fix it properly. Nothing
+in `SerializedSchema` carries that today.
+
+**A line that fits on a line.** A primitive renders as itself. An object has to
+be summarised to one row before "moved from 4" can sit beside it, and the useful
+summary is schema-specific — `render({ select })` already exists for exactly this
+kind of question and would be the thing to reach for.
+
+Neither is hard, and both are guesses until someone has a case in front of them.
+Whoever does: `diffPrimitiveList` takes `(before, after)` and returns lines in
+final order, so a `diffObjectList` with the same shape drops into
+`PrimitiveListDiff` without touching the rendering.
+
 ## `ValOpsFS.readPatches` reads the whole chain to answer for one patch
 
 `fetchPatches({ patchIds: [X] })` calls `readPatches()` with no filter, which

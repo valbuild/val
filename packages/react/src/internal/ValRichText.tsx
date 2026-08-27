@@ -6,7 +6,7 @@ import {
   SelectorSource,
   Schema,
 } from "@valbuild/core";
-import React, { CSSProperties, ReactNode } from "react";
+import React, { CSSProperties, type JSX, ReactNode } from "react";
 import { attrs, raw, RichText, StegaOfRichTextSource } from "../stega";
 
 type DefaultThemes = Partial<{

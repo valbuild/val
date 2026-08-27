@@ -12,6 +12,7 @@ export type {
   ContentConstructor,
 } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
+export { hasRemoteFileSchema } from "./schema/hasRemoteFileSchema";
 export type { ImageMetadata } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
