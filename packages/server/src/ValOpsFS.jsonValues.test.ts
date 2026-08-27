@@ -549,6 +549,32 @@ describe("ValOpsFS jsonValues commit flow", () => {
     ]);
   });
 
+  test("getSources: a file op inside an entry leaves the module source alone", async () => {
+    // The entry is an opaque marker in the module source, so the `patch_id`
+    // injection for a drafted file has nowhere to go here — it goes into the
+    // entry's own draft content. Reaching into the marker instead failed the op
+    // and poisoned the rest of the module's patch chain, which is what made
+    // uploading an image into a JSON entry impossible.
+    const { ops } = setup();
+    const res = await getSourcesWith(ops, [
+      {
+        op: "replace",
+        path: ["/blog/hello", "hero"],
+        value: { path: "/public/val/hero_a1b2c.png" },
+      },
+      {
+        op: "file",
+        path: ["/blog/hello", "hero"],
+        filePath: "/public/val/hero_a1b2c.png",
+        value: "data:image/png;base64,AAAA",
+        remote: false,
+      },
+    ]);
+    expect(res.errors[MODULE_PATH]).toBeUndefined();
+    const source = res.sources[MODULE_PATH] as Record<string, unknown>;
+    expect(Internal.isJson(source["/blog/hello"])).toBe(true);
+  });
+
   test("getSources: remove and rename update the key set", async () => {
     const { ops } = setup();
     const res = await getSourcesWith(ops, [

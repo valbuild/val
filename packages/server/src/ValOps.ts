@@ -685,6 +685,17 @@ export abstract class ValOps {
         const serializedSchema = jsonValuesSchemaFor(path);
         for (const op of patchData.patch) {
           if (op.op === "file") {
+            // A file op inside a `.jsonValues()` entry has nothing to inject
+            // HERE: the entry is an opaque marker in the module source, so an
+            // `add` reaching into it fails and poisons the rest of this
+            // module's chain. `applyJsonValuesEntryPatches` writes the patch_id
+            // into the entry's draft content instead.
+            const fileCls = serializedSchema
+              ? classifyJsonValuesOp(serializedSchema, op.path)
+              : ({ kind: "normal" } as const);
+            if (fileCls.kind === "entry" && fileCls.subPath.length > 0) {
+              continue;
+            }
             if (op.value !== null) {
               // NOTE: We insert the last patch_id that modify a file
               // when constructing the url we use the patch id (and the file path)
