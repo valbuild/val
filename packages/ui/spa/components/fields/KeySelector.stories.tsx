@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { KeyPreview, KeySelector } from "./KeyOfField";
+import { placeholderImage } from "../stories/placeholderAssets";
 
 const recordKeys = ["home", "about", "blog", "contact", "team"];
 
@@ -8,12 +9,24 @@ const recordPreviews: Record<string, KeyPreview> = {
   home: {
     title: "Home",
     subtitle: "Landing page",
-    image: "https://placehold.co/64x64/e2e8f0/475569?text=H",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "H",
+    }),
   },
   about: {
     title: "About us",
     subtitle: "Company information",
-    image: "https://placehold.co/64x64/dbeafe/1e40af?text=A",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "A",
+    }),
   },
   blog: {
     title: "Blog",
@@ -23,7 +36,13 @@ const recordPreviews: Record<string, KeyPreview> = {
   contact: {
     title: "Contact",
     subtitle: "Get in touch",
-    image: "https://placehold.co/64x64/d1fae5/065f46?text=C",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "C",
+    }),
   },
   team: {
     title: "Team",
