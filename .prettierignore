@@ -1,5 +1,6 @@
 # next.js
 examples/next*/.next/
+examples/next*/.next-http/
 examples/next*/out/
 
 # production
@@ -12,6 +13,9 @@ tsconfig.tsbuildinfo
 
 packages/ui/server/.tmp
 out
+
+# `storybook build` output.
+packages/ui/storybook-static/
 
 .tmp
 examples/next*/.val/*

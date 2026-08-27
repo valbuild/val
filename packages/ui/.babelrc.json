@@ -1,5 +1,12 @@
 {
+  // `@babel/preset-typescript` is also in the repo-root `babel.config.js`,
+  // which is the one jest loads. It has to be repeated here because tools that
+  // resolve a babel config starting from this package - react-docgen, through
+  // Storybook's docgen plugin - treat this file as the entire config and never
+  // reach the root one. Without it they parse `.tsx` as Flow and fail on the
+  // first `import type`.
   "presets": [
+    "@babel/preset-typescript",
     [
       "@babel/preset-react",
       {

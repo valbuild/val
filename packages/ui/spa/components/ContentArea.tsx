@@ -296,7 +296,7 @@ function CompareSummaryInHeader() {
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
       allPatchIds={allPatchIds}
-      readonly={false}
+      canDiscard
       portalContainer={portalContainer}
     />
   );
@@ -347,7 +347,7 @@ function CompareView() {
       patchSets={patchSetsResult.data}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      readonly={false}
+      canDiscard
       reloadKey={publishCount}
     />
   );

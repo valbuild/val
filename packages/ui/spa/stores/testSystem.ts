@@ -294,6 +294,14 @@ export type TestSourceStore = {
   /** Status at a path with no side effects — notably, no entry fetch. */
   peek(path: string): SourcePeek;
   /**
+   * The same, in the BASE realm: what the server has, before local patches.
+   *
+   * What a compare view reads. Exposed because the two realms answering
+   * differently is a claim only a test comparing them can make, and for
+   * `.jsonValues()` modules they once did not.
+   */
+  peekBase(path: string): SourcePeek;
+  /**
    * The in-realm read: patched source for one module, uncloned.
    *
    * Exposed for tests that have to build the payload the way `createSystem`
@@ -1009,6 +1017,7 @@ export function initTestSystem(): TestSystem {
           content,
         ),
       peek: (path) => system.sourceStore.peek(path as SourcePath),
+      peekBase: (path) => system.sourceStore.peekBase(path as SourcePath),
       moduleSource: (moduleFilePath) =>
         system.sourceStore.moduleSource(moduleFilePath as ModuleFilePath),
       loadedModules: () => system.sourceStore.loadedModules(),

@@ -152,13 +152,48 @@
     /*
      * The requests worth looking at, whichever way they were slow — sorted by
      * total, so a queued one and a genuinely slow one both surface. `/static/*`
-     * is excluded from the listing (never from the counts): in dev it IS the
+     * is held back from the listing (never from the counts): in dev it IS the
      * queue, and listing 600 of them buries everything else.
+     *
+     * Unless it is all there is. A capture taken during the SPA load is 241
+     * requests of which 241 are `/static/*`, and excluding them printed an empty
+     * table under the heading "Slowest" — which reads as "nothing was slow" when
+     * the truth is the opposite. So the exclusion applies only when there is
+     * something else to show, and the heading says which case you are in.
      */
-    const slowest = entries
-      .filter((entry) => entry.path !== "/static/*")
+    const others = entries.filter((entry) => entry.path !== "/static/*");
+    const staticOnly = others.length === 0;
+    const slowest = (staticOnly ? entries : others)
       .sort((a, b) => b.totalMs - a.totalMs)
       .slice(0, listLimit);
+
+    /*
+     * How deep the queue was, over time.
+     *
+     * The peak alone says a queue existed; this says how long it lasted, which is
+     * what decides whether a request had to wait in it. Sampled into ten buckets
+     * across the capture, so it is readable at any duration.
+     */
+    const lastEnd = entries.reduce(
+      (latest, entry) => Math.max(latest, entry.startedAtMs + entry.totalMs),
+      0,
+    );
+    const buckets = [];
+    const bucketCount = 10;
+    const width = lastEnd / bucketCount || 1;
+    for (let i = 0; i < bucketCount; i++) {
+      const from = i * width;
+      const to = from + width;
+      const open = entries.filter(
+        (entry) =>
+          entry.startedAtMs < to && entry.startedAtMs + entry.totalMs > from,
+      ).length;
+      buckets.push({
+        fromMs: Math.round(from),
+        toMs: Math.round(to),
+        openRequests: open,
+      });
+    }
 
     const report = {
       capturedAt: new Date().toISOString(),
@@ -168,6 +203,8 @@
       peakAtMs,
       summary,
       slowest,
+      staticOnly,
+      queueDepthOverTime: buckets,
     };
 
     console.log(
@@ -175,8 +212,14 @@
       "font-weight:bold",
     );
     console.table(summary);
-    console.log("Slowest (excluding /static/*):");
+    console.log(
+      staticOnly
+        ? "Slowest — ALL of these are /static/*, the dev SPA's own module loads:"
+        : "Slowest (excluding /static/*):",
+    );
     console.table(slowest);
+    console.log("Queue depth over the capture:");
+    console.table(buckets);
     console.log(
       "queuedMs = waiting in the browser's connection queue. serverMs = waiting on the server.\n" +
         "A large queuedMs with a small serverMs means the request was never the problem — it had not been sent yet.",

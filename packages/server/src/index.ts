@@ -60,7 +60,11 @@ export {
   getCachedRemoteFileDir,
   getCachedRemoteFilePath,
 } from "./checkRemoteRef";
-export { hasRemoteFileSchema } from "./hasRemoteFileSchema";
+// Re-exported rather than defined here: this used to be the server's own copy,
+// and it disagreed with the Studio's. One implementation now lives in
+// `@valbuild/core`, where both realms can reach it. Kept exported because it is
+// public API of this package.
+export { hasRemoteFileSchema } from "@valbuild/core";
 export { getFileExt } from "./getFileExt";
 export {
   evalValConfigFile,
