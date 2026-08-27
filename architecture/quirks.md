@@ -146,6 +146,11 @@ takes its time in the response. Observed on a `GET /patches` that appeared stuck
 directly — `requestStart - fetchStart` is the queue, `responseStart -
 requestStart` is the server — which is what `scripts/valRequestReport.js` prints.
 
+Your own capture will often be all `/static/*` — 241 requests of 241, avg
+`queuedMs` 324, avg `serverMs` 21. That is not a boring capture, it is the
+answer: the queue is the SPA's own module loads, and 324ms of average waiting is
+what every other request is sitting behind.
+
 **The dev studio is what fills that queue.** In development
 `packages/ui/src/server.ts` is the static handler, and it proxies every
 `/api/val/static/*` through the Next server to the Vite dev server on `:5173`,

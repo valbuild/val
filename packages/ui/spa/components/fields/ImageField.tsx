@@ -94,6 +94,16 @@ export function ImageField({
    */
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filePatchIds = useFilePatchIds();
+  /*
+   * Up here because the effect below needs `referencedModule`. Plain consts, not
+   * hooks, so moving them cannot change hook order — see the note further down
+   * about why the hooks in this component are all above the guards.
+   */
+  const imageSchema =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "image"
+      ? schemaAtPath.data
+      : undefined;
+  const referencedModule = imageSchema?.referencedModule;
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
@@ -119,9 +129,22 @@ export function ImageField({
       }
       if (maybeSourceData.metadata) {
         const metadata = maybeSourceData.metadata;
+        /*
+         * Dimensions are only this field's to hold when it is not gallery-backed.
+         *
+         * `createFilePatch` is called with `skipMetadataInReplace` set for a
+         * referenced module, so a gallery-backed field's value is deliberately
+         * just `{_ref, _type, _tag}` — the width, height and mimeType live on the
+         * gallery's own entry, which is the whole point of referencing one. But
+         * `metadata` can still appear on such a field partially: setting a focal
+         * point writes `{hotspot}`, and that is correct too. The check then fired
+         * on a field that was working exactly as designed, which is how it reached
+         * someone as "undefined and undefined" after a perfectly good upload.
+         */
         if (
-          typeof metadata.width !== "number" ||
-          typeof metadata.height !== "number"
+          referencedModule === undefined &&
+          (typeof metadata.width !== "number" ||
+            typeof metadata.height !== "number")
         ) {
           console.warn(
             `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`,
@@ -153,7 +176,7 @@ export function ImageField({
         setHotspot(undefined);
       }
     }
-  }, [sourceAtPath, filePatchIds]);
+  }, [sourceAtPath, filePatchIds, referencedModule]);
   /**
    * Everything below this comment is a HOOK, and it lives above the early
    * returns because React counts them.
@@ -168,11 +191,6 @@ export function ImageField({
    * So they are computed unconditionally and defensively — every input is read
    * through a status check rather than assumed — and the guards follow.
    */
-  const imageSchema =
-    schemaAtPath.status === "success" && schemaAtPath.data.type === "image"
-      ? schemaAtPath.data
-      : undefined;
-  const referencedModule = imageSchema?.referencedModule;
   const acceptOptions = useMemo(() => {
     if (!imageSchema || schemas.status !== "success") {
       return undefined;
@@ -647,6 +665,28 @@ export function ImageField({
                               op: "add",
                               path: patchPath.concat(["metadata", "hotspot"]),
                               value: defaultHotspot,
+                            },
+                          ],
+                          "object",
+                        );
+                      } else {
+                        /*
+                         * There may be no `metadata` to add to, and then the whole
+                         * object has to be created — the same branch the picker
+                         * below already has.
+                         *
+                         * Without it this checkbox was a DEAD CONTROL on every
+                         * gallery-backed field, because those have no `metadata` by
+                         * design: the click wrote nothing, and since `checked`
+                         * comes from source it snapped straight back to off. It
+                         * looked like a toggle that refused to toggle.
+                         */
+                        addPatch(
+                          [
+                            {
+                              op: "add",
+                              value: { hotspot: defaultHotspot },
+                              path: patchPath.concat(["metadata"]),
                             },
                           ],
                           "object",
