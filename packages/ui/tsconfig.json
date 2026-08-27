@@ -7,7 +7,10 @@
     "jsx": "react-jsx",
     "lib": ["es2020", "dom"],
     "module": "esnext",
-    "moduleResolution": "node",
+    // "bundler" rather than "node": Vite resolves these sources, and the
+    // Storybook 10 packages ship their types only through `exports` maps,
+    // which the legacy node10 algorithm cannot read.
+    "moduleResolution": "bundler",
     "noEmit": true,
     "target": "ES2015",
     "outDir": "dist",

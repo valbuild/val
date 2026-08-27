@@ -12,7 +12,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -24,13 +24,15 @@
       "_/*": ["./*"]
     }
   },
-  "//": "`.next-http/types` is the second dev server's generated types: the e2e suite runs one `next dev` in fs mode and one in proxy mode, and the second needs its own distDir. Listed here so `next dev` does not rewrite (and reformat) this file on every http-mode run.",
+  "//": "`.next-http/**` is the second dev server's generated types: the e2e suite runs one `next dev` in fs mode and one in proxy mode, and the second needs its own distDir. Listed here so `next dev` does not rewrite (and reformat) this file on every http-mode run. Next 16 writes the route types to `<distDir>/dev/types` in dev and `<distDir>/types` in a build, so both are included.",
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next-http/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-http/types/**/*.ts",
+    ".next-http/dev/types/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

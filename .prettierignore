@@ -14,6 +14,9 @@ tsconfig.tsbuildinfo
 packages/ui/server/.tmp
 out
 
+# `storybook build` output.
+packages/ui/storybook-static/
+
 .tmp
 examples/next*/.val/*
 
