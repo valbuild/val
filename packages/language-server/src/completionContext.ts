@@ -3,12 +3,12 @@ import ts from "typescript";
 /**
  * Works out what the cursor is sitting in, so completions can be offered for it.
  *
- * AST-based rather than text/regex-based: `c.image(` can be nested, wrapped or
- * multi-line, and matching on text gets that wrong in exactly the cases where a
- * user most wants help.
+ * AST-based rather than text/regex-based: an object literal can be nested,
+ * wrapped or multi-line, and matching on text gets that wrong in exactly the
+ * cases where a user most wants help.
  */
 
-export type ValCompletionContext = ValFileRefContext | ValStringValueContext;
+export type ValCompletionContext = ValStringValueContext;
 
 /** The cursor is inside a plain string in the module's content. */
 export type ValStringValueContext = {
@@ -33,34 +33,10 @@ export type ValStringValueContext = {
   valueOfProperty?: string;
 };
 
-export type ValFileRefContext = {
-  kind: "file-ref";
-  /** Which constructor: `c.image(...)` or `c.file(...)`. */
-  subType: "image" | "file";
-  /** The string literal being edited, without quotes. */
-  currentText: string;
-  /** Offsets of the string literal's contents, excluding the quotes. */
-  contentStart: number;
-  contentEnd: number;
-  /**
-   * Start offset of the reference argument, including its opening quote.
-   *
-   * Stable while the user types to filter the completion list, because every
-   * such keystroke lands *inside* the literal. That makes it the anchor
-   * {@link findFileRefArgument} re-locates the call by at resolve time.
-   */
-  refArgStart: number;
-  /** End offset of the reference argument, where a metadata argument follows. */
-  refArgEnd: number;
-  /** Offsets of an existing metadata argument, when there is one. */
-  metadataStart?: number;
-  metadataEnd?: number;
-};
-
 /**
  * The offsets of a string literal's contents, excluding its quotes.
  *
- * A client that does not auto-close quotes leaves `c.image("` unterminated while
+ * A client that does not auto-close quotes leaves `path: "` unterminated while
  * the user types. TypeScript still produces a string-literal node for it, but the
  * node ends *at* the cursor rather than one character past it, so the usual
  * `getEnd() - 1` bound excludes every position inside the literal and no
@@ -90,14 +66,13 @@ function contentRangeOf(
 }
 
 /**
- * Find the innermost `c.image(...)` / `c.file(...)` call whose first argument
- * contains `offset`.
+ * The innermost string literal containing `offset`, described well enough for a
+ * schema-driven completion to decide whether it applies.
  */
 export function getValCompletionContext(
   sourceFile: ts.SourceFile,
   offset: number,
 ): ValCompletionContext | undefined {
-  let found: ValFileRefContext | undefined;
   let innermostString: ts.StringLiteralLike | undefined;
   let innermostStringContent:
     | { contentStart: number; contentEnd: number }
@@ -109,40 +84,6 @@ export function getValCompletionContext(
   function visit(node: ts.Node, parent: ts.Node | undefined): void {
     if (offset < node.getStart(sourceFile) || offset > node.getEnd()) {
       return;
-    }
-    if (ts.isCallExpression(node)) {
-      const subType = fileConstructorSubType(node, sourceFile);
-      const [refArg] = node.arguments;
-      const refContent =
-        refArg && ts.isStringLiteralLike(refArg)
-          ? contentRangeOf(refArg, sourceFile)
-          : undefined;
-      if (
-        subType &&
-        refArg &&
-        ts.isStringLiteralLike(refArg) &&
-        refContent &&
-        // Inside the quotes, inclusive of both ends so completion works on an
-        // empty string and at either edge.
-        offset >= refContent.contentStart &&
-        offset <= refContent.contentEnd
-      ) {
-        const metadataArg = node.arguments[1];
-        found = {
-          kind: "file-ref",
-          subType,
-          currentText: refArg.text,
-          ...refContent,
-          refArgStart: refArg.getStart(sourceFile),
-          refArgEnd: refArg.getEnd(),
-          ...(metadataArg
-            ? {
-                metadataStart: metadataArg.getStart(sourceFile),
-                metadataEnd: metadataArg.getEnd(),
-              }
-            : {}),
-        };
-      }
     }
     if (ts.isStringLiteralLike(node)) {
       const content = contentRangeOf(node, sourceFile);
@@ -156,83 +97,89 @@ export function getValCompletionContext(
   }
   visit(sourceFile, undefined);
 
-  if (found) {
-    return found;
+  if (!innermostString || !innermostStringContent) {
+    return undefined;
   }
-  // Not a file reference, but still inside a string: schema-driven completions
-  // (keyOf keys, route paths) decide whether they apply.
-  if (innermostString && innermostStringContent) {
-    return {
-      kind: "string-value",
-      currentText: innermostString.text,
-      ...innermostStringContent,
-      // Uses the parent tracked during the walk, not `node.parent`, which
-      // `ts.createSourceFile` leaves unset unless asked to populate it.
-      isPropertyName: Boolean(
-        innermostStringParent &&
-        ts.isPropertyAssignment(innermostStringParent) &&
-        innermostStringParent.name === innermostString,
-      ),
-      ...(innermostStringParent &&
+  return {
+    kind: "string-value",
+    currentText: innermostString.text,
+    ...innermostStringContent,
+    // Uses the parent tracked during the walk, not `node.parent`, which
+    // `ts.createSourceFile` leaves unset unless asked to populate it.
+    isPropertyName: Boolean(
+      innermostStringParent &&
       ts.isPropertyAssignment(innermostStringParent) &&
-      innermostStringParent.name !== innermostString &&
-      (ts.isIdentifier(innermostStringParent.name) ||
-        ts.isStringLiteral(innermostStringParent.name))
-        ? { valueOfProperty: innermostStringParent.name.text }
-        : {}),
-    };
-  }
-  return undefined;
+      innermostStringParent.name === innermostString,
+    ),
+    ...(innermostStringParent &&
+    ts.isPropertyAssignment(innermostStringParent) &&
+    innermostStringParent.name !== innermostString &&
+    (ts.isIdentifier(innermostStringParent.name) ||
+      ts.isStringLiteral(innermostStringParent.name))
+      ? { valueOfProperty: innermostStringParent.name.text }
+      : {}),
+  };
 }
 
+/** The properties Val computes from a file's bytes. */
+export const MEDIA_METADATA_KEYS = ["width", "height", "mimeType"] as const;
+export type MediaMetadataKey = (typeof MEDIA_METADATA_KEYS)[number];
+
+export type MediaPathObject = {
+  /** Offset to insert missing metadata properties after. */
+  insertAfter: number;
+  /** Where each metadata property's value is now, when it is there. */
+  existing: Partial<Record<MediaMetadataKey, { start: number; end: number }>>;
+};
+
 /**
- * Re-find the `c.image(...)` / `c.file(...)` call whose reference argument starts
- * at `refArgStart`, and report where its arguments are *now*.
+ * Re-find the media object literal whose `path` value starts at
+ * `pathValueStart`, and report where its metadata siblings are *now*.
  *
  * `completionItem/resolve` runs against a document the user may have typed into
  * since the list was computed, so the offsets captured back then have moved.
- * Applying them anyway inserts the metadata object into the middle of the string
- * literal and corrupts the file, so the offsets are re-derived here instead.
+ * Applying them anyway inserts text into the middle of the string literal and
+ * corrupts the file, so the offsets are re-derived here instead.
  *
- * Returns `undefined` when no such call is found — the document changed in some
- * way this anchor does not survive, and the caller must then offer no edit
+ * Returns `undefined` when no such object is found — the document changed in
+ * some way this anchor does not survive, and the caller must then offer no edit
  * rather than a wrong one.
  */
-export function findFileRefArgument(
+export function findMediaPathObject(
   sourceFile: ts.SourceFile,
-  refArgStart: number,
-):
-  | {
-      refArgEnd: number;
-      metadataStart?: number;
-      metadataEnd?: number;
-    }
-  | undefined {
-  let found:
-    | { refArgEnd: number; metadataStart?: number; metadataEnd?: number }
-    | undefined;
+  pathValueStart: number,
+): MediaPathObject | undefined {
+  let found: MediaPathObject | undefined;
 
   function visit(node: ts.Node): void {
     if (found) {
       return;
     }
-    if (ts.isCallExpression(node) && fileConstructorSubType(node, sourceFile)) {
-      const [refArg] = node.arguments;
-      if (
-        refArg &&
-        ts.isStringLiteralLike(refArg) &&
-        refArg.getStart(sourceFile) === refArgStart
-      ) {
-        const metadataArg = node.arguments[1];
-        found = {
-          refArgEnd: refArg.getEnd(),
-          ...(metadataArg
-            ? {
-                metadataStart: metadataArg.getStart(sourceFile),
-                metadataEnd: metadataArg.getEnd(),
-              }
-            : {}),
-        };
+    if (ts.isObjectLiteralExpression(node)) {
+      const pathAssignment = node.properties.find(
+        (property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property) &&
+          nameOf(property) === "path" &&
+          property.initializer.getStart(sourceFile) === pathValueStart,
+      );
+      if (pathAssignment) {
+        const existing: MediaPathObject["existing"] = {};
+        for (const property of node.properties) {
+          if (!ts.isPropertyAssignment(property)) {
+            continue;
+          }
+          const name = nameOf(property);
+          if (
+            name &&
+            (MEDIA_METADATA_KEYS as readonly string[]).includes(name)
+          ) {
+            existing[name as MediaMetadataKey] = {
+              start: property.initializer.getStart(sourceFile),
+              end: property.initializer.getEnd(),
+            };
+          }
+        }
+        found = { insertAfter: pathAssignment.getEnd(), existing };
         return;
       }
     }
@@ -242,16 +189,9 @@ export function findFileRefArgument(
   return found;
 }
 
-function fileConstructorSubType(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-): "image" | "file" | undefined {
-  if (!ts.isPropertyAccessExpression(node.expression)) {
-    return undefined;
+function nameOf(property: ts.PropertyAssignment): string | undefined {
+  if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) {
+    return property.name.text;
   }
-  if (node.expression.expression.getText(sourceFile) !== "c") {
-    return undefined;
-  }
-  const name = node.expression.name.getText(sourceFile);
-  return name === "image" || name === "file" ? name : undefined;
+  return undefined;
 }

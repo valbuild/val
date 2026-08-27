@@ -4,7 +4,7 @@ import path from "path";
 import ts from "typescript";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
-  findFileRefArgument,
+  findMediaPathObject,
   getValCompletionContext,
 } from "./completionContext";
 import { createPublicValFiles } from "./publicValFiles";
@@ -27,56 +27,29 @@ describe("getValCompletionContext", () => {
     );
   }
 
-  /** As above, but only when the cursor is in a file reference. */
-  function fileRefAt(source: string) {
-    const context = contextAt(source);
-    return context?.kind === "file-ref" ? context : undefined;
-  }
-
-  test("detects the cursor inside c.image()'s reference argument", () => {
-    const context = fileRefAt(`export default c.define("/x", schema, {
-  image: c.image("/public/val/|"),
+  test("names the property a string is the value of", () => {
+    // This is what a media-path completion keys off: the cursor is in the value
+    // of a `path` property, and the schema at the CONTAINER decides whether it
+    // is media at all.
+    const context = contextAt(`export default c.define("/x", schema, {
+  image: { path: "/public/val/|" },
 });`);
-    expect(context?.kind).toBe("file-ref");
-    expect(context?.subType).toBe("image");
-    expect(context?.currentText).toBe("/public/val/");
-  });
-
-  test("detects c.file() as well", () => {
-    expect(fileRefAt(`const a = c.file("|");`)?.subType).toBe("file");
+    expect(context).toMatchObject({
+      kind: "string-value",
+      isPropertyName: false,
+      valueOfProperty: "path",
+      currentText: "/public/val/",
+    });
   });
 
   test("works on an empty string and at both quote edges", () => {
-    expect(fileRefAt(`const a = c.image("|");`)?.subType).toBe("image");
-    expect(fileRefAt(`const a = c.image("|abc");`)?.currentText).toBe("abc");
-    expect(fileRefAt(`const a = c.image("abc|");`)?.currentText).toBe("abc");
+    expect(contextAt(`const a = { path: "|" };`)?.currentText).toBe("");
+    expect(contextAt(`const a = { path: "|abc" };`)?.currentText).toBe("abc");
+    expect(contextAt(`const a = { path: "abc|" };`)?.currentText).toBe("abc");
   });
 
-  test("reports an existing metadata argument so it can be replaced", () => {
-    const context = fileRefAt(
-      `const a = c.image("|/p.png", { width: 1, height: 2 });`,
-    );
-    expect(context?.metadataStart).toBeDefined();
-    expect(context?.metadataEnd).toBeDefined();
-  });
-
-  test("reports no metadata argument when there is none", () => {
-    const context = fileRefAt(`const a = c.image("|/p.png");`);
-    expect(context?.metadataStart).toBeUndefined();
-  });
-
-  test("reports no file reference outside one", () => {
-    // Outside any string there is no context at all.
-    expect(contextAt(`const a = c.image("/p.png")|;`)).toBeUndefined();
-    // Inside a plain string there is a context, but not a file reference:
-    // schema-driven completions decide whether they apply there.
-    expect(contextAt(`const a = "|just a string";`)?.kind).toBe("string-value");
-    expect(fileRefAt(`const a = "|just a string";`)).toBeUndefined();
-    expect(fileRefAt(`const a = somethingElse("|/p.png");`)).toBeUndefined();
-    // The metadata argument is not the reference argument.
-    expect(
-      fileRefAt(`const a = c.image("/p.png", { width: |1 });`),
-    ).toBeUndefined();
+  test("reports nothing outside a string", () => {
+    expect(contextAt(`const a = { path: "/p.png" }|;`)).toBeUndefined();
   });
 
   test("distinguishes an object key from a value", () => {
@@ -90,27 +63,33 @@ describe("getValCompletionContext", () => {
     ).toMatchObject({ kind: "string-value", isPropertyName: false });
   });
 
-  test("handles a multi-line call", () => {
-    const context = fileRefAt(`const a = c.image(
-  "|/public/val/logo.png",
-  { width: 1, height: 2, mimeType: "image/png" },
-);`);
-    expect(context?.subType).toBe("image");
-    expect(context?.metadataStart).toBeDefined();
+  test("names the property across a multi-line object", () => {
+    expect(
+      contextAt(`const a = {
+  path: "|/public/val/logo.png",
+  width: 1,
+  height: 2,
+};`),
+    ).toMatchObject({ valueOfProperty: "path" });
   });
 
-  test("picks the innermost call when nested", () => {
-    // Contrived, but proves the walk descends rather than stopping at the outer
-    // call expression.
-    const context = fileRefAt(`const a = wrap(c.file("|/a.pdf"));`);
-    expect(context?.subType).toBe("file");
+  test("picks the innermost string when nested", () => {
+    expect(
+      contextAt(`const a = { outer: { path: "|/a.pdf" } };`),
+    ).toMatchObject({ valueOfProperty: "path" });
+  });
+
+  test("a sibling metadata value is not the path", () => {
+    expect(
+      contextAt(`const a = { path: "/p.png", mimeType: "|image/png" };`),
+    ).toMatchObject({ valueOfProperty: "mimeType" });
   });
 });
 
 describe("string literals without a closing quote", () => {
   /**
    * A client that does not auto-close quotes (a hand-written Neovim config, say)
-   * leaves `c.image("` unterminated while the user types. Bounding the literal at
+   * leaves `path: "` unterminated while the user types. Bounding the literal at
    * `getEnd() - 1` excluded every position inside it, so such a client got no
    * completions at all.
    */
@@ -123,13 +102,15 @@ describe("string literals without a closing quote", () => {
     );
   }
 
-  test("offers a file reference inside an unterminated literal", () => {
+  test("names the path property inside an unterminated literal", () => {
     const context = contextAt(`export default c.define("/x", schema, {
-  image: c.image("|
+  image: { path: "|
 });`);
-    expect(context?.kind).toBe("file-ref");
-    if (context?.kind !== "file-ref") return;
-    expect(context.currentText).toBe("");
+    expect(context).toMatchObject({
+      kind: "string-value",
+      valueOfProperty: "path",
+      currentText: "",
+    });
   });
 
   test("offers a string value inside an unterminated literal", () => {
@@ -149,54 +130,62 @@ describe("string literals without a closing quote", () => {
   });
 });
 
-describe("findFileRefArgument", () => {
+describe("findMediaPathObject", () => {
   /**
    * Guards the file-corruption case: `completionItem/resolve` used to replay the
    * offsets captured when the list was built, so typing to filter and then
-   * accepting an item inserted the metadata object *inside* the string literal.
+   * accepting an item inserted the metadata *inside* the string literal.
    */
   function parse(text: string) {
     return ts.createSourceFile("/x.val.ts", text, ts.ScriptTarget.ES2020);
   }
 
   const before = `export default c.define("/x", schema, {
-  image: c.image(""),
+  image: { path: "" },
 });`;
   // What the document looks like after the user typed "logo" to filter the list.
   const after = `export default c.define("/x", schema, {
-  image: c.image("logo"),
+  image: { path: "logo" },
 });`;
-  const refArgStart = before.indexOf('c.image("') + "c.image(".length;
+  const pathValueStart = before.indexOf('path: "') + "path: ".length;
 
-  test("re-derives the argument end after the literal grew", () => {
-    const stale = getValCompletionContext(parse(before), refArgStart + 1);
-    expect(stale?.kind).toBe("file-ref");
+  test("re-derives the insertion point after the literal grew", () => {
+    const stale = getValCompletionContext(parse(before), pathValueStart + 1);
+    expect(stale).toMatchObject({ valueOfProperty: "path" });
 
-    const fresh = findFileRefArgument(parse(after), refArgStart)!;
+    const fresh = findMediaPathObject(parse(after), pathValueStart)!;
     expect(fresh).toBeDefined();
     // The end moved by the four characters typed; the stale value would have
     // pointed into the middle of the literal.
-    expect(fresh.refArgEnd).toBe(
-      after.indexOf('c.image("logo")') + 'c.image("logo"'.length,
+    expect(fresh.insertAfter).toBe(
+      after.indexOf('path: "logo"') + 'path: "logo"'.length,
     );
-    expect(after.slice(fresh.refArgEnd, fresh.refArgEnd + 1)).toBe(")");
+    expect(after.slice(fresh.insertAfter, fresh.insertAfter + 1)).toBe(" ");
   });
 
-  test("finds an existing metadata argument to replace", () => {
+  test("finds existing metadata properties to replace", () => {
     const text = `export default c.define("/x", schema, {
-  image: c.image("logo", { width: 1, height: 2 }),
+  image: { path: "logo", width: 1, height: 2 },
 });`;
-    const start = text.indexOf('c.image("') + "c.image(".length;
-    const found = findFileRefArgument(parse(text), start)!;
-    expect(found.metadataStart).toBeDefined();
-    expect(text.slice(found.metadataStart, found.metadataEnd)).toBe(
-      "{ width: 1, height: 2 }",
-    );
+    const start = text.indexOf('path: "') + "path: ".length;
+    const found = findMediaPathObject(parse(text), start)!;
+    expect(
+      text.slice(found.existing.width!.start, found.existing.width!.end),
+    ).toBe("1");
+    expect(
+      text.slice(found.existing.height!.start, found.existing.height!.end),
+    ).toBe("2");
+    expect(found.existing.mimeType).toBeUndefined();
   });
 
   test("reports nothing when the anchor no longer resolves", () => {
     // Better no metadata than metadata in the wrong place.
-    expect(findFileRefArgument(parse(after), 9999)).toBeUndefined();
+    expect(findMediaPathObject(parse(after), 9999)).toBeUndefined();
+  });
+
+  test("reports nothing for a path that is not in an object literal", () => {
+    const text = `const a = ["/public/val/logo.png"];`;
+    expect(findMediaPathObject(parse(text), text.indexOf('"'))).toBeUndefined();
   });
 });
 
@@ -287,61 +276,96 @@ describe("completions over LSP", () => {
     expect(session.capabilities?.features).toContain("completions/mediaPath");
   });
 
-  test("offers existing files inside c.image()", async () => {
-    const text = `import { s, c } from "../val.config";
-export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s.image() }), {
-  image: c.image(""),
-});
-`;
-    session.openDocument(uri, text);
+  /**
+   * An unsaved buffer of a module the example app's `val.modules` registers.
+   *
+   * It has to be a registered module: media-path completions are schema-driven
+   * now (`path` is an ordinary property name — only the schema says it is a
+   * file), and the schema comes from the project snapshot. A module `val.modules`
+   * does not list is never evaluated, so there is no schema to consult.
+   *
+   * `mediaFields.val.ts` declares one of each field this needs, all starting
+   * null: a bare `s.image()`, one with its own `directory`, a gallery-backed
+   * one, and an `s.file()`.
+   */
+  const MEDIA_FIELDS_FILE = path.join(
+    EXAMPLE_APP,
+    "content",
+    "mediaFields.val.ts",
+  );
+  const MEDIA_FIELDS_URI = `file://${MEDIA_FIELDS_FILE}`;
+  const MEDIA_FIELDS_ON_DISK = fs.readFileSync(MEDIA_FIELDS_FILE, "utf8");
 
-    const document = TextDocument.create(uri, "typescript", 1, text);
-    const items = await session.requestCompletions(
-      uri,
-      document.positionAt(text.indexOf('c.image("') + 'c.image("'.length),
+  /** The same module with one field given an empty media object. */
+  function withEmptyPath(field: string) {
+    const text = MEDIA_FIELDS_ON_DISK.replace(
+      `${field}: null,`,
+      `${field}: { path: "" },`,
     );
+    if (text === MEDIA_FIELDS_ON_DISK) {
+      throw new Error(`mediaFields.val.ts no longer has \`${field}: null\``);
+    }
+    return text;
+  }
+
+  /** Completions offered where the empty path is. */
+  async function completionsInEmptyPath(text: string) {
+    session.openDocument(MEDIA_FIELDS_URI, text);
+    const document = TextDocument.create(
+      MEDIA_FIELDS_URI,
+      "typescript",
+      1,
+      text,
+    );
+    return session.requestCompletions(
+      MEDIA_FIELDS_URI,
+      document.positionAt(text.indexOf('path: ""') + 'path: "'.length),
+    );
+  }
+
+  test("offers existing images inside an image field's path", async () => {
+    const items = await completionsInEmptyPath(withEmptyPath("image"));
 
     const labels = items.map((i) => i.label);
     // The example app really has this image.
     expect(labels).toContain("/public/val/images/logo.png");
-    // c.image() must not offer non-images.
+    // An image field must not offer non-images.
     expect(labels.some((l) => l.endsWith(".webm"))).toBe(false);
     // Each item replaces the string contents rather than inserting at the cursor.
     expect(items[0].textEdit).toBeDefined();
   });
 
-  test("offers non-image files inside c.file()", async () => {
-    const text = `import { s, c } from "../val.config";
-export default c.define("/content/fixtureCompletion.val.ts", s.object({ f: s.file() }), {
-  f: c.file(""),
-});
-`;
-    session.openDocument(uri, text);
-
-    const document = TextDocument.create(uri, "typescript", 1, text);
-    const items = await session.requestCompletions(
-      uri,
-      document.positionAt(text.indexOf('c.file("') + 'c.file("'.length),
-    );
+  test("offers non-image files inside a file field's path", async () => {
+    const items = await completionsInEmptyPath(withEmptyPath("file"));
 
     const labels = items.map((i) => i.label);
     expect(labels).toContain("/public/val/file_example.webm");
     expect(labels).toContain("/public/val/images/logo.png");
   });
 
-  test("resolving an item fills in the metadata argument", async () => {
-    const text = `import { s, c } from "../val.config";
-export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s.image() }), {
-  image: c.image(""),
-});
-`;
-    session.openDocument(uri, text);
-
-    const document = TextDocument.create(uri, "typescript", 1, text);
-    const items = await session.requestCompletions(
-      uri,
-      document.positionAt(text.indexOf('c.image("') + 'c.image("'.length),
+  test("honours the field's own directory", async () => {
+    // `imageInSubdir` declares `directory: "/public/test/fields"`. The old
+    // completion keyed off the callee name and ignored the field entirely, so it
+    // offered every image in the project.
+    const items = await completionsInEmptyPath(withEmptyPath("imageInSubdir"));
+    expect(items.map((i) => i.label)).not.toContain(
+      "/public/val/images/logo.png",
     );
+  });
+
+  test("falls back to the directory of the gallery a field references", async () => {
+    // `fromGallery` points at mediaFixtures.val.ts, whose directory is
+    // /public/test/subdir.
+    const items = await completionsInEmptyPath(withEmptyPath("fromGallery"));
+    const labels = items.map((i) => i.label);
+    expect(labels).not.toContain("/public/val/images/logo.png");
+    expect(labels.every((l) => l.startsWith("/public/test/subdir/"))).toBe(
+      true,
+    );
+  });
+
+  test("resolving an item fills in the metadata siblings", async () => {
+    const items = await completionsInEmptyPath(withEmptyPath("image"));
     const logo = items.find((i) => i.label === "/public/val/images/logo.png");
     expect(logo).toBeDefined();
 
@@ -351,9 +375,39 @@ export default c.define("/content/fixtureCompletion.val.ts", s.object({ image: s
     // Real dimensions of the example app's logo, read from the file itself.
     expect(edit.newText).toContain("944");
     expect(edit.newText).toContain('mimeType: "image/png"');
-    // Inserted after the reference argument, not replacing it.
-    expect(edit.newText.startsWith(", {")).toBe(true);
+    // Inserted after the path property, not replacing it.
+    expect(edit.newText.startsWith(", width:")).toBe(true);
     expect(edit.range.start).toEqual(edit.range.end);
+  });
+
+  test("resolving a gallery-backed item writes no metadata", async () => {
+    // The dimensions and mime type live in the gallery module. Writing them here
+    // too is how two copies of one fact get to disagree.
+    const items = await completionsInEmptyPath(withEmptyPath("fromGallery"));
+    expect(items.length).toBeGreaterThan(0);
+
+    const resolved = await session.resolveCompletion(items[0]);
+    expect(resolved.additionalTextEdits).toBeUndefined();
+  });
+
+  test("offers nothing for a path that is not media", async () => {
+    // `path` is an ordinary property name. Only the schema says otherwise, so a
+    // plain object with one must not get a list of the project's files.
+    const uri = `file://${path.join(EXAMPLE_APP, "content", "authors.val.ts")}`;
+    const text = `import { c, s } from "../val.config";
+export default c.define(
+  "/content/authors.val.ts",
+  s.record(s.object({ link: s.object({ path: s.string() }) })),
+  { freekh: { link: { path: "" } } },
+);
+`;
+    session.openDocument(uri, text);
+    const document = TextDocument.create(uri, "typescript", 1, text);
+    const items = await session.requestCompletions(
+      uri,
+      document.positionAt(text.indexOf('path: ""') + 'path: "'.length),
+    );
+    expect(items).toEqual([]);
   });
 
   test("advertises the keyOf completion feature", () => {
