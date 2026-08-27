@@ -1,24 +1,19 @@
 import { Internal } from "@valbuild/core";
-import { servedPath } from "../../utils/mediaPath";
 
+/**
+ * The URL a gallery entry's bytes are served from.
+ *
+ * A gallery is keyed by file path, so this takes a bare path where a field would
+ * have a whole media object. `filePatchIds` is what says whether the bytes are
+ * committed yet; `Internal.mediaUrl` is the rule itself, and the only copy of it.
+ */
 export function refToUrl(
   ref: string,
   filePatchIds: ReadonlyMap<string, string>,
 ): string {
   const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  const isRemote = remoteRefRes.status === "success";
-  if (isRemote) {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    if (isRemote) {
-      return `/api/val/files${filePath}?patch_id=${patchId}&remote=true&ref=${encodeURIComponent(ref)}`;
-    }
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return servedPath(ref);
+  return Internal.mediaUrl({
+    path: ref,
+    ...(patchId ? { patch_id: patchId } : {}),
+  });
 }

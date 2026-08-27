@@ -31,7 +31,7 @@ export type JsonImportThunk<T = unknown> = () => Promise<{ default: T }>;
  */
 export type JsonSource<T = unknown> = {
   readonly [VAL_EXTENSION]: typeof JSON_VAL_EXTENSION_TAG;
-  /** Set on uncommitted/draft entries (mirrors FileSource/RemoteSource). */
+  /** Set on uncommitted/draft entries (mirrors a media source's). */
   readonly patch_id?: string;
 } & PhantomType<T>;
 

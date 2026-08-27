@@ -19,7 +19,7 @@ describe("servedPath", () => {
   });
 
   test("leaves a path outside the public folder alone", () => {
-    // Served from wherever it says — `convertFileSource` uses the ref as-is.
+    // Served from wherever it says — `mediaUrl` uses the path as-is.
     expect(servedPath("/content/attachments/a.pdf")).toBe(
       "/content/attachments/a.pdf",
     );

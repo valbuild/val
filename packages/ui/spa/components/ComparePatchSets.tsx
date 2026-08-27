@@ -51,7 +51,7 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
 import { useNavLink } from "./navLink";
-import { servedPath } from "../utils/mediaPath";
+import { refToUrl } from "./MediaPicker/refToUrl";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -426,35 +426,14 @@ function RenderTree({
   return null;
 }
 
-// #region refToUrl (shared with ModuleGallery)
-
-function refToUrl(
-  ref: string,
-  filePatchIds: ReadonlyMap<string, string>,
-): string {
-  const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  if (remoteRefRes.status === "success") {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return servedPath(ref);
-}
-
 /**
- * Return the static serving URL for an original (unpached) file.
- * For `/public/foo/bar.png` this returns `/foo/bar.png`.
+ * Where a committed file is served from, ignoring any pending patch.
+ *
+ * The compare view shows the BEFORE side, which is the committed bytes by
+ * definition — so unlike {@link refToUrl} it must not consult `filePatchIds`.
  */
 function staticFileUrl(ref: string): string {
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  const filePath =
-    remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
-  return servedPath(filePath);
+  return Internal.mediaUrl({ path: ref });
 }
 
 function hasAnyChange(node: ChangeTreeNode): boolean {
