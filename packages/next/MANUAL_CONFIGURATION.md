@@ -2,7 +2,7 @@
 
 You can setup Val in your Next.js project manually by following the steps below:
 
-- Make sure your project is using TypeScript 5+, Next 14+, React 18.20.+
+- Make sure your project is using TypeScript 5+, Next 14.3+, React 19+
 - Install the Val packages using your favorite package manager. For npm, you can run:
 
   ```bash
