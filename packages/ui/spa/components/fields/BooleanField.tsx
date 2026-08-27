@@ -1,4 +1,5 @@
 import { SourcePath } from "@valbuild/core";
+import { type JSX } from "react";
 import { Checkbox } from "../designSystem/checkbox";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
