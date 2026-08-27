@@ -102,6 +102,54 @@ describe("fillFromGallery", () => {
     });
   });
 
+  test("takes the gallery's alt when the field has none", () => {
+    // The alt an editor typed once for a file used in several places. Dropping
+    // it means every gallery-backed image renders with an empty alt.
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": { ...galleryEntry, alt: "The gallery's" },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      alt: "The gallery's",
+      ...galleryEntry,
+    });
+  });
+
+  test("a gallery alt of null is not an alt", () => {
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({ "/public/img/hero_a1b2c.png": { ...galleryEntry, alt: null } }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+    });
+  });
+
+  test("a locale-record alt is left in the gallery", () => {
+    // The field's `alt` is a string. Copying an object into it would be a lie;
+    // making the override locale-shaped is a separate change.
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": {
+          ...galleryEntry,
+          alt: { en: "A hero", no: "En helt" },
+        },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+    });
+  });
+
   test("a path the gallery does not track is returned untouched", () => {
     const src = { path: "/public/img/missing.png" };
     expect(

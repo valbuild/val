@@ -1,5 +1,11 @@
 import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
-import { RawString, Schema, SelectorSource, initVal } from "@valbuild/core";
+import {
+  Internal,
+  RawString,
+  Schema,
+  SelectorSource,
+  initVal,
+} from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
 const { s, c } = initVal();
@@ -509,6 +515,61 @@ describe("media is resolved from the schema, not from the value", () => {
     });
     const res = stegaEncode(valModule, {});
     expect(vercelStegaSplit(res.block.image.url).cleaned).toBe("/val/hero.png");
+  });
+
+  test("a gallery-backed image gets its dimensions and alt from the gallery", () => {
+    const gallery = c.define(
+      "/gallery.val.ts",
+      s.images({ directory: "/public/img" }),
+      {
+        "/public/img/hero.png": {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+          alt: "The gallery's alt",
+        },
+      },
+    );
+    const schema = s.object({ hero: s.image(gallery) });
+    const valModule = c.define("/gallery-field.val.ts", schema, {
+      hero: { path: "/public/img/hero.png" },
+    });
+    const res = stegaEncode(valModule, {
+      getModule: (modulePath) =>
+        modulePath === "/gallery.val.ts"
+          ? Internal.getSource(gallery)
+          : undefined,
+    });
+    expect(res.hero.width).toBe(8);
+    expect(res.hero.mimeType).toBe("image/png");
+    // Dropping this makes every gallery-backed image render with an empty alt.
+    expect(res.hero.alt).toBe("The gallery's alt");
+  });
+
+  test("a per-image alt beats the gallery's", () => {
+    const gallery = c.define(
+      "/gallery2.val.ts",
+      s.images({ directory: "/public/img" }),
+      {
+        "/public/img/hero.png": {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+          alt: "The gallery's alt",
+        },
+      },
+    );
+    const schema = s.object({ hero: s.image(gallery) });
+    const valModule = c.define("/gallery-field2.val.ts", schema, {
+      hero: { path: "/public/img/hero.png", alt: "This one only" },
+    });
+    const res = stegaEncode(valModule, {
+      getModule: (modulePath) =>
+        modulePath === "/gallery2.val.ts"
+          ? Internal.getSource(gallery)
+          : undefined,
+    });
+    expect(res.hero.alt).toBe("This one only");
   });
 
   test("a plain object that happens to have a path is left alone", () => {

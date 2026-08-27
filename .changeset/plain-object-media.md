@@ -51,4 +51,12 @@ longer nested: `image:check-remote` / `file:check-remote` re-derive them.
 
 New in return: media can be written in a `*.val.json` entry of a
 `.jsonValues()` record, and uploaded into one from the Studio. That was
-impossible before — a `*.val.json` cannot contain a function call.
+impossible before — a `*.val.json` cannot contain a function call. And `alt` on a
+gallery-backed field is now a per-image override: the gallery's alt is used when
+the field has none.
+
+**Left for later:** a gallery whose `alt` schema is a locale record
+(`s.images({ alt: s.record(s.string(), s.string()) })`) holds an object, and the
+per-field override is typed `string`. Such a gallery's alt is therefore not
+filled in, and there is no way to override it per image. Making the override
+follow the gallery's own alt schema is a separate change.

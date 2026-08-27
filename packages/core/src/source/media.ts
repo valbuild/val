@@ -1,7 +1,3 @@
-import { splitRemoteRef } from "../remote/splitRemoteRef";
-import type { SerializedFileSchema } from "../schema/file";
-import type { SerializedImageSchema } from "../schema/image";
-
 /**
  * Media — images and files — is a plain object carrying a `path`.
  *
@@ -14,6 +10,12 @@ import type { SerializedImageSchema } from "../schema/image";
  * a field can move between local and remote without a type error. Remote-ness
  * is read off the path: anything not under `/public` is remote.
  */
+
+import { splitRemoteRef } from "../remote/splitRemoteRef";
+import type { SerializedFileSchema } from "../schema/file";
+import type { SerializedImageSchema } from "../schema/image";
+
+/** What must stay in frame when a page crops an image. */
 export type MediaHotspot = {
   x: number;
   y: number;
@@ -120,12 +122,19 @@ function isMediaSchema(
 }
 
 /**
- * Fill in the metadata a gallery-backed field does not carry itself.
+ * Fill in what a gallery-backed field does not carry itself.
  *
  * `s.image(galleryModule)` stores only `{path, alt?, hotspot?}` — the
  * dimensions and mime type live in the gallery module, keyed by path. This is
  * the single implementation of that lookup; core, stega/RSC and the Studio all
  * call it rather than each rolling their own.
+ *
+ * `alt` is filled in too, because a gallery holds the alt text an editor typed
+ * once for a file used in several places — but only when the field does not
+ * have its own, so a per-image override wins. A gallery whose `alt` schema is a
+ * locale record holds an object rather than a string; that is left alone rather
+ * than copied into a field typed `string`, and making the override
+ * locale-shaped is a separate change.
  *
  * The double lookup is load-bearing: a remote gallery keys its entries by the
  * remote URL while the file itself stays on disk under its local path.
@@ -164,15 +173,18 @@ export function fillFromGallery<S extends { readonly path: string }>(
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return src;
   }
-  const { width, height, mimeType } = entry as {
+  const { width, height, mimeType, alt } = entry as {
     width?: number;
     height?: number;
     mimeType?: string;
+    alt?: unknown;
   };
+  const hasOwnAlt = typeof (src as { alt?: unknown }).alt === "string";
   return {
     ...src,
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(mimeType !== undefined ? { mimeType } : {}),
+    ...(!hasOwnAlt && typeof alt === "string" ? { alt } : {}),
   };
 }

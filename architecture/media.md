@@ -51,7 +51,11 @@ object.
 A **gallery-backed** field (`s.image(galleryModule)`) carries neither: the
 gallery has them, keyed by path, and repeating them is how two copies of one
 fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
-validation refuses a path the gallery does not track.
+validation refuses a path the gallery does not track. `fillFromGallery` supplies
+them at resolve time — including `alt`, but only when the field has none, so a
+per-image override wins. A gallery whose `alt` is a locale record holds an object
+rather than a string; that one is left alone, and making the override
+locale-shaped is a separate change.
 
 `patch_id` also appears on a media source whose bytes are not committed yet. It
 is injected server-side, never authored, and `toExpression` drops it before
