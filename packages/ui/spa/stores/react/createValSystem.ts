@@ -5,6 +5,7 @@ import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
+import { chunkPatchIds } from "./patchIdChunks";
 
 /**
  * A {@link System} wired to the real server, from a `ValClient`.
@@ -184,43 +185,49 @@ export function createValSystem(
         }
       : {}),
     fetchPatches: async (patchIds) => {
-      const res = await client("/patches", "GET", {
-        query: {
-          exclude_patch_ops: false,
-          // The ids we actually want, not the whole table. The engine asks for
-          // everything because it keeps a whole-project map; this store is asked
-          // for specific ids by `StatStore` and can say so.
-          patch_id: patchIds,
-        },
-      });
-      if (res.status !== 200) {
-        const message =
-          "message" in res.json
-            ? res.json.message
-            : `GET /patches failed with status ${res.status ?? "network"}`;
-        return {
-          patches: [],
-          errors: Object.fromEntries(patchIds.map((id) => [id, message])),
-        };
-      }
       const patches: PatchRecord[] = [];
       const errors: Record<PatchId, string> = {};
-      for (const patch of res.json.patches) {
-        if (patch.patch === undefined) {
-          // Announced by stat but the server has no ops for it. An error rather
-          // than a silent skip: the head would otherwise stay `partial` forever
-          // with nothing saying why.
-          errors[patch.patchId] = `No ops for patch ${patch.patchId}`;
+      // In batches whose query strings fit. All the ids on one URL is ~19KB at
+      // 410 pending changes, which a Node server rejects before the handler runs.
+      for (const chunk of chunkPatchIds(patchIds)) {
+        const res = await client("/patches", "GET", {
+          query: {
+            exclude_patch_ops: false,
+            // The ids we actually want, not the whole table. The engine asks for
+            // everything because it keeps a whole-project map; this store is asked
+            // for specific ids by `StatStore` and can say so.
+            patch_id: chunk,
+          },
+        });
+        if (res.status !== 200) {
+          const message =
+            "message" in res.json
+              ? res.json.message
+              : `GET /patches failed with status ${res.status ?? "network"}`;
+          // Only this chunk. A later one may well succeed, and failing the whole
+          // request would throw away patches that did arrive.
+          for (const patchId of chunk) {
+            errors[patchId] = message;
+          }
           continue;
         }
-        patches.push({
-          patchId: patch.patchId,
-          moduleFilePath: patch.path,
-          patch: patch.patch,
-          createdAt: patch.createdAt,
-          authorId: patch.authorId ?? undefined,
-          appliedAt: patch.appliedAt ?? null,
-        });
+        for (const patch of res.json.patches) {
+          if (patch.patch === undefined) {
+            // Announced by stat but the server has no ops for it. An error rather
+            // than a silent skip: the head would otherwise stay `partial` forever
+            // with nothing saying why.
+            errors[patch.patchId] = `No ops for patch ${patch.patchId}`;
+            continue;
+          }
+          patches.push({
+            patchId: patch.patchId,
+            moduleFilePath: patch.path,
+            patch: patch.patch,
+            createdAt: patch.createdAt,
+            authorId: patch.authorId ?? undefined,
+            appliedAt: patch.appliedAt ?? null,
+          });
+        }
       }
       return { patches, errors };
     },

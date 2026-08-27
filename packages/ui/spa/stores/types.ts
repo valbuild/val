@@ -233,6 +233,14 @@ export type SystemEvent =
   | { type: "stat:receive"; patches: PatchId[] }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }
+  /**
+   * `/stat` announced these ids, and the fetch came back without them.
+   *
+   * A server contradicting itself, and the reason it is an event rather than a
+   * silence: the edits these ids carry are not on screen, so anything typed now
+   * is written on top of content that is missing them.
+   */
+  | { type: "patch:announced-not-delivered"; patches: PatchId[] }
   /** A patch was created locally. Its data exists immediately. */
   | { type: "patch:create"; patches: PatchId[] }
   /**

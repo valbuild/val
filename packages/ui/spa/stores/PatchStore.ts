@@ -347,8 +347,52 @@ export class PatchStore {
       this.fetching.delete(patchId as PatchId);
       this.failedById.set(patchId as PatchId, message);
     }
+    /*
+     * Asked for, and answered with neither a record nor an error.
+     *
+     * `fetching` is what stops a second request going out for an id already in
+     * flight, so leaving one in it after the request has returned does not mean
+     * "try again later" - it means never again. That is how a server that
+     * announced 410 changes and sent 359 turned into a studio that waited on the
+     * other 51 forever: no retry, because they still counted as in flight, and
+     * no error, because a 200 that omits an id raises nothing.
+     *
+     * Stat announced these, so their absence is the server contradicting itself
+     * and is recorded as a failure. Absence is NOT a failure everywhere - for an
+     * id stat did not announce it is how a deleted patch is observed, which is
+     * why `reconcileVanished` treats the same silence as "gone" and drops it.
+     * The two differ only in whether the id was announced, and each is right for
+     * its own case.
+     */
+    const notDelivered: PatchId[] = [];
+    for (const patchId of missing) {
+      if (
+        this.fetching.delete(patchId) &&
+        !this.dataById.has(patchId) &&
+        // Re-read after the await rather than trusted from before it: a newer
+        // stat may have stopped naming this id while the request was in flight,
+        // and a patch someone else deleted mid-request is gone, not missing.
+        // (A delete that lands before the NEXT stat still reads as missing here.
+        // It costs one spurious report that clears itself on that stat, which is
+        // the right way round to be wrong: the alternative is the silence this
+        // whole change exists to remove.)
+        this.ordered.includes(patchId)
+      ) {
+        this.failedById.set(
+          patchId,
+          "The server said this change exists, but did not send it.",
+        );
+        notDelivered.push(patchId);
+      }
+    }
     if (received.length > 0) {
       this.events.emit({ type: "patch:receive", patches: received });
+    }
+    if (notDelivered.length > 0) {
+      this.events.emit({
+        type: "patch:announced-not-delivered",
+        patches: notDelivered,
+      });
     }
   }
 

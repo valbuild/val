@@ -481,6 +481,17 @@ export type TestServer = {
    */
   simulateForeignDiscard(patchIds: PatchId[]): void;
   /**
+   * `/stat` names a patch the fetch will not hand over.
+   *
+   * A server contradicting itself, which really happened: the fs store counted
+   * the directories on disk to announce, and walked the parent links between
+   * them to deliver, so one lost record made it announce 410 changes and send
+   * 359. Deliberately NOT the same as {@link simulateForeignDiscard} - a deleted
+   * patch stops being announced, and absence then means "gone"; here it stays
+   * announced, and absence means the server is wrong.
+   */
+  simulateAnnouncedNotDelivered(patchIds: PatchId[]): void;
+  /**
    * Another session PUBLISHES patches this client holds.
    *
    * Indistinguishable from a discard by the patch list alone — `/save` in `fs`
@@ -503,6 +514,12 @@ export type TestSystem = {
    * custom validation actually reached an instance.
    */
   host: System["host"];
+  /**
+   * The user-facing error channel, handed through so a test can assert that the
+   * person editing was actually TOLD - which for a whole class of failures is
+   * the only thing that distinguishes handled from silently swallowed.
+   */
+  status: System["status"];
   /**
    * Handed through unwrapped: unlike source/patch/stat, nothing about these
    * needs a test-only method. Their whole API is already on-demand (`get`,
@@ -954,6 +971,7 @@ export function initTestSystem(): TestSystem {
     activity,
     listeners,
     host: system.host,
+    status: system.status,
     renderStore: system.renderStore,
     patchSetStore: system.patchSetStore,
     validationStore: system.validationStore,
@@ -1091,6 +1109,13 @@ export function initTestSystem(): TestSystem {
           patches: [...announced],
           baseSha: publishedBaseSha,
         });
+      },
+      simulateAnnouncedNotDelivered(patchIds) {
+        // Into the announcement, never into the table the fetch reads.
+        for (const patchId of patchIds) {
+          announced.push(patchId);
+        }
+        system.stat.receiveStat({ patches: [...announced], baseSha });
       },
       simulateForeignDiscard(patchIds) {
         // Another session, the CLI, or another tab deletes patches this client

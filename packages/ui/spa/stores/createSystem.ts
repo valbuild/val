@@ -547,6 +547,33 @@ export function createSystem(options: SystemOptions): System {
      * `StatusStore` errors are sticky until dismissed, which is the property a
      * rejection needs.
      */
+    /**
+     * Unpublished changes the server named and then did not send.
+     *
+     * Reported for the same reason a rejected save is: what is on screen is not
+     * what the server says exists, and the person editing has no way to tell.
+     * Anything they change now is written on top of content missing those edits.
+     *
+     * This is the visible half of the failure that motivated the patch store
+     * rewrite - a studio told about 410 unpublished changes, sent 359, and left
+     * waiting on the rest with nothing said. The store no longer produces that
+     * disagreement; this makes sure that if anything ever does, it is not
+     * silent.
+     */
+    patchStore.events.on("patch:announced-not-delivered", (event) => {
+      status.reportError(
+        event.patches.length === 1
+          ? "An unpublished change could not be loaded."
+          : `${event.patches.length} unpublished changes could not be loaded.`,
+        "The server listed them but did not send them, so they are not shown. " +
+          "Reload before editing: anything you change now is written on top of " +
+          "content that is missing them.",
+      );
+      console.error(
+        "Val: the server announced these unpublished changes and did not send them.",
+        { patchIds: event.patches },
+      );
+    }),
     patchSync.events.on("patch:save-rejected", (event) => {
       status.reportError(
         event.patches.length === 1
