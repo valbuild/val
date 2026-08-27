@@ -45,6 +45,14 @@ export type PanelRowProps = {
   depth?: number;
   selected?: boolean;
   onClick?: () => void;
+  /**
+   * Whether the row's own click discloses something below it.
+   *
+   * Set it and the row announces itself as a disclosure, which is what a row
+   * that only expands is — and what a screen reader otherwise has no way to
+   * know from a chevron drawn in `leading`.
+   */
+  expanded?: boolean;
   /** Rendered before the label: an icon, or a disclosure chevron. */
   leading?: ReactNode;
   label: ReactNode;
@@ -53,6 +61,14 @@ export type PanelRowProps = {
   errorCount?: number;
   hasDraft?: boolean;
   trailing?: ReactNode;
+  /**
+   * A control of its own, beside the row rather than inside it.
+   *
+   * `trailing` lives inside the row's own button, so anything interactive there
+   * would be a button inside a button. This is where a second action goes —
+   * "open this in the editor" on a row whose click expands it.
+   */
+  action?: ReactNode;
   title?: string;
 };
 
@@ -70,11 +86,15 @@ export function PanelRow({
   errorCount,
   hasDraft,
   trailing,
+  action,
+  expanded,
   title,
 }: PanelRowProps) {
   return (
     <div
-      className="flex items-center pr-2"
+      // `group/row` so an action can reveal itself on hover over the whole row,
+      // not only over itself.
+      className="group/row flex items-center pr-2"
       style={{ paddingLeft: 8 + depth * 12 }}
     >
       <button
@@ -82,6 +102,7 @@ export function PanelRow({
         onClick={onClick}
         title={title}
         aria-current={selected ? "true" : undefined}
+        aria-expanded={expanded}
         className={cn(
           "group flex items-center gap-1.5 min-w-0 flex-1 h-7 px-1.5 rounded-md text-xs text-left",
           selected
@@ -118,6 +139,7 @@ export function PanelRow({
           {trailing}
         </span>
       </button>
+      {action}
     </div>
   );
 }

@@ -185,13 +185,46 @@ export function MediaPanel({
               <div key={gallery.id}>
                 <PanelRow
                   selected={selectedId === gallery.id}
-                  // The module, because that is what the row opens; the
+                  // The module, because that is what the row is about; the
                   // directory is the row's meta.
                   title={gallery.moduleFilePath}
+                  expanded={open}
+                  /*
+                   * The row expands. That is all it does.
+                   *
+                   * It used to also `onSelect(gallery)`, which replaced whatever
+                   * was in the editor — two outcomes from one target, and the
+                   * louder one was the one nobody asked for: browsing the media
+                   * tree cost you the page you were editing. Opening a gallery
+                   * is now the `Open` action beside the row, which is
+                   * deliberate and never something you trip over.
+                   */
                   onClick={() => {
-                    onSelect(gallery);
                     if (!q) toggle(gallery.id);
                   }}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => onSelect(gallery)}
+                      title="Open in the editor"
+                      aria-label={`Open ${gallery.name} in the editor`}
+                      className={cn(
+                        "ml-1 shrink-0 rounded px-1.5 h-6 text-[0.6875rem] text-fg-secondary",
+                        "hover:bg-bg-float-raised hover:text-fg-primary",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        // Revealed on hover, because a row of always-on buttons
+                        // reads as a wall of controls — but shown outright where
+                        // there is no hover to reveal it with, and whenever it
+                        // has focus, so the keyboard can reach it.
+                        "opacity-0 transition-opacity",
+                        "group-hover/row:opacity-100 focus-visible:opacity-100",
+                        "[@media(hover:none)]:opacity-100",
+                        selectedId === gallery.id && "opacity-100",
+                      )}
+                    >
+                      Open
+                    </button>
+                  }
                   leading={
                     <span className="text-fg-secondary-alt">
                       {open ? (
