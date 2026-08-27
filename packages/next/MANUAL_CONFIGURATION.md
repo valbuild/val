@@ -107,6 +107,8 @@ export default function RootLayout({
 }
 ```
 
+**NOTE**: add the `suspend` prop — `<ValProvider config={config} suspend>` — if editors should be able to preview pages they have created but not published yet. It makes content reads wait for the editor's pending changes instead of falling back to published content; it does nothing for visitors. See [previewing unpublished pages](./README.md#previewing-unpublished-pages).
+
 - Add the Val editor page at `/app/(val)/val/[[...val]]/page.tsx`, again rendering `ValModulesClient` inside `ValApp`:
 
 ```tsx

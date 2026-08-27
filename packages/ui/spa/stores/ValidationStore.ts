@@ -174,7 +174,64 @@ export class ValidationStore {
     return request;
   }
 
+  /**
+   * How many times one request will recompute after being overtaken.
+   *
+   * A bound rather than a `while (true)`: each pass is driven by an edit landing
+   * mid-flight, so under normal typing this runs once or twice. The cap is for
+   * the pathological case — something invalidating faster than validation
+   * completes — where spinning forever would be worse than leaving the module
+   * stale for whoever asks next.
+   */
+  private static readonly MAX_RECOMPUTES = 5;
+
+  /**
+   * Compute until the answer describes source that has not moved since.
+   *
+   * ## Why a loop, and not "the reader will ask again"
+   *
+   * It used to be one pass: compute, store, and clear `stale` only if nothing
+   * invalidated meanwhile. The staying-stale half is right — a result computed
+   * from pre-edit source must not be cached as current — but nothing then asked
+   * again, and the reason is worth spelling out because it is invisible from
+   * either side alone.
+   *
+   * `peek` answers `stale` with ONE shared object, deliberately, so repeated
+   * peeks are `===`. The reader (`useModuleValidation`) re-asks from an effect
+   * keyed on the result it rendered. So a module that goes stale → raced result
+   * → stale hands the reader the same `STALE` object twice, the effect's
+   * dependencies do not change, and the re-ask never happens. Validation stopped
+   * for that module until something remounted the field: typing an invalid value
+   * in the canvas showed no error at all, while opening the same field on its own
+   * showed it immediately.
+   *
+   * Fixed here rather than in the hook: "a request I accepted is answered from
+   * source that is current" is this store's promise to keep, and the hook cannot
+   * keep it — re-asking on every event is exactly the per-keystroke validation
+   * this design exists to avoid.
+   *
+   * Each pass still stores and announces its result, so a reader shows the
+   * previous errors while the next pass runs rather than flashing to none.
+   */
   private async run(moduleFilePath: ModuleFilePath): Promise<ValidationResult> {
+    let last: ValidationResult = STALE;
+    for (let attempt = 0; attempt < ValidationStore.MAX_RECOMPUTES; attempt++) {
+      last = await this.runOnce(moduleFilePath);
+      if (last.status !== "validated") {
+        // Nothing to be current about: the module has no schema or no source
+        // yet, and intake will invalidate when it arrives.
+        return last;
+      }
+      if (!this.stale.has(moduleFilePath)) {
+        return last;
+      }
+    }
+    return last;
+  }
+
+  private async runOnce(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<ValidationResult> {
     // Read BEFORE the awaits below, and compared after. See the note at the
     // bottom of this method.
     const startedAt = this.generation;
@@ -250,6 +307,8 @@ export class ValidationStore {
     if (this.generation === startedAt) {
       this.stale.delete(moduleFilePath);
     }
+    // Left stale otherwise, and `run` above recomputes: the caller is owed an
+    // answer about the source as it is now, not as it was when they asked.
     this.events.emit({
       type: "validation:result",
       moduleFilePath,

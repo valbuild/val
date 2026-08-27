@@ -10,7 +10,6 @@ import { AnyField } from "../../components/AnyField";
 import { Preview } from "../../components/Preview";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
-import { ValidationErrors } from "../../components/ValidationError";
 
 export function ObjectFields({
   path,
@@ -66,7 +65,6 @@ export function ObjectFields({
   const schema = schemaAtPath.data;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
         {Object.entries(schema.items).map(([key, itemSchema]) => {
           if (itemSchema.hidden) {

@@ -17,7 +17,6 @@ import { useNavigation } from "../../components/ValRouter";
 import { SortableList, SortableContainer } from "../../components/SortableList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import { PreviewError } from "../PreviewError";
 import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
@@ -123,7 +122,6 @@ export function ArrayFields({
     }
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <SortableContainer
           source={sourcePaths}
           disabled={readonly}
@@ -173,7 +171,6 @@ export function ArrayFields({
   }
   return (
     <div id={path} className="relative w-full">
-      <ValidationErrors path={path} />
       {renderAtPath?.status === "error" && (
         <PreviewError error={renderAtPath.message} path={path} />
       )}

@@ -1,7 +1,6 @@
 import {
   Internal,
   ModuleFilePath,
-  ModuleFilePathSep,
   SerializedArraySchema,
   SerializedObjectSchema,
   SerializedRecordSchema,
@@ -10,6 +9,7 @@ import {
   Source,
   SourcePath,
 } from "@valbuild/core";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
 export type LeafSerializedSchema = Exclude<
   SerializedSchema,
@@ -56,7 +56,7 @@ export function traverseSchemas(
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
           if (sourceValue !== undefined) {
-            go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
+            go(sourcePathOfChild(sourcePath, key), schemaValue, sourceValue);
           }
         }
       }
@@ -64,7 +64,7 @@ export function traverseSchemas(
       if (isArraySource(source)) {
         let i = 0;
         for (const sourceValue of source) {
-          go(sourcePathConcat(sourcePath, i), schema.item, sourceValue);
+          go(sourcePathOfChild(sourcePath, i), schema.item, sourceValue);
           i++;
         }
       }
@@ -101,18 +101,6 @@ export function traverseSchemas(
       sources[moduleFilePath],
     );
   }
-}
-
-export function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
 }
 
 function isObjectOrRecordSource(

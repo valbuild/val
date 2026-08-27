@@ -47,7 +47,7 @@ export function createErrorTooltipPlugin(
     const portal = callbacks.getPortalContainer?.();
     const el = document.createElement("div");
     el.className = [
-      `${portal ? "fixed" : "absolute"} z-50 max-w-xs rounded-md border border-border-error-primary`,
+      `${portal ? "fixed" : "absolute"} z-window max-w-xs rounded-md border border-border-error-primary`,
       "bg-bg-primary p-2 shadow-lg",
     ].join(" ");
     el.style.display = "none";

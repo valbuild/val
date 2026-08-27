@@ -1,12 +1,12 @@
 import {
   Internal,
   ModuleFilePath,
-  ModuleFilePathSep,
   Source,
   SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
 /**
  * Find all s.route() fields that have a value matching the given route key
@@ -46,7 +46,7 @@ export function getRouteReferences(
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
           if (sourceValue) {
-            go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
+            go(sourcePathOfChild(sourcePath, key), schemaValue, sourceValue);
           }
         }
       }
@@ -54,7 +54,7 @@ export function getRouteReferences(
       if (isArrayOfSource(source)) {
         let i = 0;
         for (const sourceValue of source) {
-          go(sourcePathConcat(sourcePath, i), schema.item, sourceValue);
+          go(sourcePathOfChild(sourcePath, i), schema.item, sourceValue);
           i++;
         }
       }
@@ -93,18 +93,6 @@ export function getRouteReferences(
   }
 
   return results;
-}
-
-function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
 }
 
 function isObjectSource(

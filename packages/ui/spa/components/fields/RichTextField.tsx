@@ -13,7 +13,6 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import type { Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
@@ -66,6 +65,22 @@ export function RichTextField({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disabledRef = useRef(false);
   const suppressNextDirtyRef = useRef(false);
+  /**
+   * Typed, but not yet turned into a patch.
+   *
+   * True from a keystroke until the debounced patch is added. See the sync
+   * effect below: this is the difference between "the server disagrees with me
+   * because someone else edited" and "the server disagrees with me because I am
+   * still typing".
+   */
+  const hasUnsentEditRef = useRef(false);
+  /**
+   * The document as of the last keystroke, captured eagerly.
+   *
+   * Read by the unmount flush below, which cannot ask the editor for it — by
+   * then the editor may already be gone.
+   */
+  const pendingDocRef = useRef<EditorDocument | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const {
@@ -78,20 +93,43 @@ export function RichTextField({
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
 
+  /**
+   * Take the server's document only when the change came from somewhere else.
+   *
+   * The editor is uncontrolled — it owns its document and reports changes
+   * through `onDirty` — so a `reset` is not a re-render, it is throwing your
+   * text away and putting someone else's in its place. Which is right when
+   * someone else wrote it, and a bug when you did.
+   *
+   * `clientSideOnly` alone was not enough to tell those apart. It answers "does
+   * this field have an unsaved patch", and there is a 400ms window on every
+   * keystroke where the answer is no and the editor is still ahead of the
+   * server: the previous patch has saved, and the next one has not been made
+   * yet. A source update landing in that window compared unequal and reset the
+   * editor to the last saved document — which is the jumping caret and the
+   * letters coming back after being deleted.
+   *
+   * So the debounce is part of the question. `hasUnsentEdit` is true from the
+   * keystroke until its patch is actually added, and while it is true nothing
+   * from outside is allowed to overwrite what is being typed. A foreign change
+   * arriving mid-word is not lost — it lands on the next update, once the
+   * typing has settled — and losing your own sentence is much worse than seeing
+   * someone else's a second late.
+   */
   useEffect(() => {
-    if (maybeClientSideOnly === false && currentSourceData) {
-      const serverDoc = currentSourceData as unknown as EditorDocument;
-      const currentDoc = editorRef.current?.getDocument();
-      if (
-        currentDoc &&
-        !deepEqual(
-          currentDoc as unknown as ReadonlyJSONValue,
-          serverDoc as unknown as ReadonlyJSONValue,
-        )
-      ) {
-        editorRef.current?.reset(serverDoc);
-        sourceRef.current = serverDoc;
-      }
+    if (maybeClientSideOnly !== false || !currentSourceData) return;
+    if (hasUnsentEditRef.current) return;
+    const serverDoc = currentSourceData as unknown as EditorDocument;
+    const currentDoc = editorRef.current?.getDocument();
+    if (
+      currentDoc &&
+      !deepEqual(
+        currentDoc as unknown as ReadonlyJSONValue,
+        serverDoc as unknown as ReadonlyJSONValue,
+      )
+    ) {
+      editorRef.current?.reset(serverDoc);
+      sourceRef.current = serverDoc;
     }
   }, [currentSourceData, maybeClientSideOnly]);
 
@@ -216,6 +254,10 @@ export function RichTextField({
           clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = null;
         }
+        // This path patches the document itself, below, so the pending keystroke
+        // it just cancelled is accounted for. Leaving the flag set would block
+        // every foreign update from here on.
+        hasUnsentEditRef.current = false;
 
         const doc = editorRef.current?.getDocument();
         if (!doc) return null;
@@ -311,16 +353,57 @@ export function RichTextField({
       return;
     }
 
+    hasUnsentEditRef.current = true;
+    // Captured now, not in the timer: the unmount flush needs a document that
+    // does not depend on the editor still being mounted.
+    pendingDocRef.current = editorRef.current?.getDocument() ?? null;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      const doc = editorRef.current?.getDocument();
-      if (!doc) return;
-
-      const patch = createRichTextPatch(patchPath, doc);
-      sourceRef.current = doc;
-      addPatch(patch, "richtext");
+      debounceTimerRef.current = null;
+      writePendingRef.current();
     }, DEBOUNCE_MS);
-  }, [patchPath, addPatch]);
+  }, []);
+
+  /**
+   * Write whatever was typed, now.
+   *
+   * In a ref because the unmount cleanup below runs after the last render and
+   * must use the current `patchPath` and `addPatch`, not the ones it closed over
+   * when it was attached.
+   */
+  const writePendingRef = useRef<() => void>(() => undefined);
+  writePendingRef.current = () => {
+    const doc = pendingDocRef.current ?? editorRef.current?.getDocument();
+    if (!doc) return;
+    pendingDocRef.current = null;
+    const patch = createRichTextPatch(patchPath, doc);
+    sourceRef.current = doc;
+    addPatch(patch, "richtext");
+    // Cleared only once the patch exists: from here `clientSideOnly` is what
+    // keeps the server's document out until this one has been saved.
+    hasUnsentEditRef.current = false;
+  };
+
+  /**
+   * An edit still inside the debounce window when the field goes away is
+   * WRITTEN, not dropped.
+   *
+   * This used to clear the timer and forget it, which loses the last thing
+   * typed — navigating away, closing the canvas, or switching page mid-sentence
+   * silently threw those characters out. The window is short, so the loss looked
+   * random, which is the worst way for it to look.
+   */
+  useEffect(
+    () => () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+        writePendingRef.current();
+      }
+      hasUnsentEditRef.current = false;
+    },
+    [],
+  );
 
   if (schemaAtPath.status === "error") {
     return (
@@ -364,7 +447,6 @@ export function RichTextField({
   }
   return (
     <div id={path} className="m-1">
-      <ValidationErrors path={path} />
       <RichTextEditor
         ref={editorRef}
         features={features}

@@ -10,6 +10,7 @@ import {
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
 /**
  * The three kinds of pointer in a Val project.
@@ -337,14 +338,24 @@ function collectReferences(
       for (const key in schema.items) {
         const value = source[key];
         if (value === undefined) continue;
-        collectReferences(concat(path, key), schema.items[key], value, into);
+        collectReferences(
+          sourcePathOfChild(path, key),
+          schema.items[key],
+          value,
+          into,
+        );
       }
       return;
     }
     case "record": {
       if (!isRecordSource(source)) return;
       for (const key in source) {
-        collectReferences(concat(path, key), schema.item, source[key], into);
+        collectReferences(
+          sourcePathOfChild(path, key),
+          schema.item,
+          source[key],
+          into,
+        );
       }
       return;
     }
@@ -356,7 +367,7 @@ function collectReferences(
         // other part of the system writes `?p=0`. The paths still look right and
         // nothing that navigates to one can resolve it.
         collectReferences(
-          concat(path, index),
+          sourcePathOfChild(path, index),
           schema.item,
           source[index],
           into,
@@ -392,15 +403,4 @@ function isRecordSource(source: Source): source is Record<string, Source> {
   return (
     typeof source === "object" && source !== null && !Array.isArray(source)
   );
-}
-
-function concat(path: SourcePath, key: string | number): SourcePath {
-  const at = Internal.createValPathOfItem(path, key);
-  if (at === undefined) {
-    // Only when the parent path is falsy, which cannot happen: the walk starts
-    // from a module file path. Thrown rather than skipped so a future change that
-    // breaks that assumption is loud.
-    throw new Error(`Could not build a source path for '${key}' under ${path}`);
-  }
-  return at;
 }

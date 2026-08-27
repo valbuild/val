@@ -5,6 +5,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
@@ -13,13 +14,13 @@ import {
   ArrowRight,
   ChevronDown,
   Equal,
-  Globe,
   Minus,
   Pencil,
   Plus,
   Save,
   Undo2,
   User,
+  Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import {
@@ -30,7 +31,6 @@ import {
 import type { SourceOverride } from "./ValFieldProvider";
 import {
   FieldSourceOverrideContext,
-  useAllSources,
   useFilePatchIds,
   useSchemaAtPath,
   useSchemaWithResolvedPath,
@@ -40,9 +40,9 @@ import {
 } from "./ValFieldProvider";
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import { useDeletePatches, Profile } from "./ValProvider";
-import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
+import { PrimitiveListDiff } from "./PrimitiveListDiff";
 import { AuthorPatchInfo, FieldPatchAuthorsPure } from "./FieldPatchAuthors";
 import { Button } from "./designSystem/button";
 import {
@@ -54,8 +54,9 @@ import { Skeleton } from "./designSystem/skeleton";
 import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
-import { urlOf } from "@valbuild/shared/internal";
-import { getNavPathFromAll } from "./getNavPath";
+import { FieldPathLink } from "./FieldPathLink";
+import { useNavLink } from "./navLink";
+import { servedPath } from "../utils/mediaPath";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -75,18 +76,33 @@ import { getNavPathFromAll } from "./getNavPath";
  *
  * Page-level chrome (titles, global Publish/Discard) is intentionally NOT
  * part of this component — it lives in the surrounding screen.
+ *
+ * Nothing here is editable
+ * ------------------------
+ * Every field this view renders is `readonly`, without exception, and the fields
+ * are not a way in. It used to be possible to type into the "After" side, which
+ * reads as a feature and is not one: the value under the cursor is the result of
+ * a chain of patch sets, each with its own author and its own Discard button, so
+ * an edit made here belongs to none of them and lands as yet another patch on
+ * top — while the row it was typed into goes on describing the change it used to
+ * describe. Reviewing and editing are different jobs; this view does the first
+ * one, and the editor is one click away on the row's own link.
+ *
+ * `canDiscard` is therefore about the DISCARD controls only. It was one boolean
+ * for both, which is why turning editing off would have taken discarding with
+ * it — and discarding is what this view is for.
  */
 export function ComparePatchSets({
   patchSets,
   profilesByAuthorIds,
   mode = "unknown",
-  readonly = true,
+  canDiscard = false,
   reloadKey,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
   mode?: "fs" | "http" | "unknown";
-  readonly?: boolean;
+  canDiscard?: boolean;
   /**
    * Change to rebuild the view from scratch instead of leaving the previous
    * result on screen while the new one is computed. See `usePatchSetsWorker`.
@@ -131,7 +147,7 @@ export function ComparePatchSets({
           portalContainer={portalContainer}
           mode={mode}
           schemas={schemasData}
-          readonly={readonly}
+          canDiscard={canDiscard}
         />
       ))}
     </div>
@@ -154,6 +170,20 @@ export function CompareLoading() {
       aria-live="polite"
       aria-label="Loading changes"
     >
+      {/*
+       * Said as well as drawn.
+       *
+       * The skeleton alone reads as "something will appear here", which is not
+       * the same as knowing that the comparison is being built — and building it
+       * is the slow part on a long chain. Shown only before the FIRST result:
+       * afterwards the previous comparison stays on screen while a new one
+       * computes, because swapping to a placeholder for content that is still
+       * accurate is the flicker this whole file is careful about.
+       */}
+      <p className="flex items-center gap-2 text-sm text-fg-secondary">
+        <Loader2 size={14} className="animate-spin" aria-hidden />
+        Building the comparison…
+      </p>
       {[0, 1].map((i) => (
         <section
           key={i}
@@ -187,14 +217,14 @@ export function CompareSummaryStrip({
   profilesByAuthorIds,
   mode,
   allPatchIds,
-  readonly,
+  canDiscard,
   portalContainer,
 }: {
   authorIds: string[];
   profilesByAuthorIds: Record<string, Profile>;
   mode: "fs" | "http" | "unknown";
   allPatchIds: PatchId[];
-  readonly: boolean;
+  canDiscard: boolean;
   portalContainer: HTMLElement | null;
 }) {
   const { deletePatches } = useDeletePatches();
@@ -210,7 +240,7 @@ export function CompareSummaryStrip({
         </span>
       </div>
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        {!readonly && allPatchIds.length > 0 && (
+        {canDiscard && allPatchIds.length > 0 && (
           <DiscardConfirmPopover
             description="Discard all pending changes? This cannot be undone."
             onConfirm={() => deletePatches(allPatchIds)}
@@ -237,7 +267,7 @@ type RowProps = {
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 };
 
@@ -298,14 +328,14 @@ function ModuleGroup({
   portalContainer,
   mode,
   schemas,
-  readonly,
+  canDiscard,
 }: {
   tree: ChangeTreeNode;
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   schemas?: Record<ModuleFilePath, SerializedSchema>;
-  readonly: boolean;
+  canDiscard: boolean;
 }) {
   const moduleFilePath = tree.sourcePath as ModuleFilePath;
   const moduleSchema = schemas?.[moduleFilePath];
@@ -337,7 +367,7 @@ function ModuleGroup({
     profilesByAuthorIds,
     portalContainer,
     mode,
-    readonly,
+    canDiscard,
   };
 
   return (
@@ -348,7 +378,7 @@ function ModuleGroup({
       <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
         <ModulePathLabel moduleFilePath={moduleFilePath} />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!readonly && modulePatchIds.length > 0 && (
+          {canDiscard && modulePatchIds.length > 0 && (
             <DiscardControl
               isEqual={isModuleEqual}
               onDiscard={() => deletePatches(modulePatchIds)}
@@ -384,6 +414,28 @@ function ModuleGroup({
   );
 }
 
+/**
+ * Whether this node is an array of primitives, whose diff belongs to the LIST.
+ *
+ * A hook, so the schema lookup is a hook rather than a prop threaded down from
+ * the module. `undefined` while the schema is still resolving: the caller has to
+ * be able to wait rather than guess, since guessing "not a list" renders the per
+ * index rows and then swaps them for the list diff a moment later.
+ */
+function useIsPrimitiveList(
+  sourcePath: SourcePath | ModuleFilePath,
+): boolean | undefined {
+  const schemaAtPath = useSchemaAtPath(sourcePath as SourcePath);
+  if (schemaAtPath.status === "loading") {
+    return undefined;
+  }
+  if (schemaAtPath.status !== "success" || schemaAtPath.data.type !== "array") {
+    return false;
+  }
+  const item = schemaAtPath.data.item.type;
+  return item === "string" || item === "number" || item === "boolean";
+}
+
 function RenderTree({
   node,
   rowProps,
@@ -391,6 +443,21 @@ function RenderTree({
   node: ChangeTreeNode;
   rowProps: RowProps;
 }) {
+  /*
+   * A list of primitives is diffed AS A LIST, and its children are not rendered.
+   *
+   * The per-index rows were the wrong unit for a list twice over — see
+   * `PrimitiveListDiff` — and showing both would be the same change described two
+   * incompatible ways on the same screen.
+   */
+  const isPrimitiveList = useIsPrimitiveList(node.sourcePath);
+  if (isPrimitiveList === undefined) {
+    return null;
+  }
+  if (isPrimitiveList) {
+    return <ListChangeRow key={node.sourcePath} row={node} {...rowProps} />;
+  }
+
   if (node.change) {
     if (
       node.change.changeType === "added" ||
@@ -433,7 +500,7 @@ function refToUrl(
       ? `/api/val/files${filePath}?patch_id=${patchId}`
       : `${filePath}?patch_id=${patchId}`;
   }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
+  return servedPath(ref);
 }
 
 /**
@@ -444,9 +511,7 @@ function staticFileUrl(ref: string): string {
   const remoteRefRes = Internal.remote.splitRemoteRef(ref);
   const filePath =
     remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
-  return filePath.startsWith("/public")
-    ? filePath.slice("/public".length)
-    : filePath;
+  return servedPath(filePath);
 }
 
 function hasAnyChange(node: ChangeTreeNode): boolean {
@@ -568,29 +633,133 @@ function ModulePathLabel({
   moduleFilePath: ModuleFilePath;
 }) {
   const parts = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleLink = useNavLink(moduleFilePath);
   return (
-    <h2 className="text-sm font-medium text-fg-primary truncate flex items-center gap-1.5 min-w-0">
-      {parts.map((part, i) => (
-        <Fragment key={`${part}-${i}`}>
-          {i > 0 && (
-            <span className="text-fg-tertiary" aria-hidden>
-              /
+    <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+      {/*
+       * The module, as somewhere you can go. A row of changes is most often read
+       * on the way to fixing one of them.
+       */}
+      <a
+        {...moduleLink}
+        title={moduleFilePath}
+        className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {parts.map((part, i) => (
+          <Fragment key={`${part}-${i}`}>
+            {i > 0 && (
+              <span className="text-fg-tertiary" aria-hidden>
+                /
+              </span>
+            )}
+            <span
+              className={classNames({
+                "text-fg-secondary": i < parts.length - 1,
+              })}
+            >
+              {prettifyFilename(part)}
             </span>
-          )}
-          <span
-            className={classNames({
-              "text-fg-secondary": i < parts.length - 1,
-            })}
-          >
-            {prettifyFilename(part)}
-          </span>
-        </Fragment>
-      ))}
+          </Fragment>
+        ))}
+      </a>
     </h2>
   );
 }
 
 // #region ChangeRow
+
+/**
+ * One row for a whole list of primitives.
+ *
+ * The header is the same as any other change row; the body is the list's diff
+ * rather than the touched indices. Its patch ids and authors are collected from
+ * the node AND its subtree, because the per-index rows are no longer rendered and
+ * their Discard has to stay reachable from somewhere.
+ *
+ * The change type is deliberately fixed to `field-change`: a list whose items
+ * moved is not "added" or "removed" at the list's own path, whatever the ops
+ * inside it were, and the badge would be claiming something about the array that
+ * is only true of one of its items.
+ */
+function ListChangeRow({
+  row,
+  moduleFilePath,
+  isRouterModule,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  canDiscard,
+}: {
+  row: ChangeTreeNode;
+  moduleFilePath: ModuleFilePath;
+  isRouterModule: boolean;
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  canDiscard: boolean;
+}) {
+  const { deletePatches } = useDeletePatches();
+  const [now] = useState(() => new Date());
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  const sourcePath = row.sourcePath as SourcePath;
+  const beforeSource = useServerSourceAtPath(sourcePath);
+  const afterSource = useSourceAtPath(sourcePath);
+  const isEqual =
+    beforeSource.status === "success" &&
+    afterSource.status === "success" &&
+    deepEqual(
+      beforeSource.data as ReadonlyJSONValue,
+      afterSource.data as ReadonlyJSONValue,
+    );
+
+  const patchIds = useMemo(() => collectModulePatchIds(row), [row]);
+  const { patchesByAuthorIds } = useMemo(
+    () => collectModuleAuthorsAndPatches(row),
+    [row],
+  );
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
+  const isRouterPageKey = isRouterModule && segments.length === 1;
+  const lastSegment = segments[segments.length - 1] ?? "";
+
+  // Nothing to say: no patch touched this list, or they cancelled out.
+  if (patchIds.length === 0) {
+    return null;
+  }
+
+  return (
+    <article
+      data-val-studio-path={row.sourcePath}
+      className={classNames("px-5 py-5", { "opacity-60": isEqual })}
+    >
+      <ChangeRowHeader
+        sourcePath={sourcePath}
+        changeType="field-change"
+        segment={lastSegment}
+        modulePath={modulePath}
+        moduleFilePath={moduleFilePath}
+        isRouterPageKey={isRouterPageKey}
+        patchesByAuthorIds={patchesByAuthorIds}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        now={now}
+        onDiscard={() => deletePatches(patchIds)}
+        isExpanded={isExpanded}
+        onToggleExpand={() => setIsExpanded((prev) => !prev)}
+        isEqual={isEqual}
+        canDiscard={canDiscard}
+      />
+      {isExpanded && (
+        <div className="mt-4">
+          <PrimitiveListDiff sourcePath={sourcePath} />
+        </div>
+      )}
+    </article>
+  );
+}
 
 function ChangeRow({
   row,
@@ -599,7 +768,7 @@ function ChangeRow({
   profilesByAuthorIds,
   portalContainer,
   mode,
-  readonly,
+  canDiscard,
   parentMediaType,
 }: {
   row: ChangeTreeNode;
@@ -608,7 +777,7 @@ function ChangeRow({
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
@@ -673,14 +842,13 @@ function ChangeRow({
         isExpanded={isExpanded}
         onToggleExpand={() => setIsExpanded((prev) => !prev)}
         isEqual={isEqual}
-        readonly={readonly}
+        canDiscard={canDiscard}
         parentMediaType={parentMediaType}
       />
       <div className="mt-4">
         <ChangeRowBody
           sourcePath={sourcePath}
           changeType={change.changeType}
-          readonly={readonly}
           isExpanded={isExpanded}
           isEqual={isEqual}
           parentMediaType={parentMediaType}
@@ -706,7 +874,7 @@ function ChangeRowHeader({
   isExpanded,
   onToggleExpand,
   isEqual,
-  readonly,
+  canDiscard,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
@@ -724,7 +892,7 @@ function ChangeRowHeader({
   isExpanded: boolean;
   onToggleExpand: () => void;
   isEqual: boolean;
-  readonly: boolean;
+  canDiscard: boolean;
   parentMediaType?: "images" | "files";
 }) {
   return (
@@ -740,7 +908,7 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {!readonly && (
+        {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
             onDiscard={onDiscard}
@@ -783,68 +951,33 @@ function ChangeTargetLabel({
   isRouterPageKey: boolean;
   parentMediaType?: "images" | "files";
 }) {
-  const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
-  const codeCls =
-    "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block";
-
-  const handleNavigate = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
-    const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
-    const target = navPath ?? sourcePath;
-    navigate(target, {
-      scrollToPath: target !== sourcePath ? sourcePath : undefined,
-    });
-  };
-
-  if (parentMediaType) {
-    const { filename, folder } = getRefParts(segment);
-    // `folder` is "/" for a ref that sits directly in the media directory, so
-    // joining the two with a slash would render "//hero.webp".
-    const label = folder === "/" ? `/${filename}` : `${folder}/${filename}`;
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {label}
-      </button>
-    );
-  }
-
-  if (!modulePath) {
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {prettifyFilename(
-          Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
-        )}
-      </button>
-    );
-  }
-  if (isRouterPageKey) {
-    const previewHref = urlOf("/api/val/enable", {
-      redirect_to:
-        (typeof window !== "undefined" ? window.location.origin : "") + segment,
-    });
-    return (
-      <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-        <button onClick={handleNavigate} className={codeCls}>
-          {segment}
-        </button>
-        <a
-          href={previewHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
-          title={`Preview ${segment}`}
-        >
-          <Globe size={12} />
-        </a>
-      </span>
-    );
-  }
+  const label = ((): string => {
+    if (parentMediaType) {
+      const { filename, folder } = getRefParts(segment);
+      // `folder` is "/" for a ref that sits directly in the media directory, so
+      // joining the two with a slash would render "//hero.webp".
+      return folder === "/" ? `/${filename}` : `${folder}/${filename}`;
+    }
+    if (!modulePath) {
+      return prettifyFilename(
+        Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
+      );
+    }
+    if (isRouterPageKey) {
+      return segment;
+    }
+    return prettifyModulePath(modulePath);
+  })();
   return (
-    <button onClick={handleNavigate} className={classNames(codeCls, "min-w-0")}>
-      {prettifyModulePath(modulePath)}
-    </button>
+    <FieldPathLink
+      sourcePath={sourcePath}
+      previewSegment={
+        isRouterPageKey && !parentMediaType && modulePath ? segment : undefined
+      }
+      className="min-w-0"
+    >
+      {label}
+    </FieldPathLink>
   );
 }
 
@@ -934,14 +1067,12 @@ function ChangeTypeIcon({
 function ChangeRowBody({
   sourcePath,
   changeType,
-  readonly,
   isExpanded,
   isEqual,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
   parentMediaType?: "images" | "files";
@@ -952,7 +1083,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         changeType={changeType}
         mediaType={parentMediaType}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -962,7 +1092,6 @@ function ChangeRowBody({
     return (
       <FieldChangeDiff
         sourcePath={sourcePath}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -975,7 +1104,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         side="after"
         diffStyle="added"
-        readonly={readonly}
       />
     );
   }
@@ -984,12 +1112,7 @@ function ChangeRowBody({
   }
   // moved: just show after for now
   return (
-    <SingleSideContent
-      sourcePath={sourcePath}
-      side="after"
-      diffStyle="added"
-      readonly={readonly}
-    />
+    <SingleSideContent sourcePath={sourcePath} side="after" diffStyle="added" />
   );
 }
 
@@ -1048,11 +1171,9 @@ function MediaEntryMetadata({
 
 function MediaEntryAlt({
   sourcePath,
-  readonly,
   showValidation = false,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   showValidation?: boolean;
 }) {
   const altPath = Internal.createValPathOfItem(sourcePath, "alt");
@@ -1064,7 +1185,7 @@ function MediaEntryAlt({
       <AnyField
         path={altPath as SourcePath}
         schema={schemaAtPath.data}
-        readonly={readonly}
+        readonly
         errorDisplay={showValidation ? "compact" : "none"}
       />
     </div>
@@ -1114,41 +1235,7 @@ function MediaEntryThumbnail({
               : undefined
           }
         />
-        {hotspot && (
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              top: `${hotspot.y * 100}%`,
-              left: `${hotspot.x * 100}%`,
-              transform: "translate(-50%, -50%)",
-              zIndex: 10,
-            }}
-          >
-            <div
-              style={{
-                width: "14px",
-                height: "14px",
-                borderRadius: "50%",
-                border: "1.5px solid white",
-                boxShadow:
-                  "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "3px",
-                height: "3px",
-                borderRadius: "50%",
-                backgroundColor: "white",
-                boxShadow: "0 0 2px rgba(0,0,0,0.5)",
-              }}
-            />
-          </div>
-        )}
+        {hotspot && <HotspotMarker hotspot={hotspot} size="sm" />}
       </div>
       {hotspot && (
         <div className="mt-1 text-xs text-fg-tertiary">
@@ -1172,14 +1259,12 @@ function MediaEntryDiff({
   sourcePath,
   changeType,
   mediaType,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
   mediaType: "images" | "files";
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1218,7 +1303,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly
             showValidation
           />
         </div>
@@ -1239,7 +1323,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1262,7 +1345,6 @@ function MediaEntryDiff({
               hotspot={beforeHotspot}
               metadata={beforeMetadata}
               sourcePath={sourcePath}
-              altReadonly
             />
           </DiffSide>
         </div>
@@ -1288,7 +1370,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1311,16 +1392,10 @@ function MediaEntryDiff({
             variant="media"
             before={
               <BeforeSourceOverride sourcePath={sourcePath}>
-                <MediaEntryAlt sourcePath={sourcePath} readonly />
+                <MediaEntryAlt sourcePath={sourcePath} />
               </BeforeSourceOverride>
             }
-            after={
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            }
+            after={<MediaEntryAlt sourcePath={sourcePath} showValidation />}
           />
         </div>
       </div>
@@ -1336,7 +1411,6 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
         sourcePath={sourcePath}
         side="after"
         diffStyle="removed"
-        readonly
       />
     </BeforeSourceOverride>
   );
@@ -1344,12 +1418,10 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
 
 function FieldChangeDiff({
   sourcePath,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1389,7 +1461,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             hideUpload
@@ -1407,7 +1479,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1437,7 +1509,7 @@ function FieldChangeDiff({
         <AnyField
           path={effectivePath}
           schema={schema}
-          readonly={readonly}
+          readonly
           compact
           inline
           errorDisplay="compact"
@@ -1451,12 +1523,10 @@ function SingleSideContent({
   sourcePath,
   side,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   side: "before" | "after";
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const [moduleFilePath] = useMemo(
     () => Internal.splitModuleFilePathAndModulePath(sourcePath),
@@ -1481,32 +1551,22 @@ function SingleSideContent({
   if (side === "before") {
     return (
       <FieldSourceOverrideContext.Provider value={beforeOverride}>
-        <SingleSideContentInner
-          sourcePath={sourcePath}
-          diffStyle={diffStyle}
-          readonly={readonly}
-        />
+        <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
       </FieldSourceOverrideContext.Provider>
     );
   }
 
   return (
-    <SingleSideContentInner
-      sourcePath={sourcePath}
-      diffStyle={diffStyle}
-      readonly={readonly}
-    />
+    <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
   );
 }
 
 function SingleSideContentInner({
   sourcePath,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(sourcePath);
   if (schemaAtPath.status !== "success") return null;
@@ -1531,7 +1591,7 @@ function SingleSideContentInner({
           <AnyField
             path={sourcePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1814,7 +1874,6 @@ function MediaEntryCard({
   diffStyle,
   metadata,
   sourcePath,
-  altReadonly,
   showValidation,
 }: {
   isImage: boolean;
@@ -1824,7 +1883,6 @@ function MediaEntryCard({
   diffStyle?: "added" | "removed";
   metadata: Record<string, unknown> | null;
   sourcePath: SourcePath;
-  altReadonly: boolean;
   showValidation?: boolean;
 }) {
   return (
@@ -1841,7 +1899,6 @@ function MediaEntryCard({
         <div className="flex-1 min-w-0">
           <MediaEntryAlt
             sourcePath={sourcePath}
-            readonly={altReadonly}
             showValidation={showValidation}
           />
         </div>

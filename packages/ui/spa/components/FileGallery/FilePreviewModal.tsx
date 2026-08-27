@@ -1,5 +1,6 @@
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 import type { GalleryFile } from "./types";
+import { HotspotMarker } from "../fields/HotspotMarker";
 
 interface FilePreviewModalProps {
   file: GalleryFile | null;
@@ -34,39 +35,7 @@ export function FilePreviewModal({
                 className="max-h-[85vh] max-w-full object-contain"
               />
               {file.metadata.hotspot && (
-                <div
-                  className="absolute pointer-events-none"
-                  style={{
-                    top: `${file.metadata.hotspot.y * 100}%`,
-                    left: `${file.metadata.hotspot.x * 100}%`,
-                    transform: "translate(-50%, -50%)",
-                    zIndex: 10,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "20px",
-                      height: "20px",
-                      borderRadius: "50%",
-                      border: "2px solid white",
-                      boxShadow:
-                        "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      left: "50%",
-                      transform: "translate(-50%, -50%)",
-                      width: "4px",
-                      height: "4px",
-                      borderRadius: "50%",
-                      backgroundColor: "white",
-                      boxShadow: "0 0 2px rgba(0,0,0,0.5)",
-                    }}
-                  />
-                </div>
+                <HotspotMarker hotspot={file.metadata.hotspot} />
               )}
             </div>
           )}

@@ -14,7 +14,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
   ReifiedRender,
@@ -28,6 +27,7 @@ import type { SourcePeek } from "../stores/SourceStore";
 import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
 import { getNavPathFromAll } from "./getNavPath";
+import { concatModulePath } from "../utils/sourcePath";
 
 // --- Source override context ---
 // When rendering the "before" side of a diff, the parent `Field` component
@@ -1338,21 +1338,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
-}
-
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
 }
 
 export function useShallowSourceAtPath<

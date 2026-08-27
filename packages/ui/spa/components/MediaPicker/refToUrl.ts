@@ -1,4 +1,5 @@
 import { Internal } from "@valbuild/core";
+import { servedPath } from "../../utils/mediaPath";
 
 export function refToUrl(
   ref: string,
@@ -19,5 +20,5 @@ export function refToUrl(
       ? `/api/val/files${filePath}?patch_id=${patchId}`
       : `${filePath}?patch_id=${patchId}`;
   }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
+  return servedPath(ref);
 }

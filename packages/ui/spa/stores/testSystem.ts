@@ -294,6 +294,14 @@ export type TestSourceStore = {
   /** Status at a path with no side effects — notably, no entry fetch. */
   peek(path: string): SourcePeek;
   /**
+   * The same, in the BASE realm: what the server has, before local patches.
+   *
+   * What a compare view reads. Exposed because the two realms answering
+   * differently is a claim only a test comparing them can make, and for
+   * `.jsonValues()` modules they once did not.
+   */
+  peekBase(path: string): SourcePeek;
+  /**
    * The in-realm read: patched source for one module, uncloned.
    *
    * Exposed for tests that have to build the payload the way `createSystem`
@@ -473,6 +481,15 @@ export type TestServer = {
   /** Make the next discard answer with an error. */
   failNextDiscard(message: string): void;
   /**
+   * Make `GET /patches` fail as a REQUEST, not per patch.
+   *
+   * The real case is a URL the server refuses before the handler sees it (431 /
+   * 413 on a chain of several hundred ids), or the network being down. Distinct
+   * from an id the table does not hold, which is simply absent — see
+   * `fetchPatches` below.
+   */
+  failNextPatchFetch(message: string): void;
+  /**
    * Another session deletes patches this client holds.
    *
    * The client learns only what it really would: the next stat stops naming
@@ -588,6 +605,7 @@ export function initTestSystem(): TestSystem {
   const discarded: PatchId[] = [];
   /** Make the next discard fail, so the local-drop-anyway path is reachable. */
   let discardFailure: string | null = null;
+  let patchFetchFailure: string | null = null;
   /**
    * A gate the next write waits on.
    *
@@ -676,6 +694,18 @@ export function initTestSystem(): TestSystem {
       // be allowed to accidentally depend on the fetch resolving synchronously,
       // because against a real `GET /patches` it never will.
       await new Promise((resolve) => setTimeout(resolve, 0));
+      if (patchFetchFailure !== null) {
+        const message = patchFetchFailure;
+        patchFetchFailure = null;
+        // Both, as the real seam does: `errors` so nothing concludes these
+        // patches are gone, `error` because one request failed rather than N
+        // patches being bad.
+        return {
+          patches: [],
+          errors: Object.fromEntries(patchIds.map((id) => [id, message])),
+          error: message,
+        };
+      }
       const patches: PatchRecord[] = [];
       for (const patchId of patchIds) {
         const record = serverPatches.get(patchId);
@@ -987,6 +1017,7 @@ export function initTestSystem(): TestSystem {
           content,
         ),
       peek: (path) => system.sourceStore.peek(path as SourcePath),
+      peekBase: (path) => system.sourceStore.peekBase(path as SourcePath),
       moduleSource: (moduleFilePath) =>
         system.sourceStore.moduleSource(moduleFilePath as ModuleFilePath),
       loadedModules: () => system.sourceStore.loadedModules(),
@@ -1079,6 +1110,9 @@ export function initTestSystem(): TestSystem {
       discarded: () => [...discarded],
       failNextDiscard(message) {
         discardFailure = message;
+      },
+      failNextPatchFetch(message) {
+        patchFetchFailure = message;
       },
       simulateForeignPublish(patchIds) {
         for (const patchId of patchIds) {

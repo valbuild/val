@@ -11,6 +11,20 @@ module.exports = {
         md: "1000px",
       },
     },
+    /**
+     * The layering scale, smallest to largest.
+     *
+     * `hover` is a highlight over content, `window` is anything floating that
+     * belongs to the content (an editor toolbar, a link popover), `full` is the
+     * app's own chrome (the rail, the bars, the floating panels), and `overlay`
+     * is a modal that deliberately covers all of it.
+     *
+     * Use a name. `5` and `50` are here for the vendored design-system
+     * primitives — dialogs, dropdowns, tooltips — which ship with `z-50` and are
+     * modal layers in their own right. Anything else reaching for a raw number
+     * beats the whole scale: `z-50` on the rich text toolbar put it over the
+     * shell's Pages panel, and `z-[60]` on a node view put it over that.
+     */
     zIndex: {
       5: 5,
       50: 50,

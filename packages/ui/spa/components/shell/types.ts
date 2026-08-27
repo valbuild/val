@@ -1,3 +1,5 @@
+import { AvailableRoute } from "../NavMenu/NewPageForm";
+
 /**
  * Types for the floating shell layout.
  *
@@ -15,6 +17,14 @@ export type ShellPage = {
   name: string;
   /** URL path of the page, e.g. "/blogs/why-val". */
   urlPath: string;
+  /**
+   * Where the page's content lives, for navigation.
+   *
+   * Absent on a row that is only a path segment — `/blog` exists in the site
+   * map because `/blog/why-val` does, but has no content of its own. Those
+   * rows expand rather than open.
+   */
+  sourcePath?: string;
   /** Number of validation errors on this page (not descendants). */
   errorCount?: number;
   /** Whether the page has unpublished changes. */
@@ -37,10 +47,12 @@ export type ShellPage = {
  */
 export type ShellExternalPage = {
   id: string;
-  /** Display name, e.g. "Instagram". */
+  /** Display name, e.g. "instagram.com/valbuild". */
   name: string;
   /** The full external URL. */
   url: string;
+  /** Where the entry's content lives, for navigation. */
+  sourcePath?: string;
   errorCount?: number;
 };
 
@@ -50,8 +62,46 @@ export type ShellMediaGallery = {
   name: string;
   /** Directory the gallery is constrained to, e.g. "/public/val/images". */
   directory: string;
+  /**
+   * The gallery module itself. Selecting a gallery opens this module, which
+   * is what renders the grid of files.
+   */
+  moduleFilePath: string;
   itemCount: number;
   mediaType: "images" | "files";
+  /**
+   * The files in the gallery.
+   *
+   * A gallery is a record keyed by file path, so its keys *are* its contents —
+   * the panel does not have to fetch anything to list them. Absent while the
+   * record is still loading, which is not the same as an empty gallery.
+   */
+  files?: ShellMediaFile[];
+};
+
+/** One file in a gallery. */
+export type ShellMediaFile = {
+  /**
+   * The file's path, which is also its key in the gallery record —
+   * `/public/val/images/logo_a1b2c.png`, or a remote ref.
+   */
+  ref: string;
+  /** Where the entry lives, for opening it in the editor. */
+  sourcePath: string;
+};
+
+/**
+ * The routes a new page can be created under.
+ *
+ * `AvailableRoute` is the classic nav menu's type and `NewPageForm` is its form:
+ * both already handle several routes at once, dynamic and catch-all segments,
+ * optional segments and the schema author's description of a key. Reusing them
+ * is the point — a second implementation of "what a route pattern means" would
+ * be a second set of rules for what a URL may look like.
+ */
+export type ShellNewPageRoutes = {
+  /** Every route in the project that accepts a new page. */
+  routes: AvailableRoute[];
 };
 
 /** A non-router val module, shown under Data. */
@@ -91,8 +141,15 @@ export type ShellValidationError = {
 };
 
 export type ShellActivityEntry = {
+  /**
+   * A React key, not a target: two patch sets can share a module and a path, so
+   * this carries an index to keep them apart. Use `sourcePath` to go anywhere.
+   */
   id: string;
+  /** Where the change was, e.g. `/content/home.val.ts?p="hero"."title"`. */
+  sourcePath: string;
   title: string;
+  /** Already relative, e.g. "2 minutes ago". */
   timestamp: string;
   author?: string;
 };
@@ -122,6 +179,17 @@ export type ShellProposalAction =
   | "replace"
   | "try-another";
 
+/**
+ * A content destination: what the left rail switches between.
+ *
+ * Its own type because a project does not necessarily have all three — a site
+ * with no `s.router` has no Pages, a project with no `s.images()`/`s.files()`
+ * has no Media — and several pieces of the shell have to agree on which are on
+ * offer: the rail, the mobile switcher, the quick actions, and whichever panel
+ * a fresh session opens on.
+ */
+export type ShellDestination = Extract<ShellPanel, "pages" | "media" | "data">;
+
 /** Which floating panel is currently open. At most one at a time. */
 export type ShellPanel =
   | "pages"
@@ -147,7 +215,26 @@ export type ShellData = {
   projectName: string;
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
+  /**
+   * Whether the project declares any `s.router` module.
+   *
+   * Separate from `pages` being non-empty, because a router that has no entries
+   * yet is still a project with pages — the site map is empty, not absent. The
+   * shell hides the Pages destination on this rather than on `pages.length`, so
+   * a project that has simply not made its first page keeps the way to make
+   * one.
+   */
+  hasRouters: boolean;
   pages: ShellPage[];
+  /**
+   * Where a new page can go.
+   *
+   * Absent when the project has no route that accepts one — every router is
+   * static, so there is no key to invent — which is what hides the New page
+   * buttons rather than offering a form that can only say "no routes accept new
+   * pages". See `collectNewPageRoutes`.
+   */
+  newPage?: ShellNewPageRoutes;
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];
   data: ShellDataModule[];

@@ -190,9 +190,17 @@ export function ChangeRecordPopover({
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
-        {keyDescription && (
-          <div className="pb-2 text-sm text-fg-tertiary">{keyDescription}</div>
-        )}
+        {/*
+         * The description is rendered by the branch that needs it, and NOT here.
+         *
+         * It used to be in both places: this one on `keyDescription` (the prop)
+         * and the rename branch below on `description` (the prop, falling back to
+         * the schema). For every caller that passes the prop — which is what the
+         * rename control does — the two were the same string and it appeared
+         * twice. The form branches own it now, because they are the ones where it
+         * is guidance for an input; the loading and error branches are not asking
+         * for a key at all.
+         */}
         {references.status === "loading" ? (
           <div className="flex flex-col gap-2">
             <div className="font-bold">Checking references</div>

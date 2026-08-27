@@ -126,8 +126,18 @@ async function renderedText(page: Page): Promise<string> {
 const ROUTES: { route: string; shape: string; expect: RegExp }[] = [
   {
     route: "",
+    /**
+     * The shell's resting state, which is chrome and nothing else: the floating
+     * layout keeps navigation in a panel rather than on screen, so there is no
+     * tree to look for here.
+     *
+     * The project name is what makes this an assertion rather than a
+     * screenshot: it comes from the config the SPA fetched, so matching it
+     * proves the shell rendered against real data and not just its own
+     * placeholders.
+     */
     shape: "the Studio itself, with no module open",
-    expect: /content|explorer|sitemap/i,
+    expect: /valbuild\/val-examples-next/,
   },
   {
     route: "/content/tags.val.ts",
