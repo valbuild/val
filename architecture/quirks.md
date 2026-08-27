@@ -36,6 +36,23 @@ The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). 
 short version: an uncommitted `/public` path returns **200** in `next dev` (the
 app's HTML), so only decoding an image tells you whether it really loaded.
 
+**Media is recognised from the schema, never from the value.** It is a plain
+object with a `path`, so a value that looks like media is not media — and a plain
+`s.object({path: s.string()})` must not be treated as it. Anywhere you find
+yourself asking "is this an image", the answer has to come from
+`schema.type === "image" | "file"`.
+
+**`stegaEncode({disabled: true})` still resolves media.** `disabled: !enabled` is
+the normal production path, and it used to drop the schema for the whole
+recursion. Harmless while a marker on the value could still be found; the moment
+detection needs the schema, it strips `url` from every image on every production
+page. `disabled` gates the steganography and nothing else.
+
+**The server drops `patch_id` before writing a `.val.ts`.** It marks a media
+source whose bytes are not committed, and it is a sibling of `path` — so a
+whole-object write built from the client's optimistic view would print it into a
+user's file. Studio media edits are per-property for the same reason.
+
 ## React in the Studio
 
 **`useValConfig()` returns a ref, filled by an effect.** So the render where config

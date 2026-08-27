@@ -26,8 +26,37 @@ export default c.define(
 );
 ```
 
-A field holds one `ImageSource` / `FileSource`:
-`{_ref, _type: "file", _tag: "image", metadata}`.
+## The shape
+
+Media is a plain object with a `path`. There is no marker on the value, so
+nothing may decide "this is an image" by looking at it — the **schema** says so
+(`type === "image" | "file"`). That is what lets the same object be written in a
+`.val.ts` and in a `*.val.json` entry, where a function call cannot be written
+at all.
+
+```ts
+{ path: "/public/val/hero_a1b2c.png", width: 944, height: 944,
+  mimeType: "image/png", alt: "A hero", hotspot: { x: 0.5, y: 0.3 } }
+```
+
+`path` is a plain `string`, not `` `/public/${string}` ``: moving a file to
+remote should not be a type error. **Remote is not a different kind of value,
+only a path outside `/public`** — `isRemoteMediaPath` is the whole test.
+
+`width`, `height` and `mimeType` are what Val read from the bytes; `alt` and
+`hotspot` are what a person typed. They share one object, which is why `--fix`
+writes the derived ones **one property at a time** rather than replacing the
+object.
+
+A **gallery-backed** field (`s.image(galleryModule)`) carries neither: the
+gallery has them, keyed by path, and repeating them is how two copies of one
+fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
+validation refuses a path the gallery does not track.
+
+`patch_id` also appears on a media source whose bytes are not committed yet. It
+is injected server-side, never authored, and `toExpression` drops it before
+writing a `.val.ts` — a whole-object write built from the client's optimistic
+view would otherwise print it into a user's file.
 
 **There is no multi-valued gallery-backed field.** `s.image(module)` picks one
 image from a gallery; nothing picks several. Adding it means a new schema type
@@ -61,12 +90,17 @@ nothing about the others.
  { op: "file", path: [ref], filePath: ref, value: <bytes>, metadata }]
 ```
 
-**Field upload** — `replace` with the whole source object, plus a `file` op.
+**Field upload** — `replace` with the whole media object, plus a `file` op.
 
 **Gallery-backed field upload** — **two patches**: `replace` + `file` on the
 field's module, _and_ an `add` into the gallery module for the metadata. The field
-value then carries `{_ref, _type, _tag}` and **no `metadata`**, because the
-metadata lives in the gallery entry. One place per fact.
+value is then `{path}` alone, because the metadata lives in the gallery entry.
+One place per fact.
+
+**Inside a `.jsonValues()` entry** — the same two ops, but the `patch_id` for the
+drafted bytes goes into the _entry's_ draft content, not the module source: the
+entry is an opaque `{_type:"json"}` marker there, and reaching into it fails the
+op and poisons the module's whole patch chain.
 
 Bytes never travel inside a patch: they are POSTed separately and the `file` op
 carries a SHA-256.
@@ -79,6 +113,10 @@ Two states, and conflating them is the recurring bug:
 | --------------------------------------------- | ------------------- | -------------------------------------- |
 | unpublished (created, or saved to the server) | the patch directory | `/api/val/files{path}?patch_id=…`      |
 | published                                     | the committed path  | `/public/x/y.png` served as `/x/y.png` |
+
+`Internal.mediaUrl` is the one implementation of that rule — it was two functions
+(`convertFileSource` / `convertRemoteSource`) split by a marker rather than by
+anything about the answer.
 
 `filePatchIds` is the map that decides, and its gate must be **`appliedAt`** — has
 this patch _shipped_ — not pending-vs-saved. "Saved" only means `PUT /patches`
@@ -119,7 +157,10 @@ _committed_ entry so "can I see what is already there" is covered by the repo:
 - `mediaFixtures.val.ts` — `s.images({ directory: "/public/test/subdir" })`
 - `fileGallery.val.ts` — `s.files({ directory: "/public/test/files" })`
 - `mediaFields.val.ts` — `s.image()`, `s.image({ directory })`,
-  `s.image(gallery)`, `s.file()`, and the same inside a union
+  `s.image(gallery)`, `s.file()`, and the same inside a union. Also the fixture
+  the language server's media-path completion tests open as an unsaved buffer:
+  those completions are schema-driven now, so they need a module `val.modules`
+  actually registers.
 
 `e2e/media.spec.ts` drives all of them. The fixture images are real 8×8
 solid-colour PNGs (74 bytes) rather than 1×1 transparent ones, so a broken tile is
