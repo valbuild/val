@@ -188,3 +188,78 @@ export async function closeNavPanel(
 ): Promise<void> {
   await studio.getByRole("button", { name: `Close ${panel}` }).click();
 }
+
+/**
+ * The stores the Studio hangs on `window` for tests, typed narrowly.
+ *
+ * `__VAL_STORES__` is set by `ValStoreProvider` and holds the real system, so a
+ * test can drive a store directly rather than clicking its way to a state. What
+ * it gets is declared here — only the members the helpers below use — because the
+ * alternative is `as any` at every call site, and then nothing catches a store
+ * method being renamed under a test that reaches for it.
+ *
+ * `unknown` for the values crossing back out of the browser: they are structured
+ * clones of store state, so a type here would be a claim about a serialisation
+ * rather than about the store.
+ */
+type StudioStores = {
+  system: {
+    patchStore: {
+      createPatch: (
+        moduleFilePath: string,
+        patch: unknown[],
+      ) => Promise<{ patchId: string }>;
+    };
+    sourceStore: {
+      peek: (path: string) => { status: string; data?: unknown };
+    };
+  };
+};
+
+/**
+ * Write a patch through the Studio's own store, as if a field had been edited.
+ *
+ * For the changes a test cannot reasonably produce by typing — a `move`, an `add`
+ * at a chosen index, several patches in a known order. It goes through the real
+ * `patchStore`, so the chain, the optimistic apply and the sync are all the ones
+ * the app uses; only the gesture is skipped.
+ */
+export async function patchThroughStore(
+  page: Page,
+  moduleFilePath: string,
+  patch: unknown[],
+): Promise<void> {
+  const failure = await page.evaluate(
+    async ([path, ops]) => {
+      const bag = window as unknown as { __VAL_STORES__?: StudioStores };
+      const system = bag.__VAL_STORES__?.system;
+      if (system === undefined) {
+        return "the Studio's stores are not on window yet";
+      }
+      await system.patchStore.createPatch(path as string, ops as unknown[]);
+      return null;
+    },
+    [moduleFilePath, patch] as const,
+  );
+  if (failure !== null) {
+    throw new Error(failure);
+  }
+}
+
+/**
+ * What the Studio's source store says is at a path, without loading anything.
+ *
+ * `peek`, not `get`, for the reason the store draws that distinction: `get` has a
+ * side effect (it fetches an unloaded `.jsonValues()` entry), and a test asserting
+ * on state should not be the thing that causes it.
+ */
+export async function peekThroughStore(
+  page: Page,
+  path: string,
+): Promise<unknown> {
+  return page.evaluate((at) => {
+    const bag = window as unknown as { __VAL_STORES__?: StudioStores };
+    const peeked = bag.__VAL_STORES__?.system.sourceStore.peek(at);
+    return peeked === undefined ? null : (peeked.data ?? null);
+  }, path);
+}

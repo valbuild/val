@@ -1,5 +1,6 @@
 # next.js
 examples/next*/.next/
+examples/next*/.next-http/
 examples/next*/out/
 
 # production

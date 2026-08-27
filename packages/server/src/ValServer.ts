@@ -13,6 +13,7 @@ import {
   RemoteSource,
   Schema,
   SelectorSource,
+  hasRemoteFileSchema,
 } from "@valbuild/core";
 import { ReifiedRender } from "@valbuild/core";
 import {
@@ -48,7 +49,6 @@ import {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 import path from "path";
-import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
