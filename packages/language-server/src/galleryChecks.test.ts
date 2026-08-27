@@ -9,7 +9,8 @@ import {
 const GALLERY_PATH = "/content/gallery.val.ts?p=" as SourcePath;
 
 const uniqueFolder: ValidationError = {
-  message: "Gallery directory '/public/img' must be unique across all galleries",
+  message:
+    "Gallery directory '/public/img' must be unique across all galleries",
   value: { directory: "/public/img", type: "images" },
   fixes: ["images:check-unique-folder"],
 };
@@ -52,7 +53,9 @@ describe("resolveGalleryChecks", () => {
       validation: { [GALLERY_PATH]: [uniqueFolder, allFiles] },
       runHandler: async () => [],
     });
-    expect(verdicts.get(galleryCheckKey(GALLERY_PATH, uniqueFolder))).toEqual([]);
+    expect(verdicts.get(galleryCheckKey(GALLERY_PATH, uniqueFolder))).toEqual(
+      [],
+    );
     expect(verdicts.get(galleryCheckKey(GALLERY_PATH, allFiles))).toEqual([]);
   });
 
@@ -88,6 +91,8 @@ describe("resolveGalleryChecks", () => {
         sourcePath: GALLERY_PATH,
         message: allFiles.message,
         fixes: allFiles.fixes,
+        // The value travels with it: the gallery fix reads it.
+        value: allFiles.value,
       },
     ]);
   });

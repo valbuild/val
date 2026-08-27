@@ -68,14 +68,19 @@ export type ValProject = {
   /** Val module file paths found under the Val root. */
   listModuleFilePaths(): ModuleFilePath[];
   /**
-   * Run the `val validate --fix` handler for one validation error and report
-   * what it found, without applying anything (`fix: false`).
+   * Run the `val validate --fix` handler for one validation error.
    *
    * The handlers are the precondition layer in `@valbuild/server`: they read the
-   * file, check the directory, look across modules. Running them here rather
-   * than reimplementing their checks is what keeps an editor's verdict and the
-   * CLI's identical. Exposed as a method because the handlers need the
-   * `Service` and the fs host, and both stay private to this module.
+   * file, check the directory, look across modules, and for the remote fixes
+   * they do the upload or download. Running them here rather than
+   * reimplementing their checks is what keeps an editor's verdict and the CLI's
+   * identical. Exposed as a method because the handlers need the `Service` and
+   * the fs host, and both stay private to this module.
+   *
+   * Defaults to reporting only (`fix: false`, a remote that refuses). A caller
+   * acting on an accepted quick fix passes `fix: true` and a real `remote`, and
+   * reads `remoteFiles` afterwards to hand to `createFixPatch` — the same
+   * two-step the CLI does.
    *
    * Resolves to `undefined` when the project could not be evaluated, or when no
    * handler is registered for the error's fixes.
@@ -84,6 +89,20 @@ export type ValProject = {
     moduleFilePath: ModuleFilePath;
     sourcePath: SourcePath;
     validationError: ValidationError;
+    /** Whether the handler may act. Defaults to `false`. */
+    fix?: boolean;
+    /** A real remote, for the upload fixes. */
+    remote?: IValRemote;
+    /** Val project name from val.config, needed by the upload fixes. */
+    project?: string;
+    /**
+     * Filled in by the upload handlers with the refs they uploaded. Pass an
+     * object and read it back — `createFixPatch` consumes it to build the patch.
+     */
+    remoteFiles?: Record<
+      SourcePath,
+      { ref: string; metadata?: Record<string, unknown> }
+    >;
   }): Promise<FixHandlerResult | undefined>;
   /** Drop cached results. Pass a path to invalidate one module. */
   invalidate(moduleFilePath?: ModuleFilePath): void;
@@ -392,7 +411,15 @@ export function createValProject({
     },
 
     listModuleFilePaths: () => findValModuleFilePaths(valRoot),
-    async runFixHandler({ moduleFilePath, sourcePath, validationError }) {
+    async runFixHandler({
+      moduleFilePath,
+      sourcePath,
+      validationError,
+      fix = false,
+      remote = reportOnlyRemote,
+      project: projectName,
+      remoteFiles = {},
+    }) {
       const handlerName = validationError.fixes?.find(
         (fix) => fixHandlers[fix] !== undefined,
       );
@@ -414,18 +441,20 @@ export function createValProject({
         validationError,
         valModule: moduleResult.content,
         projectRoot: valRoot,
-        // Report only. Applying a fix from here would write to disk behind the
-        // editor's back; an accepted quick fix travels as a WorkspaceEdit.
-        fix: false,
+        // Off by default: applying a fix unasked would write to disk behind the
+        // editor's back, and an accepted quick fix travels as a WorkspaceEdit.
+        // The remote fixes are the exception -- an upload is not expressible as
+        // an edit -- and pass `fix: true` deliberately.
+        fix,
         service: resolved.service,
         valFiles: findValModuleFilePaths(valRoot).map((p) => p.slice(1)),
         moduleFilePath,
         file: moduleFilePath.slice(1),
         fs: host,
-        remoteFiles: {},
+        remoteFiles,
         remoteFilesCounter: 0,
-        remote: reportOnlyRemote,
-        project: undefined,
+        remote,
+        project: projectName,
       });
     },
 

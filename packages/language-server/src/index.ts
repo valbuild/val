@@ -22,6 +22,11 @@ export {
   VAL_DIAGNOSTIC_CODES,
   type ValDiagnosticCode,
   type ValDiagnosticData,
+  resolveGalleryChecks,
+  isGalleryCheckFix,
+  galleryCheckKey,
+  type GalleryCheckFinding,
+  type GalleryCheckVerdict,
 } from "./diagnostics";
 export {
   findRegisteredModuleSpecifiers,
@@ -29,9 +34,28 @@ export {
 } from "./valModulesRegistry";
 export {
   createValCodeActions,
+  createMissingModuleCodeAction,
+  adjudicateGalleryCheck,
   isLocalFix,
-  minimalTextEdit,
 } from "./codeActions";
+export { minimalTextEdit } from "./textEdit";
+export {
+  createValCommands,
+  isRemoteFix,
+  valCommandNames,
+  readPersonalAccessToken,
+  REMOTE_FIX_COMMANDS,
+  REMOTE_FIX_TITLES,
+  VAL_LOGIN_COMMAND,
+  VAL_UPLOAD_REMOTE_COMMAND,
+  VAL_DOWNLOAD_REMOTE_COMMAND,
+  type RemoteFixCommandArgs,
+} from "./commands";
+export {
+  findValModulesInsertion,
+  valModuleSpecifier,
+  valModulesEntryText,
+} from "./valModulesRegistry";
 export {
   createValCompletions,
   resolveValCompletion,

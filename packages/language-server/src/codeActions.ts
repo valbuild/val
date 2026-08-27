@@ -15,20 +15,27 @@ import {
   CodeAction,
   CodeActionKind,
   type Diagnostic,
-  type Range,
   type TextEdit,
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
-import type {
-  GalleryCheckFinding,
-  ValDiagnosticData,
-} from "./diagnostics";
+import type { GalleryCheckFinding, ValDiagnosticData } from "./diagnostics";
+import {
+  isRemoteFix,
+  REMOTE_FIX_COMMANDS,
+  REMOTE_FIX_TITLES,
+  type RemoteFixCommandArgs,
+} from "./commands";
 import {
   findValModulesInsertion,
   valModuleSpecifier,
   valModulesEntryText,
 } from "./valModulesRegistry";
 import type { ValModuleContent } from "./ValProject";
+import { minimalTextEdit } from "./textEdit";
+
+// Re-exported: it lives in its own module so that `commands.ts` can use it
+// without importing this one, which would close an import cycle.
+export { minimalTextEdit };
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
@@ -88,12 +95,15 @@ export async function createValCodeActions({
   diagnostics,
   content,
   valRoot,
+  moduleFilePath,
   remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
 }: {
   document: TextDocument;
   diagnostics: Diagnostic[];
   content: ValModuleContent;
   valRoot: string;
+  /** Needed to offer the remote fixes, which run as commands. */
+  moduleFilePath?: ModuleFilePath;
   remoteHost?: string;
 }): Promise<CodeAction[]> {
   const actions: CodeAction[] = [];
@@ -104,6 +114,33 @@ export async function createValCodeActions({
       continue;
     }
     for (const fix of data.fixes) {
+      // Remote fixes upload or download bytes, so they are commands rather than
+      // edits: a quick fix that silently needed credentials would just fail,
+      // whereas a command can say "you are not logged in".
+      if (isRemoteFix(fix)) {
+        const command = REMOTE_FIX_COMMANDS[fix];
+        if (!command || !moduleFilePath) {
+          continue;
+        }
+        const args: RemoteFixCommandArgs = {
+          uri: document.uri,
+          moduleFilePath,
+          sourcePath: data.sourcePath as SourcePath,
+          fix,
+          message: diagnostic.message,
+          ...(data.value !== undefined ? { value: data.value } : {}),
+        };
+        actions.push({
+          title: REMOTE_FIX_TITLES[fix] ?? `Val: ${fix}`,
+          kind: CodeActionKind.QuickFix,
+          command: {
+            title: REMOTE_FIX_TITLES[fix] ?? fix,
+            command,
+            arguments: [args],
+          },
+        });
+        continue;
+      }
       if (!isLocalFix(fix)) {
         continue;
       }
@@ -180,44 +217,6 @@ async function computeFixEdit({
     return undefined;
   }
   return minimalTextEdit(before, patched.value.text, document);
-}
-
-/**
- * Narrow an edit down to the region that actually changed.
- *
- * A whole-document replacement would work, but it moves the cursor and shows up
- * as a full-file change in review. Trimming the common prefix and suffix keeps
- * the edit tight without needing a real diff algorithm.
- */
-export function minimalTextEdit(
-  before: string,
-  after: string,
-  document: TextDocument,
-): TextEdit | undefined {
-  if (before === after) {
-    return undefined;
-  }
-
-  let prefix = 0;
-  const maxPrefix = Math.min(before.length, after.length);
-  while (prefix < maxPrefix && before[prefix] === after[prefix]) {
-    prefix++;
-  }
-
-  let suffix = 0;
-  const maxSuffix = Math.min(before.length, after.length) - prefix;
-  while (
-    suffix < maxSuffix &&
-    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
-  ) {
-    suffix++;
-  }
-
-  const range: Range = {
-    start: document.positionAt(prefix),
-    end: document.positionAt(before.length - suffix),
-  };
-  return { range, newText: after.slice(prefix, after.length - suffix) };
 }
 
 /**

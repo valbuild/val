@@ -16,3 +16,9 @@ The language server now:
   it is about, with the message `val validate` gives.
 - offers a quick fix for a module missing from `val.modules`, advertised as
   `fix/missing-module`.
+- serves `val.login`, `val.uploadRemote` and `val.downloadRemote` over
+  `workspace/executeCommand`, so remote upload/download and login work in any LSP
+  client rather than only in the VS Code extension.
+- reacts to `workspace/didChangeWatchedFiles`, and registers the watchers itself
+  when the client allows it. A `.val.ts` changed by git, or a file dropped into
+  `/public`, previously went unnoticed until something was retyped.

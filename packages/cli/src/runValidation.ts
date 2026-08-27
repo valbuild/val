@@ -12,7 +12,6 @@ import {
   type ValModule,
 } from "@valbuild/server";
 import {
-  Internal,
   type Json,
   ModuleFilePath,
   ModulePath,
