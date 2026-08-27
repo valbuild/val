@@ -3,8 +3,6 @@ import {
   Json,
   Internal,
   RichTextSource,
-  VAL_EXTENSION,
-  FILE_REF_PROP,
   SerializedSchema,
   SerializedRecordSchema,
   SerializedObjectSchema,
@@ -12,8 +10,7 @@ import {
   SerializedLiteralSchema,
   SerializedFileSchema,
   SerializedImageSchema,
-  ImageMetadata,
-  FileMetadata,
+  MediaHotspot,
   RichTextOptions,
   ImageSource,
   SerializedDateSchema,
@@ -178,14 +175,26 @@ export type ValEncodedString =
     [brand]: "ValEncodedString";
   };
 
+/**
+ * An image as a consumer sees it: what was authored, plus the generated `url`.
+ *
+ * `path` stays a plain string — it is what `url` is derived from, so encoding it
+ * would corrupt every URL built from it.
+ */
 export type Image = {
+  readonly path: string;
   readonly url: ValEncodedString;
-  readonly metadata?: ImageMetadata;
+  readonly width?: number;
+  readonly height?: number;
+  readonly mimeType?: string;
+  readonly alt?: string;
+  readonly hotspot?: MediaHotspot;
 };
 
-export type File<Metadata extends FileMetadata> = {
+export type File = {
+  readonly path: string;
   readonly url: ValEncodedString;
-  readonly metadata?: Metadata;
+  readonly mimeType?: string;
 };
 
 export type StegaOfRichTextSource<T extends Source> = Json extends T
@@ -217,10 +226,8 @@ export type StegaOfSource<T extends Source> = Json extends T
     ? RichText<O>
     : T extends ImageSource
       ? Image
-      : T extends FileSource<infer M>
-        ? M extends FileMetadata
-          ? File<M>
-          : never
+      : T extends FileSource
+        ? File
         : T extends SourceObject
           ? {
               [key in keyof T]: StegaOfSource<T[key]>;
@@ -303,6 +310,26 @@ function resolveLiteralUnionSchema(
 }
 
 /**
+ * The image schema of a richtext's inline images.
+ *
+ * `inline.img` serializes as `true` when the author did not pass a schema, so
+ * there is nothing to hand down; a bare `{type: "image"}` is enough, since all
+ * the media branch needs is to know that it is looking at media.
+ */
+function inlineImageSchemaOf(
+  schema: SerializedSchema | undefined,
+): SerializedImageSchema | undefined {
+  if (schema?.type !== "richtext") {
+    return undefined;
+  }
+  const img = schema.options?.inline?.img;
+  if (!img) {
+    return undefined;
+  }
+  return img === true ? { type: "image", opt: false } : img;
+}
+
+/**
  * Handles richtext schema traversal with callback support.
  * Processes richtext structures (string, array, or object format).
  */
@@ -331,6 +358,13 @@ function handleRichTextSchema(
     if (!sourceOrSelector) {
       return null;
     }
+    // An inline image's `src` is media, and media is now recognised only from
+    // the schema. Passing the richtext schema down (as every other key does)
+    // would leave it looking like a plain object, and it would lose its `url`.
+    const imgSchema =
+      sourceOrSelector.tag === "img"
+        ? inlineImageSchemaOf(recOpts.schema)
+        : undefined;
     const richtextSelector = Object.fromEntries(
       Object.entries(sourceOrSelector).map(([key, value]) => [
         key,
@@ -338,7 +372,7 @@ function handleRichTextSchema(
           ? value
           : rec(value, {
               path: recOpts.path,
-              schema: recOpts.schema,
+              schema: key === "src" && imgSchema ? imgSchema : recOpts.schema,
             }),
       ]),
     );
@@ -417,6 +451,26 @@ export function stegaEncode(
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
       return handleRichTextSchema(sourceOrSelector, recOpts, rec);
     }
+    if (
+      recOpts &&
+      (isImageSchema(recOpts.schema) || isFileSchema(recOpts.schema)) &&
+      sourceOrSelector &&
+      typeof sourceOrSelector === "object"
+    ) {
+      const src = opts.getModule
+        ? Internal.media.fillFromGallery(
+            sourceOrSelector,
+            recOpts.schema,
+            opts.getModule,
+          )
+        : sourceOrSelector;
+      // `url` carries the edit tag, so a click on an image reaches its field.
+      // `path` must stay raw: it is what the URL was derived from.
+      return {
+        ...src,
+        url: rec(Internal.mediaUrl(src), recOpts),
+      };
+    }
 
     if (typeof sourceOrSelector === "object") {
       if (!sourceOrSelector) {
@@ -429,51 +483,8 @@ export function stegaEncode(
           opts.getModule && opts.getModule(selectorPath) !== undefined
             ? opts.getModule(selectorPath)
             : Internal.getSource(sourceOrSelector),
-          opts.disabled
-            ? undefined
-            : { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
+          { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
         );
-      }
-
-      if (VAL_EXTENSION in sourceOrSelector) {
-        if (
-          sourceOrSelector[VAL_EXTENSION] === "file" &&
-          typeof sourceOrSelector[FILE_REF_PROP] === "string"
-        ) {
-          const source =
-            recOpts?.schema && opts.getModule
-              ? augmentWithReferencedModuleMetadata(
-                  sourceOrSelector,
-                  recOpts.schema,
-                  opts.getModule,
-                )
-              : sourceOrSelector;
-          const fileSelector = Internal.convertFileSource(source);
-          const url = fileSelector.url;
-          return {
-            ...fileSelector,
-            url: rec(url, recOpts),
-          };
-        } else if (sourceOrSelector[VAL_EXTENSION] === "remote") {
-          const source =
-            recOpts?.schema && opts.getModule
-              ? augmentWithReferencedModuleMetadata(
-                  sourceOrSelector,
-                  recOpts.schema,
-                  opts.getModule,
-                )
-              : sourceOrSelector;
-          const remoteSelector = Internal.convertFileSource(source);
-          const url = remoteSelector.url;
-          return {
-            ...remoteSelector,
-            url: rec(url, recOpts),
-          };
-        }
-        console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
-        );
-        return sourceOrSelector;
       }
 
       if (Array.isArray(sourceOrSelector)) {
@@ -517,7 +528,11 @@ export function stegaEncode(
     }
 
     if (typeof sourceOrSelector === "string") {
-      if (!recOpts) {
+      // `disabled` suppresses the steganography, NOT the schema. Media is
+      // recognised from the schema now, so dropping it here — which is what
+      // this function used to do — would strip `url` from every image on every
+      // production page, where `disabled` is the normal case.
+      if (!recOpts || opts.disabled) {
         return sourceOrSelector;
       }
       if (recOpts.schema?.raw || recOpts.schema?.type === "literal") {
@@ -545,7 +560,7 @@ export function stegaEncode(
     );
     return sourceOrSelector;
   }
-  return rec(input, opts.disabled ? undefined : opts.root);
+  return rec(input, opts.root);
 }
 
 function isRecordSchema(
@@ -619,45 +634,6 @@ function isImageSchema(
   return schema?.type === "image";
 }
 
-function augmentWithReferencedModuleMetadata(
-  source: any,
-  schema: SerializedSchema,
-  getModule: (path: string) => any,
-): any {
-  if (
-    source.metadata ||
-    !(isFileSchema(schema) || isImageSchema(schema)) ||
-    !schema.referencedModule
-  ) {
-    return source;
-  }
-  const moduleSource = getModule(schema.referencedModule);
-  if (
-    !moduleSource ||
-    typeof moduleSource !== "object" ||
-    Array.isArray(moduleSource)
-  ) {
-    return source;
-  }
-  const ref: string = source[FILE_REF_PROP];
-  // For local files the ref is the file path directly; for remote refs we
-  // need to extract the file path from the remote URL.
-  let fileRef: string | null = ref in moduleSource ? ref : null;
-  if (!fileRef) {
-    const splitResult = Internal.remote.splitRemoteRef(ref);
-    if (
-      splitResult.status === "success" &&
-      splitResult.filePath in moduleSource
-    ) {
-      fileRef = splitResult.filePath;
-    }
-  }
-  if (!fileRef) {
-    return source;
-  }
-  return { ...source, metadata: moduleSource[fileRef] };
-}
-
 function collectReferencedModulesFromSchema(
   schema: SerializedSchema,
   acc: Set<string>,
@@ -701,19 +677,6 @@ export function getModuleIds(input: any): string[] {
           }
         }
         return;
-      }
-
-      if (VAL_EXTENSION in sourceOrSelector) {
-        if (
-          sourceOrSelector[VAL_EXTENSION] === "file" &&
-          typeof sourceOrSelector[FILE_REF_PROP] === "string"
-        ) {
-          return;
-        }
-        console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
-        );
-        return sourceOrSelector;
       }
 
       if (Array.isArray(sourceOrSelector)) {

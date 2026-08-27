@@ -427,3 +427,88 @@ describe("stegaEncode root seed (jsonValues entries)", () => {
 
 type SchemaOf<T extends Schema<SelectorSource>> =
   T extends Schema<infer S> ? S : never;
+
+describe("media is resolved from the schema, not from the value", () => {
+  test("an image still has a url when steganography is disabled", () => {
+    // `disabled: !enabled` is the normal production path. Media used to be
+    // recognised from a marker on the value, so it resolved regardless; now it
+    // is recognised from the schema, and dropping the schema here would strip
+    // the url from every image on every production page.
+    const schema = s.object({ image: s.image() });
+    const valModule = c.define("/disabled.val.ts", schema, {
+      image: c.image("/public/val/logo.png", {
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+      }),
+    });
+    const res = stegaEncode(valModule, { disabled: true });
+    expect(res.image.url).toBe("/val/logo.png");
+    expect(vercelStegaDecode(res.image.url)).toBeUndefined();
+  });
+
+  test("a richtext inline image has a url", () => {
+    // The richtext walker hands the RICHTEXT schema down to every key, so `src`
+    // would look like a plain object unless the inline image schema is passed
+    // to it explicitly.
+    const schema = s.object({
+      text: s.richtext({ block: { p: true }, inline: { img: true } }),
+    });
+    const valModule = c.define("/richtext.val.ts", schema, {
+      text: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              src: c.image("/public/val/inline.png", {
+                width: 8,
+                height: 8,
+                mimeType: "image/png",
+              }),
+            },
+          ],
+        },
+      ],
+    });
+    const res = stegaEncode(valModule, {});
+    const img = res.text[0].children[0];
+    expect(vercelStegaSplit(img.src.url).cleaned).toBe("/val/inline.png");
+  });
+
+  test("an image inside a tagged union arm is resolved", () => {
+    const schema = s.object({
+      block: s.union(
+        "type",
+        s.object({ type: s.literal("hero"), image: s.image() }),
+        s.object({ type: s.literal("text"), body: s.string() }),
+      ),
+    });
+    const valModule = c.define("/union.val.ts", schema, {
+      block: {
+        type: "hero",
+        image: c.image("/public/val/hero.png", {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+        }),
+      },
+    });
+    const res = stegaEncode(valModule, {});
+    expect(vercelStegaSplit(res.block.image.url).cleaned).toBe("/val/hero.png");
+  });
+
+  test("a plain object that happens to have a path is left alone", () => {
+    const schema = s.object({
+      link: s.object({ path: s.string(), title: s.string() }),
+    });
+    const valModule = c.define("/plain.val.ts", schema, {
+      link: { path: "/public/val/not-an-image.png", title: "A link" },
+    });
+    const res = stegaEncode(valModule, {});
+    expect("url" in res.link).toBe(false);
+    expect(vercelStegaSplit(res.link.path).cleaned).toBe(
+      "/public/val/not-an-image.png",
+    );
+  });
+});

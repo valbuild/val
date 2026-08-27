@@ -86,7 +86,12 @@ export function normalizeMediaSource<S extends object>(src: S): S {
   const { _ref, _type, _tag, metadata, ...rest } = legacy;
   void _type;
   void _tag;
-  return { ...rest, ...(metadata ?? {}), path: _ref } as unknown as S;
+  // `patch_id` belongs to the source, never to metadata. Some sources carry a
+  // stray one inside `metadata`, where the old readers ignored it; spreading it
+  // out would silently turn a published file into a draft.
+  const { patch_id: strayPatchId, ...metadataFields } = metadata ?? {};
+  void strayPatchId;
+  return { ...rest, ...metadataFields, path: _ref } as unknown as S;
 }
 
 /** A path is remote unless it is under `/public`. */
