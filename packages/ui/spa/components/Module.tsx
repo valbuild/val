@@ -195,17 +195,23 @@ export function Module({
             )}
             {tools}
           </div>
-          {!hideHeader && init.length > 0 && (
-            <ScopeTrail
-              parts={init}
-              portalContainer={portalContainer}
-              className="mt-1"
-            />
-          )}
+          {/*
+           * The key's description belongs to the TITLE, so it goes directly
+           * under it — above the scope, which is provenance and belongs at the
+           * bottom of the block. Under the scope it read as a note about the
+           * path rather than about the thing being edited.
+           */}
           {keyDescription && !hideHeader && (
             <div className="mt-1 text-sm text-fg-tertiary">
               {keyDescription}
             </div>
+          )}
+          {!hideHeader && init.length > 0 && (
+            <ScopeTrail
+              parts={init}
+              portalContainer={portalContainer}
+              className="mt-1.5"
+            />
           )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
