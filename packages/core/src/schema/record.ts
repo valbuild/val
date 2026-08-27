@@ -18,11 +18,9 @@ import {
   createValPathOfItem,
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
+import { ImageSource } from "../source/media";
 import { JsonOf, JsonSource, isJson } from "../source/json";
-import { RemoteSource } from "../source/remote";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ImageMetadata } from "./image";
 import {
   ValidationError,
   ValidationErrors,
@@ -86,7 +84,7 @@ type RecordRenderInput<T extends Schema<SelectorSource>> = {
   select: (input: { key: string; val: RenderSelector<T> }) => {
     title: string;
     subtitle?: string | null;
-    image?: ImageSource | RemoteSource<ImageMetadata> | null;
+    image?: ImageSource | null;
   };
 };
 
@@ -905,7 +903,7 @@ export class RecordSchema<
     select: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
+      image?: ImageSource | null;
     };
   }): RecordSchema<T, K, Src> {
     return new RecordSchema(

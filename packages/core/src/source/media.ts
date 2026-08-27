@@ -60,73 +60,9 @@ export type FileSource = GalleryFileSource & {
  */
 export type MediaSource = ImageSource;
 
-/**
- * TEMPORARY: accept the old marker shape as well as the flat one.
- *
- * Removed in the commit that deletes `c.image` / `c.file` / `c.remote`. It
- * exists only so the read paths and the write paths can be flipped in separate
- * commits while the fixtures still author `{_ref, _type, metadata}` — without
- * it there is no green point between "core has the new types" and "every file
- * in the repo has been rewritten".
- */
-export function normalizeMediaSource<S extends object>(src: S): S {
-  if (
-    !("_ref" in src) ||
-    typeof (src as { _ref?: unknown })._ref !== "string"
-  ) {
-    return src;
-  }
-  const legacy = src as {
-    _ref: string;
-    _type?: unknown;
-    _tag?: unknown;
-    metadata?: Record<string, unknown>;
-    patch_id?: string;
-  };
-  const { _ref, _type, _tag, metadata, ...rest } = legacy;
-  void _type;
-  void _tag;
-  // `patch_id` belongs to the source, never to metadata. Some sources carry a
-  // stray one inside `metadata`, where the old readers ignored it; spreading it
-  // out would silently turn a published file into a draft.
-  const { patch_id: strayPatchId, ...metadataFields } = metadata ?? {};
-  void strayPatchId;
-  return { ...rest, ...metadataFields, path: _ref } as unknown as S;
-}
-
 /** A path is remote unless it is under `/public`. */
 export function isRemoteMediaPath(path: string): boolean {
   return !path.startsWith("/public");
-}
-
-/**
- * TEMPORARY: the inverse of {@link normalizeMediaSource}.
- *
- * Lets the marker-shape validators accept a flat source while the write paths
- * are being flipped. Deleted, along with `normalizeMediaSource`, in the commit
- * that rewrites the validators for the flat shape.
- */
-export function toLegacyMediaSource<S>(src: S): S {
-  if (
-    typeof src !== "object" ||
-    src === null ||
-    "_ref" in src ||
-    !("path" in src) ||
-    typeof (src as { path?: unknown }).path !== "string"
-  ) {
-    return src;
-  }
-  const { path, patch_id, ...metadata } = src as {
-    path: string;
-    patch_id?: string;
-    [key: string]: unknown;
-  };
-  return {
-    _ref: path,
-    _type: isRemoteMediaPath(path) ? "remote" : "file",
-    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-    ...(patch_id !== undefined ? { patch_id } : {}),
-  } as unknown as S;
 }
 
 /**
@@ -136,11 +72,10 @@ export function toLegacyMediaSource<S>(src: S): S {
  * in the patch directory and are served by the API with the `patch_id` that put
  * them there; committed bytes live at the path itself, with `/public` stripped.
  */
-export function mediaUrl(rawSrc: {
+export function mediaUrl(src: {
   readonly path: string;
   readonly patch_id?: string;
 }): string {
-  const src = normalizeMediaSource(rawSrc);
   const path = src.path;
   // TODO: /public should be configurable
   if (!isRemoteMediaPath(path)) {
@@ -168,9 +103,8 @@ export function mediaUrl(rawSrc: {
  * either authored or filled in from the gallery.
  */
 export function resolveMedia<S extends { readonly path: string }>(
-  rawSrc: S,
+  src: S,
 ): S & { url: string } {
-  const src = normalizeMediaSource(rawSrc);
   return { ...src, url: mediaUrl(src) };
 }
 
@@ -197,11 +131,10 @@ function isMediaSchema(
  * remote URL while the file itself stays on disk under its local path.
  */
 export function fillFromGallery<S extends { readonly path: string }>(
-  rawSrc: S,
+  src: S,
   schema: unknown,
   getModuleSource: (modulePath: string) => unknown,
 ): S {
-  const src = normalizeMediaSource(rawSrc);
   if (!isMediaSchema(schema) || !schema.referencedModule) {
     return src;
   }

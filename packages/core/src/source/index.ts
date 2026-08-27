@@ -1,16 +1,12 @@
-import { FileSource } from "./file";
-import { ImageSource } from "./image";
 import { JsonSource } from "./json";
-import { RemoteSource } from "./remote";
+import { MediaSource } from "./media";
 import { RichTextOptions, RichTextSource } from "./richtext";
 
 export type Source =
   | SourcePrimitive
   | SourceObject
   | SourceArray
-  | RemoteSource
-  | FileSource
-  | ImageSource
+  | MediaSource
   | JsonSource
   | RichTextSource<RichTextOptions>;
 
@@ -22,8 +18,6 @@ export type SourceObject = { [key in string]: Source } & {
   assert?: never;
   /** Reserved name */
   andThen?: never;
-  /** Reserved name */
-  _ref?: never;
   /** Reserved name */
   _type?: never;
   /** Reserved name */

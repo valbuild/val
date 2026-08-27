@@ -1,4 +1,3 @@
-import { initVal } from "@valbuild/core";
 import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
 import { RemirrorJSON } from "./remirrorTypes";
 
@@ -378,7 +377,6 @@ describe("Remirror to RichTextSource", () => {
   });
 
   test("existing image", () => {
-    const { c } = initVal();
     const input: RemirrorJSON = {
       type: "doc",
       content: [
@@ -405,11 +403,12 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.image("/public/val/example.png", {
+              src: {
+                path: "/public/val/example.png",
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
-              }),
+              },
             },
           ],
         },
@@ -419,7 +418,6 @@ describe("Remirror to RichTextSource", () => {
   });
 
   test("existing patched image", () => {
-    const { c } = initVal();
     const input: RemirrorJSON = {
       type: "doc",
       content: [
@@ -447,11 +445,10 @@ describe("Remirror to RichTextSource", () => {
             {
               tag: "img",
               src: {
-                ...c.image("/public/val/example.png", {
-                  mimeType: "image/png",
-                  width: 100,
-                  height: 10,
-                }),
+                path: "/public/val/example.png",
+                mimeType: "image/png",
+                width: 100,
+                height: 10,
                 patch_id: "123",
               },
             },
@@ -463,7 +460,6 @@ describe("Remirror to RichTextSource", () => {
   });
 
   test("new image", () => {
-    const { c } = initVal();
     const smallPngBuffer =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
 
@@ -494,11 +490,12 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.image("/public/val/example_836c5.png", {
+              src: {
+                path: "/public/val/example_836c5.png",
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
-              }),
+              },
             },
           ],
         },
@@ -519,7 +516,6 @@ describe("Remirror to RichTextSource", () => {
   });
 
   test("nested new image", () => {
-    const { c } = initVal();
     const smallPngBuffer =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
 
@@ -591,11 +587,12 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.image("/public/val/example_836c5.png", {
+                      src: {
+                        path: "/public/val/example_836c5.png",
                         mimeType: "image/png",
                         width: 100,
                         height: 10,
-                      }),
+                      },
                     },
                   ],
                 },
@@ -608,11 +605,12 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.image("/public/val/example_836c5.png", {
+              src: {
+                path: "/public/val/example_836c5.png",
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
-              }),
+              },
             },
           ],
         },

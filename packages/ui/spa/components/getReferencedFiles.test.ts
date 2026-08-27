@@ -28,11 +28,7 @@ describe("getReferencedFiles", () => {
       "/page.val.ts",
       s.object({ img: s.image(imagesModule) }),
       {
-        img: c.image("/public/val/img.png", {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-        }),
+        img: { path: "/public/val/img.png" },
       },
     );
     const { schemas, sources } = getTestData([imagesModule, pageModule]);
@@ -61,11 +57,7 @@ describe("getReferencedFiles", () => {
       "/page.val.ts",
       s.object({ img: s.image(imagesModule) }),
       {
-        img: c.image("/public/val/img.png", {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-        }),
+        img: { path: "/public/val/img.png" },
       },
     );
     const { schemas, sources } = getTestData([imagesModule, pageModule]);
@@ -95,11 +87,7 @@ describe("getReferencedFiles", () => {
       "/page.val.ts",
       s.object({ img: s.image(imagesModule) }),
       {
-        img: c.image("/public/val/img.png", {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-        }),
+        img: { path: "/public/val/img.png" },
       },
     );
     const { schemas, sources } = getTestData([imagesModule, pageModule]);
@@ -127,11 +115,7 @@ describe("getReferencedFiles", () => {
       "/page.val.ts",
       s.object({ img: s.image(imagesModule1) }),
       {
-        img: c.image("/public/val/img.png", {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-        }),
+        img: { path: "/public/val/img.png" },
       },
     );
     const { schemas, sources } = getTestData([
@@ -161,7 +145,7 @@ describe("getReferencedFiles", () => {
       "/page.val.ts",
       s.object({ doc: s.file(filesModule) }),
       {
-        doc: c.file("/public/val/doc.pdf", { mimeType: "application/pdf" }),
+        doc: { path: "/public/val/doc.pdf" },
       },
     );
     const { schemas, sources } = getTestData([filesModule, pageModule]);
@@ -201,11 +185,7 @@ describe("getReferencedFiles", () => {
         section: {
           items: [
             {
-              img: c.image("/public/val/img.png", {
-                width: 100,
-                height: 100,
-                mimeType: "image/png",
-              }),
+              img: { path: "/public/val/img.png" },
             },
           ],
         },

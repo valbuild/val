@@ -1,5 +1,4 @@
 import {
-  FILE_REF_PROP,
   Internal,
   Json,
   ModuleFilePath,
@@ -102,23 +101,18 @@ export function indexModule(
       // Use first 50 chars as label
       label = searchText.substring(0, 50) || "richtext";
     }
-    // Handle file/image - extract filename from _ref
+    // Handle file/image
     else if (schema.type === "file" || schema.type === "image") {
       if (
         source !== null &&
         typeof source === "object" &&
-        FILE_REF_PROP in source &&
-        typeof source[FILE_REF_PROP] === "string"
+        "path" in source &&
+        typeof source.path === "string"
       ) {
-        const ref = source[FILE_REF_PROP] as string;
         // The label is the bare filename - the folder is shown separately in
         // the UI - but both are searchable.
-        const { filename, folder } = getRefParts(ref);
-        const metadata = source?.metadata;
-        const alt =
-          metadata && typeof metadata === "object" && "alt" in metadata
-            ? metadata.alt
-            : "";
+        const { filename, folder } = getRefParts(source.path);
+        const alt = "alt" in source ? source.alt : "";
         searchText = filename + " " + folder + " " + alt;
         label = filename;
       }

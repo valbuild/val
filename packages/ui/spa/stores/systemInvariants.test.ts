@@ -667,11 +667,12 @@ describe("source store: patches that carry files", () => {
   const { c, s } = initVal();
   const imageModule = () =>
     c.define("/img.val.ts", s.object({ hero: s.image() }), {
-      hero: c.image("/public/val/initial.png", {
+      hero: {
+        path: "/public/val/initial.png",
         width: 1,
         height: 1,
         mimeType: "image/png",
-      }),
+      },
     });
 
   /**

@@ -1,21 +1,20 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   CustomValidateFunction,
   Schema,
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { toLegacyMediaSource } from "../source/media";
-import { VAL_EXTENSION } from "../source";
-import { FileSource, FILE_REF_PROP } from "../source/file";
-import { ImageSource } from "../source/image";
+import {
+  GalleryImageSource,
+  ImageSource,
+  isRemoteMediaPath,
+} from "../source/media";
 import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { FileMetadata, Internal, ValModule } from "..";
-import { RemoteSource } from "../source/remote";
+import { Internal, ValModule } from "..";
 import { ReifiedRender } from "../render";
 import { ImagesEntryMetadata } from "./images";
 import { getSource } from "../module";
@@ -49,12 +48,7 @@ export type ImageMetadata = {
     y: number;
   };
 };
-export class ImageSchema<
-  Src extends
-    | FileSource<ImageMetadata | undefined>
-    | RemoteSource<ImageMetadata | undefined>
-    | null,
-> extends Schema<Src> {
+export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
   constructor(
     private readonly options?: ImageOptions,
     private readonly opt: boolean = false,
@@ -84,7 +78,7 @@ export class ImageSchema<
     );
   }
 
-  remote(): ImageSchema<Src | RemoteSource<ImageMetadata | undefined>> {
+  remote(): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
       this.opt,
@@ -94,7 +88,7 @@ export class ImageSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-    ) as ImageSchema<Src | RemoteSource<ImageMetadata | undefined>>;
+    );
   }
 
   validate(validationFunction: CustomValidateFunction<Src>): ImageSchema<Src> {
@@ -110,10 +104,7 @@ export class ImageSchema<
     );
   }
 
-  protected executeValidate(path: SourcePath, srcInput: Src): ValidationErrors {
-    // TEMPORARY: accept the flat `{path, ...}` shape while the write paths are
-    // being flipped. Removed when this validator is rewritten for it.
-    const src = toLegacyMediaSource(srcInput);
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
         path,
@@ -134,7 +125,21 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+    if (typeof src.path !== "string") {
+      return {
+        [path]: [
+          ...customValidationErrors,
+          {
+            message: `Image did not have a path string. Got: ${typeof src.path}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    // Remote-ness is a property of the path, not of a marker on the value:
+    // anything outside /public is remote.
+    const isRemotePath = isRemoteMediaPath(src.path);
+    if (this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -146,7 +151,7 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -158,12 +163,12 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Expected locale image, but found remote.`,
+            message: `Expected local image, but found remote.`,
             value: src,
             fixes: ["image:download-remote"],
           },
@@ -171,34 +176,61 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
-    if (typeof src[FILE_REF_PROP] !== "string") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `Image did not have a file reference string. Got: ${typeof src[
-              FILE_REF_PROP
-            ]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    if (src.hotspot !== undefined) {
+      if (
+        typeof src.hotspot !== "object" ||
+        src.hotspot === null ||
+        typeof src.hotspot.x !== "number" ||
+        typeof src.hotspot.y !== "number"
+      ) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `Hotspot must be an object with x and y as numbers.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
     }
 
-    if (src[VAL_EXTENSION] !== "file") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `Image did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    const galleryEntries = this.galleryEntries();
+    if (galleryEntries) {
+      // The dimensions and mime type of a gallery image are stored once, in the
+      // gallery. Repeating them on the field is how the two get to disagree.
+      const repeated = (["width", "height", "mimeType"] as const).filter(
+        (key) => src[key] !== undefined,
+      );
+      if (repeated.length > 0) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `An image from a gallery must not carry its own ${repeated.join(", ")}: they are stored in the gallery module.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      if (!(src.path in galleryEntries)) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `The gallery does not have an image at '${src.path}'.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      return customValidationErrors.length > 0
+        ? ({ [path]: customValidationErrors } as ValidationErrors)
+        : false;
     }
 
     const { accept } = this.options || {};
-    const mimeType = src.metadata?.mimeType ?? "";
+    const mimeType = src.mimeType ?? "";
 
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
@@ -241,13 +273,13 @@ export class ImageSchema<
       }
     }
 
-    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src.path);
     if (!fileMimeType) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            message: `Could not determine mime type from file extension. Got: ${src.path}`,
             value: src,
             fixes: ["image:check-metadata"],
           },
@@ -268,43 +300,23 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
-    if (src.metadata) {
-      if (src.metadata.hotspot) {
-        if (
-          typeof src.metadata.hotspot !== "object" ||
-          typeof src.metadata.hotspot.x !== "number" ||
-          typeof src.metadata.hotspot.y !== "number"
-        ) {
-          return {
-            [path]: [
-              ...customValidationErrors,
-              {
-                message: `Hotspot must be an object with x and y as numbers.`,
-                value: src,
-              },
-            ],
-          } as ValidationErrors;
-        }
-      }
+    // Whether the dimensions match the bytes can only be answered by reading
+    // the file, which this package deliberately cannot do — so it is always
+    // handed on as a fix.
+    if (
+      src.width !== undefined ||
+      src.height !== undefined ||
+      src.mimeType !== undefined
+    ) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and the mime type.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Found image metadata, but it could not be validated. An image must have a width (positive number), a height (positive number) and a mime type.`,
             value: src,
             fixes: ["image:check-metadata"],
           },
         ],
-      } as ValidationErrors;
-    }
-
-    const isReferencedModule = Object.keys(this.moduleMetadata).length > 0;
-    if (src.metadata === undefined && isReferencedModule) {
-      if (customValidationErrors.length === 0) {
-        return false;
-      }
-      return {
-        [path]: [...customValidationErrors],
       } as ValidationErrors;
     }
 
@@ -320,12 +332,22 @@ export class ImageSchema<
     } as ValidationErrors;
   }
 
+  /**
+   * The entries of the gallery this field points at, or null when it is a
+   * standalone field.
+   */
+  private galleryEntries(): Record<string, ImagesEntryMetadata> | null {
+    const modulePaths = Object.keys(this.moduleMetadata);
+    if (modulePaths.length === 0) {
+      return null;
+    }
+    return this.moduleMetadata[modulePaths[0] as ModulePath];
+  }
+
   protected executeAssert(
     path: SourcePath,
-    srcInput: unknown,
+    src: unknown,
   ): SchemaAssertResult<Src> {
-    // TEMPORARY: see executeValidate.
-    const src = toLegacyMediaSource(srcInput);
     if (this.opt && src === null) {
       return {
         success: true,
@@ -355,26 +377,13 @@ export class ImageSchema<
         },
       };
     }
-    if (!(FILE_REF_PROP in src)) {
+    if (!("path" in src) || typeof src.path !== "string") {
       return {
         success: false,
         errors: {
           [path]: [
             {
-              message: `Value of this schema must use: 'c.image' (error type: missing_ref_prop)`,
-              typeError: true,
-            },
-          ],
-        },
-      };
-    }
-    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
-      return {
-        success: false,
-        errors: {
-          [path]: [
-            {
-              message: `Value of this schema must use: 'c.image' (error type: missing_file_extension)`,
+              message: `An image must be an object with a 'path' (error type: missing_path)`,
               typeError: true,
             },
           ],
@@ -462,9 +471,18 @@ export class ImageSchema<
   }
 }
 
-export const image = (
+/**
+ * An image picked from a gallery. Its dimensions and mime type live in the
+ * gallery, so the field carries only what a person typed.
+ */
+export function image(
+  galleryModule: ValModule<Record<string, ImagesEntryMetadata>>,
+): ImageSchema<GalleryImageSource>;
+/** An image of its own, carrying its own dimensions and mime type. */
+export function image(options?: ImageOptions): ImageSchema<ImageSource>;
+export function image(
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
-): ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>> => {
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
@@ -486,7 +504,13 @@ export const image = (
         ImagesEntryMetadata
       >;
     }
-    return new ImageSchema({}, false, false, [], allModules);
+    return new ImageSchema<GalleryImageSource>(
+      {},
+      false,
+      false,
+      [],
+      allModules,
+    );
   }
   return new ImageSchema(options as ImageOptions);
-};
+}

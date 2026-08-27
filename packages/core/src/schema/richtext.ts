@@ -7,15 +7,14 @@ import {
 } from ".";
 import { ReifiedRender } from "../render";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
 import {
   RichTextSource,
   RichTextOptions,
   SerializedRichTextOptions,
 } from "../source/richtext";
 import { SourcePath } from "../val";
-import { ImageMetadata, ImageSchema, SerializedImageSchema } from "./image";
+import { ImageSchema, SerializedImageSchema } from "./image";
 import { RouteSchema, SerializedRouteSchema } from "./route";
 import { SerializedStringSchema, StringSchema } from "./string";
 import {
@@ -354,15 +353,9 @@ export class RichTextSchema<
             const imgSchema = this.options.inline?.img;
             const imageValidationErrors =
               typeof imgSchema === "object"
-                ? (
-                    imgSchema as ImageSchema<
-                      ImageSource | RemoteSource<ImageMetadata | undefined>
-                    >
-                  )["executeValidate"](
+                ? (imgSchema as ImageSchema<ImageSource>)["executeValidate"](
                     srcPath,
-                    node.src as
-                      | ImageSource
-                      | RemoteSource<ImageMetadata | undefined>,
+                    node.src as ImageSource,
                   )
                 : new ImageSchema({}, false, false)["executeValidate"](
                     srcPath,

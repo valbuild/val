@@ -1,12 +1,9 @@
 import {
   FileMetadata,
   ImageMetadata,
-  FILE_REF_PROP,
-  VAL_EXTENSION,
   Internal,
   ModuleFilePath,
   SourcePath,
-  FILE_REF_SUBTYPE_TAG,
   SerializedImageSchema,
   SerializedFileSchema,
 } from "@valbuild/core";
@@ -59,7 +56,11 @@ export async function createFilePatch(
     remoteHost: string;
   } | null,
   directory: string | undefined = "/public/val",
-  skipMetadataInReplace: boolean = false,
+  /**
+   * True when the field is backed by a gallery. The dimensions and mime type
+   * then live in the gallery module, so the field carries only the path.
+   */
+  galleryBacked: boolean = false,
 ): Promise<{ patch: Patch; filePath: string }> {
   const newFilePath = Internal.createFilename(
     data,
@@ -95,10 +96,8 @@ export async function createFilePatch(
     patch: [
       {
         value: {
-          [FILE_REF_PROP]: ref,
-          [VAL_EXTENSION]: remote ? "remote" : "file",
-          ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
-          ...(skipMetadataInReplace ? {} : { metadata }),
+          path: ref,
+          ...(galleryBacked ? {} : metadata),
         },
         op: "replace",
         path,
@@ -160,26 +159,16 @@ export function FileField({
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
     if (maybeSourceData) {
-      if (maybeSourceData.metadata) {
-        // We can't set the url before it is server side (since the we will be loading)
-        if (!maybeClientSideOnly) {
-          const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
-          const nextUrl =
-            VAL_EXTENSION in maybeSourceData &&
-            maybeSourceData[VAL_EXTENSION] === "remote"
-              ? Internal.convertRemoteSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "remote",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url
-              : Internal.convertFileSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "file",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url;
-          setUrl(nextUrl);
-          setLoading(false);
-        }
+      // We can't set the url before it is server side (since the we will be loading)
+      if (!maybeClientSideOnly) {
+        const patchId = filePatchIds.get(maybeSourceData.path);
+        setUrl(
+          Internal.mediaUrl({
+            path: maybeSourceData.path,
+            ...(patchId ? { patch_id: patchId } : {}),
+          }),
+        );
+        setLoading(false);
       }
     }
   }, [sourceAtPath, filePatchIds]);
@@ -195,8 +184,8 @@ export function FileField({
       setShowAsVideo(true);
     }
     if (maybeSourceData) {
-      if (typeof maybeSourceData.metadata?.mimeType === "string") {
-        if (maybeSourceData.metadata.mimeType.startsWith("video/")) {
+      if (typeof maybeSourceData.mimeType === "string") {
+        if (maybeSourceData.mimeType.startsWith("video/")) {
           setShowAsVideo(true);
         } else {
           setShowAsVideo(false);
@@ -311,16 +300,14 @@ export function FileField({
         }
       : null;
   let filePathRef = null;
-  if (source?._ref) {
+  if (source?.path) {
     if (schemaAtPath.data.remote) {
-      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(
-        source?._ref,
-      );
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(source.path);
       if (splitRemoteRefDataRes.status === "success") {
         filePathRef = splitRemoteRefDataRes.filePath;
       }
     } else {
-      filePathRef = source?._ref;
+      filePathRef = source.path;
     }
   }
 
@@ -336,9 +323,7 @@ export function FileField({
    * missing.
    */
   const fileDetail =
-    source?.metadata && typeof source.metadata.mimeType === "string"
-      ? source.metadata.mimeType
-      : null;
+    typeof source?.mimeType === "string" ? source.mimeType : null;
   return (
     <div id={path}>
       {missingModules.length > 0 && (
@@ -392,18 +377,7 @@ export function FileField({
                   target="_blank"
                   rel="noopener noreferrer"
                   download={filename ?? undefined}
-                  href={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
+                  href={Internal.mediaUrl(source)}
                 >
                   Open file
                   <SquareArrowOutUpRight size={12} />
@@ -428,18 +402,16 @@ export function FileField({
                     </button>
                   }
                   modulePath={referencedModule as ModuleFilePath}
-                  selectedRef={source?._ref ?? null}
+                  selectedRef={source?.path ?? null}
                   onSelect={(entry: GalleryEntry) => {
+                    // Only the path: the mime type stays in the gallery, which
+                    // is the one place that has it.
                     addPatch(
                       [
                         {
                           op: "replace",
                           path: patchPath,
-                          value: {
-                            [FILE_REF_PROP]: entry.filePath,
-                            [VAL_EXTENSION]: "file",
-                            metadata: entry.metadata as JSONValue,
-                          },
+                          value: { path: entry.filePath },
                         },
                       ],
                       "file",
@@ -458,17 +430,7 @@ export function FileField({
           <video
             className="w-full h-auto rounded-lg"
             controls
-            src={
-              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
-                ? Internal.convertRemoteSource({
-                    ...source,
-                    [VAL_EXTENSION]: "remote",
-                  }).url
-                : Internal.convertFileSource({
-                    ...source,
-                    [VAL_EXTENSION]: "file",
-                  }).url
-            }
+            src={Internal.mediaUrl(source)}
           />
         )}
         <div>

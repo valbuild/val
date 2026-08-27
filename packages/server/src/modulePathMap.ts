@@ -26,9 +26,9 @@ export function getModulePathRange(
   // Which part of an object/record member to point at. For an object property
   // the resolved node's own range is the *key* (property name); the *value*
   // range is stored under `children.val`. Array elements, leaf literals and
-  // `c.image`/`c.file` `_ref`/`metadata` nodes have no `val` child, so "value"
-  // falls back to the node's own range for those. Defaults to "key" to preserve
-  // existing callers.
+  // Array elements and leaf literals have no `val` child, so "value" falls back
+  // to the node's own range for those. Defaults to "key" to preserve existing
+  // callers.
   target: "key" | "value" = "key",
 ) {
   // Handle invalid module paths gracefully
@@ -88,7 +88,7 @@ export function getModulePathRange(
  *
  * NOTE: do not compute the start as `end.character - node.getWidth()`. That
  * identity only holds while the node stays on a single line - for a multi-line
- * node (an object inside an array, a `c.image` metadata argument, ...) it
+ * node (an object inside an array, a media object's `path`, ...) it
  * reports the *closing* line and a negative character.
  */
 function rangeOf(node: ts.Node, sourceFile: ts.SourceFile) {
@@ -168,47 +168,6 @@ function traverse(
   }
   if (ts.isArrayLiteralExpression(node)) {
     return traverseArrayLiteral(node, sourceFile);
-  }
-  if (ts.isCallExpression(node)) {
-    return traverseCallExpression(node, sourceFile);
-  }
-}
-
-function traverseCallExpression(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-): ModulePathMap | undefined {
-  if (ts.isPropertyAccessExpression(node.expression)) {
-    if (
-      node.expression.expression.getText(sourceFile) === "c" &&
-      (node.expression.name.getText(sourceFile) === "file" ||
-        node.expression.name.getText(sourceFile) === "image")
-    ) {
-      const val = {
-        children: {},
-        ...rangeOf(node, sourceFile),
-      };
-      if (node.arguments[0]) {
-        const _ref = {
-          children: {},
-          ...rangeOf(node.arguments[0], sourceFile),
-        };
-        if (!node.arguments[1]) {
-          return {
-            val,
-            _ref,
-          };
-        }
-        return {
-          val,
-          _ref,
-          metadata: {
-            children: {},
-            ...rangeOf(node.arguments[1], sourceFile),
-          },
-        };
-      }
-    }
   }
 }
 

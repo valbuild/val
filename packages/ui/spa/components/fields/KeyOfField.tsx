@@ -1,10 +1,8 @@
 import * as React from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
   ListRecordRender,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -43,7 +41,7 @@ import { ReadonlyGuard } from "./ReadonlyGuard";
 export type KeyPreview = {
   title: string;
   subtitle?: string | null;
-  image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+  image?: ImageSource | string | null;
 };
 
 export interface KeySelectorProps {

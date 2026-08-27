@@ -34,11 +34,12 @@ const testModule1 = c.define(
         { type: "type2", "4": ["zero", "one", "two", "three", "four", "five"] },
         {
           type: "type3",
-          image: c.image("/public/val/test.png", {
+          image: {
+            path: "/public/val/test.png",
             alt: "test",
             height: 100,
             width: 100,
-          }),
+          },
         },
       ],
     },
@@ -65,11 +66,12 @@ describe("resolvePatchPath", () => {
           },
           {
             type: "type3",
-            image: c.image("/public/val/test.png", {
+            image: {
+              path: "/public/val/test.png",
               alt: "test",
               height: 100,
               width: 100,
-            }),
+            },
           },
         ],
       },
@@ -94,11 +96,12 @@ describe("resolvePatchPath", () => {
         },
         {
           type: "type3",
-          image: c.image("/public/val/test.png", {
+          image: {
+            path: "/public/val/test.png",
             alt: "test",
             height: 100,
             width: 100,
-          }),
+          },
         },
       ],
     });
@@ -151,23 +154,24 @@ describe("resolvePatchPath", () => {
       schema: {
         type: "image",
       },
-      source: c.image("/public/val/test.png", {
+      source: {
+        path: "/public/val/test.png",
         alt: "test",
         height: 100,
         width: 100,
-      }),
+      },
     });
   });
 
   test("basics image alt", () => {
     expect(
       resolvePatchPath(
-        ["1", "2", "4", "image", "metadata", "alt"],
+        ["1", "2", "4", "image", "alt"],
         testSchema1,
         testSource1,
       ),
     ).toMatchObject({
-      modulePath: `"1"."2".4."image"."metadata"."alt"`,
+      modulePath: `"1"."2".4."image"."alt"`,
       schema: {
         type: "image",
       },

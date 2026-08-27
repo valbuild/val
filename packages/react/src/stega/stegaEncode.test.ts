@@ -1,11 +1,5 @@
 import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
-import {
-  ImageMetadata,
-  RawString,
-  Schema,
-  SelectorSource,
-  initVal,
-} from "@valbuild/core";
+import { RawString, Schema, SelectorSource, initVal } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
 const { s, c } = initVal();
@@ -23,22 +17,23 @@ describe("stega transform", () => {
 
     const valModule = c.define("/test.val.ts", schema, [
       {
-        image: c.image("/public/val/test1.png", {
+        image: {
+          path: "/public/val/test1.png",
           width: 100,
           height: 100,
           mimeType: "image/png",
-        }),
+        },
         text: [{ tag: "p", children: ["Test"] }],
         n: 1,
         b: true,
       },
       {
-        image: c.image("/public/val/test2.png", {
+        image: {
+          path: "/public/val/test2.png",
           width: 100,
           height: 100,
           mimeType: "image/png",
-          patch_id: "123",
-        } as ImageMetadata),
+        },
         text: [{ tag: "p", children: ["Test"] }],
         n: 2,
         b: false,
@@ -99,18 +94,16 @@ describe("stega transform", () => {
     const schema = s.array(s.image().remote());
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, [
-        c.remote(
-          "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
-          {
-            width: 100,
-            height: 100,
-            mimeType: "image/png",
-            hotspot: {
-              x: 0.5,
-              y: 0.5,
-            },
+        {
+          path: "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          hotspot: {
+            x: 0.5,
+            y: 0.5,
           },
-        ),
+        },
       ]),
       {},
     );
@@ -436,15 +429,33 @@ describe("media is resolved from the schema, not from the value", () => {
     // the url from every image on every production page.
     const schema = s.object({ image: s.image() });
     const valModule = c.define("/disabled.val.ts", schema, {
-      image: c.image("/public/val/logo.png", {
+      image: {
+        path: "/public/val/logo.png",
         width: 8,
         height: 8,
         mimeType: "image/png",
-      }),
+      },
     });
     const res = stegaEncode(valModule, { disabled: true });
     expect(res.image.url).toBe("/val/logo.png");
     expect(vercelStegaDecode(res.image.url)).toBeUndefined();
+  });
+
+  test("an image whose bytes are not committed is served by the files API", () => {
+    const schema = s.object({ image: s.image() });
+    const valModule = c.define("/draft.val.ts", schema, {
+      image: {
+        path: "/public/val/logo.png",
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+        patch_id: "pt1",
+      },
+    });
+    const res = stegaEncode(valModule, {});
+    expect(vercelStegaSplit(res.image.url).cleaned).toBe(
+      "/api/val/files/public/val/logo.png?patch_id=pt1",
+    );
   });
 
   test("a richtext inline image has a url", () => {
@@ -452,7 +463,7 @@ describe("media is resolved from the schema, not from the value", () => {
     // would look like a plain object unless the inline image schema is passed
     // to it explicitly.
     const schema = s.object({
-      text: s.richtext({ block: { p: true }, inline: { img: true } }),
+      text: s.richtext({ inline: { img: true } }),
     });
     const valModule = c.define("/richtext.val.ts", schema, {
       text: [
@@ -461,11 +472,12 @@ describe("media is resolved from the schema, not from the value", () => {
           children: [
             {
               tag: "img",
-              src: c.image("/public/val/inline.png", {
+              src: {
+                path: "/public/val/inline.png",
                 width: 8,
                 height: 8,
                 mimeType: "image/png",
-              }),
+              },
             },
           ],
         },
@@ -487,11 +499,12 @@ describe("media is resolved from the schema, not from the value", () => {
     const valModule = c.define("/union.val.ts", schema, {
       block: {
         type: "hero",
-        image: c.image("/public/val/hero.png", {
+        image: {
+          path: "/public/val/hero.png",
           width: 8,
           height: 8,
           mimeType: "image/png",
-        }),
+        },
       },
     });
     const res = stegaEncode(valModule, {});

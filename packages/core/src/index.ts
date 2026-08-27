@@ -16,12 +16,12 @@ export type { ImageMetadata } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
-export type { FileSource } from "./source/file";
+export type { FileSource } from "./source/media";
 export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
-export type { RemoteSource, RemoteRef } from "./source/remote";
+export type { RemoteRef } from "./source/remote";
 export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
-export type { ImageSource } from "./source/image";
+export type { ImageSource } from "./source/media";
 export type {
   MediaHotspot,
   MediaSource,
@@ -65,7 +65,6 @@ export type {
   ValidationErrors,
 } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
-export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
 export {
@@ -90,7 +89,6 @@ const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
 import { ModulePath, SourcePath, getValPath, isVal } from "./val";
-import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -104,7 +102,6 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
-import { isFile } from "./source/file";
 import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
 import { createRemoteRef } from "./source/remote";
 import {
@@ -113,7 +110,6 @@ import {
 } from "./remote/validationBasis";
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
-import { convertRemoteSource } from "./schema/remote";
 import {
   fillFromGallery,
   isRemoteMediaPath,
@@ -201,8 +197,6 @@ const Internal = {
       }
     })(),
   },
-  convertFileSource,
-  convertRemoteSource,
   mediaUrl,
   resolveMedia,
   isRemoteMediaPath,
@@ -243,7 +237,6 @@ const Internal = {
     );
   },
   isVal,
-  isFile,
   isJson,
   getJsonImport,
   resolveJsonValues,

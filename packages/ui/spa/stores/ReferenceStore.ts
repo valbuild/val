@@ -1,5 +1,4 @@
 import {
-  FILE_REF_PROP,
   Internal,
   type Json,
   type ModuleFilePath,
@@ -395,7 +394,7 @@ function fileRefOf(source: Source): string | null {
   if (source === null || typeof source !== "object" || Array.isArray(source)) {
     return null;
   }
-  const ref = (source as Record<string, unknown>)[FILE_REF_PROP];
+  const ref = (source as Record<string, unknown>).path;
   return typeof ref === "string" ? ref : null;
 }
 

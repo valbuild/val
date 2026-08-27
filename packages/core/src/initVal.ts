@@ -1,19 +1,12 @@
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
-import { initFile } from "./source/file";
-import { initImage } from "./source/image";
 import { json } from "./source/json";
-import { initRemote } from "./source/remote";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
 export type ContentConstructor = {
   define: typeof define;
-  // remote: typeof remote;
-  file: ReturnType<typeof initFile>;
-  image: ReturnType<typeof initImage>;
-  remote: ReturnType<typeof initRemote>;
   json: typeof json;
 };
 export type ValConstructor = {
@@ -95,9 +88,6 @@ InitVal => {
     },
     c: {
       define,
-      remote: initRemote(config),
-      file: initFile(config),
-      image: initImage(config),
       json,
     },
     s,

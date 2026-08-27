@@ -1,11 +1,4 @@
-import {
-  Internal,
-  ModuleFilePath,
-  SourcePath,
-  VAL_EXTENSION,
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
-} from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -35,7 +28,6 @@ import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
-import { JSONValue } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
 import { useImageUpload } from "./useImageUpload";
 import { MediaSummaryRow, Section, readableFilename } from "./MediaSummaryRow";
@@ -101,53 +93,22 @@ export function ImageField({
     if (maybeSourceData) {
       // We can't set the url before it is server side (since the we will be loading)
       if (!maybeClientSideOnly) {
-        const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
-        const nextUrl =
-          VAL_EXTENSION in maybeSourceData &&
-          maybeSourceData[VAL_EXTENSION] === "remote"
-            ? Internal.convertRemoteSource({
-                ...maybeSourceData,
-                [VAL_EXTENSION]: "remote",
-                ...(patchId ? { patch_id: patchId } : {}),
-              }).url
-            : Internal.convertFileSource({
-                ...maybeSourceData,
-                [VAL_EXTENSION]: "file",
-                ...(patchId ? { patch_id: patchId } : {}),
-              }).url;
-        setUrl(nextUrl);
+        const patchId = filePatchIds.get(maybeSourceData.path);
+        setUrl(
+          Internal.mediaUrl({
+            path: maybeSourceData.path,
+            ...(patchId ? { patch_id: patchId } : {}),
+          }),
+        );
       }
-      if (maybeSourceData.metadata) {
-        const metadata = maybeSourceData.metadata;
-        if (
-          typeof metadata.width !== "number" ||
-          typeof metadata.height !== "number"
-        ) {
-          console.warn(
-            `Expected metadata width and height to be numbers but width was: ${typeof metadata.width} and height was: ${typeof metadata.height}`,
-          );
-        }
-        if ("hotspot" in metadata) {
-          if (
-            typeof metadata.hotspot === "object" &&
-            metadata.hotspot &&
-            "x" in metadata.hotspot &&
-            "y" in metadata.hotspot
-          ) {
-            const { x, y } = metadata.hotspot;
-            if (typeof x === "number" && typeof y === "number") {
-              setHotspot({
-                x,
-                y,
-              });
-            } else {
-              console.warn(
-                `Expected hotspot to have x and y as numbers but x was: ${typeof x} and y: ${typeof y}`,
-              );
-            }
-          }
+      const hotspot = maybeSourceData.hotspot;
+      if (hotspot) {
+        if (typeof hotspot.x === "number" && typeof hotspot.y === "number") {
+          setHotspot({ x: hotspot.x, y: hotspot.y });
         } else {
-          setHotspot(undefined);
+          console.warn(
+            `Expected hotspot to have x and y as numbers but x was: ${typeof hotspot.x} and y: ${typeof hotspot.y}`,
+          );
         }
       } else {
         setHotspot(undefined);
@@ -207,8 +168,8 @@ export function ImageField({
     return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
   }, [imageSchema, referencedModule, schemas]);
   const existingAlt =
-    maybeSourceData && typeof maybeSourceData?.metadata?.alt === "string"
-      ? maybeSourceData.metadata.alt
+    maybeSourceData && typeof maybeSourceData.alt === "string"
+      ? maybeSourceData.alt
       : undefined;
   const remoteData =
     imageSchema?.remote &&
@@ -286,17 +247,17 @@ export function ImageField({
   /**
    * What the summary row says about the file.
    *
-   * Read off the ref and the metadata Val already has: the ref's last segment is
-   * the file name, and `width`/`height`/`mimeType` are what an `s.image()` keeps.
+   * Read off the path and what Val already knows: the path's last segment is the
+   * file name, and `width`/`height`/`mimeType` are what an `s.image()` keeps.
    * Byte size is NOT among them — Val does not record it — so it is absent
    * rather than guessed.
    */
   const fileName = source
-    ? (source[FILE_REF_PROP].split("/").pop() ?? source[FILE_REF_PROP])
+    ? (source.path.split("/").pop() ?? source.path)
     : null;
   const fileDetail = (() => {
-    if (!source?.metadata) return null;
-    const { width, height, mimeType } = source.metadata;
+    if (!source) return null;
+    const { width, height, mimeType } = source;
     const parts: string[] = [];
     if (typeof width === "number" && typeof height === "number") {
       parts.push(`${width} × ${height}`);
@@ -312,55 +273,29 @@ export function ImageField({
    * this is worth naming: it has to hold for every caller, and there are two now
    * — typing, and the shortcut that fills it in from the file name.
    */
-  const altText =
-    source?.metadata?.alt && typeof source.metadata.alt === "string"
-      ? source.metadata.alt
-      : "";
+  const altText = typeof source?.alt === "string" ? source.alt : "";
   const setAltText = (alt: string) => {
     if (!source) return;
-    if (source.metadata) {
-      // Always "add", never "replace", even when alt is already
-      // there: "add" on an object key is create-or-set in both
-      // JSONOps and the source-file ops, so it means the same thing
-      // but survives the key having gone away. Choosing between the
-      // two from `source` decides against the *client's optimistic*
-      // view, which a concurrent image upload can invalidate before
-      // the patch is applied - a "replace" then fails at publish
-      // with "Cannot replace object element which does not exist".
-      addPatch(
-        [
-          {
-            op: "add",
-            value: alt,
-            path: patchPath.concat(["metadata", "alt"]),
-          },
-        ],
-        "string",
-      );
-    } else if (source.metadata === undefined) {
-      addPatch(
-        [
-          {
-            op: "add",
-            value: {
-              ...(hotspot ? { hotspot } : {}),
-              alt: alt,
-            },
-            path: patchPath.concat(["metadata"]),
-          },
-        ],
-        "object",
-      );
-    } else {
-      console.warn(
-        `Expected source.metadata to be an object but got ${typeof source.metadata}`,
-      );
-    }
+    // Always "add", never "replace", even when alt is already there: "add" on
+    // an object key is create-or-set in both JSONOps and the source-file ops,
+    // so it means the same thing but survives the key having gone away. A
+    // "replace" decided against the client's optimistic view fails at publish
+    // with "Cannot replace object element which does not exist" if a concurrent
+    // upload invalidated it first.
+    addPatch(
+      [
+        {
+          op: "add",
+          value: alt,
+          path: patchPath.concat(["alt"]),
+        },
+      ],
+      "string",
+    );
   };
 
-  const metadataPath = Internal.createValPathOfItem(path, "metadata");
-  const altPath = Internal.createValPathOfItem(metadataPath, "alt");
-  const hotspotPath = Internal.createValPathOfItem(metadataPath, "hotspot");
+  const altPath = Internal.createValPathOfItem(path, "alt");
+  const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
   return (
     <div id={path}>
       {missingModules.length > 0 && (
@@ -437,19 +372,16 @@ export function ImageField({
                     </button>
                   }
                   modulePath={referencedModule as ModuleFilePath}
-                  selectedRef={source?._ref ?? null}
+                  selectedRef={source?.path ?? null}
                   onSelect={(entry: GalleryEntry) => {
+                    // Only the path: the dimensions and mime type stay in the
+                    // gallery, which is the one place that has them.
                     addPatch(
                       [
                         {
                           op: "replace",
                           path: patchPath,
-                          value: {
-                            [FILE_REF_PROP]: entry.filePath,
-                            [VAL_EXTENSION]: "file",
-                            [FILE_REF_SUBTYPE_TAG]: "image",
-                            metadata: entry.metadata as JSONValue,
-                          },
+                          value: { path: entry.filePath },
                         },
                       ],
                       "image",
@@ -583,46 +515,16 @@ export function ImageField({
                       x: Math.max((ev.clientX - 6 - left) / width, 0),
                       y: Math.max((ev.clientY - 6 - top) / height, 0),
                     };
-                    if (source.metadata && "hotspot" in source.metadata) {
-                      addPatch(
-                        [
-                          {
-                            op: "replace",
-                            path: patchPath.concat(["metadata", "hotspot"]),
-                            value: hotspot,
-                          },
-                        ],
-                        "object",
-                      );
-                    } else if (source.metadata) {
-                      addPatch(
-                        [
-                          {
-                            op: "add",
-                            path: patchPath.concat(["metadata", "hotspot"]),
-                            value: hotspot,
-                          },
-                        ],
-                        "object",
-                      );
-                    } else if (source.metadata === undefined) {
-                      addPatch(
-                        [
-                          {
-                            op: "add",
-                            value: {
-                              ...(hotspot ? { hotspot } : {}),
-                            },
-                            path: patchPath.concat(["metadata"]),
-                          },
-                        ],
-                        "object",
-                      );
-                    } else {
-                      console.warn(
-                        `Expected source.metadata to be an object but got ${typeof source.metadata}`,
-                      );
-                    }
+                    addPatch(
+                      [
+                        {
+                          op: "add",
+                          path: patchPath.concat(["hotspot"]),
+                          value: hotspot,
+                        },
+                      ],
+                      "object",
+                    );
                   }}
                 />
                 {hotspot && <HotspotMarker hotspot={hotspot} />}
@@ -636,37 +538,31 @@ export function ImageField({
                   disabled={disabled}
                   onCheckedChange={(checked) => {
                     if (checked) {
-                      const defaultHotspot = { x: 0.5, y: 0.5 };
-                      if (source.metadata) {
-                        // "add" regardless of whether hotspot is already set: see
-                        // the alt field above for why choosing "replace" from the
-                        // optimistic source is a publish failure waiting to happen.
-                        addPatch(
-                          [
-                            {
-                              op: "add",
-                              path: patchPath.concat(["metadata", "hotspot"]),
-                              value: defaultHotspot,
-                            },
-                          ],
-                          "object",
-                        );
-                      }
-                    } else {
-                      if (source.metadata && "hotspot" in source.metadata) {
-                        addPatch(
-                          [
-                            {
-                              op: "remove",
-                              path: patchPath.concat([
-                                "metadata",
-                                "hotspot",
-                              ]) as array.NonEmptyArray<string>,
-                            },
-                          ],
-                          "object",
-                        );
-                      }
+                      // "add" regardless of whether hotspot is already set: see
+                      // the alt field above for why choosing "replace" from the
+                      // optimistic source is a publish failure waiting to happen.
+                      addPatch(
+                        [
+                          {
+                            op: "add",
+                            path: patchPath.concat(["hotspot"]),
+                            value: { x: 0.5, y: 0.5 },
+                          },
+                        ],
+                        "object",
+                      );
+                    } else if (source.hotspot) {
+                      addPatch(
+                        [
+                          {
+                            op: "remove",
+                            path: patchPath.concat([
+                              "hotspot",
+                            ]) as array.NonEmptyArray<string>,
+                          },
+                        ],
+                        "object",
+                      );
                     }
                   }}
                 />
@@ -761,17 +657,7 @@ export function ImagePreview({ path }: { path: SourcePath }) {
   const source = sourceAtPath.data;
   return (
     <img
-      src={
-        VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
-          ? Internal.convertRemoteSource({
-              ...source,
-              [VAL_EXTENSION]: "remote",
-            }).url
-          : Internal.convertFileSource({
-              ...source,
-              [VAL_EXTENSION]: "file",
-            }).url
-      }
+      src={Internal.mediaUrl(source)}
       draggable={false}
       className="object-contain max-w-[60px] max-h-[60px] rounded-lg"
     />

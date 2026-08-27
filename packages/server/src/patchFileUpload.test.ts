@@ -61,11 +61,9 @@ function setup() {
         testImage: s.image(),
       }),
       {
-        testImage: c.image("/public/val/initial.png", {
-          width: 1,
+        testImage: { path: "/public/val/initial.png", width: 1,
           height: 1,
-          mimeType: "image/png",
-        }),
+          mimeType: "image/png" },
       },
     );
     `,

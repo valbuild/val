@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  FILE_REF_PROP,
+  MediaSource,
   FileMetadata,
   FileSource,
   ImageMetadata,
@@ -9,7 +9,6 @@ import {
   type Json,
   ModuleFilePath,
   PatchId,
-  RemoteSource,
   Schema,
   SelectorSource,
   SerializedSchema,
@@ -814,7 +813,7 @@ export abstract class ValOps {
       }
     >;
     files: Record<SourcePath, FileSource>;
-    remoteFiles: Record<SourcePath, RemoteSource>;
+    remoteFiles: Record<SourcePath, MediaSource>;
   }> {
     const errors: Record<
       ModuleFilePath,
@@ -824,7 +823,7 @@ export abstract class ValOps {
       }
     > = {};
     const files: Record<SourcePath, FileSource> = {};
-    const remoteFiles: Record<SourcePath, RemoteSource> = {};
+    const remoteFiles: Record<SourcePath, MediaSource> = {};
     const entries = Object.entries(schemas);
     // Build a map of gallery directory → [ModuleFilePath, ...] across ALL modules
     // (must include all modules, not just those being validated, since conflicts can come from any module)
@@ -933,7 +932,7 @@ export abstract class ValOps {
               validationError.fixes?.includes("image:check-remote") ||
               validationError.fixes?.includes("file:check-remote")
             ) {
-              remoteFiles[sourcePath] = validationError.value as RemoteSource;
+              remoteFiles[sourcePath] = validationError.value as MediaSource;
             } else if (
               validationError.fixes?.includes("keyof:check-keys") ||
               validationError.fixes?.includes("router:check-route")
@@ -1002,7 +1001,7 @@ export abstract class ValOps {
   async validateRemoteFiles(
     schemas: Schemas,
     sources: Sources,
-    remoteFiles: Record<SourcePath, RemoteSource>,
+    remoteFiles: Record<SourcePath, MediaSource>,
   ): Promise<Record<SourcePath, ValidationError[]>> {
     // TODO: Implement
     return {};
@@ -1074,7 +1073,7 @@ export abstract class ValOps {
         };
       }
       const type = schemaAtPath instanceof ImageSchema ? "image" : "file";
-      const filePath = value[FILE_REF_PROP];
+      const filePath = value.path;
       const fileData: { patchId: PatchId; remote: boolean } | null =
         fileLastUpdatedByPatchId?.[filePath] || null;
       let metadata;
@@ -1123,32 +1122,15 @@ export abstract class ValOps {
           ],
         };
       }
-      const metadataSourcePath = Internal.createValPathOfItem(
-        sourcePath,
-        "metadata",
-      );
-      if (!metadataSourcePath) {
-        throw new Error("Could not create metadata path");
-      }
-      const currentValueMetadata = value.metadata;
-      if (!currentValueMetadata) {
-        return {
-          [metadataSourcePath]: [
-            {
-              message: "Missing metadata field: 'metadata'",
-              value,
-            } satisfies ValidationError,
-          ],
-        };
-      }
+      // The fields Val computes from the bytes sit next to `path` now, so the
+      // error is reported at the field it is about rather than at a `metadata`
+      // object that no longer exists.
+      const currentValueMetadata = value;
 
       const fieldErrors: Record<SourcePath, ValidationError[]> = {};
       for (const field of getFieldsForType(type)) {
         const fieldMetadata = metadata[field];
-        const fieldSourcePath = Internal.createValPathOfItem(
-          metadataSourcePath,
-          field,
-        );
+        const fieldSourcePath = Internal.createValPathOfItem(sourcePath, field);
         if (!fieldSourcePath) {
           throw new Error("Could not create field path");
         }
@@ -1936,18 +1918,19 @@ function isOnlyFileCheckValidationError(validationError: ValidationError) {
   return false;
 }
 
+/**
+ * Whether a flagged validation value is media.
+ *
+ * The caller already knows the schema said image or file — this only guards
+ * against a value that never got that far.
+ */
 function isFileSource(value: unknown): value is FileSource {
-  if (
+  return (
     typeof value === "object" &&
     value !== null &&
-    FILE_REF_PROP in value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "file" &&
-    FILE_REF_PROP
-  ) {
-    return true;
-  }
-  return false;
+    "path" in value &&
+    typeof value.path === "string"
+  );
 }
 
 export type WithGenericError<T extends Record<string, unknown>> =

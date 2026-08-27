@@ -14,18 +14,12 @@ import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
-import {
-  ImageMetadata,
-  ImageSchema,
-  SerializedImageSchema,
-} from "./schema/image";
-import { FileSource } from "./source/file";
+import { ImageSchema, SerializedImageSchema } from "./schema/image";
 import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
-import { ImageSelector } from "./selector/image";
-import { ImageSource } from "./source/image";
+import { ImageSource } from "./source/media";
 import { ModuleFilePathSep } from ".";
 
 const brand = Symbol("ValModule");
@@ -44,15 +38,13 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
     ? T
     : T extends RawString
       ? string
-      : T extends ImageSelector
-        ? ImageSource
-        : T extends { [key in string]: SelectorSource }
-          ? {
-              [key in keyof T]: ReplaceRawStringWithString<T[key]>;
-            }
-          : T extends SelectorSource[]
-            ? ReplaceRawStringWithString<T[number]>[]
-            : T;
+      : T extends { [key in string]: SelectorSource }
+        ? {
+            [key in keyof T]: ReplaceRawStringWithString<T[key]>;
+          }
+        : T extends SelectorSource[]
+          ? ReplaceRawStringWithString<T[number]>[]
+          : T;
 
 export function define<T extends Schema<SelectorSource>>(
   id: string, // TODO: `/${string}`
@@ -183,9 +175,7 @@ function isRichTextSchema(
 
 function isImageSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is
-  | ImageSchema<FileSource<ImageMetadata> | null>
-  | SerializedImageSchema {
+): schema is ImageSchema<ImageSource | null> | SerializedImageSchema {
   return (
     schema instanceof ImageSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "image")

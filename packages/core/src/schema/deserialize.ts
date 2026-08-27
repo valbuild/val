@@ -1,7 +1,6 @@
 import { SerializedSchema, Schema } from ".";
 import { SelectorSource } from "../selector";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
@@ -9,7 +8,7 @@ import { ColorSchema } from "./color";
 import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
-import { ImageMetadata, ImageSchema } from "./image";
+import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
@@ -136,9 +135,7 @@ function deserializeSchemaImpl(
                   typeof serialized.options?.inline?.img === "object"
                     ? (deserializeSchema(
                         serialized.options.inline.img,
-                      ) as ImageSchema<
-                        ImageSource | RemoteSource<ImageMetadata>
-                      >)
+                      ) as ImageSchema<ImageSource>)
                     : serialized.options?.inline?.img,
               }
             : (serialized.options?.inline as

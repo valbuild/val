@@ -10,7 +10,7 @@ import {
   ValConfig,
   Internal,
   FileSource,
-  RemoteSource,
+  MediaSource,
   Schema,
   SelectorSource,
 } from "@valbuild/core";
@@ -1550,7 +1550,7 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
-          remoteFiles: Record<SourcePath, RemoteSource>;
+          remoteFiles: Record<SourcePath, MediaSource>;
         } = {
           errors: {},
           files: {},

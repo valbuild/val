@@ -1,13 +1,10 @@
 import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
   FileMetadata,
   ImageMetadata,
   Internal,
   SerializedSchema,
   Source,
   SourcePath,
-  VAL_EXTENSION,
   ValidationError,
 } from "@valbuild/core";
 import {
@@ -58,6 +55,19 @@ function parentPatchPathOfMediaEntry(sourcePath: SourcePath, entryKey: string) {
 }
 
 // TODO: find a better name? transformFixesToPatch?
+/**
+ * The media value a validation error flagged, read as a plain record.
+ *
+ * A `ValidationError` carries only a value, never the schema that rejected it,
+ * so the shape is all there is to go on here.
+ */
+function mediaValueOf(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
 export async function createFixPatch(
   config: { projectRoot: string; remoteHost: string },
   apply: boolean,
@@ -92,97 +102,44 @@ export async function createFixPatch(
           fixes: undefined,
         });
       } else if (fix === "image:check-metadata") {
-        const currentValue = validationError.value;
-        const metadataIsCorrect =
-          // metadata is a prop that is an object
-          typeof currentValue === "object" &&
-          currentValue &&
-          "metadata" in currentValue &&
-          currentValue.metadata &&
-          typeof currentValue.metadata === "object" &&
-          // width is correct
-          "width" in currentValue.metadata &&
-          currentValue.metadata.width === imageMetadata.width &&
-          // height is correct
-          "height" in currentValue.metadata &&
-          currentValue.metadata.height === imageMetadata.height &&
-          // mimeType is correct
-          "mimeType" in currentValue.metadata &&
-          currentValue.metadata.mimeType === imageMetadata.mimeType;
-        // skips if the metadata is already correct
-        if (!metadataIsCorrect) {
+        const currentValue = mediaValueOf(validationError.value);
+        const derived = {
+          width: imageMetadata.width,
+          height: imageMetadata.height,
+          mimeType: imageMetadata.mimeType,
+        };
+        // One op per field, not one for the whole object: `alt` and `hotspot`
+        // are authored and sit next to these, so a whole-object write would
+        // throw away what a person typed.
+        const wrong = (
+          Object.entries(derived) as [keyof typeof derived, unknown][]
+        ).filter(([field, expected]) => currentValue?.[field] !== expected);
+        if (wrong.length > 0) {
           if (apply) {
-            patch.push({
-              op: "replace",
-              path: sourceToPatchPath(sourcePath).concat("metadata"),
-              value: {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ...(currentValue as any).metadata,
-                width: imageMetadata.width,
-                height: imageMetadata.height,
-                mimeType: imageMetadata.mimeType,
-              },
-            });
-          } else {
-            if (
-              typeof currentValue === "object" &&
-              currentValue &&
-              "metadata" in currentValue &&
-              currentValue.metadata &&
-              typeof currentValue.metadata === "object"
-            ) {
-              if (
-                !("width" in currentValue.metadata) ||
-                currentValue.metadata.width !== imageMetadata.width
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata width is incorrect! Found: " +
-                    ("width" in currentValue.metadata
-                      ? currentValue.metadata.width
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.width,
-                  fixes: undefined,
-                });
-              }
-              if (
-                !("height" in currentValue.metadata) ||
-                currentValue.metadata.height !== imageMetadata.height
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata height is incorrect! Found: " +
-                    ("height" in currentValue.metadata
-                      ? currentValue.metadata.height
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.height,
-                  fixes: undefined,
-                });
-              }
-              if (
-                !("mimeType" in currentValue.metadata) ||
-                currentValue.metadata.mimeType !== imageMetadata.mimeType
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata mimeType is incorrect! Found: " +
-                    ("mimeType" in currentValue.metadata
-                      ? currentValue.metadata.mimeType
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.mimeType,
-                  fixes: undefined,
-                });
-              }
-            } else {
+            for (const [field, expected] of wrong) {
+              patch.push({
+                op: "add",
+                path: sourceToPatchPath(sourcePath).concat(field),
+                value: expected as JSONValue,
+              });
+            }
+          } else if (currentValue) {
+            for (const [field, expected] of wrong) {
               remainingErrors.push({
-                ...validationError,
-                message: "Image metadata is not an object!",
+                message:
+                  `Image ${field} is incorrect! Found: ` +
+                  (currentValue[field] ?? "<empty>") +
+                  ". Expected: " +
+                  expected,
                 fixes: undefined,
               });
             }
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: "Image is not an object!",
+              fixes: undefined,
+            });
           }
         }
       } else if (fix === "image:add-metadata") {
@@ -193,15 +150,24 @@ export async function createFixPatch(
             fixes: undefined,
           });
         } else {
-          patch.push({
-            op: "add",
-            path: sourceToPatchPath(sourcePath).concat("metadata"),
-            value: {
-              width: imageMetadata.width,
-              height: imageMetadata.height,
-              mimeType: imageMetadata.mimeType,
+          const patchPath = sourceToPatchPath(sourcePath);
+          patch.push(
+            {
+              op: "add",
+              path: patchPath.concat("width"),
+              value: imageMetadata.width,
             },
-          });
+            {
+              op: "add",
+              path: patchPath.concat("height"),
+              value: imageMetadata.height,
+            },
+            {
+              op: "add",
+              path: patchPath.concat("mimeType"),
+              value: imageMetadata.mimeType,
+            },
+          );
         }
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
@@ -216,73 +182,36 @@ export async function createFixPatch(
           fixes: undefined,
         });
       } else if (fix === "file:check-metadata") {
-        const currentValue = validationError.value;
-        const metadataIsCorrect =
-          // metadata is a prop that is an object
-          typeof currentValue === "object" &&
-          currentValue &&
-          "metadata" in currentValue &&
-          currentValue.metadata &&
-          typeof currentValue.metadata === "object" &&
-          // mimeType is correct
-          "mimeType" in currentValue.metadata &&
-          currentValue.metadata.mimeType === fileMetadata.mimeType;
-
-        // skips if the metadata is already correct
-        if (!metadataIsCorrect) {
+        const currentValue = mediaValueOf(validationError.value);
+        if (currentValue?.mimeType !== fileMetadata.mimeType) {
           if (apply) {
             patch.push({
-              op: "replace",
-              path: sourceToPatchPath(sourcePath).concat("metadata"),
-              value: {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ...(currentValue as any).metadata,
-                ...(fileMetadata.mimeType
-                  ? { mimeType: fileMetadata.mimeType }
-                  : {}),
-              },
+              op: "add",
+              path: sourceToPatchPath(sourcePath).concat("mimeType"),
+              value: fileMetadata.mimeType ?? null,
+            });
+          } else if (currentValue) {
+            remainingErrors.push({
+              message:
+                "File mimeType is incorrect! Found: " +
+                (currentValue.mimeType ?? "<empty>") +
+                ". Expected: " +
+                fileMetadata.mimeType,
+              fixes: undefined,
             });
           } else {
-            if (
-              typeof currentValue === "object" &&
-              currentValue &&
-              "metadata" in currentValue &&
-              currentValue.metadata &&
-              typeof currentValue.metadata === "object"
-            ) {
-              if (
-                !("mimeType" in currentValue.metadata) ||
-                currentValue.metadata.mimeType !== fileMetadata.mimeType
-              ) {
-                remainingErrors.push({
-                  message:
-                    "File metadata mimeType is incorrect! Found: " +
-                    ("mimeType" in currentValue.metadata
-                      ? currentValue.metadata.mimeType
-                      : "<empty>") +
-                    ". Expected: " +
-                    fileMetadata.mimeType,
-                  fixes: undefined,
-                });
-              }
-            } else {
-              remainingErrors.push({
-                ...validationError,
-                message: "Image metadata is not an object!",
-                fixes: undefined,
-              });
-            }
+            remainingErrors.push({
+              ...validationError,
+              message: "File is not an object!",
+              fixes: undefined,
+            });
           }
         }
       } else if (fix === "file:add-metadata") {
         patch.push({
           op: "add",
-          path: sourceToPatchPath(sourcePath).concat("metadata"),
-          value: {
-            ...(fileMetadata.mimeType
-              ? { mimeType: fileMetadata.mimeType }
-              : {}),
-          },
+          path: sourceToPatchPath(sourcePath).concat("mimeType"),
+          value: fileMetadata.mimeType ?? null,
         });
       }
     } else if (fix === "image:upload-remote" || fix === "file:upload-remote") {
@@ -315,9 +244,8 @@ export async function createFixPatch(
         patch.push({
           op: "replace",
           value: {
-            _type: "remote",
-            _ref: remoteFile.ref,
-            metadata,
+            path: remoteFile.ref,
+            ...(metadata as Record<string, JSONValue>),
           },
           path: sourceToPatchPath(sourcePath),
         });
@@ -431,24 +359,13 @@ export async function createFixPatch(
         });
         continue;
       }
-      const value = {
-        [VAL_EXTENSION]: "file",
-        [FILE_REF_PROP]: `/${filePath}`,
-        ...(fix === "image:download-remote"
-          ? {
-              [FILE_REF_SUBTYPE_TAG]: "image",
-            }
-          : {}),
-      };
       patch.push({
         op: "replace",
         path: sourceToPatchPath(sourcePath),
-        value: v.metadata
-          ? {
-              ...value,
-              metadata: v.metadata as JSONValue,
-            }
-          : value,
+        value: {
+          path: `/${filePath}`,
+          ...((v.metadata ?? {}) as Record<string, JSONValue>),
+        },
       });
     } else if (
       fix === "images:check-all-files" ||
@@ -672,42 +589,25 @@ function getRemoteValueFromValidationError(v: ValidationError):
       message: "Unexpected error while checking remote (no value)",
     };
   }
-  if (
-    typeof v.value !== "object" ||
-    v.value === null ||
-    !(FILE_REF_PROP in v.value)
-  ) {
+  if (typeof v.value !== "object" || v.value === null || !("path" in v.value)) {
     return {
       success: false,
-      message: "Unexpected error while checking remote (no _ref in value)",
+      message: "Unexpected error while checking remote (no path in value)",
     };
   }
-  if (typeof v.value._ref !== "string") {
+  if (typeof v.value.path !== "string") {
     return {
       success: false,
-      message: "Unexpected error while checking remote (_ref is not a string)",
+      message: "Unexpected error while checking remote (path is not a string)",
     };
   }
-  let metadata: Record<string, unknown> | undefined;
-  if ("metadata" in v.value && typeof v.value.metadata === "object") {
-    if (v.value.metadata === null) {
-      return {
-        success: false,
-        message: "Unexpected error while checking remote (metadata is null)",
-      };
-    }
-    if (Array.isArray(v.value.metadata)) {
-      return {
-        success: false,
-        message:
-          "Unexpected error while checking remote (metadata is an array)",
-      };
-    }
-    metadata = v.value.metadata as Record<string, unknown> | undefined;
-  }
+  // Everything but the path is what Val read from the bytes.
+  const { path: ref, ...metadata } = v.value as Record<string, unknown> & {
+    path: string;
+  };
   return {
     success: true,
-    _ref: v.value._ref,
+    _ref: ref,
     metadata,
   };
 }
