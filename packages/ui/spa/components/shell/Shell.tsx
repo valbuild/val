@@ -225,8 +225,6 @@ export type ShellProps = {
    */
   previewHref?: string;
   onSignOut?: () => void;
-  /** Open the full validation-errors view. Falls back to the utility panel. */
-  onShowErrors?: () => void;
   /**
    * Why the account could not be loaded, once the studio has stopped trying.
    *
@@ -340,7 +338,6 @@ export function Shell({
   onPreview,
   previewHref,
   onSignOut,
-  onShowErrors,
   accountError,
   aiUnavailable,
   aiEnabled = false,
@@ -714,8 +711,6 @@ export function Shell({
             ? "blocked"
             : publishState
         }
-        validationErrorCount={validationErrorCount}
-        onShowErrors={onShowErrors ?? (() => setOpenPanel("utility"))}
       />
 
       {breakpoint === "mobile" ? (

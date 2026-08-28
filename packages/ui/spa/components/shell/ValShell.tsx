@@ -624,12 +624,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [validationErrors],
   );
 
-  const showErrors = useCallback(() => {
-    navigation.navigate(VAL_ERRORS_ROUTE, {
-      errorFields: allValidationErrorPaths,
-    });
-  }, [navigation, allValidationErrorPaths]);
-
   /** One module's errors, from the row in the utility panel. */
   const onSelectValidationError = useCallback(
     (error: ShellValidationError) => {
@@ -770,7 +764,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       // Also as an href, so the menu item is a link that can be copied. The URL
       // enables preview and redirects, so it is worth sending to someone.
       previewHref={previewHref}
-      onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onCompare={showCompare}
       // Recent activity rows did nothing: the panel listed them and no handler
