@@ -1894,22 +1894,35 @@ export const ValServer = (
         let removed: DroppedPatch[] = [];
         if (preparedCommit.hasErrors && serverOps instanceof ValOpsFS) {
           removed = computePatchesToDrop(preparedCommit);
-          const doomed = new Set(removed.map((entry) => entry.patchId));
-          const survivors = patches.patches.filter(
-            (patch) => !doomed.has(patch.patchId),
-          );
-          const survivingPatches = { ...patches, patches: survivors };
-          // One retry is enough: what is left of each module is the prefix that
-          // already applied, and `prepare` walks modules independently, so
-          // nothing new can fail.
-          preparedCommit = await serverOps.prepare({
-            ...serverOps.analyzePatches(survivors, patches.commits, commit),
-            ...survivingPatches,
-          });
-          console.error(
-            "Val: removed unpublished changes that could not be applied",
-            removed,
-          );
+          /*
+           * Nothing to drop means nothing a second `prepare` could do better.
+           *
+           * `hasErrors` covers failures no patch is to blame for — a binary file
+           * that could not be written, a module that could not be formatted, a
+           * `.val.ts` that could not be read at all. Re-preparing every module
+           * with an unchanged patch set would fail identically, and logging
+           * "removed unpublished changes []" on the way would say something
+           * untrue. It falls through to the 400 instead, which is the honest
+           * answer: this save did not happen and the changes are still here.
+           */
+          if (removed.length > 0) {
+            const doomed = new Set(removed.map((entry) => entry.patchId));
+            const survivors = patches.patches.filter(
+              (patch) => !doomed.has(patch.patchId),
+            );
+            const survivingPatches = { ...patches, patches: survivors };
+            // One retry is enough: what is left of each module is the prefix
+            // that already applied, and `prepare` walks modules independently,
+            // so nothing new can fail.
+            preparedCommit = await serverOps.prepare({
+              ...serverOps.analyzePatches(survivors, patches.commits, commit),
+              ...survivingPatches,
+            });
+            console.error(
+              "Val: removed unpublished changes that could not be applied",
+              removed,
+            );
+          }
         }
         if (preparedCommit.hasErrors) {
           console.error(

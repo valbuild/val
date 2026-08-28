@@ -42,6 +42,43 @@ describe("computePatchesToDrop", () => {
   });
 
   /**
+   * A module that could not be READ fails as a whole: `prepare` reports every
+   * one of its patches as skipped and names none of them unappliable.
+   *
+   * Nothing is wrong with those changes, so dropping them would be deleting
+   * good edits because a file was missing for a moment — rename a module, or
+   * switch branch, with unsaved changes to it. The save refuses instead, which
+   * is what it did before auto-save and is right here: it resolves itself when
+   * the file comes back.
+   */
+  it("keeps a module's changes when the module itself is what failed", () => {
+    expect(
+      computePatchesToDrop({
+        triedPatches: { [A]: [] },
+        skippedPatches: { [A]: [id("p1"), id("p2")] },
+        unappliablePatches: {},
+      }),
+    ).toEqual([]);
+  });
+
+  /**
+   * And the two cases side by side, because it is the DISTINCTION that is easy
+   * to lose: one module has a change that failed, the other has no readable
+   * file. Only the first one's chain goes.
+   */
+  it("drops the failed module's tail while an unreadable module keeps everything", () => {
+    const dropped = computePatchesToDrop({
+      triedPatches: { [A]: [id("a2")], [B]: [] },
+      skippedPatches: { [A]: [id("a3")], [B]: [id("b1"), id("b2")] },
+      unappliablePatches: {
+        [id("a2")]: { moduleFilePath: A, message: "no such index" },
+      },
+    });
+
+    expect(dropped.map((entry) => entry.patchId)).toEqual(["a2", "a3"]);
+  });
+
+  /**
    * The rule the whole thing turns on: a patch is ops against the source as the
    * patches before it left it, so once one has not been applied the ones after
    * it were written against a state that never existed.

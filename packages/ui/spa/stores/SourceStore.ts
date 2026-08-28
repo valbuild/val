@@ -869,15 +869,29 @@ export class SourceStore {
     moduleFilePath: ModuleFilePath,
     raw: Json,
     patched: Json,
+    /*
+     * The realm to write into, defaulting to the live one.
+     *
+     * Passed the same way — and for the same reason — as `substitutedSource`
+     * takes the entry map it substitutes from: the two are inverses, and a split
+     * that wrote to one realm what was substituted from the other would put
+     * entry content where a marker belongs. `promotePublished` is the caller
+     * that needs the base realm.
+     */
+    into?: {
+      sources: Record<ModuleFilePath, Json>;
+      entries: Map<ModuleFilePath, Map<string, Json>>;
+    },
   ): void {
-    const entries = this.jsonEntries.get(moduleFilePath);
+    const sources = into?.sources ?? this.sources;
+    const entries = (into?.entries ?? this.jsonEntries).get(moduleFilePath);
     if (
       entries === undefined ||
       entries.size === 0 ||
       !isJsonObject(patched) ||
       !isJsonObject(raw)
     ) {
-      this.sources[moduleFilePath] = patched;
+      sources[moduleFilePath] = patched;
       return;
     }
     const nextSource: Record<string, Json> = { ...patched };
@@ -894,7 +908,7 @@ export class SourceStore {
       entries.set(key, nextSource[key]);
       nextSource[key] = raw[key];
     }
-    this.sources[moduleFilePath] = nextSource;
+    sources[moduleFilePath] = nextSource;
     // The substitution cache is keyed on the source object it was built from,
     // and that object is now a different one — but the revision this patch is
     // about to bump is what invalidates it, so nothing to clear here.
@@ -1063,19 +1077,6 @@ export class SourceStore {
   }
 
   /**
-   * Forget these patches WITHOUT rebuilding source.
-   *
-   * The counterpart to the drop that `patch:drop` triggers, and the difference is
-   * the whole reason both exist. A dropped patch was refused: its effect must
-   * disappear, so source is rebuilt from base plus what survives. A PUBLISHED
-   * patch's effect must stay: it is in the base now, so rebuilding would be
-   * correct only if the base had already been refetched, and until then it would
-   * revert the value on screen.
-   *
-   * So: take them out of the chain and leave `sources` alone. Pair it with
-   * {@link promoteToBase} and the displayed value never moves.
-   */
-  /**
    * Bake SOME of a module's chain into the base, and keep the rest.
    *
    * {@link promoteToBase} bakes the whole displayed value, which is right only
@@ -1123,7 +1124,23 @@ export class SourceStore {
         this.chains.set(moduleFilePath, surviving);
         continue;
       }
-      let next: JSONValue = deepClone(base as JSONValue);
+      /*
+       * The SUBSTITUTED base, not the raw one — the same choice the apply path
+       * makes, and for the same reason.
+       *
+       * Raw base holds `.jsonValues()` markers and the entry content lives in
+       * `baseJsonEntries`, so a published edit at `["/a", "title"]` applied to
+       * the raw base fails on a `{_type: "json"}` that has no `title`. That put
+       * a jsonValues module in the one state this method exists to prevent: the
+       * chain trimmed, the base never moved, and the published edit in neither.
+       */
+      let next: JSONValue = deepClone(
+        this.substitutedSource(
+          moduleFilePath,
+          base,
+          this.baseJsonEntries,
+        ) as JSONValue,
+      );
       let rebuilt = true;
       for (const entry of chain) {
         if (!published.has(entry.record.patchId)) continue;
@@ -1154,14 +1171,45 @@ export class SourceStore {
         }
         next = res.value;
       }
-      if (rebuilt) {
-        this.activity.work("source:promote-to-base", moduleFilePath);
-        this.baseSources[moduleFilePath] = next;
+      if (!rebuilt) {
+        /*
+         * The chain KEEPS what was published, because the base did not move.
+         *
+         * Trimming here would leave the edit in neither base nor chain, so the
+         * next rebuild would show the value as it was before it shipped —
+         * silently losing on screen a change that is on disk. Holding it costs
+         * nothing: the server no longer has these ids, so the next save cannot
+         * name them, and the next stat reconciles the chain against what the
+         * server actually holds.
+         */
+        continue;
       }
+      this.activity.work("source:promote-to-base", moduleFilePath);
+      // Split back into the base realm the same way an apply is split back into
+      // the live one, so entry content lands in `baseJsonEntries` and the marker
+      // stays in `baseSources`. Without it a published edit INSIDE an entry kept
+      // showing in a compare as an outstanding change.
+      this.storePatched(moduleFilePath, base, next, {
+        sources: this.baseSources,
+        entries: this.baseJsonEntries,
+      });
       this.chains.set(moduleFilePath, surviving);
     }
   }
 
+  /**
+   * Forget these patches WITHOUT rebuilding source.
+   *
+   * The counterpart to the drop that `patch:drop` triggers, and the difference is
+   * the whole reason both exist. A dropped patch was refused: its effect must
+   * disappear, so source is rebuilt from base plus what survives. A PUBLISHED
+   * patch's effect must stay: it is in the base now, so rebuilding would be
+   * correct only if the base had already been refetched, and until then it would
+   * revert the value on screen.
+   *
+   * So: take them out of the chain and leave `sources` alone. Pair it with
+   * {@link promoteToBase} and the displayed value never moves.
+   */
   forgetPublished(patchIds: readonly PatchId[]): void {
     const published = new Set(patchIds);
     for (const [moduleFilePath, chain] of this.chains) {

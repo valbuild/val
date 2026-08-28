@@ -959,7 +959,21 @@ export class PatchStore {
   } | null = null;
 
   recordPublishErrors(errors: Readonly<Record<PatchId, string>>): void {
-    for (const [patchId, message] of Object.entries(errors)) {
+    const entries = Object.entries(errors);
+    if (entries.length === 0) {
+      /*
+       * Recording nothing is not a movement of the chain.
+       *
+       * A 400 that blames no particular patch — "Failed to save files", a
+       * module that could not be formatted — arrives here as `{}`. Bumping for
+       * it woke every chain reader for a change that had not happened, and
+       * auto-save is memoised on exactly that: the batch got a new identity, the
+       * debounce re-ran, the same save failed the same way, once every 700 ms
+       * with nobody typing.
+       */
+      return;
+    }
+    for (const [patchId, message] of entries) {
       this.publishErrorById.set(patchId as PatchId, message);
     }
     this.bump();

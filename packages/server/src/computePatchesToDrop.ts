@@ -22,6 +22,14 @@ import { PreparedCommit } from "./ValOps";
  *
  * **Other modules are untouched.** `prepare` walks each module's chain
  * independently, so a broken chain in one file says nothing about another.
+ *
+ * **And a module that failed as a WHOLE keeps everything.** When the `.val.ts`
+ * cannot be read at all, `prepare` reports every one of its patches as skipped
+ * and names none of them as unappliable — the file is what failed, not the
+ * changes. Deleting them there would be destroying good edits because a file was
+ * missing for a moment: rename a module, or switch branch, with unsaved changes
+ * to it and the next auto-save would silently take them all. Skipped is only
+ * collateral when there is something in that module for it to be collateral OF.
  */
 export type DroppedPatch = {
   patchId: PatchId;
@@ -72,9 +80,34 @@ export function computePatchesToDrop(
       add(moduleFilePath as ModuleFilePath, patchId);
     }
   }
+  /*
+   * Which modules actually had a change fail, as opposed to being unreadable.
+   *
+   * `triedPatches` holds only failures, and `unappliablePatches` names the
+   * failure itself, so between them they are the whole answer. A module in
+   * neither has nothing to blame its skipped tail on.
+   */
+  const failedModules = new Set<ModuleFilePath>();
+  for (const [moduleFilePath, patchIds] of Object.entries(
+    prepared.triedPatches,
+  )) {
+    if (patchIds.length > 0) {
+      failedModules.add(moduleFilePath as ModuleFilePath);
+    }
+  }
+  for (const failure of Object.values(prepared.unappliablePatches)) {
+    failedModules.add(failure.moduleFilePath);
+  }
+
   for (const [moduleFilePath, patchIds] of Object.entries(
     prepared.skippedPatches,
   )) {
+    if (!failedModules.has(moduleFilePath as ModuleFilePath)) {
+      // The module failed as a whole. Its changes are fine and are kept, so the
+      // save refuses instead — which is what it did before auto-save, and is
+      // right here: this one resolves itself when the file comes back.
+      continue;
+    }
     for (const patchId of patchIds) {
       add(moduleFilePath as ModuleFilePath, patchId);
     }
