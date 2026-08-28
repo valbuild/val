@@ -1,7 +1,7 @@
 ---
-"@valbuild/core": patch
-"@valbuild/server": patch
-"@valbuild/cli": patch
+"@valbuild/core": minor
+"@valbuild/server": minor
+"@valbuild/cli": minor
 ---
 
 Only warn about an unregistered `*.val.ts` that really is a Val module
@@ -35,6 +35,12 @@ there, so a helper file is never run just to find out it is a helper.
 The fix for a file the last rule now flags is a NAMED export, not a rename: a
 file that imports `s` or `c` is a `.val` file, and stays one. Only the default
 export slot is reserved for a module.
+
+**This can newly fail a build.** The last rule turns what used to be a warning
+into a non-zero exit, so a project with an unregistered `*.val.ts` that default
+exports something other than a module — or that will not evaluate at all — will
+see `val validate` fail where it previously passed. That is the point of the
+change, but it is worth knowing before upgrading a pipeline that gates on it.
 
 Adds `Internal.isValModule` to `@valbuild/core` and
 `createValModuleFileInspector` to `@valbuild/server`.

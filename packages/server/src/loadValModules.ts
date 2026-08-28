@@ -311,9 +311,23 @@ export function createValModuleFileInspector(
       return { status: "no-default-export" };
     }
     let exports: Record<string, unknown>;
+    // `loadModule` inserts a module into the cache BEFORE evaluating it, so
+    // that a cycle resolves. One that throws therefore leaves a half-built
+    // entry behind - and unlike `loadValModules`, which builds a cache per
+    // call and lets the throw escape, this cache outlives the failure. A later
+    // inspection of the same file (or of the helper that actually threw) would
+    // hit that entry, see empty exports, and report "default export is
+    // undefined" instead of the real error - or, worse, quietly downgrade it to
+    // a warning. So roll the cache back to what it was before this attempt.
+    const before = new Set(Object.keys(cache));
     try {
       exports = loadModule(absPath, cache, compilerOptions, host).exports;
     } catch (e) {
+      for (const key of Object.keys(cache)) {
+        if (!before.has(key)) {
+          delete cache[key];
+        }
+      }
       return {
         status: "invalid",
         message: `Could not be loaded. Error: ${errorMessage(e)}`,
@@ -322,20 +336,29 @@ export function createValModuleFileInspector(
     if (Internal.isValModule(exports.default)) {
       return { status: "val-module" };
     }
+    // NOTE: do NOT suggest wrapping this in `c.define`. A shared schema turned
+    // into a module is an UNREGISTERED module, i.e. straight back to a warning.
+    // The fix is to move it out of the default export slot, which is the one
+    // thing about a `.val.ts` that Val reserves for itself.
     return {
       status: "invalid",
       message: `Default export is ${describeDefaultExport(
         exports.default,
-      )}, not a Val module. A '*.val.ts' file must 'export default c.define(...)'`,
+      )}, not a Val module. Only 'c.define(...)' may be the default export of a '*.val.ts' file: use a named export for a shared schema or helper`,
     };
   };
 }
 
 /**
- * Whether the file exports something as `default`, without evaluating it.
+ * Whether the file exports a RUNTIME value as `default`, without evaluating it.
  *
- * `export * from "./x"` deliberately does not count: a star re-export never
- * carries the default.
+ * Two things deliberately do not count, because neither exists once the file is
+ * transpiled — and treating either as a default export would send a pure helper
+ * off to be evaluated and reported:
+ *
+ *  - `export * from "./x"`, since a star re-export never carries the default;
+ *  - a type-only export, in either of its spellings
+ *    (`export type { T as default }` and `export { type T as default }`).
  */
 function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
   return sourceFile.statements.some((statement) => {
@@ -346,11 +369,12 @@ function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
     // `export { x as default }` / `export { default } from "./x"`
     if (
       ts.isExportDeclaration(statement) &&
+      !statement.isTypeOnly &&
       statement.exportClause &&
       ts.isNamedExports(statement.exportClause)
     ) {
       return statement.exportClause.elements.some(
-        (element) => element.name.text === "default",
+        (element) => !element.isTypeOnly && element.name.text === "default",
       );
     }
     // `export default function f() {}` / `export default class C {}`, which are
