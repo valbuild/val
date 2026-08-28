@@ -30,7 +30,7 @@ export type DebouncedFieldWrite<T> = {
  * module, and eventually a row on the server — so a paragraph typed into a
  * string field left a few hundred patches behind it, which is how a project
  * accumulates a chain long enough to break the request that reads it (see
- * `planPatchIdQuery`) and a publish long enough to notice.
+ * `chunkPatchIds`) and a publish long enough to notice.
  *
  * It also showed: a validation error under the field appeared and cleared as the
  * value crossed in and out of valid mid-word, and everything below it — a rich

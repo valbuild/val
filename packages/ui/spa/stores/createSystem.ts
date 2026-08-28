@@ -638,6 +638,40 @@ export function createSystem(options: SystemOptions): System {
      * rejection needs.
      */
     /**
+     * Unpublished changes the server named and then did not send.
+     *
+     * Reported for the same reason a rejected save is: what is on screen is not
+     * what the server says exists, and the person editing has no way to tell.
+     * Anything they change now is written on top of content missing those edits.
+     *
+     * This is the visible half of the failure that motivated the patch store
+     * rewrite - a studio told about 410 unpublished changes, sent 359, and left
+     * waiting on the rest with nothing said. The store no longer produces that
+     * disagreement; this makes sure that if anything ever does, it is not
+     * silent.
+     */
+    /**
+     * The server threw someone's unpublished changes away.
+     *
+     * It repairs its own store on read, so a change whose file it cannot use is
+     * removed rather than kept to fail on every load. That is the right call —
+     * but the fields then go quietly back to their published values, and finding
+     * that out by noticing is the worst version of it.
+     */
+    stat.events.on("patch:removed-by-server", (event) => {
+      status.reportError(
+        event.removed.length === 1
+          ? "An unpublished change was removed because the server could not read it."
+          : `${event.removed.length} unpublished changes were removed because the server could not read them.`,
+        "They are gone and the fields are back to their published values. The " +
+          "server log and .val/patches/patches.repair.log say which, and why.",
+      );
+      console.error(
+        "Val: the server removed these unpublished changes.",
+        event.removed,
+      );
+    }),
+    /**
      * The chain could not be READ, which is as bad as it not saving.
      *
      * Stat names the pending patches, so the editor knows they exist; without
@@ -661,15 +695,6 @@ export function createSystem(options: SystemOptions): System {
         } affected: ${event.message} Until this succeeds, the editor shows published content for the fields they touch.`,
       );
     }),
-    /**
-     * Stat announced these, and a 200 came back without them.
-     *
-     * The sibling of `patch:fetch-failed` and the harder half: nothing failed,
-     * so nothing would otherwise say anything. The store no longer produces that
-     * disagreement — see `architecture/patch-store.md` — but a studio told about
-     * 410 unpublished changes, sent 359, and left waiting on the rest with
-     * nothing said is what this exists to make impossible a second time.
-     */
     patchStore.events.on("patch:announced-not-delivered", (event) => {
       status.reportError(
         event.patches.length === 1
@@ -682,27 +707,6 @@ export function createSystem(options: SystemOptions): System {
       console.error(
         "Val: the server announced these unpublished changes and did not send them.",
         { patchIds: event.patches },
-      );
-    }),
-    /**
-     * The server threw someone's unpublished changes away.
-     *
-     * It repairs its own store on read, so a change whose file it cannot use is
-     * removed rather than kept to fail on every load. That is the right call —
-     * but the fields then go quietly back to their published values, and finding
-     * that out by noticing is the worst version of it.
-     */
-    stat.events.on("patch:removed-by-server", (event) => {
-      status.reportError(
-        event.removed.length === 1
-          ? "An unpublished change was removed because the server could not read it."
-          : `${event.removed.length} unpublished changes were removed because the server could not read them.`,
-        "They are gone and the fields are back to their published values. The " +
-          "server log and .val/patches/patches.repair.log say which, and why.",
-      );
-      console.error(
-        "Val: the server removed these unpublished changes.",
-        event.removed,
       );
     }),
     patchSync.events.on("patch:save-rejected", (event) => {

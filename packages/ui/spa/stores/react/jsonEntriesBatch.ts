@@ -44,9 +44,9 @@ function keyCost(key: string): number {
  * exceeding it is rejected by the client before it reaches the network; and the
  * URL budget above.
  *
- * Chunked rather than "ask for everything" — the answer `planPatchIdQuery` gives
- * for patch ids — because there is no unfiltered read here that is cheaper than
- * the ask: `GET /json` without `keys` takes an `offset`+`limit` window instead,
+ * Chunked for the same reason `chunkPatchIds` chunks patch ids, and "ask for
+ * everything" is no cheaper here either: `GET /json` without `keys` takes an
+ * `offset`+`limit` window instead,
  * and a module with 5000 entries would then send back 5000 entries' content to
  * satisfy a request for 40 of them.
  *

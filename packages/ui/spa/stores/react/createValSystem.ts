@@ -1,4 +1,4 @@
-import { chunkPatchIdsForDelete, planPatchIdQuery } from "./patchesQuery";
+import { chunkPatchIdsForDelete } from "./patchesQuery";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
@@ -6,6 +6,7 @@ import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
+import { chunkPatchIds } from "./patchIdChunks";
 
 /**
  * A {@link System} wired to the real server, from a `ValClient`.
@@ -194,47 +195,40 @@ export function createValSystem(
         }
       : {}),
     fetchPatches: async (patchIds) => {
-      // The ids we actually want, not the whole table — until there are more of
-      // them than a URL can carry, which is what `planPatchIdQuery` decides. The
-      // engine asks for everything because it keeps a whole-project map; this
-      // store is asked for specific ids by `StatStore` and can usually say so.
-      const askFor = planPatchIdQuery(patchIds);
-      const res = await client("/patches", "GET", {
-        query: {
-          exclude_patch_ops: false,
-          patch_id: askFor,
-        },
-      });
-      if (res.status !== 200) {
-        const message =
-          "message" in res.json
-            ? res.json.message
-            : `GET /patches failed with status ${res.status ?? "network"}`;
-        return {
-          patches: [],
-          // Per id AND once for the request: the per-id entries are what keeps
-          // `reconcileVanished` from reading a failed request as "these patches
-          // are gone", and `error` is what reaches the user — a failure to load
-          // pending changes is not something to leave in the console.
-          errors: Object.fromEntries(patchIds.map((id) => [id, message])),
-          error: message,
-        };
-      }
       const patches: PatchRecord[] = [];
       const errors: Record<PatchId, string> = {};
-      // When the filter was dropped the response holds every patch the server
-      // has, so the ones nobody asked for are skipped here rather than handed
-      // back as if they had been requested.
-      const wanted = new Set<PatchId>(patchIds);
-      for (const patch of res.json.patches) {
-        if (askFor === undefined && !wanted.has(patch.patchId)) {
-          continue;
-        }
-        if (patch.patch === undefined) {
-          // Announced by stat but the server has no ops for it. An error rather
-          // than a silent skip: the head would otherwise stay `partial` forever
-          // with nothing saying why.
-          errors[patch.patchId] = `No ops for patch ${patch.patchId}`;
+      // In batches whose query strings fit. All the ids on one URL is ~19KB at
+      // 410 pending changes, which a Node server rejects before the handler runs.
+      //
+      // This replaces dropping the `patch_id` filter once it got too long: that
+      // fetched the whole table and filtered here, which works but pulls every
+      // patch in the project to read a few. Chunking keeps the filter.
+      let requestError: string | undefined;
+      let chunks = 0;
+      let failedChunks = 0;
+      for (const chunk of chunkPatchIds(patchIds)) {
+        chunks++;
+        const res = await client("/patches", "GET", {
+          query: {
+            exclude_patch_ops: false,
+            // The ids we actually want, not the whole table. The engine asks for
+            // everything because it keeps a whole-project map; this store is asked
+            // for specific ids by `StatStore` and can say so.
+            patch_id: chunk,
+          },
+        });
+        if (res.status !== 200) {
+          const message =
+            "message" in res.json
+              ? res.json.message
+              : `GET /patches failed with status ${res.status ?? "network"}`;
+          // Only this chunk. A later one may well succeed, and failing the whole
+          // request would throw away patches that did arrive.
+          for (const patchId of chunk) {
+            errors[patchId] = message;
+          }
+          requestError = message;
+          failedChunks++;
           continue;
         }
         for (const patch of res.json.patches) {
@@ -255,7 +249,16 @@ export function createValSystem(
           });
         }
       }
-      return { patches, errors };
+      return {
+        patches,
+        errors,
+        // `error` is what reaches the user, through `patch:fetch-failed`. Set it
+        // only when NO chunk came back: a partial failure already has an entry
+        // per id, and `patch:announced-not-delivered` describes it precisely.
+        ...(chunks > 0 && failedChunks === chunks
+          ? { error: requestError }
+          : {}),
+      };
     },
 
     fetchJsonEntry: async (moduleFilePath, key) => {
