@@ -19,7 +19,12 @@ import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
-import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
+import {
+  CanvasPinch,
+  CanvasWindow,
+  CanvasWindowHandle,
+  ZOOM_STEP,
+} from "./CanvasWindow";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
@@ -31,6 +36,7 @@ import {
   CANVAS_DEVICE_WIDTHS,
   CanvasDevice,
   CanvasPageData,
+  CanvasPoint,
   CanvasTransform,
   CanvasView,
 } from "./types";
@@ -90,6 +96,26 @@ export type PageWorkspaceProps = {
      * like the canvas being stuck rather than busy.
      */
     onRefreshingChange: (isRefreshing: boolean) => void;
+    /**
+     * A two-finger gesture that landed on the page.
+     *
+     * The page is a frame and a frame keeps its own touches, so a pinch there
+     * is invisible here unless the page relays it. Without this the only zoom
+     * on a phone is the toolbar's + and -, which is not the gesture anyone
+     * reaches for. See `ValCanvasBridge`.
+     */
+    onPinch: (gesture: CanvasPinch) => void;
+    /** A ctrl/cmd + wheel zoom over the page, relayed for the same reason. */
+    onZoom: (factor: number, center: CanvasPoint) => void;
+    /**
+     * Something on the page was picked.
+     *
+     * The pick itself is the caller's to act on — it owns navigation — but the
+     * canvas has to know one happened, because selecting on the page is a
+     * request to go and edit the thing selected, and where that is is the
+     * canvas's business: the fields column, and on a phone the pane holding it.
+     */
+    onPicked: () => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -166,6 +192,14 @@ const OPEN_MS = 320;
 const SWITCH_MS = 200;
 /** How long the panes have to be still before the switch reads them. */
 const PANE_SETTLE_MS = 140;
+/**
+ * How long a placement holds the pane where it put it.
+ *
+ * Long enough to outlast the layout changes that follow one — the column's
+ * fields arrive one at a time as their schemas resolve — and short enough that
+ * it can never be felt as the switch refusing a swipe.
+ */
+const PANE_HOLD_MS = 400;
 const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
@@ -237,21 +271,52 @@ export function PageWorkspace({
       ? undefined
       : properties.map((p) => `${p} ${OPEN_MS}ms ${OPEN_EASE}`).join(", ");
 
-  const [device, setDevice] = useState<CanvasDevice>("desktop");
-  const [transform, setTransform] = useState<CanvasTransform>(
-    () => initialTransform ?? { scale: 1, x: 0, y: 0 },
+  /**
+   * Which width the page is shown at.
+   *
+   * A phone starts on the phone layout, and that is not a nicety: a 1280px page
+   * fitted into a phone-width pane lands at about 25%, which is a thumbnail
+   * rather than a preview. The layout someone on a phone almost certainly wants
+   * to look at is the one they are holding.
+   *
+   * The starting value only, so the switch stays theirs after that — including
+   * the perfectly reasonable "check the desktop layout from my phone".
+   */
+  const [device, setDevice] = useState<CanvasDevice>(
+    isPhone ? "mobile" : "desktop",
   );
+  /**
+   * How far the page is zoomed.
+   *
+   * Only the zoom: where the window is scrolled belongs to the browser now,
+   * and is read back off the element rather than mirrored here. Keeping it in
+   * state as well would mean a render of the whole workspace on every frame of
+   * a flick, to tell it something it can already see.
+   */
+  const [scale, setScale] = useState(() => initialTransform?.scale ?? 1);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const scrollRef = useRef<CanvasPoint>({
+    x: initialTransform?.x ?? 0,
+    y: initialTransform?.y ?? 0,
+  });
   // Reported on every change, including the fit: the fitted position is a
   // position, and a link copied without touching anything should restore it.
   useEffect(() => {
-    onTransformChange?.(transform);
-  }, [transform, onTransformChange]);
+    onTransformChange?.({ scale, ...scrollRef.current });
+  }, [scale, onTransformChange]);
+  const onScrollChange = useCallback(
+    (next: CanvasPoint) => {
+      scrollRef.current = next;
+      onTransformChange?.({ scale: scaleRef.current, ...next });
+    },
+    [onTransformChange],
+  );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
   const [pane, setPane] = useState<WorkspacePane>("editor");
 
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
+  const canvasWindowRef = useRef<CanvasWindowHandle>(null);
   const paneScrollRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
 
@@ -361,40 +426,17 @@ export function PageWorkspace({
 
   const pageWidth = CANVAS_DEVICE_WIDTHS[device];
 
-  const fit = useCallback(() => {
-    const viewport = viewportRef.current?.getBoundingClientRect();
-    const height = pageRef.current?.offsetHeight;
-    if (!viewport || !height) return;
-    setTransform(
-      fitTransform(
-        { width: pageWidth, height },
-        { width: viewport.width, height: viewport.height },
-      ),
-    );
-  }, [pageWidth]);
-
-  // Fitting needs the page's laid-out height, which is not known for a frame
-  // or two after mount — measuring too early fits to a page a tenth of its
-  // real size. A ResizeObserver waits for the height to actually arrive, and
-  // the flag stops it re-fitting afterwards and fighting the user's zoom.
-  // A link that names a position has already answered the question fitting
-  // exists to answer, so it is not overruled by one.
-  const [needsFit, setNeedsFit] = useState(initialTransform == null);
-  useEffect(() => {
-    if (!needsFit || !open) return;
-    const pageEl = pageRef.current;
-    const viewportEl = viewportRef.current;
-    if (!pageEl || !viewportEl) return;
-    const attempt = () => {
-      if (pageEl.offsetHeight === 0 || viewportEl.clientHeight === 0) return;
-      fit();
-    };
-    const observer = new ResizeObserver(attempt);
-    observer.observe(pageEl);
-    observer.observe(viewportEl);
-    attempt();
-    return () => observer.disconnect();
-  }, [needsFit, fit, open]);
+  /**
+   * Whether the window should keep the whole page in view.
+   *
+   * The window does the fitting — it is the only thing that knows both sizes,
+   * and the page's height is not known for a frame or two after a frame mounts
+   * — but whether a fit is still WANTED is decided here, and it stops being
+   * wanted the moment someone zooms. A link that names a position has already
+   * answered the question fitting exists to answer, so it is not overruled by
+   * one.
+   */
+  const [autoFit, setAutoFit] = useState(initialTransform == null);
 
   /**
    * Opening the canvas, and switching device, both change the box the page has
@@ -418,19 +460,32 @@ export function PageWorkspace({
       return;
     }
     lastBox.current = { device, open };
-    setNeedsFit(true);
+    setAutoFit(true);
   }, [device, open]);
 
   const reload = useCallback(() => {
     setReloadKey((key) => key + 1);
     // A reloaded page can be a different height, so the fit it had is no
     // longer the right one.
-    setNeedsFit(true);
+    setAutoFit(true);
   }, []);
 
-  const setTransformByUser = useCallback((next: CanvasTransform) => {
-    setNeedsFit(false);
-    setTransform(next);
+  /**
+   * A zoom someone asked for, by any of the four ways of asking.
+   *
+   * All of them end the fit: after this the zoom is a choice that was made,
+   * and re-fitting on the next resize would quietly undo it.
+   */
+  const zoomByUser = useCallback(
+    (factor: number, center: CanvasPoint | null) => {
+      setAutoFit(false);
+      canvasWindowRef.current?.zoomBy(factor, center);
+    },
+    [],
+  );
+  const onPinch = useCallback((gesture: CanvasPinch) => {
+    if (gesture.phase === "start") setAutoFit(false);
+    canvasWindowRef.current?.pinch(gesture);
   }, []);
 
   // Opening the canvas on a phone means going to it; closing means coming
@@ -444,16 +499,80 @@ export function PageWorkspace({
   // The first placement is not a move anyone made, so it lands without
   // animating; every later one glides.
   const hasPlacedPane = useRef(false);
+  /**
+   * Whether the next placement should LAND rather than glide.
+   *
+   * Set by a pick, and it is not a taste judgement — a glide does not survive
+   * one. Clicking an element inside the frame focuses the frame, and the
+   * browser then scrolls the newly focused frame back into view, which cancels
+   * a smooth scroll that is trying to take it off screen. The animation never
+   * produces a single scroll event; the switch says "Editor", the canvas stays
+   * on screen, and the pick looks like it did nothing.
+   *
+   * A landing has no such window to be cancelled in: it is applied
+   * synchronously, and the snap that follows lands on the pane it is already
+   * sitting on. Nothing is lost either — a pick is a jump to somewhere else,
+   * not a continuation of a gesture, so there is no motion to preserve.
+   */
+  const placePaneInstantly = useRef(false);
+  /**
+   * Where a placement is currently trying to get to, or `null` between them.
+   *
+   * Doubles as the flag that says one is in progress, because those are the same
+   * fact: while the panes are being MOVED, where they are is not an answer to
+   * "which pane did you choose".
+   */
+  const paneTarget = useRef<number | null>(null);
   useEffect(() => {
     if (!isPhone) return;
     const container = paneScrollRef.current;
     if (!container) return;
-    const smooth = hasPlacedPane.current && !skipTransition && !reducedMotion;
+    const instant = placePaneInstantly.current;
+    placePaneInstantly.current = false;
+    const smooth =
+      hasPlacedPane.current && !instant && !skipTransition && !reducedMotion;
     hasPlacedPane.current = true;
-    container.scrollTo({
-      left: pane === "canvas" && open ? container.clientWidth : 0,
-      behavior: smooth ? "smooth" : "auto",
-    });
+    const left = pane === "canvas" && open ? container.clientWidth : 0;
+    paneTarget.current = left;
+    container.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+    if (smooth) {
+      // An animation is allowed to be somewhere other than its target; it just
+      // must not be READ while it is. See `paneTarget`.
+      const release = setTimeout(() => {
+        paneTarget.current = null;
+      }, PANE_HOLD_MS);
+      return () => clearTimeout(release);
+    }
+    /*
+     * Hold it there.
+     *
+     * A placement is not finished when it is applied. This is a snap container
+     * whose panes change contents as it moves — the fields column fills in as
+     * each schema resolves — and a snap container re-snaps to the area it last
+     * considered current whenever its contents change. So the pane lands, the
+     * layout settles, and it is quietly pulled back to where it came from; the
+     * switch then reads that position, agrees with it, and scrolls the rest of
+     * the way. Two `scrollTo`s later you are exactly where you started, and a
+     * pick looks like it did nothing.
+     *
+     * Re-asserting for a few frames outlasts that without having to know which
+     * layout change caused it, which has proved to be more than one thing.
+     */
+    let frame = 0;
+    const until = Date.now() + PANE_HOLD_MS;
+    const hold = () => {
+      if (container.scrollLeft !== left) container.scrollLeft = left;
+      if (Date.now() < until) {
+        frame = requestAnimationFrame(hold);
+      } else {
+        paneTarget.current = null;
+      }
+    };
+    frame = requestAnimationFrame(hold);
+    return () => {
+      cancelAnimationFrame(frame);
+      paneTarget.current = null;
+    };
   }, [pane, open, isPhone, skipTransition, reducedMotion]);
 
   /**
@@ -468,6 +587,11 @@ export function PageWorkspace({
    */
   const paneSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPaneScroll = useCallback(() => {
+    // A placement in progress is not a position anyone chose, and reading it as
+    // one is how a pick ends up back on the canvas: the container bounces off
+    // the target for a frame, the switch believes the bounce, and then moves the
+    // pane to match what it believed. See `paneTarget`.
+    if (paneTarget.current !== null) return;
     if (paneSettle.current !== null) clearTimeout(paneSettle.current);
     paneSettle.current = setTimeout(() => {
       paneSettle.current = null;
@@ -498,6 +622,33 @@ export function PageWorkspace({
 
   /** See {@link usePickingDefault} — the view sets the default, the button disagrees. */
   const [isPicking, setIsPicking] = usePickingDefault(view);
+
+  /**
+   * Selecting something on the page takes you to it.
+   *
+   * Picking is not an end in itself: nobody outlines a headline to admire the
+   * outline. The point of pointing at a thing is to change it, so a pick puts
+   * the thing's field in front of you — the fields column, which is where the
+   * page's own content lives, and which scrolls itself to the picked field
+   * because it is told which one is selected.
+   *
+   * On a phone that also means changing pane. The fields column is in the
+   * editor pane and the page is in the canvas pane, so a pick that only
+   * switched the view left you looking at the page you had just selected on,
+   * with the answer on a screen you had to know to swipe to.
+   *
+   * The caller acts on the pick itself — it owns navigation — and this is only
+   * the part that is the canvas's: where to look now.
+   */
+  const onPicked = useCallback(() => {
+    if (!isPicking) return;
+    onViewChange("fields");
+    if (!isPhone) return;
+    // See `placePaneInstantly`: a glide here is cancelled by the focus the
+    // click just gave the frame.
+    placePaneInstantly.current = true;
+    setPane("editor");
+  }, [isPicking, onViewChange, isPhone]);
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -677,19 +828,19 @@ export function PageWorkspace({
       )}
     >
       {routeBar}
-      <CanvasViewport
-        ref={viewportRef}
+      <CanvasWindow
+        ref={canvasWindowRef}
         pageWidth={pageWidth}
-        transform={transform}
-        onTransformChange={setTransformByUser}
-        horizontalWheelPans={!isPhone}
+        scale={scale}
+        onScaleChange={setScale}
+        autoFit={autoFit}
+        initialScroll={
+          initialTransform && { x: initialTransform.x, y: initialTransform.y }
+        }
+        onScrollChange={onScrollChange}
         className="h-full"
       >
-        <div
-          ref={pageRef}
-          className="shadow-2xl"
-          onClick={() => setSelectedFieldId(null)}
-        >
+        <div className="shadow-2xl" onClick={() => setSelectedFieldId(null)}>
           {renderCanvas?.({
             device,
             width: pageWidth,
@@ -698,6 +849,9 @@ export function PageWorkspace({
             isPicking,
             onRequestReload: reload,
             onRefreshingChange: setIsRefreshing,
+            onPinch,
+            onZoom: (factor, center) => zoomByUser(factor, center),
+            onPicked,
           }) ??
             (page && (
               <CanvasPage
@@ -706,13 +860,18 @@ export function PageWorkspace({
                 selectedFieldId={isPicking ? selectedFieldId : null}
                 attachedFieldIds={isPicking ? attachedFieldIds : []}
                 onSelectField={(fieldId) => {
-                  if (isPicking) setSelectedFieldId(fieldId);
+                  if (!isPicking) return;
+                  setSelectedFieldId(fieldId);
+                  // The demo page's version of what a pick does on a real one:
+                  // go to the field. Kept in step deliberately, since this is
+                  // the copy the design is reviewed against.
+                  onPicked();
                 }}
                 isSelectMode={isPicking}
               />
             ))}
         </div>
-      </CanvasViewport>
+      </CanvasWindow>
 
       {/*
        * Leaving the canvas, said as well as drawn.
@@ -744,16 +903,10 @@ export function PageWorkspace({
         className="absolute bottom-3 left-1/2 -translate-x-1/2"
         device={device}
         onDeviceChange={setDevice}
-        scale={transform.scale}
-        onZoomIn={() => {
-          setNeedsFit(false);
-          setTransform((t) => ({ ...t, scale: clampScale(t.scale * 1.2) }));
-        }}
-        onZoomOut={() => {
-          setNeedsFit(false);
-          setTransform((t) => ({ ...t, scale: clampScale(t.scale / 1.2) }));
-        }}
-        onFit={() => setNeedsFit(true)}
+        scale={scale}
+        onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
+        onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
+        onFit={() => setAutoFit(true)}
         // Only where there is something to select. The demo page reports no
         // paths, so a click on it has nothing to open.
         isPicking={isPicking}

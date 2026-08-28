@@ -83,6 +83,10 @@ export function CanvasToolbar({
     <div
       className={cn(
         "flex items-center gap-1 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
+        // On a phone the canvas is a pane a little narrower than the screen,
+        // and this is nine controls: it has to be able to run out of room
+        // without pushing itself off both sides of the page it sits on.
+        "max-w-[calc(100%-1.5rem)] overflow-x-auto scrollbar-none",
         className,
       )}
     >

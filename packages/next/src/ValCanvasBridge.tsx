@@ -339,6 +339,116 @@ export function ValCanvasBridge({
   }, [post]);
 
   /**
+   * Two-finger gestures, handed to the studio.
+   *
+   * The window around the page is the studio's, and the page is a frame: a
+   * finger that lands here is this document's and the studio never hears about
+   * it. So a pinch on the page could not zoom the window, which on a phone is
+   * the only zoom there is — the toolbar's + and - are a poor substitute for the
+   * gesture everyone already makes.
+   *
+   * Two fingers and only two. One finger is the page's: it scrolls it, taps its
+   * links, drags whatever the page put there. Two are the window's, for zooming
+   * and for moving the page around inside it. Nothing has to be moded, and the
+   * two cannot be confused for one another.
+   *
+   * `passive: false` because both handlers cancel: the default for two fingers
+   * is the browser's own page zoom, which inside a frame the studio is already
+   * scaling produces two zooms fighting over one gesture.
+   */
+  React.useEffect(() => {
+    const midpoint = (touches: TouchList) => ({
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    });
+    const span = (touches: TouchList) =>
+      Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY,
+      );
+    /**
+     * Whether a gesture is in progress.
+     *
+     * `touchend` fires per finger, so lifting one of two leaves a `touchend`
+     * carrying a single touch — which is the end of the gesture — and the
+     * second leaves one carrying none. Without this the second would post a
+     * second `end` for a gesture that was already over.
+     */
+    let active = false;
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length !== 2) return;
+      event.preventDefault();
+      active = true;
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "pinch",
+        phase: "start",
+        span: span(event.touches),
+        center: midpoint(event.touches),
+      });
+    };
+    const onMove = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || !active) return;
+      event.preventDefault();
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "pinch",
+        phase: "move",
+        span: span(event.touches),
+        center: midpoint(event.touches),
+      });
+    };
+    const onEnd = (event: TouchEvent) => {
+      if (!active || event.touches.length >= 2) return;
+      active = false;
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "pinch",
+        phase: "end",
+        span: 0,
+        center: { x: 0, y: 0 },
+      });
+    };
+    document.addEventListener("touchstart", onStart, { passive: false });
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd);
+    document.addEventListener("touchcancel", onEnd);
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+    };
+  }, [post]);
+
+  /**
+   * And ctrl/cmd + wheel, which is what a trackpad pinch reports as.
+   *
+   * The same problem as touches and the same answer: the wheel event lands on
+   * this document, so without relaying it a trackpad pinch over the page does
+   * nothing while the identical gesture over the canvas background zooms.
+   *
+   * A PLAIN wheel is deliberately left alone — that is the page scrolling
+   * itself, which is exactly what it should do.
+   */
+  React.useEffect(() => {
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "zoom",
+        // The same response curve the studio uses for a wheel on its own
+        // background, so the gesture feels the same on both sides of the frame.
+        factor: 1 - event.deltaY / 300,
+        center: { x: event.clientX, y: event.clientY },
+      });
+    };
+    document.addEventListener("wheel", onWheel, { passive: false });
+    return () => document.removeEventListener("wheel", onWheel);
+  }, [post]);
+
+  /**
    * The outlines, as a stylesheet rather than as injected elements.
    *
    * A style rule cannot disturb the page's layout, which an absolutely

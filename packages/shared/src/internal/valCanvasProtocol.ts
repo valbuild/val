@@ -84,6 +84,56 @@ export type ValCanvasPageMessage =
       paths: SourcePath[];
     }
   | {
+      /**
+       * A two-finger gesture on the page.
+       *
+       * The page is a frame, and a frame keeps its own touches: nothing the
+       * studio listens for ever sees a finger that landed on the page. So the
+       * canvas cannot zoom by pinch unless the page says a pinch happened,
+       * which is what this is.
+       *
+       * Two fingers rather than one, and that is the whole division of labour:
+       * one finger belongs to the page — it scrolls it, taps its links, drags
+       * its carousels — and two belong to the window around it. Nothing has to
+       * be moded, and neither gesture can be mistaken for the other.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pinch";
+      phase: "start" | "move" | "end";
+      /**
+       * Distance between the two touches, in the page's own CSS px.
+       *
+       * A span rather than a scale: the page has no idea what the studio is
+       * showing it at, so the only honest thing it can report is how far apart
+       * the fingers are. The studio turns the ratio against the span at
+       * `start` into a zoom.
+       */
+      span: number;
+      /**
+       * Midpoint of the two touches, in the page's own coordinates.
+       *
+       * The same frame of reference as `ValCanvasElement.rect`, so the studio
+       * can map it into the window without knowing anything about the page.
+       */
+      center: { x: number; y: number };
+    }
+  | {
+      /**
+       * A zoom asked for by the pointer — ctrl/cmd + wheel, which is what a
+       * trackpad pinch reports as.
+       *
+       * Separate from `pinch` because it is a different kind of event and not
+       * a degenerate one: there are no fingers and therefore no span, only a
+       * step, and there is no start and end to hold an anchor across.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "zoom";
+      /** Multiply the current scale by this. */
+      factor: number;
+      /** Where the pointer was, in the page's own coordinates. */
+      center: { x: number; y: number };
+    }
+  | {
       val: typeof VAL_CANVAS_MESSAGE;
       type: "refreshing";
       /**
@@ -177,6 +227,8 @@ export function isValCanvasPageMessage(
     message.type === "ready" ||
     message.type === "elements" ||
     message.type === "clicked" ||
+    message.type === "pinch" ||
+    message.type === "zoom" ||
     message.type === "refreshing"
   );
 }
