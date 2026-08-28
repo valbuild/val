@@ -128,7 +128,7 @@ ${chalk.cyan("Next steps:")}
   ${chalk.cyan(`${commands.run} dev`)}
 
 ${chalk.bold("Optionally run:")}
-  ${chalk.cyan(`${commands.exec} val connect`)}  
+  ${chalk.cyan(`${commands.valCli} connect`)}  
 ${chalk.bold("to connect your project to Val Build")}
 
 ${chalk.bold("Need help?")} Join our community on Discord: ${chalk.underline(
@@ -139,6 +139,20 @@ ${chalk.green("Happy coding! 🚀")}
 `);
 
   process.stdout.write(nextSteps);
+}
+
+/** True, or the reason this is not a usable project name. */
+function validateProjectName(value: string): true | string {
+  if (!value || value.trim().length === 0) {
+    return "Project name cannot be empty";
+  }
+  if (value.includes(" ")) {
+    return "Project name cannot contain spaces";
+  }
+  if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
+    return "Project name can only contain letters, numbers, hyphens, and underscores";
+  }
+  return true;
 }
 
 // Template processing function
@@ -234,29 +248,29 @@ async function main() {
     }
     const packageManager = resolved.packageManager;
     const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
-    // Keep parsing off the package manager flags from here on.
-    args.splice(0, args.length, ...resolved.rest);
+
+    // The help text has always advertised `[project-name]`: whatever is left
+    // once the flags are out is it.
+    const projectNameArg = resolved.rest[0];
+    if (projectNameArg !== undefined) {
+      const invalid = validateProjectName(projectNameArg);
+      if (invalid !== true) {
+        console.error(chalk.red(`❌ Error: ${invalid}.`));
+        process.exit(1);
+      }
+    }
 
     let currentStep = 0;
     renderTimeline(currentStep);
 
-    // Step 1: Enter project name
-    const projectName = await input({
-      message: chalk.bold("What is your project named?"),
-      default: DEFAULT_PROJECT_NAME,
-      validate: (value) => {
-        if (!value || value.trim().length === 0) {
-          return "Project name cannot be empty";
-        }
-        if (value.includes(" ")) {
-          return "Project name cannot contain spaces";
-        }
-        if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
-          return "Project name can only contain letters, numbers, hyphens, and underscores";
-        }
-        return true;
-      },
-    });
+    // Step 1: Enter project name — unless it was given as an argument
+    const projectName =
+      projectNameArg ??
+      (await input({
+        message: chalk.bold("What is your project named?"),
+        default: DEFAULT_PROJECT_NAME,
+        validate: validateProjectName,
+      }));
     currentStep++;
     renderTimeline(currentStep);
 

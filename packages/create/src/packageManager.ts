@@ -10,13 +10,6 @@
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
-export const PACKAGE_MANAGERS: PackageManager[] = [
-  "npm",
-  "pnpm",
-  "yarn",
-  "bun",
-];
-
 export const DEFAULT_PACKAGE_MANAGER: PackageManager = "npm";
 
 type PackageManagerCommands = {
@@ -24,8 +17,15 @@ type PackageManagerCommands = {
   install: string;
   /** Run a package.json script, e.g. `${run} dev`. */
   run: string;
-  /** Run a binary from the project's dependencies, e.g. `${exec} val connect`. */
-  exec: string;
+  /**
+   * Run the Val CLI from the new project, e.g. `${valCli} connect`.
+   *
+   * pnpm, yarn and bun run the project's own `val` binary and nothing else.
+   * npm's `npx` falls back to the registry when the local binary is missing —
+   * and `val` there is an unrelated package by that name — so npm names the
+   * package it wants explicitly.
+   */
+  valCli: string;
   /** Lock files this package manager writes, and which therefore may be kept. */
   lockFiles: string[];
 };
@@ -37,32 +37,42 @@ export const PACKAGE_MANAGER_COMMANDS: Record<
   npm: {
     install: "npm install",
     run: "npm run",
-    exec: "npx",
+    valCli: "npx -p @valbuild/cli val",
     lockFiles: ["package-lock.json", "npm-shrinkwrap.json"],
   },
   pnpm: {
     install: "pnpm install",
     run: "pnpm run",
-    exec: "pnpm exec",
+    valCli: "pnpm exec val",
     lockFiles: ["pnpm-lock.yaml"],
   },
   yarn: {
     install: "yarn",
     run: "yarn",
-    exec: "yarn",
+    valCli: "yarn val",
     lockFiles: ["yarn.lock"],
   },
   bun: {
     install: "bun install",
     run: "bun run",
-    exec: "bunx",
+    valCli: "bun run val",
     lockFiles: ["bun.lock", "bun.lockb"],
   },
 };
 
 function isPackageManager(value: string): value is PackageManager {
-  return (PACKAGE_MANAGERS as string[]).includes(value);
+  return Object.prototype.hasOwnProperty.call(PACKAGE_MANAGER_COMMANDS, value);
 }
+
+/**
+ * Every package manager we support, derived from the commands above so the two
+ * cannot drift: a `PackageManager` added to the union without commands is a
+ * type error, and one added with commands shows up in the help text and the
+ * error messages for free.
+ */
+export const PACKAGE_MANAGERS: PackageManager[] = Object.keys(
+  PACKAGE_MANAGER_COMMANDS,
+).filter(isPackageManager);
 
 /**
  * The package manager that invoked us, or null if we cannot tell.

@@ -19,3 +19,10 @@ the project is left with exactly one, and it is real.
 To override the detection, pass `--use-npm`, `--use-pnpm`, `--use-yarn` or
 `--use-bun` (or `--package-manager <name>`). An unrecognized name is an error
 rather than a silent fall back to npm.
+
+The `[project-name]` argument the help text has always advertised is now honoured
+too, so `npm create @valbuild my-app --use-pnpm` runs without a prompt; without
+it, the prompt is unchanged. And the printed `val connect` line runs the new
+project's own `val` binary under pnpm, yarn and bun, while npm keeps naming
+`@valbuild/cli` explicitly — a bare `npx val` would offer to fetch an unrelated
+package called `val` from the registry.

@@ -23,4 +23,10 @@ npm create @valbuild@latest -- --package-manager pnpm   # same thing, spelled ou
 
 `--use-npm`, `--use-pnpm`, `--use-yarn` and `--use-bun` are all accepted.
 
+The project name can be given as an argument instead of answering the prompt:
+
+```sh
+pnpm create @valbuild@latest my-app
+```
+
 See the [documentation](https://val.build/docs) for more information.

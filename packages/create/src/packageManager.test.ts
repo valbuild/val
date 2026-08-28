@@ -1,5 +1,8 @@
 import {
   detectPackageManager,
+  PACKAGE_MANAGER_COMMANDS,
+  PACKAGE_MANAGERS,
+  PackageManager,
   foreignLockFiles,
   parsePackageManagerArgs,
   resolvePackageManager,
@@ -138,5 +141,24 @@ describe("foreignLockFiles", () => {
       "bun.lockb",
     ]);
     expect(foreignLockFiles("pnpm")).not.toContain("pnpm-lock.yaml");
+  });
+});
+
+describe("PACKAGE_MANAGER_COMMANDS", () => {
+  test("covers every supported package manager, in one list", () => {
+    expect(PACKAGE_MANAGERS).toEqual(["npm", "pnpm", "yarn", "bun"]);
+  });
+
+  test("npm names @valbuild/cli, because npx would fetch the unrelated `val` package", () => {
+    expect(PACKAGE_MANAGER_COMMANDS.npm.valCli).toContain("-p @valbuild/cli");
+  });
+
+  test("the others run the project's own binary, never a registry fetch", () => {
+    const localOnly: PackageManager[] = ["pnpm", "yarn", "bun"];
+    for (const packageManager of localOnly) {
+      const { valCli } = PACKAGE_MANAGER_COMMANDS[packageManager];
+      expect(valCli).not.toMatch(/\b(npx|bunx|dlx)\b/);
+      expect(valCli.endsWith(" val")).toBe(true);
+    }
   });
 });
