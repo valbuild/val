@@ -21,7 +21,7 @@ export function totalSitemapErrorCount(item: SitemapItem): number {
  * Recursively sum the validation errors under an explorer item.
  *
  * Directories contribute nothing of their own. That is not a stylistic choice:
- * `NavMenuWrapper` sets the legacy `hasError` on a directory whenever ANY
+ * The nav tree sets the legacy `hasError` on a directory whenever ANY
  * descendant has errors, so counting it as one would add +1 for every folder on
  * the path to each error - a file three folders deep reported as four errors.
  * The fallback is therefore for leaf nodes only.

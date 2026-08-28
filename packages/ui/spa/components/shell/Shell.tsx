@@ -54,7 +54,6 @@ import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
   ShellActivityEntry,
-  ShellChatMessage,
   ShellData,
   ShellDataModule,
   ShellExternalPage,
@@ -104,8 +103,8 @@ export type ShellProps = {
    * Whether changes are written to the working tree on a pause in typing.
    *
    * A prop, like `saveState`, rather than state this component owns: the
-   * setting is `fs`-mode-only, persisted, and shared with the classic layout's
-   * toggle and the Save button that disables itself while it is on. A local
+   * setting is `fs`-mode-only, persisted, and shared with the Save button that
+   * disables itself while it is on. A local
    * `useState` here — which is what this was — put a checkbox on screen that
    * showed `true`, changed nothing when clicked, and disagreed with the real
    * setting, whose default is `false`.
@@ -234,13 +233,6 @@ export type ShellProps = {
    */
   accountError?: ShellAccountError;
   /**
-   * Why the assistant is unavailable, once the studio has stopped trying.
-   *
-   * Shown in the AI panel in place of the composer. Absent means it is either
-   * working or still connecting, and the panel offers a composer as usual.
-   */
-  aiUnavailable?: { message: string; onRetry: () => void };
-  /**
    * Whether this project has an assistant at all.
    *
    * Absent means it does not, and every way into one is hidden: the top bar
@@ -251,6 +243,24 @@ export type ShellProps = {
    * affordance.
    */
   aiEnabled?: boolean;
+  /**
+   * The assistant, rendered inside the assistant panel.
+   *
+   * A slot, like `publishSlot`, and for the same reason: the shell is
+   * presentational and the assistant is not — it holds a socket, a conversation
+   * and the client-side implementation of every tool the model can call. Absent
+   * (a story, a preview) means the panel says there is no assistant configured
+   * rather than offering a composer with nothing behind it.
+   */
+  aiSlot?: ReactNode;
+  /**
+   * Mention a source path in the assistant. From the canvas's field menu.
+   *
+   * The shell cannot do this itself: inserting a reference means reaching into
+   * the chat editor, which lives behind `aiSlot`. Absent means the canvas's
+   * "Attach to chat" still opens the assistant, and adds nothing to it.
+   */
+  onMentionField?: (sourcePath: string) => void;
   /**
    * Whether the server's pending changes have been applied yet.
    *
@@ -339,8 +349,9 @@ export function Shell({
   previewHref,
   onSignOut,
   accountError,
-  aiUnavailable,
   aiEnabled = false,
+  aiSlot,
+  onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
   pendingChangesError = null,
@@ -361,7 +372,6 @@ export function Shell({
   const [notifications, setNotifications] = useState<ShellNotification[]>(
     data.notifications ?? [],
   );
-  const [chat, setChat] = useState<ShellChatMessage[]>(data.chat ?? []);
   const isControlled = selectionId !== undefined;
   const [internalSelection, setInternalSelection] =
     useState<ShellSelection | null>(() =>
@@ -530,14 +540,17 @@ export function Shell({
     setIsCanvasOpen(false);
     setCanvasView("normal");
   }, []);
-  // Picking a field on the canvas points the assistant at it. It is the same
-  // act as selecting one in the panel, so it opens the assistant rather than
-  // silently arming it.
-  const [chatTarget, setChatTarget] = useState<string | null>(null);
-  const attachToChat = useCallback((_fieldId: string, label: string) => {
-    setChatTarget(label);
-    setOpenPanel("ai");
-  }, []);
+  // Picking a field on the canvas mentions it in the assistant. It is the same
+  // act as the mention button on a field in the editor, so it goes through the
+  // same seam — which also means it opens the assistant rather than silently
+  // arming it, and that the reference survives the panel not being open yet.
+  const attachToChat = useCallback(
+    (sourcePath: string) => {
+      setOpenPanel("ai");
+      onMentionField?.(sourcePath);
+    },
+    [onMentionField],
+  );
 
   /**
    * Anything that is not a page leaves the canvas.
@@ -578,7 +591,6 @@ export function Shell({
         setInternalSelection(next);
       }
       onSelectionChange?.(next);
-      setChatTarget(null);
       if (breakpoint === "mobile") setOpenPanel(null);
     },
     [breakpoint, isControlled, onSelectionChange],
@@ -864,23 +876,20 @@ export function Shell({
         />
       )}
 
-      {openPanel === "ai" && aiEnabled && (
+      {/*
+       * Mounted for as long as the studio is, and merely hidden when dismissed.
+       * Everything else here comes and goes with `openPanel`; the assistant
+       * cannot, because closing it would drop a turn in flight — see `hidden`
+       * on `FloatingPanel`.
+       */}
+      {aiEnabled && (
         <AIChatPanel
           breakpoint={breakpoint}
-          messages={chat}
-          suggestions={data.chatSuggestions}
-          context={chatTarget ?? (selection ? selection.title : "this project")}
-          onSend={(text) =>
-            setChat((current) => [
-              ...current,
-              { id: `local-${current.length}`, role: "user", text },
-            ])
-          }
-          onProposalAction={() => undefined}
-          onNewSession={() => setChat([])}
+          hidden={openPanel !== "ai"}
           onClose={closePanel}
-          unavailable={aiUnavailable}
-        />
+        >
+          {aiSlot ?? <NoAssistantConfigured />}
+        </AIChatPanel>
       )}
 
       {openPanel === "notifications" && (
@@ -928,6 +937,23 @@ export function Shell({
  * here derives a path from a URL: which module serves `/blog/why-val` is the
  * router's answer, not a string the shell can build.
  */
+/**
+ * The assistant panel with no assistant behind it.
+ *
+ * Only reachable where the shell is rendered without `aiSlot` — a story, a
+ * preview — because the app hides every way in when the project has no
+ * assistant configured. It says so rather than showing a composer: this panel
+ * used to hold a stand-in chat that echoed what you typed and called no tools,
+ * which looked exactly like a working assistant and was not one.
+ */
+function NoAssistantConfigured() {
+  return (
+    <p className="p-4 text-xs text-fg-secondary-alt">
+      No assistant is configured for this project.
+    </p>
+  );
+}
+
 function toPageSelection(
   page: ShellData["pages"][number],
 ): ShellSelection | null {

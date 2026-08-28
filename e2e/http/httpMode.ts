@@ -206,6 +206,57 @@ export type MockState = {
   subscribers: number;
 };
 
+/**
+ * One step of a scripted assistant turn.
+ *
+ * A `tool` step is the interesting one: the mock sends the tool call and waits
+ * for the Studio's result, so the whole client-side tool implementation runs
+ * before the turn moves on — which is what makes `toolCalls` in {@link MockAiState}
+ * an assertion about the product rather than about the script.
+ *
+ * `arguments` may contain `{{imageKey:0}}`, which the mock replaces with the key
+ * of the first image the user attached to the prompt. A test cannot write that
+ * key itself: the content service invents it when the browser uploads.
+ */
+export type AiScriptStep =
+  | { type: "text"; text: string }
+  | {
+      type: "tool";
+      name: string;
+      arguments?: unknown;
+      /** How long to wait for the result. `null` waits indefinitely. */
+      timeoutMs?: number | null;
+    };
+
+export type AiScript = {
+  steps: AiScriptStep[];
+  /** The assistant's closing message. */
+  response?: string;
+};
+
+/** A tool call the scripted assistant made, and what the Studio answered. */
+export type MockAiToolCall = {
+  name: string;
+  arguments: unknown;
+  result: unknown;
+  isError: boolean;
+};
+
+export type MockAiState = {
+  prompts: { sessionId: string | null; text: string; imageKeys: string[] }[];
+  toolCalls: MockAiToolCall[];
+  sessions: { id: string; name: string | null }[];
+  images: {
+    key: string;
+    sessionId: string;
+    mimeType: string;
+    width: number;
+    height: number;
+    bytes: number;
+  }[];
+  queuedScripts: number;
+};
+
 async function control<T>(
   action: string,
   init?: { method: "POST"; body?: unknown },
@@ -254,6 +305,20 @@ export const mock = {
     return res.content;
   },
 
+  /**
+   * How many bytes a commit wrote at one repo path, or null if it wrote none.
+   *
+   * For the files there is no text to compare — an image. Asserting that the
+   * path appears in the commit is not enough on its own: a commit carrying the
+   * wrong bytes puts the path there just the same.
+   */
+  async committedBytes(repoPath: string): Promise<number | null> {
+    const res = await control<{ bytes: number | null }>(
+      `committed-source?path=${encodeURIComponent(`${MOCK_ROOT}${repoPath}`)}`,
+    );
+    return res.bytes;
+  },
+
   /** Announce a deployment, or move an existing one to a new state. */
   deployment(body: {
     commitSha?: string;
@@ -276,6 +341,35 @@ export const mock = {
       method: "POST",
       body: body ?? {},
     });
+  },
+
+  /**
+   * Queue what the assistant does on its next turn.
+   *
+   * One script per prompt, in order, so a test that sends two messages queues
+   * two. Queue before sending: the mock consumes a script the moment the prompt
+   * arrives, and an empty queue answers with a message saying so rather than
+   * hanging — a test that forgot to queue then fails on its assertion instead of
+   * on a timeout.
+   */
+  async aiScript(script: AiScript): Promise<void> {
+    await control("ai-script", { method: "POST", body: script });
+  },
+
+  /** What the assistant was asked, what it called, and what it was answered. */
+  aiState(): Promise<MockAiState> {
+    return control<MockAiState>("ai-state");
+  },
+
+  /**
+   * Make `/ai/initialize` fail, or let it succeed again.
+   *
+   * The studio tries five times before it gives up and reports that the
+   * assistant is unavailable, and no editor action can produce that — so a test
+   * that wants to see the studio out of options has to say so here.
+   */
+  async aiOffline(offline: boolean): Promise<void> {
+    await control("ai-offline", { method: "POST", body: { offline } });
   },
 };
 
