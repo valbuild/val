@@ -5,7 +5,10 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: chalk 6, meow 14 and the @inquirer packages
+    // publish their types behind an `exports` map, which the legacy `node`
+    // resolver cannot read.
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "target": "ESNext"
   }

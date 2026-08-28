@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es2016",
-    "module": "commonjs",
+    // esnext + bundler so the `exports` maps of chalk 6, meow 14, diff 9 and
+    // the @inquirer packages resolve. This config only drives `tsc --noEmit`;
+    // preconstruct decides the emitted module format.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,

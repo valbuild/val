@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["es2020", "DOM"],
+    // es2022 for `Array.prototype.at`, which runValidation.test.ts uses. Under
+    // es2020 this only typechecks by accident: meow 9 depends on type-fest,
+    // whose types carry a `/// <reference lib="esnext" />` that leaks into this
+    // program. Declare what the code actually needs instead of relying on that.
+    "lib": ["es2022", "DOM"],
     "strict": true,
     "isolatedModules": true,
     "esModuleInterop": true,
