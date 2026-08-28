@@ -16,7 +16,7 @@
     "@valbuild/core": "workspace:*",
     "@valbuild/shared": "workspace:*",
     "@valbuild/ui": "workspace:*",
-    "@vercel/stega": "^0.1.0",
+    "@vercel/stega": "^1.1.0",
     "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
