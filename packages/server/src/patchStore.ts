@@ -144,6 +144,111 @@ export function patchBaseFile(patchesDir: string, patchId: PatchId): string {
   return fsPath.join(patchDir(patchesDir, patchId), "base.json");
 }
 
+/**
+ * The marker that says "bytes are being uploaded for this patch, its record is
+ * coming".
+ *
+ * Writing a patch that carries a file is TWO requests, and the bytes go first:
+ * the patch's `file` op holds only a sha, so a record written before its file
+ * would point at nothing. That leaves the directory holding `files/` and no
+ * `patch.json` for as long as the round trip takes — a shape
+ * {@link readPatchStore} would otherwise read as a patch whose contents are
+ * lost, and repair would remove it and report someone's work as thrown away.
+ * The bytes went with it, which is how replacing an image came to fail most of
+ * the time.
+ *
+ * The upload cannot avoid the window, so it declares it instead. Written BEFORE
+ * the first byte, so there is no instant where the directory exists without an
+ * explanation.
+ */
+export function patchUploadMarkerFile(
+  patchesDir: string,
+  patchId: PatchId,
+): string {
+  return fsPath.join(patchDir(patchesDir, patchId), "uploading.json");
+}
+
+const FSPatchUpload = z.object({
+  /** When the upload began, for {@link UPLOAD_MARKER_TTL_MS}. */
+  startedAt: z.string(),
+});
+
+/**
+ * How long a declared upload is believed.
+ *
+ * Generous on purpose. Too short destroys a live upload, which is the bug this
+ * exists to fix; too long only leaves unreferenced bytes on disk a while longer,
+ * and nothing ever read them. A client that dies mid-upload is the only way to
+ * get a stale one.
+ */
+const UPLOAD_MARKER_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Declare an upload, before any of its bytes are written.
+ *
+ * A no-op once the record exists: there is no window left to explain, and
+ * {@link appendPatch} — the only thing that clears a marker — has already run,
+ * so one written now would sit in a live patch's directory forever describing a
+ * state that is over.
+ */
+export function markPatchUploading(
+  patchesDir: string,
+  patchId: PatchId,
+  now: Date = new Date(),
+): void {
+  if (fs.existsSync(patchRecordFile(patchesDir, patchId))) {
+    return;
+  }
+  const file = patchUploadMarkerFile(patchesDir, patchId);
+  fs.mkdirSync(fsPath.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ startedAt: now.toISOString() } satisfies z.infer<
+      typeof FSPatchUpload
+    >),
+    "utf-8",
+  );
+}
+
+/**
+ * Is this directory an upload still in flight?
+ *
+ * `undefined` for "no marker at all", so the caller can tell a declared upload
+ * from a directory nothing explains — they get opposite handling.
+ */
+function readUploadMarker(
+  patchesDir: string,
+  name: string,
+  now: number,
+): { inFlight: boolean } | undefined {
+  const file = patchUploadMarkerFile(patchesDir, name as PatchId);
+  if (!fs.existsSync(file)) {
+    return undefined;
+  }
+  /**
+   * A marker whose contents cannot be used still says an upload was started
+   * here, so it never counts as work that is gone. Its AGE falls back to the
+   * file's mtime: assuming the worst instead would let one torn write of a
+   * forty-byte file cost a live upload its bytes, which is the whole failure
+   * this marker exists to prevent.
+   */
+  const res = readJsonFile(file, FSPatchUpload);
+  const startedAt =
+    res.error === undefined ? Date.parse(res.data.startedAt) : NaN;
+  if (!Number.isNaN(startedAt)) {
+    return { inFlight: now - startedAt < UPLOAD_MARKER_TTL_MS };
+  }
+  try {
+    return {
+      inFlight: now - fs.statSync(file).mtimeMs < UPLOAD_MARKER_TTL_MS,
+    };
+  } catch {
+    // It was there a moment ago. Something else is writing here, which is not a
+    // reason to delete anything.
+    return { inFlight: true };
+  }
+}
+
 export function patchBinaryFile(
   patchesDir: string,
   patchId: PatchId,
@@ -290,6 +395,7 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
     });
   }
 
+  const now = Date.now();
   for (const name of dirNames) {
     if (named.has(name)) {
       continue;
@@ -299,6 +405,30 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
     // leftover nothing ever read.
     const read = readPatchRecord(patchesDir, name);
     if (read.error !== undefined) {
+      /**
+       * Unless an upload said it was coming. See {@link patchUploadMarkerFile}:
+       * a patch carrying a file is written in two requests with the bytes first,
+       * so "files, no record" is a normal moment in that write and not work that
+       * is gone. Reported as lost, repair removed the bytes mid-upload and the
+       * replacement quietly failed.
+       *
+       * A stale marker is an upload whose client never came back. Nothing ever
+       * referenced those bytes — the log never named them and no record points
+       * at them — so they are swept like any other orphan, and silently, for the
+       * same reason.
+       */
+      const upload = readUploadMarker(patchesDir, name, now);
+      if (upload !== undefined) {
+        if (upload.inFlight) {
+          continue;
+        }
+        problems.push({
+          type: "orphan-directory",
+          name,
+          dir: fsPath.join(patchesDir, name),
+        });
+        continue;
+      }
       problems.push({
         type: "unreadable-patch",
         name,
@@ -410,6 +540,15 @@ export function appendPatch(
 ): PatchLogEntry {
   const patchId = record.patchId as PatchId;
   writePatchRecord(patchesDir, patchId, record);
+  // The record is the marker's whole purpose, so it is spent. Removed after the
+  // write rather than before: an interrupted append must never leave a directory
+  // with neither a record nor a reason to exist.
+  try {
+    fs.rmSync(patchUploadMarkerFile(patchesDir, patchId), { force: true });
+  } catch {
+    // Leaving it is harmless — a directory the log names is never classified by
+    // its marker — so this is not worth failing the write over.
+  }
   const entry: PatchLogEntry = {
     patchId,
     createdAt: record.createdAt,

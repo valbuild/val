@@ -47,6 +47,7 @@ import {
   patchBinaryFile,
   patchBinaryFileMetadata,
   patchDir,
+  markPatchUploading,
   patchesLogFile,
   PATCH_REPAIR_LOG_FILE_NAME,
   PatchStoreEntry,
@@ -905,10 +906,20 @@ export class ValOpsFS extends ValOps {
     metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     // Keyed by the patch's own id, so the parent is not needed and is not asked
-    // for. Uploads arrive before the patch record does, which is fine: the
-    // directory sits there unreferenced until the log line that names it lands,
-    // and repair sweeps it up if that never happens.
+    // for. Uploads arrive before the patch record does — the record's `file` op
+    // carries only a sha, so it would otherwise point at nothing — which leaves
+    // the directory holding `files/` and no `patch.json` until `PUT /patches`
+    // lands.
+    //
+    // That shape has to be DECLARED, or a read landing in the window takes it
+    // for a patch whose contents are lost and repair removes it, bytes and all.
+    // The window is not hypothetical: writing in here is what wakes `getStat`'s
+    // long poll, so the upload summons the read that would destroy it. See
+    // `markPatchUploading`.
     const patchesDir = this.getPatchesDir();
+    if (data !== null) {
+      markPatchUploading(patchesDir, patchId);
+    }
     const patchFilePath = patchBinaryFile(patchesDir, patchId, filePath);
     const metadataFilePath = patchBinaryFileMetadata(
       patchesDir,

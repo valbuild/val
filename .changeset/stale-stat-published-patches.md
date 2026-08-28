@@ -82,3 +82,25 @@ Not covered: a `.jsonValues()` entry's content is not in the module source — t
 source holds markers and the content sits behind the marker's own `import()`
 thunk, which caches the same way. `architecture/quirks.md` records what closing
 that would take.
+
+## Replacing an image usually did not take
+
+The bytes of a patch's file are uploaded a round trip BEFORE the patch record
+that references them — the record's `file` op carries only a sha, so a record
+written first would point at nothing. That leaves `.val/patches/<patchId>/`
+holding `files/` and no `patch.json` until `PUT /patches` lands, which
+`readPatchStore` read as a patch whose contents were lost: repair removed the
+directory, took the uploaded bytes with it, and told the person editing their
+unpublished change had been thrown away. The image then 404ed from
+`?patch_id=...` and the replacement silently did not happen.
+
+The window is not passive. Writing into `.val/patches` is exactly what ends
+`getStat`'s long poll, so the upload summons the read that destroys it — which is
+why replacing an image worked only when the two requests happened to land close
+enough together.
+
+The upload now declares the window: `uploading.json` is written before the first
+byte, and a record-less directory carrying a fresh one is not a problem at all.
+`appendPatch` clears it once the record exists, and a marker older than an hour
+is an upload whose client never came back — swept as an orphan, and silently,
+because nothing ever referenced those bytes.

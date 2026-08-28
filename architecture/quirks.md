@@ -212,6 +212,15 @@ the server contradicting itself: the announcement may simply predate a delete.
 one more stat before reporting it. Auto-save is what made this loud, because it
 publishes on every pause in typing. See `architecture/patch-store.md`.
 
+**Writing into `.val/patches` wakes the stat that reads it.** `getStat` long
+polls on a watcher over the patches directory, so any write in there ends the
+poll and the next read happens immediately. That makes every "window" in the
+patch write path a window something actually looks into — which is how uploading
+an image, whose bytes land a round trip before the patch record that references
+them, came to summon the read that classified the half-written directory as lost
+work and deleted the bytes. `uploading.json` is what closes it; see
+[patch-store.md](./patch-store.md).
+
 **The server's committed sources do not come from disk.** `ValOps` memoises them,
 and re-reading means awaiting each module's `def` — the app's own `import()`,
 which resolves from the module registry. So a save that rewrites a `.val.ts`

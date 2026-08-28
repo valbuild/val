@@ -13,6 +13,7 @@ applies to it.
     patches.repair.log        what repair has done, and when
     <patchId>/patch.json      one self-contained record per patch
     <patchId>/base.json       written when the patch is published
+    <patchId>/uploading.json  bytes are on the way, the record is not here yet
     <patchId>/files/…         binary payloads for this patch's file ops
 ```
 
@@ -101,6 +102,26 @@ directory: inert, and swept up by repair. The reverse order would leave the log
 naming a patch that is not there, which is the state that started all this. **If
 you touch the write path, keep that order.**
 
+**A patch carrying a file is written in TWO requests, bytes first, and the gap
+between them is declared.** The record's `file` op holds only a sha, so a record
+written before its bytes would point at nothing — the upload has to go first.
+That leaves `<patchId>/` holding `files/` and no `patch.json` for a round trip,
+which is neither of the two shapes above, and reading it as "a patch whose
+contents are lost" is wrong in the most expensive way: repair removes it, the
+bytes go, and the studio is told someone's work was thrown away. So
+`saveBase64EncodedBinaryFileFromPatch` writes `uploading.json` **before the first
+byte**, and `readPatchStore` skips a record-less directory that has a fresh one.
+
+This window is not rare and it is not passive. Writing into `.val/patches` is
+exactly what breaks `getStat`'s long poll, so **the upload summons the read that
+would destroy it** — which is why replacing an image worked only when the two
+requests happened to land close enough together.
+
+`appendPatch` removes the marker once the record exists, after the write for the
+same reason the log line comes last. A marker older than an hour is an upload
+whose client never came back: swept as an orphan, and silently, because nothing
+ever referenced those bytes.
+
 **A torn last line is discarded.** Appends are serialized by the lock, so an
 unterminated final line can only be a write that did not finish.
 
@@ -148,7 +169,9 @@ Directories are told apart by whether they hold a usable record. One that does
 not is an **unreadable patch**: work is gone, and it is reported. One that holds a
 perfectly good record the log does not name is a **crash leftover** — a record
 written before its log line — which nothing ever read, so nothing is lost and
-nobody is told.
+nobody is told. A third case is a record-less directory that says an upload is in
+flight: not a problem at all while the marker is fresh, an orphan once it is
+stale. See the write-path rule above.
 
 Repair only runs when something is wrong, so the healthy path — every stat poll —
 never touches the lock.

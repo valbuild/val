@@ -5,7 +5,7 @@ import { initVal, ModuleFilePath, PatchId } from "@valbuild/core";
 import { ParentRef } from "@valbuild/shared/internal";
 import { ValOpsFS } from "./ValOpsFS";
 import type { BaseSha, SchemaSha, SourcesSha } from "./ValOps";
-import { patchDir, patchesLogFile } from "./patchStore";
+import { patchDir, patchesLogFile, patchUploadMarkerFile } from "./patchStore";
 
 const { s, c, config } = initVal();
 
@@ -99,6 +99,11 @@ describe("ValOpsFS patch store", () => {
   const announcedStat = async (): Promise<{
     baseSha: string;
     patches: PatchId[];
+    /**
+     * Carried here as well, because the server DRAINS it on handover: taking one
+     * stat to read the patches and another to read the notice loses it.
+     */
+    removed?: { patchId: PatchId; reason: string }[];
   }> => {
     const stat = await ops.getStat({
       baseSha: "never-matches" as BaseSha,
@@ -112,7 +117,11 @@ describe("ValOpsFS patch store", () => {
     if (stat.type !== "did-change") {
       throw new Error(`expected did-change, got ${stat.type}`);
     }
-    return { baseSha: stat.baseSha, patches: stat.patches };
+    return {
+      baseSha: stat.baseSha,
+      patches: stat.patches,
+      removed: stat.removed,
+    };
   };
 
   const announced = async (): Promise<PatchId[]> =>
@@ -680,6 +689,165 @@ describe("ValOpsFS patch store", () => {
 
       expect(after.baseSha).not.toBe(before.baseSha);
       expect(after.patches).toEqual([]);
+    });
+  });
+
+  /**
+   * The window between a file upload and the patch record that will reference
+   * it.
+   *
+   * Replacing an image is TWO requests, in this order: the bytes go up first
+   * (`POST /upload/patches/:patchId/files`), and the patch that points at them
+   * is written after (`PUT /patches`) — the patch alone is useless, since its
+   * `file` op carries only a sha. So between them the store holds a directory
+   * with `files/` in it and no `patch.json`.
+   *
+   * Anything reading the store in that window used to classify that as an
+   * unreadable patch — "there is no .../patch.json" — and repair removed it and
+   * reported it as unpublished work thrown away. The bytes went with it, so the
+   * image 404ed from `?patch_id=...` and the replacement silently did not happen.
+   *
+   * And the read is not hypothetical: writing into the patches directory is
+   * exactly what breaks `getStat`'s long poll, so the upload itself summons the
+   * read that destroys it. Which is why replacing an image worked only when the
+   * two requests happened to land close enough together.
+   */
+  describe("a file uploaded before its patch record", () => {
+    const PNG =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
+    const FILE_PATH = "/public/val/replaced_a1b2c.png";
+
+    /** The upload half, as `POST /upload/patches/:patchId/files` does it. */
+    const upload = async (patchId: PatchId) => {
+      const res = await ops.saveBase64EncodedBinaryFileFromPatch(
+        FILE_PATH,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        patchId,
+        PNG,
+        "image",
+        { width: 1, height: 1, mimeType: "image/png" },
+      );
+      if ("error" in res && res.error !== undefined) {
+        throw new Error(`upload failed: ${res.error.message}`);
+      }
+    };
+
+    /** The patch half, as `PUT /patches` does it. */
+    const writeRecord = async (patchId: PatchId) => {
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [
+          {
+            op: "file",
+            path: ["image"],
+            filePath: FILE_PATH,
+            value: "sha256-placeholder",
+            remote: false,
+          },
+        ],
+        patchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      if (res.kind !== "ok") {
+        throw new Error(`createPatch failed: ${JSON.stringify(res.error)}`);
+      }
+    };
+
+    it("survives a stat taken before the record lands", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // The read the upload's own write woke up.
+      expect(await announcedStat()).toMatchObject({ patches: [] });
+
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    it("is not reported as unpublished work that was thrown away", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // Nothing was lost, so the person editing must not be told anything was.
+      expect((await announcedStat()).removed).toBeUndefined();
+    });
+
+    it("is still there for the record that arrives after it", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      await announcedStat();
+      await writeRecord(patchId);
+
+      expect(await announcedStat()).toMatchObject({ patches: [patchId] });
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    /**
+     * The marker is spent once the record lands: a directory the log names is
+     * never classified by it, and leaving it behind would make the layout say
+     * something that is no longer true.
+     */
+    it("stops declaring an upload once the record has landed", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      expect(fs.existsSync(patchUploadMarkerFile(patchesDir(), patchId))).toBe(
+        true,
+      );
+
+      await writeRecord(patchId);
+
+      expect(fs.existsSync(patchUploadMarkerFile(patchesDir(), patchId))).toBe(
+        false,
+      );
+    });
+
+    /**
+     * An upload whose client never came back. Nothing ever referenced the bytes,
+     * so they are swept like any other orphan — and silently, for the same
+     * reason: there is no edit anyone could have seen.
+     */
+    it("sweeps an upload that was abandoned, without reporting it", async () => {
+      const patchId = "abandoned" as PatchId;
+      await upload(patchId);
+      // Backdated past the TTL, which is the only thing separating this from the
+      // in-flight case.
+      fs.writeFileSync(
+        patchUploadMarkerFile(patchesDir(), patchId),
+        JSON.stringify({
+          startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        }),
+      );
+
+      const stat = await announcedStat();
+
+      expect(stat.removed).toBeUndefined();
+      expect(fs.existsSync(patchDir(patchesDir(), patchId))).toBe(false);
+    });
+
+    /**
+     * A directory with neither a record nor an upload in progress is still an
+     * unreadable patch, and still reported. The distinction is the whole point:
+     * "no record yet, bytes on the way" is a normal moment in a two-request
+     * write, and "no record, and nothing says one is coming" is work that is
+     * gone.
+     */
+    it("still reports a directory that is not an upload", async () => {
+      fs.mkdirSync(patchDir(patchesDir(), "junk" as PatchId), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(patchDir(patchesDir(), "junk" as PatchId), "something.txt"),
+        "not a patch",
+      );
+
+      expect((await announcedStat()).removed).toMatchObject([
+        { patchId: "junk" },
+      ]);
     });
   });
 });
