@@ -26,8 +26,8 @@ import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
-import type { ListArrayRender } from "@valbuild/core";
-import { PreviewWithRender } from "./PreviewWithRender";
+import type { ArrayPreview } from "@valbuild/core";
+import { RefPreview } from "./RefPreview";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
@@ -171,7 +171,7 @@ export function SortableContainer({
 
 export function SortableList({
   source,
-  render,
+  preview,
   schema,
   disabled,
   onClick,
@@ -182,7 +182,7 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  render?: ListArrayRender;
+  preview?: ArrayPreview;
   schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
@@ -190,16 +190,16 @@ export function SortableList({
   onDuplicate: (item: number) => void;
 }) {
   /**
-   * The render's items by index, built once per render of the list.
+   * The preview's items by index, built once per render of the list.
    *
-   * `items` is `[index, value][]` — a windowed render is a SHORTER array, so a
+   * `items` is `[index, value][]` — a windowed preview is a SHORTER array, so a
    * row has to be found by its index rather than read at a position. Doing that
    * with `find` per row is O(n) per row and therefore O(n²) for a full list,
    * which is the case with the most rows on screen.
    */
-  const renderByIndex = useMemo(
-    () => new Map(render?.items ?? []),
-    [render?.items],
+  const previewByIndex = useMemo(
+    () => new Map(preview?.items ?? []),
+    [preview?.items],
   );
   return (
     <SortableContainer
@@ -211,13 +211,12 @@ export function SortableList({
           id={id}
           schema={schema}
           disabled={disabled}
-          renderLayout={render?.layout}
-          render={
+          preview={
             /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            /* By index, not by position: a render computed for a subset of paths
+            /* By index, not by position: a preview computed for a subset of paths
                carries only those items, so items[n] would be a different row.
-               See ListArrayRender, and `renderByIndex` for why it is a Map. */
-            renderByIndex.get(id - 1)
+               See ArrayPreview, and `previewByIndex` for why it is a Map. */
+            previewByIndex.get(id - 1)
           }
           path={path}
           onClick={onClick}
@@ -246,15 +245,14 @@ export function SortableItemRow({
   path,
   schema,
   disabled,
-  render,
+  preview,
   onClick,
   onDelete,
   onDuplicate,
 }: {
   id: number;
   path: SourcePath;
-  renderLayout?: "list";
-  render?: ListArrayRender["items"][number][1];
+  preview?: ArrayPreview["items"][number][1];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
@@ -307,7 +305,7 @@ export function SortableItemRow({
         <GripVertical />
       </button>
       {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {!render && schema?.item?.type === "string" && (
+      {!preview && schema?.item?.type === "string" && (
         <div
           className={cn("flex-grow w-full", {
             "p-2 border border-bg-warning-secondary rounded-lg":
@@ -322,7 +320,7 @@ export function SortableItemRow({
           )}
         </div>
       )}
-      {(render || schema?.item?.type !== "string") && (
+      {(preview || schema?.item?.type !== "string") && (
         <button
           className={cn(
             "flex-grow",
@@ -339,7 +337,7 @@ export function SortableItemRow({
             onClick(path);
           }}
         >
-          <PreviewWithRender path={path} className="flex-grow p-4 w-full" />
+          <RefPreview path={path} className="flex-grow p-4 w-full" />
           {isTruncated && (
             <div
               className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"

@@ -778,7 +778,7 @@ export class SourceStore {
    * Peeking the same unchanged path twice returns the SAME OBJECT. Callers rely on
    * it: `useSyncExternalStore` requires a snapshot that only changes when the
    * value does, and a fresh object per call makes React re-render forever. The
-   * same requirement bit `ValidationStore.peek` and `RenderStore.peek`, and all
+   * same requirement bit `ValidationStore.peek` and `PreviewStore.peek`, and all
    * three now honour it — "safe to call on a render path" has to mean this, or it
    * means nothing.
    *

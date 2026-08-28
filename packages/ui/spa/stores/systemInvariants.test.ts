@@ -759,7 +759,7 @@ describe("source store: patches that carry files", () => {
 
 describe("peek is reference-stable in every store", () => {
   /**
-   * CLAIM (`SourceStore.peek`, `ValidationStore.peek`, `RenderStore.peek`): all
+   * CLAIM (`SourceStore.peek`, `ValidationStore.peek`, `PreviewStore.peek`): all
    * three are "safe to call on a render path".
    *
    * That phrase has to mean reference-stable, or it means nothing. A
@@ -769,7 +769,7 @@ describe("peek is reference-stable in every store", () => {
    * gives up — its own words were "maximum update depth exceeded". Two of the
    * three did exactly that, and it was invisible until a hook subscribed.
    *
-   * One test per store, because they achieve it differently: source and render
+   * One test per store, because they achieve it differently: source and preview
    * recompute and compare, validation stores its result pre-wrapped.
    */
   const module = () => {
@@ -818,18 +818,18 @@ describe("peek is reference-stable in every store", () => {
     dispose();
   });
 
-  it("render: an unchanged path peeks to the same object", async () => {
-    const { sourceStore, renderStore, dispose } = initTestSystem();
+  it("preview: an unchanged path peeks to the same object", async () => {
+    const { sourceStore, previewStore, dispose } = initTestSystem();
     await sourceStore.testReceive([module()]);
-    await renderStore.get(sp('/t.val.ts?p="rows"'));
+    await previewStore.get(sp('/t.val.ts?p="rows"'));
 
-    expect(renderStore.peek(sp('/t.val.ts?p="rows"'))).toBe(
-      renderStore.peek(sp('/t.val.ts?p="rows"')),
+    expect(previewStore.peek(sp('/t.val.ts?p="rows"'))).toBe(
+      previewStore.peek(sp('/t.val.ts?p="rows"')),
     );
     // Including the common "nothing here" answer, which is what most paths get
     // and therefore what most fields would have churned on.
-    expect(renderStore.peek(sp('/t.val.ts?p="title"'))).toBe(
-      renderStore.peek(sp('/t.val.ts?p="title"')),
+    expect(previewStore.peek(sp('/t.val.ts?p="title"'))).toBe(
+      previewStore.peek(sp('/t.val.ts?p="title"')),
     );
     dispose();
   });

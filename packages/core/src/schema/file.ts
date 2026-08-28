@@ -17,7 +17,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { FilesEntryMetadata } from "./files";
 import { getSource } from "../module";
 
@@ -423,7 +423,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

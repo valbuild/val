@@ -1,7 +1,7 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useMemo } from "react";
 import {
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
@@ -22,7 +22,7 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { PreviewWithRender } from "../../components/PreviewWithRender";
+import { RefPreview } from "../../components/RefPreview";
 import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
@@ -47,7 +47,7 @@ export function RecordFields({
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
   const schemaAtPath = useSchemaAtPath(path);
-  const renderAtPath = useRenderOverrideAtPath(path);
+  const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
@@ -125,23 +125,22 @@ export function RecordFields({
     );
   }
 
-  const renderListAtPathData =
-    renderAtPath &&
-    "data" in renderAtPath &&
-    renderAtPath.data &&
-    renderAtPath.data.layout === "list" &&
-    renderAtPath.data.parent === "record"
-      ? renderAtPath.data
+  const previewAtPathData =
+    previewAtPath &&
+    "data" in previewAtPath &&
+    previewAtPath.data &&
+    previewAtPath.data.parent === "record"
+      ? previewAtPath.data
       : undefined;
   return (
     <div id={path}>
-      {renderAtPath?.status === "error" && (
-        <PreviewError error={renderAtPath.message} path={path} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {renderListAtPathData && source && (
-        <ListRecordRenderComponent
+      {previewAtPathData && source && (
+        <RecordPreviewList
           path={path}
-          // The KEYS come from the source, not from the render's `items`: for a
+          // The KEYS come from the source, not from the preview's `items`: for a
           // `.jsonValues()` record `items` covers only the loaded entries, and a
           // list that rendered just those could never scroll far enough to load
           // the rest. Each row looks its own item up by key (resolveRefPreview),
@@ -150,7 +149,7 @@ export function RecordFields({
           jsonValues={schema.jsonValues === true}
         />
       )}
-      {!renderListAtPathData && source && (
+      {!previewAtPathData && source && (
         <RecordCardList
           path={path}
           keys={Object.keys(source)}
@@ -164,8 +163,8 @@ export function RecordFields({
 
 /** Row height estimate for the default card layout (`max-h-[170px]` + gap). */
 const CARD_ROW_HEIGHT = 186;
-/** Row height estimate for a `.render({layout:"list"})` row. */
-const RENDER_ROW_HEIGHT = 104;
+/** Row height estimate for a `.preview(...)` row. */
+const PREVIEW_ROW_HEIGHT = 104;
 
 function RecordCardList({
   path,
@@ -235,7 +234,7 @@ function RecordCardList({
                     height={96}
                   />
                 ) : (
-                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
+                  <RefPreview path={sourcePathOfItem(path, key)} />
                 )}
               </div>
             </div>
@@ -298,7 +297,7 @@ function useJsonEntryRowStates(
   }, [jsonValues, data, val, moduleFilePath]);
 }
 
-function ListRecordRenderComponent({
+function RecordPreviewList({
   path,
   keys,
   jsonValues,
@@ -319,7 +318,7 @@ function ListRecordRenderComponent({
     <VirtualizedRecordList
       moduleFilePath={moduleFilePath}
       keys={keys}
-      estimatedRowHeight={RENDER_ROW_HEIGHT}
+      estimatedRowHeight={PREVIEW_ROW_HEIGHT}
       jsonValues={jsonValues}
       className="flex flex-col w-full"
       renderRow={(key) => {
@@ -354,7 +353,7 @@ function ListRecordRenderComponent({
                   height={72}
                 />
               ) : (
-                <PreviewWithRender path={sourcePathOfItem(path, key)} />
+                <RefPreview path={sourcePathOfItem(path, key)} />
               )}
             </button>
           </div>

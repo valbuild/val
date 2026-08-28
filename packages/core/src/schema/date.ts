@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
 import {
@@ -246,7 +246,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

@@ -5,7 +5,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -164,7 +164,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

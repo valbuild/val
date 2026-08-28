@@ -1,10 +1,9 @@
 import React from "react";
-import { CodeLanguage, SourcePath } from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
   useAddPatch,
   useFieldCreatorId,
-  useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValFieldProvider";
@@ -71,24 +70,6 @@ export function StringField({
     // `write` is deliberately not a dependency: it is stable, and re-running
     // this when a pending edit changes is exactly what the guard prevents.
   }, [maybeSourceData, maybeClientSideOnly, write]);
-  const renderAtPath = useRenderOverrideAtPath(path);
-  const [renderAsTextarea, setRenderAsTextarea] = useState(false);
-  const [renderAsCodeLanguage, setRenderAsCodeLanguage] = useState<
-    CodeLanguage | false
-  >(false);
-  useEffect(() => {
-    if (renderAtPath && renderAtPath.status === "success") {
-      // Only change if render has indeed loaded (if not we will go from input to textarea and back which is bad)
-      if (renderAtPath.data.layout === "textarea") {
-        setRenderAsTextarea(true);
-      } else if (renderAtPath.data.layout === "code") {
-        setRenderAsCodeLanguage(renderAtPath.data.language);
-      } else {
-        setRenderAsTextarea(false);
-      }
-    }
-  }, [renderAtPath]);
-
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -124,14 +105,32 @@ export function StringField({
       />
     );
   }
+  /**
+   * The layout comes off the SCHEMA, synchronously.
+   *
+   * A render is static config — no closure, no dependency on source — so it
+   * travels in the serialized schema and there is nothing to wait for. That is
+   * what removes the old effect-driven dance here, which existed only because
+   * the layout used to arrive asynchronously from the host and the field would
+   * otherwise flip from input to textarea a tick later. (It also, silently, was
+   * the only reason the uncontrolled textarea below ever had a value — see
+   * `architecture/quirks.md`.) If a render ever stops being static, this read is
+   * the thing that has to change. See `core/src/render.ts`.
+   */
+  const render = schemaAtPath.data.render;
   let content: React.ReactNode;
-  if (renderAsTextarea) {
+  if (render?.as === "textarea") {
     content = (
       <div id={path}>
         <AutoGrowingTextarea
           className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
           autoFocus={autoFocus}
-          defaultValue={currentValue || ""}
+          // Controlled, like the other two branches. `currentValue` is filled
+          // by an effect a commit AFTER the source arrives, so at mount it is
+          // still `null` — and the auto-grow ghost is seeded from props ONCE, so
+          // an uncontrolled `defaultValue` leaves the box sized for an empty
+          // string however long the text is. See `architecture/quirks.md`.
+          value={currentValue || ""}
           onChange={(ev) => {
             setCurrentValue(ev.target.value);
             write.push(ev.target.value);
@@ -140,11 +139,11 @@ export function StringField({
         />
       </div>
     );
-  } else if (renderAsCodeLanguage) {
+  } else if (render?.as === "code") {
     content = (
       <div id={path}>
         <CodeEditor
-          language={renderAsCodeLanguage}
+          language={render.language}
           value={currentValue || ""}
           autoFocus={autoFocus}
           onChange={(value) => {

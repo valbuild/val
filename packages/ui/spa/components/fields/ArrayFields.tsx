@@ -3,7 +3,7 @@ import {
   useAddPatch,
   useFieldCreatorId,
   useHasUnsavedFrom,
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
@@ -40,7 +40,7 @@ export function ArrayFields({
   const creatorId = useFieldCreatorId();
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
-  const renderAtPath = useRenderOverrideAtPath(path);
+  const previewAtPath = usePreviewAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const sourceAtPath = useSourceAtPath(path);
 
@@ -90,8 +90,8 @@ export function ArrayFields({
     );
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
-  const renderAtPathData =
-    renderAtPath && "data" in renderAtPath ? renderAtPath.data : undefined;
+  const previewAtPathData =
+    previewAtPath && "data" in previewAtPath ? previewAtPath.data : undefined;
 
   /**
    * Is there an edit of ours the server has not acknowledged yet?
@@ -113,7 +113,7 @@ export function ArrayFields({
    * `SortableContainer` — rather than by disabling the control that caused it.
    */
   const savingOwnEdit =
-    renderAtPathData !== undefined &&
+    previewAtPathData !== undefined &&
     (hasUnsavedOwnEdit || shallowSourceAtPath.status === "loading");
   if (inline) {
     const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
@@ -171,8 +171,8 @@ export function ArrayFields({
   }
   return (
     <div id={path} className="relative w-full">
-      {renderAtPath?.status === "error" && (
-        <PreviewError error={renderAtPath.message} path={path} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
       {savingOwnEdit && (
         // `pointer-events-none` is the whole point: it says something is in
@@ -233,11 +233,8 @@ export function ArrayFields({
           );
         }}
         schema={schema}
-        render={
-          renderAtPathData?.layout === "list" &&
-          renderAtPathData.parent === "array"
-            ? renderAtPathData
-            : undefined
+        preview={
+          previewAtPathData?.parent === "array" ? previewAtPathData : undefined
         }
         source={shallowSourceAtPath.data || []}
       />

@@ -1,6 +1,6 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import {
   ValidationError,
   ValidationErrors,
@@ -247,7 +247,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

@@ -31,21 +31,37 @@ const authors = () => {
 };
 
 /**
- * A module that actually declares a render.
+ * A module that actually declares a preview.
  *
- * Needed because `RenderStore` no longer crosses the host seam for a module
- * whose schema declares no render — so a test about how many host calls a render
- * costs has to use a module that can produce one, or it measures nothing.
+ * Needed because `PreviewStore` no longer crosses the host seam for a module
+ * whose schema declares no preview — so a test about how many host calls a
+ * preview costs has to use a module that can produce one, or it measures
+ * nothing.
  */
-const rendered = () => {
+const previewed = () => {
   const { c, s } = initVal();
   return c.define(
-    "/rendered.val.ts",
-    s.array(s.object({ title: s.string() })).render({
-      as: "list",
-      select: ({ val }) => ({ title: val.title }),
-    }),
+    "/previewed.val.ts",
+    s
+      .array(s.object({ title: s.string() }))
+      .preview(({ val }) => ({ title: val.title })),
     [{ title: "one" }, { title: "two" }],
+  );
+};
+
+/**
+ * A module whose only `render` is a string layout hint.
+ *
+ * A render is static config carried by the SERIALIZED schema, so this module has
+ * nothing for the host to compute — see `declaresPreview`, which deliberately
+ * has no `string` arm.
+ */
+const stringRendered = () => {
+  const { c, s } = initVal();
+  return c.define(
+    "/stringRendered.val.ts",
+    s.object({ body: s.string().render({ as: "textarea" }) }),
+    { body: "hello" },
   );
 };
 
@@ -61,7 +77,7 @@ describe("cost of intake", () => {
     expect(activity.count("schema:receive")).toBe(1);
 
     // Lazy is the point: intake marks things stale and computes nothing.
-    expect(activity.count("host:execute-render")).toBe(0);
+    expect(activity.count("host:execute-preview")).toBe(0);
     expect(activity.count("validation:schema-validate")).toBe(0);
     expect(activity.count("host:execute-validate")).toBe(0);
     expect(activity.count("search:build-index")).toBe(0);
@@ -96,7 +112,7 @@ describe("cost of one keystroke", () => {
     expect(activity.count("source:wake-listener", { since: before })).toBe(1);
 
     // Nothing else in the system may do work on a keystroke.
-    expect(activity.count("host:execute-render", { since: before })).toBe(0);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(0);
     expect(
       activity.count("validation:schema-validate", { since: before }),
     ).toBe(0);
@@ -195,8 +211,8 @@ describe("cost of one keystroke", () => {
     expect(activity.count("source:apply-patch", { since: before })).toBe(40);
     expect(activity.count("source:clone-module", { since: before })).toBe(40);
     expect(activity.count("source:wake-listener", { since: before })).toBe(40);
-    // The whole point of lazy: 40 keystrokes, zero renders, zero validations.
-    expect(activity.count("host:execute-render", { since: before })).toBe(0);
+    // The whole point of lazy: 40 keystrokes, zero previews, zero validations.
+    expect(activity.count("host:execute-preview", { since: before })).toBe(0);
     expect(
       activity.count("validation:schema-validate", { since: before }),
     ).toBe(0);
@@ -270,62 +286,89 @@ describe("cost of reading", () => {
   });
 
   /**
-   * CLAIM (`RenderStore`): "In-flight requests, so N fields asking at once
+   * CLAIM (`PreviewStore`): "In-flight requests, so N fields asking at once
    * produce ONE host call", and one request "fills the cache for every path in
    * the module".
    */
-  it("renders a module once for concurrent readers of different paths", async () => {
-    const { sourceStore, renderStore, activity, dispose } = initTestSystem();
+  it("previews a module once for concurrent readers of different paths", async () => {
+    const { sourceStore, previewStore, activity, dispose } = initTestSystem();
 
-    await sourceStore.testReceive([rendered()]);
+    await sourceStore.testReceive([previewed()]);
     const before = activity.position();
 
     await Promise.all([
-      renderStore.get(sp("/rendered.val.ts?p=0")),
-      renderStore.get(sp("/rendered.val.ts?p=1")),
-      renderStore.get(sp("/rendered.val.ts?p=0")),
+      previewStore.get(sp("/previewed.val.ts?p=0")),
+      previewStore.get(sp("/previewed.val.ts?p=1")),
+      previewStore.get(sp("/previewed.val.ts?p=0")),
     ]);
 
-    expect(activity.count("host:execute-render", { since: before })).toBe(1);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(1);
     dispose();
   });
 
   /**
-   * CLAIM (`SchemaStore.declaresRender`): a module that cannot render is never
-   * sent to the host to be rendered.
+   * CLAIM (`SchemaStore.declaresPreview`): a module that cannot preview is never
+   * sent to the host to be previewed.
    *
    * Measured, not guessed: mounting 260 fields across 141 modules in Chromium
-   * spent ~2.3ms of 3.1ms inside `executeRender` on modules that returned an
-   * empty result. In a real project most modules declare no render, so most of
+   * spent ~2.3ms of 3.1ms inside `executePreview` on modules that returned an
+   * empty result. In a real project most modules declare no preview, so most of
    * that work was provably wasted.
    */
-  it("never asks the host to render a module that declares no render", async () => {
-    const { sourceStore, renderStore, activity, listeners, dispose } =
+  it("never asks the host to preview a module that declares no preview", async () => {
+    const { sourceStore, previewStore, activity, listeners, dispose } =
       initTestSystem();
 
     await sourceStore.testReceive([blogs(), authors()]);
-    // Both routes to a render: a field mounting, and a caller asking.
+    // Both routes to a preview: a field mounting, and a caller asking.
     listeners.set('/blogs.val.ts?p="title"');
-    const read = await renderStore.get(sp('/blogs.val.ts?p="title"'));
+    const read = await previewStore.get(sp('/blogs.val.ts?p="title"'));
 
-    expect(activity.count("host:execute-render")).toBe(0);
+    expect(activity.count("host:execute-preview")).toBe(0);
     // And the answer is the same one the host would have produced from an empty
-    // render, so nothing downstream can tell the difference.
-    expect(read.status).toBe("no-render-at-path");
+    // preview, so nothing downstream can tell the difference.
+    expect(read.status).toBe("no-preview-at-path");
     dispose();
   });
 
-  it("serves a second render read from cache", async () => {
-    const { sourceStore, renderStore, activity, dispose } = initTestSystem();
+  /**
+   * CLAIM (the preview/render split): a string's `render` is not a preview, so a
+   * module whose only declaration is one never reaches the host at all.
+   *
+   * This is what `declaresPreview` dropping its `string` arm buys, and nothing
+   * else would catch it being put back: the layout is read off the serialized
+   * schema where the field is drawn, so restoring the arm would cost a
+   * whole-module walk per such module and change nothing on screen.
+   */
+  it("never asks the host to preview a module whose only render is a string layout", async () => {
+    const { sourceStore, previewStore, activity, listeners, dispose } =
+      initTestSystem();
 
-    await sourceStore.testReceive([rendered()]);
-    await renderStore.get(sp("/rendered.val.ts?p=0"));
+    await sourceStore.testReceive([stringRendered()]);
+    listeners.set('/stringRendered.val.ts?p="body"');
+    const read = await previewStore.get(sp('/stringRendered.val.ts?p="body"'));
+
+    expect(activity.count("host:execute-preview")).toBe(0);
+    // `peek` names the reason — the schema declares none — while `get` answers
+    // as it would for any path the host had nothing for.
+    expect(
+      previewStore.peek(sp('/stringRendered.val.ts?p="body"')).status,
+    ).toBe("no-preview");
+    expect(read.status).toBe("no-preview-at-path");
+    dispose();
+  });
+
+  it("serves a second preview read from cache", async () => {
+    const { sourceStore, previewStore, activity, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([previewed()]);
+    await previewStore.get(sp("/previewed.val.ts?p=0"));
 
     const before = activity.position();
-    await renderStore.get(sp("/rendered.val.ts?p=0"));
+    await previewStore.get(sp("/previewed.val.ts?p=0"));
 
-    expect(activity.count("host:execute-render", { since: before })).toBe(0);
-    expect(activity.count("render:cache-hit", { since: before })).toBe(1);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(0);
+    expect(activity.count("preview:cache-hit", { since: before })).toBe(1);
     dispose();
   });
 });

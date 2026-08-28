@@ -29,12 +29,16 @@ proportional to the edited field instead of to the project.
 ## Two realms, and the line between them is drawn by closures
 
 The constraint that decides the whole layout: **`Schema` instances carry the
-user's `select`, `render` and custom `validate` closures, and closures cannot be
+user's `preview` and custom `validate` closures, and closures cannot be
 structured-cloned.** So anything that has to _execute_ one must sit next to one.
 
-`executeRender` and custom `validate` both need an instance **and** the patched
+`executePreview` and custom `validate` both need an instance **and** the patched
 source. Therefore patched source lives in the host realm too — otherwise every
-render would ship a module across a thread boundary, and `handboka` is 129 KB.
+preview would ship a module across a thread boundary, and `handboka` is 129 KB.
+
+(A string's `render` is not in this group. It is static config with no closure
+behind it, so it serializes and travels with the schema — see
+`core/src/render.ts`.)
 
 ```
 HOST REALM (main thread)                      WORKER REALM
@@ -44,7 +48,7 @@ source    ── patched source  ◄── read         patch sets  ── group
 schema    ── serialized schemas               (schema validation)
 patch     ── chain + head
 stat      ── server truth
-render    ── routes to host
+preview   ── routes to host
 validation── schema half → worker seam
              custom half → host seam
                               │
@@ -96,9 +100,9 @@ realm** but come from **different bundles**, each with its own copy of
 
 - Nothing may use `instanceof Schema` across it — the class identities differ.
   `extractValModules` already documents this; bracket access to
-  `executeSerialize` / `executeRender` / `executeValidate` is the contract.
+  `executeSerialize` / `executePreview` / `executeValidate` is the contract.
 - **No clone is involved**, because no thread is crossed. `HostBridge` is async
-  anyway, so an expensive `executeRender` can be deferred rather than blocking
+  anyway, so an expensive `executePreview` can be deferred rather than blocking
   whoever asked — and so the seam survives if it ever does become a real
   boundary.
 
@@ -122,41 +126,41 @@ realm** but come from **different bundles**, each with its own copy of
                 │      │──────────────►│  source  │  │              │
                 └──────┘               └────┬─────┘  │              ▼
                    ▲                        │        │        ┌──────────┐
-      render ──────┘  executeRender         │        │        │  search  │ (worker)
+     preview ──────┘  executePreview        │        │        │  search  │ (worker)
       customValidate  executeValidate       │        ├── push ►└──────────┘
                    ▲                        │        │        ┌──────────┐
                    │                        │        └── push ►│references│ (worker)
                    │                        │                 └──────────┘
                    │                        ▼
               ┌────┴─────┐        per-path field events
-              │ render   │        (external-patch / internal-patch)
+              │ preview  │        (external-patch / internal-patch)
               │validation│                 │
               └──────────┘                 ▼
                                   hooks / web components
 ```
 
-## Render and validation are ROUTERS, not computers
+## Preview and validation are ROUTERS, not computers
 
 Both own everything _around_ the work — the cache, the staleness, the events,
 the per-path lookup — and route the work itself outward.
 
-### Render store
+### Preview store
 
-`executeRender` runs the user's `render({ as, select })` closures, so only the
-host can do it. The store's API is **per-path** (`get(path)`); underneath,
-`executeRender` takes a whole module and returns
-`ReifiedRender = Record<SourcePath, WithStatus<RenderTypes>>`, so one request
+`executePreview` runs the user's `preview()` closures, so only the host can do
+it. The store's API is **per-path** (`get(path)`); underneath, `executePreview`
+takes a whole module and returns
+`ReifiedPreview = Record<SourcePath, WithStatus<PreviewTypes>>`, so one request
 fills the cache for every path in the module.
 
-The per-path interface is the point: making renders genuinely path-scoped needs a
-new entry point in `packages/core`, and when it lands it lands behind this
+The per-path interface is the point: making previews genuinely path-scoped needs
+a new entry point in `packages/core`, and when it lands it lands behind this
 signature with no caller changing.
 
-**What this does and does not fix.** Today renders are computed eagerly, per
+**What this does and does not fix.** Today previews are computed eagerly, per
 module, on every keystroke. This makes them lazy, cached, and de-duplicated
 (concurrent readers of one module share a single host call). It does **not** fix
-the worst case: `handboka` has `select` at two nested array levels, so one
-request still walks every chapter and section. Lazy + cached turns that from
+the worst case: `handboka` previews at two nested array levels, so one request
+still walks every chapter and section. Lazy + cached turns that from
 per-keystroke into per-change-then-read. Only path-scoping turns it into
 per-visible-row.
 
@@ -187,23 +191,23 @@ has no instance for the module, `customValidateStatus: "unavailable"` is reporte
 rather than the custom half being silently dropped — a green module that was
 never fully checked is worse than an honest gap.
 
-## Lazy is the point, for render, validation and search
+## Lazy is the point, for preview, validation and search
 
 All three react to a change by marking modules **stale** and saying so
-(`render:invalidate`, `validation:invalidate`, `search:invalidate`), computing
+(`preview:invalidate`, `validation:invalidate`, `search:invalidate`), computing
 nothing. Work happens when someone asks.
 
 Typing 40 characters into one field costs 40 set-inserts and **zero** validations
-and **zero** renders, against one validation round-trip _and_ one whole-module
-render _per keystroke_ today.
+and **zero** previews, against one validation round-trip _and_ one whole-module
+preview _per keystroke_ today.
 
 All three also only **announce** staleness when it is news — when something
 cached actually went stale. Without that rule, intake alone emits an invalidate
 per module per store and the signal that matters drowns in it.
 
-## Render and search run for what is being looked at
+## Preview and search run for what is being looked at
 
-Neither may run because something CHANGED. The demand signal for a render is **a
+Neither may run because something CHANGED. The demand signal for a preview is **a
 listener existing at a path**; for search it is **a query**.
 
 A listener is the system's own record that a field is on screen showing a path,
@@ -213,26 +217,27 @@ speculative or already-unmounted caller can do that too.
 
 Two moments, and the distinction between them is load-bearing:
 
-- **Demand arriving** — a field mounts, so `source:listen` fires and the render
-  is computed then. This is the "user clicks to a path that needs a render" case.
+- **Demand arriving** — a field mounts, so `source:listen` fires and the preview
+  is computed then. This is the "user clicks to a path that needs a preview" case.
 - **Demand disturbed** — the source changed under a field. This only MARKS.
-  Recomputing here would cost one whole-module render per keystroke, which is the
+  Recomputing here would cost one whole-module preview per keystroke, which is the
   cost this design exists to remove. Nothing is lost by waiting, because the same
   call that changed the source wakes the fields on the affected paths, and a
   woken field re-reads — so the following read pays once, however many changes
   preceded it.
 
-Demand leaving (`source:unlisten`) drops the module's cached render, so a module
-nobody is looking at cannot be re-rendered by a later change to it.
+Demand leaving (`source:unlisten`) drops the module's cached preview, so a module
+nobody is looking at cannot be recomputed by a later change to it.
 
-And the render itself is now scoped to the demand, not just triggered by it.
-`RenderScope` (in `packages/core`) is passed to `executeRender`, so a listener on
-one row of a list costs one `select` call instead of one per row; a request for
-the CONTAINER still renders every row, because a list view needs all of them.
-The cache entry carries the scope it was computed at — a render scoped to one row
-answers for that row and nothing else, and serving it elsewhere would be wrong
-rather than merely slow. See `openquestions.md` item 3 for the full reasoning,
-including why `ListArrayRender.items` had to start carrying its indices.
+And the preview itself is now scoped to the demand, not just triggered by it.
+`PreviewScope` (in `packages/core`) is passed to `executePreview`, so a listener
+on one row of a list costs one closure call instead of one per row; a request for
+the CONTAINER still previews every row, because a list view needs all of them.
+The cache entry carries the scope it was computed at — a preview scoped to one
+row answers for that row and nothing else, and serving it elsewhere would be
+wrong rather than merely slow. See `openquestions.md` item 3 for the full
+reasoning, including why `ArrayPreview.items` had to start carrying its
+indices.
 
 Patch sets follow the same rule for a different reason: they are built from the
 chain when the review UI asks, not accumulated per patch. The store always said
@@ -256,7 +261,7 @@ custom-validate walk) asks for the same thing.
 
 **The read is the demand signal, and the read WAITS.** A read at a path inside an
 unloaded entry is exactly the moment the content is wanted — the same rule as a
-render being computed when a listener appears. `get` triggers the fetch, awaits
+preview being computed when a listener appears. `get` triggers the fetch, awaits
 it, re-resolves once and answers with the content:
 
 - it must NOT answer `absent`, which is the trap the `absent` / `module-loading`
@@ -551,9 +556,9 @@ _before its cause_, and a ledger reading `validation:invalidate` then
 | `host`       | host   | the real `Schema` instances; intake                 | The only thing that may hold a closure. It defines the edge of what can be threaded, and it is the entry point, mirroring `setValModules`.                                                                                                                           |
 | `stat`       | host   | what the server says exists (patch **ids**, no ops) | The only store with an outside input. Keeping ops out of it is what makes `external-partial` a real state rather than a fiction.                                                                                                                                     |
 | `patch`      | host   | the linear chain, origins, which ids have data      | Knows a patch _exists_; the source store knows whether it _landed_. The head is where those two facts meet, so neither can compute it alone.                                                                                                                         |
-| `schema`     | host   | serialized schemas                                  | Own change sources (`/schema`, HMR swapping a schema under existing source) and own consumers (validation, render, search). Today they merely happen to arrive with source.                                                                                          |
-| `source`     | host   | patched source **and** the listener registry        | Invariant 1 requires them together. In the host realm because renders need it without a clone.                                                                                                                                                                       |
-| `render`     | host   | reified renders, cached and lazy                    | Owns caching/staleness so the host is asked once per change, not once per field per keystroke.                                                                                                                                                                       |
+| `schema`     | host   | serialized schemas                                  | Own change sources (`/schema`, HMR swapping a schema under existing source) and own consumers (validation, preview, search). Today they merely happen to arrive with source.                                                                                         |
+| `source`     | host   | patched source **and** the listener registry        | Invariant 1 requires them together. In the host realm because previews need it without a clone.                                                                                                                                                                      |
+| `preview`    | host   | reified previews, cached and lazy                   | Owns caching/staleness so the host is asked once per change, not once per field per keystroke.                                                                                                                                                                       |
 | `validation` | host   | errors and their staleness                          | Coordinates the two-seam split above; neither seam can own the merge.                                                                                                                                                                                                |
 | `patch sets` | worker | patches grouped into reviewable units               | Answers _"what are the units of change?"_ — coalesced across many patches, only when the review UI is open, and INCREMENTALLY: a read after one keystroke inserts one patch, not the chain. The source store answers _"who do I wake?"_ — exact, now, per keystroke. |
 | `search`     | worker | the full-text index                                 | The most expensive walk in the system, so it must never be a side effect of an edit.                                                                                                                                                                                 |
@@ -589,7 +594,7 @@ plus
 - a fake patch server behind the real `fetchPatches` seam, deliberately async so
   no store can come to depend on the fetch resolving synchronously;
 - the **host store** itself, so a test drives intake the way the app does and can
-  assert that a render or a custom validator really reached an instance.
+  assert that a preview or a custom validator really reached an instance.
 
 `noMessages()` waits for the pipeline to quiesce _before_ asserting. Asserting
 immediately would pass for a system that had not started yet — the most
@@ -600,9 +605,9 @@ should look like:
 
 ```
 host:receive → schema:init → source:init → search:invalidate
-→ render:result → validation:result → search:build-index
+→ preview:result → validation:result → search:build-index
 → patch:create → source:patch-apply → patch:head
-→ render:invalidate → validation:invalidate → search:invalidate
+→ preview:invalidate → validation:invalidate → search:invalidate
 → patch-set:update
 ```
 
@@ -671,7 +676,7 @@ Every cost claim above is an invocation COUNT asserted in node, and a count
 cannot say whether the thing it counted takes 20 microseconds or 20
 milliseconds. `../bench/` closes that: both systems run in a real Chromium, and
 the unit of measurement is **a field becoming ready** — source, validation and
-render in hand — because timing `addPatch` against `createPatch` would time the
+preview in hand — because timing `addPatch` against `createPatch` would time the
 eager system doing all the work and the lazy system doing none of it. See
 `bench/README.md` for the fairness contract and `openquestions.md` item 1 for the
 numbers, the provenance, and the corrections.
@@ -688,7 +693,7 @@ non-overlapping ranges:
 
 | scenario                          | engine  | stores  |           |
 | --------------------------------- | ------- | ------- | --------- |
-| keystroke into a rendered list    | 18.3 ms | 0.4 ms  | **45.7x** |
+| keystroke into a previewed list   | 18.3 ms | 0.4 ms  | **45.7x** |
 | mount                             | 17.5 ms | 0.4 ms  | **43.8x** |
 | keystroke                         | 17.0 ms | 0.4 ms  | **42.5x** |
 | nested-row (the `handboka` shape) | 17.9 ms | 0.9 ms  | **19.9x** |
@@ -713,9 +718,9 @@ keeping the harness rather than treating it as a one-off:
 
 - `listenedPaths` walked the whole listener registry, making a mount
   O(fields x modules). Now indexed per module.
-- Mounting rendered every module, spending most of its time inside
-  `executeRender` on modules that declare no render. `SerializedSchema` carries
-  `render?: true` and `SchemaStore.declaresRender` answers from the schema.
+- Mounting previewed every module, spending most of its time inside
+  `executePreview` on modules that declare no preview. `SerializedSchema` carries
+  `preview?: true` and `SchemaStore.declaresPreview` answers from the schema.
 - **The listener scan was O(all registered paths) per patch.** The comment in
   `applyEntries` said exactly that while the design promised cost proportional to
   affected fields — and on a 1202-field mount a 40-key burst made the stores
@@ -740,10 +745,10 @@ Unfinished work, as distinct from the undecided questions in
 [`openquestions.md`](./openquestions.md). Named so they are not mistaken for
 finished work.
 
-- ~~**Renders are not path-scoped.**~~ **Done.** `RenderScope` in
-  `packages/core` is threaded through every `executeRender`, so a listener on one
-  row of a list costs one `select` call rather than one per row, and a nested list
-  prunes the sibling subtrees. A request for a CONTAINER still renders all of it,
+- ~~**Previews are not path-scoped.**~~ **Done.** `PreviewScope` in
+  `packages/core` is threaded through every `executePreview`, so a listener on one
+  row of a list costs one closure call rather than one per row, and a nested list
+  prunes the sibling subtrees. A request for a CONTAINER still previews all of it,
   because a list view needs every row. See `openquestions.md` item 3.
 - ~~**No references store.**~~ **Done.** See below.
 - ~~**No rebase.**~~ **Done.** The source store now keeps base source and the
@@ -818,9 +823,9 @@ finished work.
 
   Writing them found four bugs no store-level test could see, because all four are
   about what a SUBSCRIBER is told rather than what a reader is returned:
-  `ValidationStore.peek` and `RenderStore.peek` built fresh result objects per
-  call and so looped `useSyncExternalStore` to React's abort; `RenderStore.peek`
-  answered `no-render` for three different situations, so a caller could not tell
+  `ValidationStore.peek` and `PreviewStore.peek` built fresh result objects per
+  call and so looped `useSyncExternalStore` to React's abort; `PreviewStore.peek`
+  answered `no-preview` for three different situations, so a caller could not tell
   whether asking would help; `SourceStore.receive` bumped every revision and told
   no listener, so a field mounted before its module arrived rendered `loading`
   forever — the normal startup order; and `PatchSync` changed its state without
@@ -833,13 +838,13 @@ finished work.
   `e2e/studio-ui.spec.ts` drives the result by clicking and typing, which is the
   only thing that can check hooks whose signatures did not change.
 
-- ~~**Only the source/patch/stat path is tested.**~~ Host, render, validation,
+- ~~**Only the source/patch/stat path is tested.**~~ Host, preview, validation,
   search and patch sets are now covered: `systemFlow` (one session-order flow),
   `systemInvariants` (one claim per test), `activityCost` (how many times each
-  expensive thing runs), `demandDriven` (render and search only run for what is
+  expensive thing runs), `demandDriven` (preview and search only run for what is
   being looked at).
 - ~~**Unmeasured in a browser.**~~ **Done.** Work COUNTS are asserted in node via
-  the activity channel — see `activity.ts` — which is what caught render being put
+  the activity channel — see `activity.ts` — which is what caught previews being put
   back on the keystroke path. Durations are measured in a real Chromium by
   [`../bench/`](../bench/README.md), which is also where the engine's last numbers
   are recorded: keystroke 10.6 ms → 0.40 ms, `select` on the nested-row case 650 →
