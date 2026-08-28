@@ -1,4 +1,5 @@
 ---
+"@valbuild/core": patch
 "@valbuild/server": patch
 "@valbuild/ui": patch
 ---
@@ -52,3 +53,32 @@ on pre-publish content until the next keystroke put a patch back in the chain.
 The snapshot now also names the modules this session published into
 (`PatchStore.publishedModules()`), whose live source in the editor is the
 published value.
+
+## Committed content the server has just written
+
+`ValOps` memoises the sources and re-reads them by awaiting each module's `def` —
+the app's own `import()`, which resolves from the module registry rather than from
+disk. So after `/save` rewrites a `.val.ts`, invalidating the memo would return
+the pre-save content and store it as fresh; nothing replaced it until the host
+rebuilt its module graph. That is what a page rendering draft content falls back
+on once a publish has removed the patches, so it showed the content from before
+the publish.
+
+The save tells `ValOps` instead: `adoptCommittedSources` takes the analysis it
+just committed and adopts the sources it produced. The SHA fold moved out of
+`extractValModules` into `computeValModuleShas` so those SHAs can be recomputed
+over sources that did not come from evaluating the modules — the entries the fold
+ran over are kept, and replaying them unchanged reproduces the SHAs exactly, so
+only a module whose source actually moved changes anything.
+
+`baseSha` therefore moves on a publish in `fs` mode, for the first time within a
+server's lifetime. That is a signal the studio already knows how to read:
+`PatchStore.reconcileVanished` uses a moved base to tell "these patches were
+published" from "these were discarded", so a second studio watching a publish
+takes them out of its chain without reverting the published fields. `schemaSha`
+does not move, so nothing refetches `/schema`.
+
+Not covered: a `.jsonValues()` entry's content is not in the module source — the
+source holds markers and the content sits behind the marker's own `import()`
+thunk, which caches the same way. `architecture/quirks.md` records what closing
+that would take.

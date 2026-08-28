@@ -95,9 +95,11 @@ describe("ValOpsFS patch store", () => {
     return created;
   };
 
-  const announced = async (): Promise<PatchId[]> => {
-    // Shas that cannot match, so getStat answers immediately with what it sees
-    // rather than long-polling for a change.
+  /** A whole stat answer, taken with shas that cannot match so it returns at once. */
+  const announcedStat = async (): Promise<{
+    baseSha: string;
+    patches: PatchId[];
+  }> => {
     const stat = await ops.getStat({
       baseSha: "never-matches" as BaseSha,
       schemaSha: "never-matches" as SchemaSha,
@@ -110,8 +112,11 @@ describe("ValOpsFS patch store", () => {
     if (stat.type !== "did-change") {
       throw new Error(`expected did-change, got ${stat.type}`);
     }
-    return stat.patches;
+    return { baseSha: stat.baseSha, patches: stat.patches };
   };
+
+  const announced = async (): Promise<PatchId[]> =>
+    (await announcedStat()).patches;
 
   /** What the next stat tells the studio it threw away. */
   const removedNotice = async (): Promise<
@@ -559,6 +564,122 @@ describe("ValOpsFS patch store", () => {
         fetched.patches.map((patch) => patch.patchId),
       );
       expect(stat.patches).toEqual([created[1]]);
+    });
+  });
+
+  /**
+   * What the server serves as COMMITTED content after it has just written it.
+   *
+   * The sources are memoised per `ValOps` instance, and the way they are re-read
+   * is by awaiting each module's `def` — in a real app the app's own `import()`,
+   * which resolves from the module registry rather than from the file on disk. So
+   * invalidating the memo after a save gets the PRE-SAVE content back and stores
+   * it as fresh. This suite's `def` models that exactly: it builds the module
+   * from a literal, so re-evaluating always answers `title: "start"` no matter
+   * what is on disk.
+   *
+   * It matters because committed content is what a page rendering DRAFT content
+   * falls back on once a publish has removed the patches. Stale there means the
+   * page shows what was there before the publish, with nothing left to correct
+   * it.
+   */
+  describe("adopting the sources a save has written", () => {
+    /** What `/save` does, in the order it does it. */
+    const publish = async (
+      title: string,
+      options?: { adopt?: boolean },
+    ): Promise<void> => {
+      await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: title }],
+        crypto.randomUUID() as PatchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      const patches = await ops.fetchPatches({ excludePatchOps: false });
+      const analysis = ops.analyzePatches(patches.patches);
+      const prepared = await ops.prepare({ ...analysis, ...patches });
+      expect(prepared.hasErrors).toBe(false);
+      const saved = await ops.saveOrUploadFiles(prepared, "skip-remote");
+      expect(saved.errors).toEqual({});
+      if (options?.adopt !== false) {
+        await ops.adoptCommittedSources({ ...analysis, ...patches });
+      }
+      await ops.deletePatches(patches.patches.map((entry) => entry.patchId));
+    };
+
+    const committedTitle = async (): Promise<unknown> => {
+      const { sources } = await ops.getSources();
+      const source = sources[MODULE_PATH];
+      if (source === null || typeof source !== "object") {
+        throw new Error(`expected an object, got ${JSON.stringify(source)}`);
+      }
+      return (source as Record<string, unknown>)["title"];
+    };
+
+    it("serves the published content once the patches are gone", async () => {
+      await publish("published");
+
+      expect(await ops.fetchPatches({ excludePatchOps: true })).toMatchObject({
+        patches: [],
+      });
+      expect(await committedTitle()).toBe("published");
+    });
+
+    /**
+     * The same run without the adoption, so what it is for is on the record: the
+     * file on disk is right and the answer is still the old one.
+     */
+    it("would answer with the pre-save content without it", async () => {
+      await publish("published", { adopt: false });
+
+      expect(
+        fs.readFileSync(path.join(rootDir, "test", "page.val.ts"), "utf-8"),
+      ).toContain("published");
+      expect(await committedTitle()).toBe("start");
+    });
+
+    it("moves the source shas with the sources, and leaves the schema sha alone", async () => {
+      const before = {
+        baseSha: await ops.getBaseSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        schemaSha: await ops.getSchemaSha(),
+      };
+
+      await publish("published");
+
+      expect(await ops.getSourcesSha()).not.toBe(before.sourcesSha);
+      // The moved base is what tells a second studio "these were published, not
+      // discarded" — see `PatchStore.reconcileVanished`.
+      expect(await ops.getBaseSha()).not.toBe(before.baseSha);
+      // Nothing about the schemas moved, and the client refetches `/schema` on
+      // this one.
+      expect(await ops.getSchemaSha()).toBe(before.schemaSha);
+    });
+
+    it("leaves the shas alone when there is nothing to adopt", async () => {
+      const before = await ops.getBaseSha();
+
+      await ops.adoptCommittedSources({
+        ...ops.analyzePatches([]),
+        patches: [],
+      });
+
+      expect(await ops.getBaseSha()).toBe(before);
+    });
+
+    /**
+     * `/stat` answers with the SHAs, so a publish has to be visible there — that
+     * is the whole channel a second studio learns anything on.
+     */
+    it("shows up on the next stat", async () => {
+      const before = await announcedStat();
+      await publish("published");
+      const after = await announcedStat();
+
+      expect(after.baseSha).not.toBe(before.baseSha);
+      expect(after.patches).toEqual([]);
     });
   });
 });

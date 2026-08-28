@@ -212,6 +212,24 @@ the server contradicting itself: the announcement may simply predate a delete.
 one more stat before reporting it. Auto-save is what made this loud, because it
 publishes on every pause in typing. See `architecture/patch-store.md`.
 
+**The server's committed sources do not come from disk.** `ValOps` memoises them,
+and re-reading means awaiting each module's `def` — the app's own `import()`,
+which resolves from the module registry. So a save that rewrites a `.val.ts`
+cannot be picked up by invalidating the memo: the re-extraction returns the
+pre-save content and stores it as fresh. The save tells `ValOps` instead
+(`adoptCommittedSources`), which also re-folds the SHAs so `baseSha` moves — the
+first thing that moves it within a server's lifetime in `fs` mode, and the signal
+`PatchStore.reconcileVanished` needs to tell a publish from a discard.
+
+**A `.jsonValues()` entry is NOT covered by that, and is still stale after a
+publish.** Its content is not in the memoised source — the source holds markers,
+and the content sits behind the marker's own `import()` thunk, which caches the
+same way. So `getJsonEntry` keeps answering with the pre-publish entry content
+until the host re-evaluates, and a page rendering draft content sees it as soon as
+the publish removes the patches. Closing it means carrying the committed entry
+content out of `prepare` (which computes it, keyed by `*.val.json` path) into an
+adopted-entries map that `getJsonEntries` consults before the thunk. Not done.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in

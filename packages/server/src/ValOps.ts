@@ -20,7 +20,9 @@ import {
   ValidationError,
   ValidationErrors,
   extractValModules,
+  computeValModuleShas,
 } from "@valbuild/core";
+import type { ExtractedModuleError, ValModuleShaEntry } from "@valbuild/core";
 import { array, pipe, result } from "@valbuild/core/fp";
 import {
   JSONOps,
@@ -138,6 +140,22 @@ export abstract class ValOps {
   /** The sha256 / hash of schema + config - if this changes users needs to reload */
   private schemaSha: SchemaSha | null;
   private modulesErrors: ModulesError[] | null;
+  /**
+   * What the SHAs above are a fold over, so they can be recomputed.
+   *
+   * See {@link promoteCommittedSources}: the one thing that changes sources
+   * without re-evaluating the modules is a save, and it has to be able to move
+   * the SHAs with them.
+   */
+  private shaEntries: ValModuleShaEntry[] | null;
+  /**
+   * The extraction's OWN module errors, which are what the fold was given.
+   *
+   * Not the same list as {@link modulesErrors}: that one has the nested
+   * `.jsonValues()` errors concatenated on, and those were never part of the
+   * hash. Re-folding with the wrong list changes the base SHA for no reason.
+   */
+  private shaModuleErrors: ExtractedModuleError[] | null;
 
   constructor(
     private readonly valModules: ValModules,
@@ -150,6 +168,8 @@ export abstract class ValOps {
     this.sourcesSha = null;
     this.configSha = null;
     this.modulesErrors = null;
+    this.shaEntries = null;
+    this.shaModuleErrors = null;
   }
 
   // #region stat
@@ -240,6 +260,8 @@ export abstract class ValOps {
       this.sourcesSha = extracted.sourcesSha as SourcesSha;
       this.configSha = extracted.configSha as ConfigSha;
       this.modulesErrors = moduleErrors;
+      this.shaEntries = extracted.shaEntries;
+      this.shaModuleErrors = extracted.moduleErrors;
       return {
         baseSha: this.baseSha,
         schemaSha: this.schemaSha,
@@ -259,6 +281,128 @@ export abstract class ValOps {
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
     };
+  }
+
+  /**
+   * These patches are on disk now: adopt what they produced as the committed
+   * sources.
+   *
+   * The entry point for the mechanism {@link promoteCommittedSources} describes,
+   * and the only one — a caller hands over the analysis it just committed and
+   * this works out the rest, so the rule about which sources are adopted lives
+   * in one place rather than at each save site.
+   *
+   * A module whose patches could not be applied cleanly is left alone. `/save`
+   * refuses the whole commit before reaching here if `prepare` found errors, so
+   * this cannot normally fire — but adopting a partially patched source would
+   * put content in the memo that is not what was written, which is worse than
+   * being stale.
+   */
+  async adoptCommittedSources(
+    analysis: PatchAnalysis & OrderedPatches,
+  ): Promise<void> {
+    // Read BEFORE anything is promoted: this applies the chain to the sources as
+    // they stand, and promoting first would apply the same patches twice.
+    const { sources, errors } = await this.getSources(analysis);
+    const adopt: Sources = {};
+    for (const [moduleFilePathS, source] of Object.entries(sources)) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      if (errors[moduleFilePath] !== undefined) {
+        console.error(
+          "Val: not adopting the committed source of a module whose patches " +
+            "did not apply cleanly. Its content here stays as it was until the " +
+            "modules are re-evaluated.",
+          { moduleFilePath, errors: errors[moduleFilePath] },
+        );
+        continue;
+      }
+      adopt[moduleFilePath] = source;
+    }
+    this.promoteCommittedSources(adopt);
+  }
+
+  /**
+   * Adopt sources that have just been written to disk, and move the SHAs with
+   * them.
+   *
+   * ## Why this exists rather than an invalidation
+   *
+   * The obvious thing — throw the memo away after a save so the next read
+   * re-extracts — does not work, and quietly. `extractValModules` gets a
+   * module's content by awaiting its `def`, which is the app's own `import()`:
+   * that resolves from the MODULE REGISTRY, not from the file on disk. Right
+   * after `/save` rewrites a `.val.ts`, the registry still holds the module as
+   * it was evaluated before, so a re-extraction returns the pre-save content and
+   * stores it as fresh. What actually replaces it is the host rebuilding its
+   * module graph and constructing a new `ValOps` — which happens on its own
+   * schedule, and until it does, every read is stale.
+   *
+   * Stale reads here are not abstract: `getJsonEntry` resolves a
+   * `.jsonValues()` entry from the committed source and then replays pending
+   * patches over it, so once a publish has removed the patches, a page rendering
+   * draft content gets the committed value — the one this memo is holding from
+   * before the publish.
+   *
+   * So the save tells us instead. It has just computed what the new committed
+   * sources are, and that answer does not depend on anything being
+   * re-evaluated.
+   *
+   * ## And the SHAs move
+   *
+   * Deliberately, and this is the part with consequences. `baseSha` and
+   * `sourcesSha` identify the sources being served; leaving them still while the
+   * sources move would put a value other code compares against into
+   * disagreement with what it describes. Moving them means a `fs`-mode base SHA
+   * changes within a server's lifetime for the first time, which is a signal the
+   * studio already knows how to read: `PatchStore.reconcileVanished` uses a
+   * moved base to tell "these patches were published" from "these patches were
+   * discarded", and takes them out of the chain without reverting the fields —
+   * which is what a second tab watching a publish needs and could not get
+   * before.
+   *
+   * A module the fold does not know is ignored rather than appended: the fold's
+   * order is `val.modules`, and a path that is not in it has no position, so
+   * there is no honest answer for where its hash would go. It also cannot happen
+   * — a save only ever writes modules it read from here.
+   */
+  protected promoteCommittedSources(patched: Sources): void {
+    if (
+      this.sources === null ||
+      this.shaEntries === null ||
+      this.shaModuleErrors === null
+    ) {
+      // Nothing has been read yet, so there is no stale answer to correct and
+      // no fold to replay. The first read extracts, as it always would.
+      return;
+    }
+    const known = new Set(this.shaEntries.map((entry) => entry.path));
+    const adopt = Object.entries(patched).filter(
+      ([moduleFilePath, source]) =>
+        source !== undefined && known.has(moduleFilePath as ModuleFilePath),
+    ) as [ModuleFilePath, Source][];
+    if (adopt.length === 0) {
+      return;
+    }
+    const bySource = new Map<ModuleFilePath, Source>(adopt);
+    // A new object rather than a mutation: `getSources` hands this out, and a
+    // caller holding it must not have the ground move under it.
+    this.sources = { ...this.sources };
+    for (const [moduleFilePath, source] of adopt) {
+      this.sources[moduleFilePath] = source;
+    }
+    this.shaEntries = this.shaEntries.map((entry) => {
+      const source = bySource.get(entry.path);
+      return source === undefined ? entry : { ...entry, source };
+    });
+    const shas = computeValModuleShas(
+      this.valModules.config,
+      this.shaEntries,
+      this.shaModuleErrors,
+    );
+    this.baseSha = shas.baseSha as BaseSha;
+    this.schemaSha = shas.schemaSha as SchemaSha;
+    this.sourcesSha = shas.sourcesSha as SourcesSha;
+    this.configSha = shas.configSha as ConfigSha;
   }
 
   async init(): Promise<void> {

@@ -83,6 +83,18 @@ published as stale (`publishedIds`), and gives an announced-but-undelivered id o
 more stat before reporting it (`notDeliveredOnce`). The server fix removes the
 routine case; the client fix is what makes the rest correct.
 
+**The base moves on a publish now.** `/save` hands the sources it just wrote to
+`ValOps.adoptCommittedSources`, which adopts them and re-folds the SHAs — because
+re-reading them cannot work: a module's content is read by awaiting its `def`,
+the app's own `import()`, which resolves from the module registry rather than the
+file that was just rewritten. So in `fs` mode `baseSha` changes within a server's
+lifetime for the first time, which is what `reconcileVanished` needs to tell a
+patch that was PUBLISHED from one that was discarded. `schemaSha` does not move —
+the fold leaves it alone when only sources change, so nothing refetches `/schema`.
+
+What that does NOT cover is `.jsonValues()` entry content: it is not in the
+source, which holds only markers. See `architecture/quirks.md`.
+
 **A crash can only ever leave a directory the log does not name.** `appendPatch`
 writes the record, then the log line. Interrupted, that leaves an unreferenced
 directory: inert, and swept up by repair. The reverse order would leave the log
