@@ -88,6 +88,7 @@ export async function evalValConfigFile(
       `Could not read Val config file at path: '${valConfigPath}': ${
         err instanceof Error ? err.message : String(err)
       }`,
+      { cause: err },
     );
   }
   if (!code.trim()) {

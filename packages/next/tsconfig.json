@@ -5,7 +5,10 @@
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "lib": ["es6", "dom"],
+    // es2022, not es6: this package typechecks @valbuild/server's source through
+    // preconstruct's dev links, and that source uses the
+    // `new Error(message, { cause })` overload eslint 10 asks for.
+    "lib": ["es2022", "dom"],
     "module": "ESNext",
     "moduleResolution": "node",
     "noEmit": true,

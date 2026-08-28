@@ -270,7 +270,6 @@ export function patternMatchesPath(
       // Catch-all takes everything left. Nothing left is only a match when the
       // segment is allowed to be absent.
       const remaining = segments.length - at;
-      at = segments.length;
       if (remaining === 0) return part.optional;
       return true;
     }

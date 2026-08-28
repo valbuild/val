@@ -5,7 +5,12 @@
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "lib": ["es2020", "dom"],
+    // es2022 for the `new Error(message, { cause })` overload, which eslint
+    // 10's `preserve-caught-error` rule asks for when rethrowing. This is a
+    // type-only change: `Error.cause` needs no downlevel emit, and every
+    // browser the Studio already requires (it uses `structuredClone`)
+    // supports it.
+    "lib": ["es2022", "dom"],
     "module": "esnext",
     // "bundler" rather than "node": Vite resolves these sources, and the
     // Storybook 10 packages ship their types only through `exports` maps,

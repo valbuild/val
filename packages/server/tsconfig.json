@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
-    "lib": ["es2020", "dom", "dom.iterable"],
+    // es2022 for the `new Error(message, { cause })` overload, which eslint 10's
+    // `preserve-caught-error` rule asks for when rethrowing.
+    "lib": ["es2022", "dom", "dom.iterable"],
     "types": ["node", "jest"],
     "strict": true,
     "isolatedModules": true,

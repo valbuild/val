@@ -238,7 +238,6 @@ export async function acquirePatchLock(
     };
   }
 
-  let lastSeenHolder: PatchLockInfo | null = null;
   for (;;) {
     const acquiredAt = now();
     const info: PatchLockInfo = {
@@ -268,7 +267,7 @@ export async function acquirePatchLock(
       // Released between the failed create and the read. Go straight round again.
       continue;
     }
-    lastSeenHolder = parsePatchLockInfo(rawBefore);
+    const lastSeenHolder = parsePatchLockInfo(rawBefore);
 
     if (isExpired(lastSeenHolder, now())) {
       // Read twice across a poll interval before removing it: an unchanged stale

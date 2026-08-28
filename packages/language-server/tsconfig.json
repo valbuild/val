@@ -4,7 +4,8 @@
     // typechecking pulls in @valbuild/server's source (via preconstruct dev),
     // which uses DOM types such as HeadersInit and the fetch Response types.
     // Matches packages/server/tsconfig.json.
-    "lib": ["es2020", "dom", "dom.iterable"],
+    // es2022 matches packages/server too: `new Error(message, { cause })`.
+    "lib": ["es2022", "dom", "dom.iterable"],
     "target": "es2020",
     "types": ["node", "jest"],
     "strict": true,

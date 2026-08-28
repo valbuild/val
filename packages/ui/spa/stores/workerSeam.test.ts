@@ -92,6 +92,7 @@ function assertCloneable(what: string, value: unknown): unknown {
       `${what} cannot cross a worker seam: ${
         error instanceof Error ? error.message : String(error)
       }. Something in it is a function, a class instance, or a Proxy.`,
+      { cause: error },
     );
   }
 }

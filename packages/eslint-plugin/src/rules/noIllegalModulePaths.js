@@ -41,7 +41,7 @@ export default {
             maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
             typeof maybeValConfigImportDeclaration.source.value === "string"
           ) {
-            const filename = context.filename || context.getFilename();
+            const filename = context.filename;
             if (
               filename?.endsWith(".val.ts") ||
               filename?.endsWith(".val.tsx") ||

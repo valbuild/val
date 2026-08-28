@@ -2774,7 +2774,6 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
-        let cacheControl: string | undefined;
         let fileBuffer;
         let mimeType: string | undefined;
         const remote = query.remote === "true";
@@ -2785,8 +2784,6 @@ export const ValServer = (
             remote,
           );
           mimeType = Internal.filenameToMimeType(filePath);
-          // TODO: reenable this:
-          // cacheControl = "public, max-age=20000, immutable";
         } else {
           if (serverOps instanceof ValOpsHttp && remote) {
             console.error(
@@ -2802,8 +2799,12 @@ export const ValServer = (
             headers: {
               // TODO: we could use ETag and return 304 instead
               "Content-Type": mimeType || "application/octet-stream",
-              "Cache-Control":
-                cacheControl || "public, max-age=0, must-revalidate",
+              // TODO: a file requested with a patch_id is immutable for that
+              // patch, so it could be served "public, max-age=20000, immutable"
+              // instead. There used to be a `cacheControl` variable here for
+              // that, but its only assignment was commented out, so every
+              // response has always taken the revalidate branch.
+              "Cache-Control": "public, max-age=0, must-revalidate",
             },
             body: bufferToReadableStream(fileBuffer),
           };
