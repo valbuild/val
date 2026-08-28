@@ -23,7 +23,7 @@ import {
 } from "./validation/ValidationError";
 import { FileSource } from "../source/media";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
-import { ReifiedRender, RenderScope } from "../render";
+import { ReifiedPreview, PreviewScope } from "../preview";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -173,17 +173,17 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract hidden(): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
   /**
-   * @param scope Which paths the caller needs a render for. Absent means the
+   * @param scope Which paths the caller needs a preview for. Absent means the
    * whole module, which is what every caller passed before scoping existed.
-   * See {@link RenderScope}: a container prunes recursion where nothing is
-   * wanted, and renders a WINDOW when its own path is not wanted but some of its
-   * items are — which is the single-visible-row case.
+   * See {@link PreviewScope}: a container prunes recursion where nothing is
+   * wanted, and previews a WINDOW when its own path is not wanted but some of
+   * its items are — which is the single-visible-row case.
    */
-  protected abstract executeRender(
+  protected abstract executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-    scope?: RenderScope,
-  ): ReifiedRender;
+    scope?: PreviewScope,
+  ): ReifiedPreview;
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {

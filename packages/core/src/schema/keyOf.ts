@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 
@@ -378,7 +378,7 @@ export class KeyOfSchema<
     } satisfies SerializedKeyOfSchema;
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

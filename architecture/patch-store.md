@@ -14,6 +14,8 @@ applies to it.
     <patchId>/patch.json      one self-contained record per patch
     <patchId>/base.json       written when the patch is published
     <patchId>/files/…         binary payloads for this patch's file ops
+.val/uploads/
+    <patchId>/files/…         uploaded bytes, until the patch record exists
 ```
 
 Two rules carry the whole design:
@@ -57,11 +59,80 @@ could break.**
 another is the bug; deriving both from one array is the fix. If you add a third
 caller, take it from there too.
 
+**And one answer per MOMENT.** `/stat` long polls: it reads, finds nothing
+changed, and waits up to `statPollingInterval` for a file to move. So "one read"
+is not enough on its own — the read has to be the one the answer is sent with.
+`getStat` reads the store again after the wait — the store only, because the
+shas and schemas come from `initSources`, which is memoised for the lifetime of
+the `ValOpsFS` instance and never invalidated. The reason is `/save`:
+
+- The write that ends most waits is the studio's own publish, which in `fs` mode
+  commits the patches and **deletes** them.
+- Answering with the list read before it names patches that stopped existing a
+  polling interval ago.
+- The studio then puts those ids back in its chain and fetches them from a server
+  that correctly no longer has them — "unpublished changes could not be loaded",
+  for changes that were just published. With auto-save on, that is every pause in
+  typing.
+
+`request-again` and `no-change` differ in why the wait ended, not in how current
+the answer has to be, so both re-read. **If you add a branch that returns after
+the wait, read again there too.**
+
+The studio does not rely on this. A snapshot protocol cannot promise its list was
+not overtaken, so `PatchStore` treats an announcement of a patch it has already
+published as stale (`publishedIds`), and gives an announced-but-undelivered id one
+more stat before reporting it (`notDeliveredOnce`). The server fix removes the
+routine case; the client fix is what makes the rest correct.
+
+**The base moves on a publish now.** `/save` hands the sources it just wrote to
+`ValOps.adoptCommittedSources`, which adopts them and re-folds the SHAs — because
+re-reading them cannot work: a module's content is read by awaiting its `def`,
+the app's own `import()`, which resolves from the module registry rather than the
+file that was just rewritten. So in `fs` mode `baseSha` changes within a server's
+lifetime for the first time, which is what `reconcileVanished` needs to tell a
+patch that was PUBLISHED from one that was discarded. `schemaSha` does not move —
+the fold leaves it alone when only sources change, so nothing refetches `/schema`.
+
+`.jsonValues()` entry content is adopted alongside it, by a separate route: it is
+not in the source at all, which holds only markers, so `prepare` reports it per
+entry key and `getJsonEntries` consults that before the marker's thunk. See
+`architecture/quirks.md`.
+
 **A crash can only ever leave a directory the log does not name.** `appendPatch`
 writes the record, then the log line. Interrupted, that leaves an unreferenced
 directory: inert, and swept up by repair. The reverse order would leave the log
 naming a patch that is not there, which is the state that started all this. **If
 you touch the write path, keep that order.**
+
+**Uploaded bytes are not in the store until they belong to something.** A patch
+carrying a file is written in TWO requests, bytes first: the record's `file` op
+holds only a sha, so a record written before its bytes would point at nothing.
+Uploading straight into `<patchId>/files/` left the directory holding files and
+no `patch.json` for a whole round trip — neither of the two shapes above — so
+`readPatchStore` read it as a patch whose contents were lost and repair removed
+it, bytes and all, telling the person editing their work had been thrown away.
+
+That window was not rare and not passive: writing into `.val/patches` is exactly
+what breaks `getStat`'s long poll, so **the upload summoned the read that
+destroyed it**. Replacing an image worked only when the two requests happened to
+land close enough together.
+
+So uploads go to `.val/uploads/<patchId>/` — a sibling, so nothing reading the
+store lists it and moving into place is a rename — and `appendPatch` moves them
+in. **Record, then bytes, then log line**, all under the lock:
+
+- the record first, so a patch directory never exists without one, which is what
+  makes "files but no `patch.json`" a state this store cannot produce;
+- the log line last, for the reason above;
+- under the lock, so repair — which re-reads under it — never observes the
+  halfway state.
+
+Both readers of those bytes accept either location (`wherePatchFileIs`), because
+the studio asks for the new image before the patch referencing it is written. A
+staging directory whose `PUT` never arrived is swept after a day; that TTL only
+governs garbage collection **outside** the store, where being wrong costs disk
+space rather than someone's upload.
 
 **A torn last line is discarded.** Appends are serialized by the lock, so an
 unterminated final line can only be a write that did not finish.
@@ -110,7 +181,9 @@ Directories are told apart by whether they hold a usable record. One that does
 not is an **unreadable patch**: work is gone, and it is reported. One that holds a
 perfectly good record the log does not name is a **crash leftover** — a record
 written before its log line — which nothing ever read, so nothing is lost and
-nobody is told.
+nobody is told. There is no third case: uploaded bytes live outside the store
+until the record exists, so a record-less directory in `.val/patches` really is
+lost work. See the write-path rule above.
 
 Repair only runs when something is wrong, so the healthy path — every stat poll —
 never touches the lock.

@@ -86,7 +86,7 @@ in `SerializedSchema` carries that today.
 
 **A line that fits on a line.** A primitive renders as itself. An object has to
 be summarised to one row before "moved from 4" can sit beside it, and the useful
-summary is schema-specific — `render({ select })` already exists for exactly this
+summary is schema-specific — `preview(select)` already exists for exactly this
 kind of question and would be the thing to reach for.
 
 Neither is hard, and both are guesses until someone has a case in front of them.

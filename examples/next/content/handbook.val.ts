@@ -5,13 +5,13 @@ import authorsVal from "./authors.val";
 // Regenerate with a different size: pnpm handbook generate 4 3
 
 /**
- * A handbook: chapters of sections, with a `select` at BOTH array levels.
+ * A handbook: chapters of sections, with a `preview` at BOTH array levels.
  *
- * This is the shape the store benchmark exists to measure. Two nested `.render()`
- * calls mean an UNSCOPED render of one visible section has to walk every chapter
- * and every section and run the user's `select` closure for each — which is
+ * This is the shape the store benchmark exists to measure. Two nested
+ * `.preview()` calls mean an UNSCOPED preview of one visible section has to walk
+ * every chapter and every section and run the user's closure for each — which is
  * exactly the worst case `packages/ui/spa/stores/architecture.md` names, and the
- * reason `RenderScope` was added to `packages/core`.
+ * reason `PreviewScope` was added to `packages/core`.
  *
  * The rest of the shape is here so the other walks have real work too:
  * `s.richtext()` bodies for the validation walk, `s.keyOf(authorsVal)` and
@@ -34,15 +34,12 @@ export const handbookChapterSchema = s.object({
   slug: s.string().regexp(/^[a-z0-9-]+$/),
   summary: s.string().render({ as: "textarea" }),
   owner: s.keyOf(authorsVal),
-  sections: s.array(handbookSectionSchema).render({
-    as: "list",
-    select: ({ val }) => ({
-      title: val.heading,
-      // Deliberately reads INTO the richtext: a `select` that only returned a
-      // string would be cheap in a way a real one is not.
-      subtitle: firstText(val.body) ?? null,
-    }),
-  }),
+  sections: s.array(handbookSectionSchema).preview(({ val }) => ({
+    title: val.heading,
+    // Deliberately reads INTO the richtext: a preview that only returned a
+    // string would be cheap in a way a real one is not.
+    subtitle: firstText(val.body) ?? null,
+  })),
 });
 
 export type HandbookChapter = t.inferSchema<typeof handbookChapterSchema>;
@@ -67,13 +64,10 @@ function firstText(body: unknown): string | null {
 
 export default c.define(
   "/content/handbook.val.ts",
-  s.array(handbookChapterSchema).render({
-    as: "list",
-    select: ({ val }) => ({
-      title: val.title,
-      subtitle: `${val.sections.length} sections`,
-    }),
-  }),
+  s.array(handbookChapterSchema).preview(({ val }) => ({
+    title: val.title,
+    subtitle: `${val.sections.length} sections`,
+  })),
   [
     {
       title: "Onboarding",

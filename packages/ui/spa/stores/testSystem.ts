@@ -553,7 +553,7 @@ export type TestSystem = {
    * needs a test-only method. Their whole API is already on-demand (`get`,
    * `validate`, `getPatchSets`, `search`), which is what a test wants to drive.
    */
-  renderStore: System["renderStore"];
+  previewStore: System["previewStore"];
   patchSetStore: System["patchSetStore"];
   validationStore: System["validationStore"];
   searchStore: System["searchStore"];
@@ -888,7 +888,7 @@ export function initTestSystem(): TestSystem {
     workerSearch.events.onAny((event) => ledger.record(event)),
     workerReferences.events.onAny((event) => ledger.record(event)),
     system.host.events.onAny((event) => ledger.record(event)),
-    system.renderStore.events.onAny((event) => ledger.record(event)),
+    system.previewStore.events.onAny((event) => ledger.record(event)),
     // The write path emits on its own bus, and the conflict/rejected events are
     // the only record that a save went wrong at all — a test that could not see
     // them could only assert the recovery, never that recovery was needed.
@@ -1013,7 +1013,7 @@ export function initTestSystem(): TestSystem {
     listeners,
     host: system.host,
     status: system.status,
-    renderStore: system.renderStore,
+    previewStore: system.previewStore,
     patchSetStore: system.patchSetStore,
     validationStore: system.validationStore,
     searchStore: system.searchStore,

@@ -106,7 +106,8 @@ export function useValSourceUpdates(
 }
 
 /**
- * Every module with unsaved work, as it stands right now.
+ * Every module the editor knows a newer value for than the page might, as it
+ * stands right now.
  *
  * The subscription above only fires on a *change*, which is the wrong shape for
  * something that has just started listening. A canvas frame gets its content
@@ -119,6 +120,17 @@ export function useValSourceUpdates(
  * Modules with a pending patch rather than everything the page reports: those
  * are exactly the ones whose content could disagree, the set is small, and it
  * does not need to know anything about the page.
+ *
+ * PLUS the modules this session has published into, which the pending set stops
+ * naming the moment the publish lands. That gap is what auto-save turned into a
+ * routine failure: publishing rewrites the `.val.ts` files, `next dev` reloads
+ * the page on the change, and the fresh document is caught up with a snapshot
+ * that now has nothing to send — followed by `sourcesSynced`, which tells the
+ * page to render committed source. If that render came from a server that had
+ * not picked the new file up, the canvas sat on pre-publish content until the
+ * next keystroke put a patch back in the chain. The editor's own source for a
+ * published module IS the published value, so sending it is both correct and
+ * idempotent.
  */
 export function useValPendingSourceSnapshot(): (
   onUpdate: (moduleFilePath: ModuleFilePath, source: unknown) => void,
@@ -133,6 +145,9 @@ export function useValPendingSourceSnapshot(): (
       const moduleFilePaths = new Set<ModuleFilePath>();
       for (const record of system.patchStore.allRecords()) {
         moduleFilePaths.add(record.moduleFilePath);
+      }
+      for (const moduleFilePath of system.patchStore.publishedModules()) {
+        moduleFilePaths.add(moduleFilePath);
       }
       for (const moduleFilePath of moduleFilePaths) {
         emitModuleSource(system, moduleFilePath, onUpdate);

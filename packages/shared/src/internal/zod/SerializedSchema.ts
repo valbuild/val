@@ -18,12 +18,21 @@ import {
   type SerializedDateTimeSchema as SerializedDateTimeSchemaT,
   type SerializedColorSchema as SerializedColorSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
+  CODE_LANGUAGES,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
 
 export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
   z.object({
     type: z.literal("string"),
+    // A render is static config, so unlike a `preview` it travels WHOLE — this
+    // is the field the editor reads the layout from. See `core/src/render.ts`.
+    render: z
+      .union([
+        z.object({ as: z.literal("textarea") }),
+        z.object({ as: z.literal("code"), language: z.enum(CODE_LANGUAGES) }),
+      ])
+      .optional(),
     options: z
       .object({
         maxLength: z.number().optional(),
@@ -90,6 +99,8 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
       type: z.literal("array"),
       item: SerializedSchema,
       opt: z.boolean(),
+      // Only whether a preview EXISTS: the closure itself cannot be serialized.
+      preview: z.literal(true).optional(),
       readonly: z.boolean().optional(),
       hidden: z.boolean().optional(),
     });
@@ -184,6 +195,8 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
         type: z.literal("record"),
         item: SerializedSchema,
         opt: z.boolean(),
+        // Only whether a preview EXISTS: the closure itself cannot be serialized.
+        preview: z.literal(true).optional(),
         // Optional gallery marker for files/images
         mediaType: z
           .union([z.literal("files"), z.literal("images")])

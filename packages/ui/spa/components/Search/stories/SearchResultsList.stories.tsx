@@ -3,13 +3,13 @@ import { useMemo, useState } from "react";
 import {
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { SearchResultsList, type SearchResult } from "../../SearchResultsList";
 import { Command } from "../../designSystem/command";
-import { mockSchemas, mockSources, mockRenders } from "./mockData";
+import { mockSchemas, mockSources, mockPreviews } from "./mockData";
 import { createStorySystem } from "../../../stores/react/storySystem";
 import { ValSystemProvider } from "../../../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "../../ValThemeProvider";
@@ -112,12 +112,12 @@ function SearchResultsListWithProviders({
   results,
   schemas = mockSchemas,
   sources = mockSources,
-  renders = mockRenders,
+  previews = mockPreviews,
 }: {
   results: SearchResult[];
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources?: Record<ModuleFilePath, Json | undefined>;
-  renders?: Record<ModuleFilePath, ReifiedRender | null>;
+  previews?: Record<ModuleFilePath, ReifiedPreview | null>;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>(null);
@@ -127,9 +127,9 @@ function SearchResultsListWithProviders({
     return createStorySystem({
       schemas: schemas,
       sources: sources,
-      renders: renders,
+      previews: previews,
     });
-  }, [client, schemas, sources, renders]);
+  }, [client, schemas, sources, previews]);
 
   // Mock getDirectFileUploadSettings callback
   const getDirectFileUploadSettings = useMemo(

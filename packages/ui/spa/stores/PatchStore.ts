@@ -184,6 +184,25 @@ export class PatchStore {
    */
   private verifying = new Set<PatchId>();
   /**
+   * Ids one fetch answered with neither a record nor an error.
+   *
+   * A stat is a SNAPSHOT, and in `fs` mode a stale one is routine: `/stat` long
+   * polls, so the patch list it returns was read when the poll opened and can be
+   * up to a whole polling interval old by the time it is answered. A publish or a
+   * discard inside that window leaves the response naming patches the server has
+   * already deleted — and a fetch for them then comes back empty, which looks
+   * exactly like the server contradicting itself.
+   *
+   * So one empty answer is not enough to report. The id leaves {@link fetching},
+   * a LATER stat re-announces it if it really is still pending, the fetch runs
+   * again, and only that second answer is evidence — because the confirmation
+   * that matters is a stat issued after the delete, which is the only thing that
+   * can tell a stale announcement from a wrong one.
+   *
+   * Cleared the moment the record arrives, or the id leaves the chain.
+   */
+  private notDeliveredOnce = new Set<PatchId>();
+  /**
    * Is a publish in flight? Injected, because only `createSystem` knows.
    *
    * `/save` in `fs` mode DELETES the patches it published, so a stat poll landing
@@ -219,6 +238,20 @@ export class PatchStore {
    * field other code reads.
    */
   private publishedIds = new Set<PatchId>();
+  /**
+   * Modules whose base this session moved by publishing into it.
+   *
+   * The question it answers is "where might the editor know something a fresh
+   * server render does not". A published module is exactly that: its value is on
+   * disk, but a page rendered from a server that has not picked the file up yet
+   * shows the content from before — and there is no pending patch left to relay,
+   * so nothing corrects it. See {@link publishedModules}.
+   *
+   * Recorded here rather than derived from {@link publishedIds}, because by the
+   * time anyone asks, `forgetPublished` has deleted the records those ids would
+   * have been looked up in.
+   */
+  private publishedModuleFilePaths = new Set<ModuleFilePath>();
   /**
    * Bumped whenever the chain or its data changes.
    *
@@ -328,14 +361,54 @@ export class PatchStore {
     baseMoved = false,
   ): Promise<void> {
     this.statSeen = true;
-    const announced = new Set(patchIds);
-    for (const patchId of patchIds) {
+    /**
+     * A stat older than our own publish is not evidence of anything.
+     *
+     * `/stat` long polls in `fs` mode: the patch list comes out of a read taken
+     * when the poll OPENED, and the response is sent when a file changes — which
+     * for a publish is the change the publish itself made. So the answer that
+     * arrives right after `/save` routinely names the patches `/save` has just
+     * committed and deleted, a whole polling interval after they stopped
+     * existing. Auto-save makes that the common case rather than a rarity: it
+     * publishes on every pause in typing.
+     *
+     * Taken at face value those ids go back into the chain — moving the head,
+     * unsettling it — and are then fetched from a server that correctly no longer
+     * has them, which is reported as unpublished changes that could not be
+     * loaded. Nothing is wrong: they are published, and their effect is in the
+     * base.
+     *
+     * {@link publishedIds} is what makes that recognisable, and it is why
+     * {@link forgetPublished} leaves the id in it. In `http` mode a published
+     * patch stays in the chain with its record, so the `dataById` test keeps this
+     * to the case it is about: an id this client published AND has forgotten.
+     */
+    const stale = new Set(
+      patchIds.filter(
+        (patchId) =>
+          this.publishedIds.has(patchId) && !this.dataById.has(patchId),
+      ),
+    );
+    if (stale.size > 0) {
+      console.debug(
+        "Val: ignoring published changes named by a stat that predates the " +
+          "publish.",
+        { patchIds: [...stale] },
+      );
+    }
+    /** What stat named, minus what it is too old to know about. */
+    const named =
+      stale.size > 0
+        ? patchIds.filter((patchId) => !stale.has(patchId))
+        : patchIds;
+    const announced = new Set(named);
+    for (const patchId of named) {
       if (!this.originById.has(patchId)) {
         this.originById.set(patchId, "external");
       }
     }
     const tail = this.ordered.filter((patchId) => !announced.has(patchId));
-    this.ordered = [...patchIds, ...tail];
+    this.ordered = [...named, ...tail];
     this.bump();
 
     /**
@@ -349,7 +422,7 @@ export class PatchStore {
       baseMoved,
     );
 
-    const missing = patchIds.filter(
+    const missing = named.filter(
       (patchId) => !this.dataById.has(patchId) && !this.fetching.has(patchId),
     );
     this.events.emit({ type: "patch:head", head: this.currentHead() });
@@ -374,12 +447,17 @@ export class PatchStore {
     const received: PatchId[] = [];
     for (const record of res.patches) {
       this.fetching.delete(record.patchId);
+      this.notDeliveredOnce.delete(record.patchId);
       this.dataById.set(record.patchId, record);
       received.push(record.patchId);
       this.bump();
     }
     for (const [patchId, message] of Object.entries(res.errors ?? {})) {
       this.fetching.delete(patchId as PatchId);
+      // An error is a definite answer, so the wait-and-confirm round that a
+      // silence gets does not apply: this is reported by `patch:fetch-failed`
+      // and the id is settled.
+      this.notDeliveredOnce.delete(patchId as PatchId);
       this.failedById.set(patchId as PatchId, message);
     }
     /*
@@ -400,6 +478,7 @@ export class PatchStore {
      * its own case.
      */
     const notDelivered: PatchId[] = [];
+    const inconclusive: PatchId[] = [];
     for (const patchId of missing) {
       if (
         this.fetching.delete(patchId) &&
@@ -407,18 +486,39 @@ export class PatchStore {
         // Re-read after the await rather than trusted from before it: a newer
         // stat may have stopped naming this id while the request was in flight,
         // and a patch someone else deleted mid-request is gone, not missing.
-        // (A delete that lands before the NEXT stat still reads as missing here.
-        // It costs one spurious report that clears itself on that stat, which is
-        // the right way round to be wrong: the alternative is the silence this
-        // whole change exists to remove.)
         this.ordered.includes(patchId)
       ) {
+        /*
+         * One empty answer is not a contradiction yet. See
+         * {@link notDeliveredOnce}: the announcement may simply be older than a
+         * delete — a publish or a discard, here or in another session — and the
+         * id is out of `fetching` now, so the next stat that still names it
+         * re-requests it. Only that answer is evidence.
+         *
+         * The cost of waiting is a report one stat later for a server that
+         * really is announcing what it cannot send; the chain stays unsettled in
+         * the meantime, so nothing on screen claims to be current. The cost of
+         * not waiting is a sticky error toast every time someone publishes.
+         */
+        if (!this.notDeliveredOnce.has(patchId)) {
+          this.notDeliveredOnce.add(patchId);
+          inconclusive.push(patchId);
+          continue;
+        }
         this.failedById.set(
           patchId,
           "The server said this change exists, but did not send it.",
         );
         notDelivered.push(patchId);
       }
+    }
+    if (inconclusive.length > 0) {
+      console.warn(
+        "Val: the server named these unpublished changes and did not send " +
+          "them. Asking again on the next stat before reporting it — an " +
+          "announcement can be older than a delete.",
+        { patchIds: inconclusive },
+      );
     }
     if (received.length > 0) {
       this.events.emit({ type: "patch:receive", patches: received });
@@ -804,6 +904,26 @@ export class PatchStore {
     if (changed) this.bump();
   }
 
+  /**
+   * Modules this session has published into, in no particular order.
+   *
+   * For the canvas and the overlay: a page that renders one of these from the
+   * server can be showing the content from before the publish, and the chain has
+   * nothing left to say about it. The editor's live source does — it is the
+   * published value — so it is relayed alongside the pending ones.
+   *
+   * Never emptied within a session. The set is bounded by the modules someone
+   * edited, and re-sending a value the page already has costs one message and
+   * changes nothing on screen; forgetting one too early is a stale canvas with
+   * no way back.
+   *
+   * `http` mode never reaches this: a published patch stays in the chain there,
+   * so `allRecords()` already names its module.
+   */
+  publishedModules(): ModuleFilePath[] {
+    return [...this.publishedModuleFilePaths];
+  }
+
   markSaved(patchIds: readonly PatchId[]): void {
     const saved: PatchId[] = [];
     for (const patchId of patchIds) {
@@ -829,6 +949,12 @@ export class PatchStore {
       if (!this.dataById.has(patchId) && !this.ordered.includes(patchId)) {
         continue;
       }
+      // Before the record goes: it is the only thing that knows which module
+      // this shipped into. See `publishedModuleFilePaths`.
+      const moduleFilePath = this.dataById.get(patchId)?.moduleFilePath;
+      if (moduleFilePath !== undefined) {
+        this.publishedModuleFilePaths.add(moduleFilePath);
+      }
       this.dataById.delete(patchId);
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
@@ -837,6 +963,7 @@ export class PatchStore {
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
+      this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
       forgotten.push(patchId);
     }
@@ -877,6 +1004,7 @@ export class PatchStore {
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
+      this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
       this.publishedIds.delete(patchId);
       dropped.push(patchId);

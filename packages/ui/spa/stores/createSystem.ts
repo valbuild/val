@@ -23,7 +23,7 @@ import { StatStore } from "./StatStore";
 import { StatusStore } from "./StatusStore";
 import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
 import { HostStore } from "./HostStore";
-import { RenderStore } from "./RenderStore";
+import { PreviewStore } from "./PreviewStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
 import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
 import type { PatchErrorEntry, PatchRecord } from "./types";
@@ -117,7 +117,7 @@ export type HostRealm = {
    * and because a retry timer has to live where the chain does.
    */
   patchSync: PatchSync;
-  renderStore: RenderStore;
+  previewStore: PreviewStore;
   validationStore: ValidationStore;
 };
 
@@ -419,7 +419,7 @@ export function createSystem(options: SystemOptions): System {
   patchStore.setParentRefSource(() => patchSync.currentParentRef());
   const host = new HostStore(schemaStore, sourceStore, activity);
   const hostBridge = options.hostBridge ?? host;
-  const renderStore = new RenderStore(
+  const previewStore = new PreviewStore(
     hostBridge,
     sourceStore,
     schemaStore,
@@ -757,7 +757,7 @@ export function createSystem(options: SystemOptions): System {
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();
     }),
-    renderStore.listenTo(),
+    previewStore.listenTo(),
     validationStore.listenTo(),
 
     /**
@@ -957,7 +957,7 @@ export function createSystem(options: SystemOptions): System {
     sourceStore,
     patchStore,
     patchSync,
-    renderStore,
+    previewStore,
     validationStore,
     searchStore,
     patchSetStore,

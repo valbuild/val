@@ -5,14 +5,14 @@ import {
   SerializedSchema,
 } from ".";
 import {
-  ListArrayRender,
-  RenderSelector,
-  ReifiedRender,
-  RenderScope,
-} from "../render";
+  ArrayPreview,
+  PreviewItem,
+  PreviewSelector,
+  ReifiedPreview,
+  PreviewScope,
+} from "../preview";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/media";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -24,29 +24,24 @@ export type SerializedArraySchema = {
   item: SerializedSchema;
   opt: boolean;
   /**
-   * Set when this schema declares a `render`.
+   * Set when this schema declares a `preview`.
    *
-   * The render itself cannot be serialized — `select` is a user closure — but
-   * whether one EXISTS can be, and that is worth carrying: it lets the non-host
-   * side skip asking the host to render a module that cannot produce one.
-   * Measured in a browser: mounting 260 fields across 141 modules spent ~2.3ms
-   * of 3.1ms calling `executeRender` on modules that returned nothing.
+   * The preview itself cannot be serialized — it is a user closure — but whether
+   * one EXISTS can be, and that is worth carrying: it lets the non-host side
+   * skip asking the host to preview a module that cannot produce one. Measured
+   * in a browser: mounting 260 fields across 141 modules spent ~2.3ms of 3.1ms
+   * calling `executePreview` on modules that returned nothing.
    */
-  render?: true;
+  preview?: true;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
 };
 
-type ArrayRenderInput<T extends Schema<SelectorSource>> = {
-  as: "list";
-  select: (input: { val: RenderSelector<T> }) => {
-    title: string;
-    subtitle?: string | null;
-    image?: ImageSource | null;
-  };
-};
+type ArrayPreviewInput<T extends Schema<SelectorSource>> = (input: {
+  val: PreviewSelector<T>;
+}) => PreviewItem;
 
 export class ArraySchema<
   T extends Schema<SelectorSource>,
@@ -61,7 +56,7 @@ export class ArraySchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly renderInput: ArrayRenderInput<T> | null = null,
+    private readonly previewInput: ArrayPreviewInput<T> | null = null,
   ) {
     super();
   }
@@ -74,7 +69,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -88,7 +83,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -166,7 +161,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -178,7 +173,7 @@ export class ArraySchema<
       true,
       this.isHidden,
       this.description,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -190,7 +185,7 @@ export class ArraySchema<
       this.isReadonly,
       true,
       this.description,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -210,7 +205,7 @@ export class ArraySchema<
       type: "array",
       item: this.item["executeSerialize"](),
       opt: this.opt,
-      render: this.renderInput ? true : undefined,
+      preview: this.previewInput ? true : undefined,
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
@@ -220,12 +215,12 @@ export class ArraySchema<
     };
   }
 
-  protected override executeRender(
+  protected override executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-    scope?: RenderScope,
-  ): ReifiedRender {
-    const res: ReifiedRender = {};
+    scope?: PreviewScope,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
       return res;
     }
@@ -239,30 +234,24 @@ export class ArraySchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.item["executeRender"](subPath, itemSrc, scope);
+      const itemResult = this.item["executePreview"](subPath, itemSrc, scope);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
-    if (this.renderInput) {
-      const { select, as: layout } = this.renderInput;
-      if (layout !== "list") {
-        res[sourcePath] = {
-          status: "error",
-          message: "Unknown layout type: " + layout,
-        };
-      }
+    if (this.previewInput) {
+      const select = this.previewInput;
       // The whole list when the LIST is what is being shown; only the wanted
-      // rows when it is not. `select` is the user's closure and the real expense
-      // — a list view asks for the container and gets every row, a single field
-      // asks for its own path and costs one call.
+      // rows when it is not. The user's closure is the real expense — a list
+      // view asks for the container and gets every row, a single field asks for
+      // its own path and costs one call.
       // Non-null once, as a value, rather than a boolean the compiler cannot
       // tie back to `scope`: no scope and a scope that wants this exact path
       // both mean the whole list, and anything else is a window.
       const window =
         scope !== undefined && !scope.wants(sourcePath) ? scope : null;
-      const items: ListArrayRender["items"] = [];
+      const items: ArrayPreview["items"] = [];
       for (let index = 0; index < src.length; index++) {
         if (
           window !== null &&
@@ -270,10 +259,10 @@ export class ArraySchema<
         ) {
           continue;
         }
-        // Per ITEM, not per list, matching what `record` already does: `select`
-        // is user code, and one row whose data trips it up must not take out the
-        // whole list. Before scoping, one throwing row produced an error at the
-        // container and no items at all.
+        // Per ITEM, not per list, matching what `record` already does: the
+        // closure is user code, and one row whose data trips it up must not take
+        // out the whole list. Before scoping, one throwing row produced an error
+        // at the container and no items at all.
         try {
           // NB NB: display is actually defined by the user
           const { title, subtitle, image } = select({ val: src[index] });
@@ -288,7 +277,6 @@ export class ArraySchema<
       res[sourcePath] = {
         status: "success",
         data: {
-          layout: "list",
           parent: "array",
           items,
         },
@@ -297,7 +285,14 @@ export class ArraySchema<
     return res;
   }
 
-  render(input: ArrayRenderInput<T>): ArraySchema<T, Src> {
+  /**
+   * What the editor shows for each ITEM of this array: a title, and optionally a
+   * subtitle and an image.
+   *
+   * `select` is your own code over the item's source, so it is run on demand for
+   * the rows that are actually being looked at — see `PreviewScope`.
+   */
+  preview(select: ArrayPreviewInput<T>): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
@@ -305,7 +300,7 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      input,
+      select,
     );
   }
 }

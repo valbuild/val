@@ -23,7 +23,7 @@
  * be proportional to the edited field rather than to the project, and that is a
  * claim about HOW MANY times each expensive thing runs. This channel is what
  * turns that claim into an assertion: "one keystroke ⇒ one clone, one apply, one
- * listener woken, zero renders, zero validations" is a test, not a hope.
+ * listener woken, zero previews, zero validations" is a test, not a hope.
  *
  * It is deliberately in-process rather than `performance.mark`-based. A count is
  * exactly reproducible in a node test; a duration is not.
@@ -132,13 +132,13 @@ export type WorkKind =
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------
   | "host:serialize-schema"
-  | "host:execute-render"
+  | "host:execute-preview"
   | "host:execute-validate"
-  // --- render: router, so hit/miss is the whole story ----------------------
-  | "render:cache-hit"
-  | "render:cache-miss"
-  /** A concurrent caller joined an in-flight render instead of starting one. */
-  | "render:share-in-flight"
+  // --- preview: router, so hit/miss is the whole story ---------------------
+  | "preview:cache-hit"
+  | "preview:cache-miss"
+  /** A concurrent caller joined an in-flight preview instead of starting one. */
+  | "preview:share-in-flight"
   // --- validation: two seams, counted separately --------------------------
   | "validation:cache-hit"
   | "validation:cache-miss"

@@ -15,7 +15,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { ImagesEntryMetadata } from "./images";
 import { getSource } from "../module";
 
@@ -466,7 +466,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

@@ -133,13 +133,10 @@ export default c.define(
   s
     .record(kbArticleSchema)
     .jsonValues()
-    .render({
-      as: "list",
-      select: ({ val }) => ({
-        title: val.title,
-        subtitle: val.body,
-      }),
-    }),
+    .preview(({ val }) => ({
+      title: val.title,
+      subtitle: val.body,
+    })),
   {
 ${entries.join("\n")}
   },
