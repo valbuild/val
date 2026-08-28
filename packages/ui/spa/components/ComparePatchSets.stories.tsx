@@ -206,7 +206,7 @@ function StoryProviders({
 
 /**
  * Sets up an engine seeded with `mockData`, applies the supplied patches
- * (so server vs optimistic diverge), and previews the story with the engine.
+ * (so server vs optimistic diverge), and renders the story with the engine.
  */
 function StorySetup({
   mockData,

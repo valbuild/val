@@ -48,9 +48,10 @@ re-merged with previews; `packages/core/src/render.ts` says so.
 
 Renamed, for consumers of the internals: `ReifiedRender` → `ReifiedPreview`,
 `ListArrayRender` / `ListRecordRender` → `ArrayPreview` / `RecordPreview`,
-`RenderScope` / `renderScope` → `PreviewScope` / `previewScope`. `CodeLanguage`
-is unchanged, and `CODE_LANGUAGES` is now exported as the list it is derived
-from.
+`RenderScope` / `renderScope` → `PreviewScope` / `previewScope`. `CodeRender` is
+gone — `StringRender` is the whole `.render()` input now, and it is what the
+serialized schema carries. `CodeLanguage` is unchanged, and `CODE_LANGUAGES` is
+newly exported as the list it is derived from.
 
 **Wire change:** `PUT /sources/~` returns `preview` per module where it returned
 `render`. It only ever carried container previews; a string's render now arrives
