@@ -1,45 +1,98 @@
 import type { PatchId } from "@valbuild/core";
-import { chunkPatchIds, PATCH_IDS_PER_REQUEST } from "./patchIdChunks";
-
-const ids = (count: number): PatchId[] =>
-  Array.from({ length: count }, (_, i) => `patch-${i}` as PatchId);
+import {
+  chunkPatchIds,
+  PATCH_ID_QUERY_BUDGET,
+  patchIdsPerRequest,
+} from "./patchIdChunks";
 
 /**
- * `GET /patches` takes its ids as repeated query params, and nothing bounded how
- * many. A project with 410 pending changes asked for all of them on one URL:
- * ~19KB of request line, past the 16KB a Node server accepts, so the dev server
- * refused it before the handler ran and the studio marked every pending change
- * failed.
+ * Real-shaped uuids: 36 characters is what the budget is reasoned about, so a
+ * budget assertion against short ids would prove nothing.
+ */
+const ids = (n: number): PatchId[] =>
+  Array.from({ length: n }, (_, i) => {
+    const id =
+      `${i.toString().padStart(8, "0")}-0000-4000-8000-000000000000` as PatchId;
+    expect(id.length).toBe(36);
+    return id;
+  });
+
+/** Every param the two endpoints repeat ids under. */
+const PARAMS = ["patch_id", "id"] as const;
+
+/**
+ * `GET /patches` takes its ids as repeated `patch_id` params and `DELETE
+ * /patches` as repeated `id` params, and nothing bounded how many. A project
+ * with 650 pending changes put all of them on one URL, and the request never
+ * reached the handler — 431 from Node's request-head cap, 413 from a proxy in
+ * front of it.
+ *
+ * These two used to be separate functions with budgets 4x apart, implying two
+ * different limits existed. One splitter now, one budget, and the only thing
+ * that differs is the param name.
  */
 describe("chunkPatchIds", () => {
-  it("keeps every id, once, in order", () => {
-    const all = ids(410);
-    expect(chunkPatchIds(all).flat()).toEqual(all);
+  describe.each(PARAMS)("&%s=", (paramName) => {
+    const cost = (id: string) => `&${paramName}=`.length + id.length;
+
+    it("keeps every id, once, in order", () => {
+      const all = ids(650);
+      expect(chunkPatchIds(all, paramName).flat()).toEqual(all);
+    });
+
+    it("splits a list that would not fit on one URL", () => {
+      expect(chunkPatchIds(ids(650), paramName).length).toBeGreaterThan(1);
+    });
+
+    it("sends a list that fits as a single request", () => {
+      expect(
+        chunkPatchIds(ids(patchIdsPerRequest(paramName)), paramName),
+      ).toHaveLength(1);
+    });
+
+    /** The property the whole file exists for, asserted rather than assumed. */
+    it("keeps every chunk's query string inside the budget", () => {
+      for (const chunk of chunkPatchIds(ids(1000), paramName)) {
+        const queryLength = chunk.reduce((total, id) => total + cost(id), 0);
+        expect(queryLength).toBeLessThanOrEqual(PATCH_ID_QUERY_BUDGET);
+      }
+    });
+
+    it("asks for nothing when there is nothing to ask for", () => {
+      // Not one empty request: an unfiltered `GET /patches` answers with the
+      // whole table, and `DELETE /patches` requires at least one id.
+      expect(chunkPatchIds([], paramName)).toEqual([]);
+    });
   });
 
-  it("splits a list that would not fit on one URL", () => {
-    expect(chunkPatchIds(ids(410)).length).toBeGreaterThan(1);
+  /**
+   * The two endpoints spend the same budget on differently-priced ids, so the
+   * cheaper param fits more. That is the whole reason the cost is derived from
+   * the param name rather than hardcoded once.
+   */
+  it("fits more ids under the shorter param name", () => {
+    expect(patchIdsPerRequest("id")).toBeGreaterThan(
+      patchIdsPerRequest("patch_id"),
+    );
   });
 
-  it("sends a list that fits as a single request", () => {
-    expect(chunkPatchIds(ids(PATCH_IDS_PER_REQUEST))).toHaveLength(1);
+  it("sends at least one id per request however long the param name", () => {
+    // Never zero: a chunk size of 0 would loop forever rather than fail.
+    expect(patchIdsPerRequest("a".repeat(PATCH_ID_QUERY_BUDGET))).toBe(1);
   });
 
-  it("keeps every chunk's query string well inside what a server accepts", () => {
-    // The real constraint, asserted rather than assumed: a uuid is 36 chars and
-    // each one costs `&patch_id=` on top.
-    for (const chunk of chunkPatchIds(ids(1000))) {
-      const queryLength = chunk.reduce(
-        (total, id) => total + "&patch_id=".length + Math.max(id.length, 36),
-        0,
-      );
-      expect(queryLength).toBeLessThan(8000);
+  /**
+   * The URL an e2e run actually sees. `e2e/large-patch-chain.spec.ts` asserts
+   * `request.url.length < 4000` on a 650-patch chain, which the budget this
+   * replaced (6000, aimed at Node's 16KB rather than at the URL) would not have
+   * satisfied.
+   */
+  it("leaves room for the rest of the URL", () => {
+    const base =
+      "http://localhost:3000/api/val/patches?exclude_patch_ops=false";
+    for (const chunk of chunkPatchIds(ids(650), "patch_id")) {
+      const url = base + chunk.map((id) => `&patch_id=${id}`).join("");
+      expect(url.length).toBeLessThan(2000);
     }
-  });
-
-  it("asks for nothing when there is nothing to ask for", () => {
-    // Not one empty request: an unfiltered `GET /patches` answers with the whole
-    // table, so sending an empty chunk would pull every patch in the project.
-    expect(chunkPatchIds([])).toEqual([]);
   });
 });
