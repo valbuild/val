@@ -263,12 +263,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           (navigation.currentSourcePath || selection.sourcePath) as SourcePath
         }
         showModuleGalleryChild={null}
-        // No breadcrumb or title beside the canvas: the address bar says which
-        // route this is and the page itself carries its own heading.
-        hideHeader={viewState.canvasOpen}
       />
     ),
-    [navigation.currentSourcePath, viewState.canvasOpen],
+    [navigation.currentSourcePath],
   );
 
   /**
@@ -720,11 +717,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
   ) : unlistedModulePath ? (
-    <Module
-      path={unlistedModulePath}
-      showModuleGalleryChild={null}
-      hideHeader={viewState.canvasOpen}
-    />
+    <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
 
   return (
