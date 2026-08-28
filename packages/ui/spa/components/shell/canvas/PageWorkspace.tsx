@@ -546,6 +546,7 @@ export function PageWorkspace({
         onChange={onViewChange}
         fieldCount={fieldCount}
         animate={!reducedMotion}
+        compact={isPhone}
       />
     ) : null;
 
@@ -964,6 +965,7 @@ function SegmentedControl<T extends string>({
   onChange,
   options,
   animate,
+  compact,
 }: {
   label: string;
   value: T;
@@ -976,6 +978,16 @@ function SegmentedControl<T extends string>({
     badge?: number;
   }>;
   animate: boolean;
+  /**
+   * The tighter padding, for where the room is not there.
+   *
+   * The phone strip carries BOTH switches on one line that does not wrap, in
+   * `viewport - 24`; at the roomier padding that line runs off a 390px screen
+   * and takes the pane switch — the only visible way to the canvas — with it.
+   * Every option still gets the same padding as every other, which is what
+   * this control is for; there is just less of it.
+   */
+  compact?: boolean;
 }) {
   const index = Math.max(
     0,
@@ -1036,18 +1048,29 @@ function SegmentedControl<T extends string>({
       aria-label={label}
       className="relative inline-flex rounded-md border border-border-float bg-bg-float p-0.5"
     >
-      <span
-        aria-hidden
-        style={{
-          width: thumb?.width ?? 0,
-          transform: `translateX(${thumb?.left ?? 0}px)`,
-          transition:
-            animate && thumb !== null
+      {/*
+       * Only once there is a measurement to draw it at.
+       *
+       * Not `width: 0` until then: a transition runs off the style the element
+       * was last painted with, and measuring forces a style recalculation — so
+       * a thumb that exists at zero width has a zero width to animate FROM,
+       * and every mount of the control played the pill growing out of nothing.
+       * A node that was not there has no previous style, so its first paint is
+       * simply where it belongs.
+       */}
+      {thumb !== null && (
+        <span
+          aria-hidden
+          style={{
+            width: thumb.width,
+            transform: `translateX(${thumb.left}px)`,
+            transition: animate
               ? `transform ${SWITCH_MS}ms ${OPEN_EASE}, width ${SWITCH_MS}ms ${OPEN_EASE}`
               : undefined,
-        }}
-        className="absolute inset-y-0.5 left-0 rounded bg-bg-float-raised shadow-sm"
-      />
+          }}
+          className="absolute inset-y-0.5 left-0 rounded bg-bg-float-raised shadow-sm"
+        />
+      )}
       {options.map((option) => (
         <button
           key={option.value}
@@ -1057,7 +1080,8 @@ function SegmentedControl<T extends string>({
           onClick={() => onChange(option.value)}
           className={cn(
             // Above the thumb, which is painted behind the whole row.
-            "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-4 text-[0.6875rem] transition-colors",
+            "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded text-[0.6875rem] transition-colors",
+            compact ? "px-2.5" : "px-4",
             value === option.value
               ? "font-medium text-fg-primary"
               : "text-fg-secondary hover:text-fg-primary",
@@ -1097,6 +1121,8 @@ function PaneToggle({
       value={pane}
       onChange={onChange}
       animate={animate}
+      // Only ever on the phone strip, which is where the room runs out.
+      compact
       options={[
         { value: "editor", label: "Editor", icon: PanelLeft },
         { value: "canvas", label: "Canvas", icon: Layers },
@@ -1116,12 +1142,15 @@ function ViewToggle({
   onChange,
   fieldCount,
   animate,
+  compact,
 }: {
   view: CanvasView;
   onChange: (view: CanvasView) => void;
   /** How many fields the page reported. Shown on the Fields tab. */
   fieldCount?: number;
   animate: boolean;
+  /** See `SegmentedControl`: on the phone it shares its line with the panes. */
+  compact?: boolean;
 }) {
   return (
     <SegmentedControl
@@ -1129,6 +1158,7 @@ function ViewToggle({
       value={view}
       onChange={onChange}
       animate={animate}
+      compact={compact}
       options={[
         {
           value: "normal",
