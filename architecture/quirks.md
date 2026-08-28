@@ -401,3 +401,76 @@ route into dynamic rendering for everyone.
 including the two that differ ONLY in whether the gate was on for the deciding
 render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
+
+## `next dev` reloads the Studio because another document connected
+
+The symptom is "the whole Next app reloads when we save", and it is not a save.
+Reproduced and instrumented in `e2e/dev-reload.spec.ts` (the instruments are in
+`e2e/devReload.ts`); the chain is:
+
+1. A new same-origin Next document opens. In the Studio that is the canvas
+   iframe — pointed at a route of the app, remounted on every canvas
+   navigation.
+2. If `next dev` has not compiled that route yet, compiling it moves webpack's
+   compilation hash.
+3. The new document's HMR client connects. `next dev` handles a connect in
+   `HotReloaderWebpack`'s `onHMR` by calling **`publish`** — a broadcast, not a
+   reply to the connecting client — sending a `sync` that carries the current
+   hash (`next/dist/server/dev/hot-middleware.js`).
+4. Every other connected document receives it. In
+   `next/dist/client/dev/hot-reloader/app/web-socket.js`, the `SYNC` branch
+   reads:
+
+   ```js
+   if (
+     mostRecentCompilationHash !== null &&
+     mostRecentCompilationHash !== message.hash
+   ) {
+     window.location.reload(); // "the server may have restarted"
+   }
+   ```
+
+   The Studio is one of those documents, and its recorded hash is the one from
+   before the compile. So it reloads itself.
+
+The Studio's own code is not involved: nothing in `packages/ui/spa` calls
+`location.reload()` outside a button, and the canvas `reloadKey`
+(`PageWorkspace.tsx`) is bumped only by the "Reload" control. The measurements
+that establish it:
+
+- A canvas navigation to a route not served yet in the session replaces the
+  Studio document; the same navigation to an already-served route does not.
+  Whether the route's content comes from a `.val.json` entry makes no
+  difference — it is the first compile, not the content.
+- Navigating the Studio alone, with no canvas open, does not replace it. So the
+  deep URLs the Studio pushes through `history.pushState` (which Next
+  intercepts and turns into a router restore) are not the cause.
+- Chromium reports the navigation with `reason=reload`, and a CDP breakpoint on
+  `location.reload` lands in Next's `handleMessage` — the socket handler above.
+
+### Two traps if you go measuring this yourself
+
+**Do not wrap `location.reload` from page script to find the caller.** `reload`,
+`assign`, `replace` and `href` are `[LegacyUnforgeable]`, which Chromium
+implements as own, non-configurable properties of each `location`;
+`Location.prototype` has none of them. So `Object.defineProperty` on the
+prototype _succeeds_ and is never reached, and the wrapper reports that nothing
+called anything. Use `Debugger.setBreakpointOnFunctionCall` over CDP instead.
+
+**Log every websocket, not just `/_next/`.** Filtering to Next's socket is how a
+reload with "no dev-server instruction" comes to look unexplained.
+
+### What Val does about it
+
+The canvas has to be a document of the app, that document has to connect an HMR
+client, and the first broadcast after any hash movement reloads every client
+whose hash is older — so the canvas case cannot be fixed from Val's side. It is
+pinned as a test that is expected to pass; when it starts failing, Next has
+changed and both it and this section should go.
+
+What Val stopped doing is opening a _second_ Next document for no reason. The
+draft-mode handshake used to redirect its hidden iframe to
+`/val?message_onready=true` — the whole Studio route, to post one message back.
+It now lands on `/api/val/draft/ready` (`VAL_DRAFT_READY_PATH`), plain HTML
+served by the API route with no client bundle, so it opens no HMR socket and
+provokes no broadcast.

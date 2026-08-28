@@ -21,7 +21,11 @@ import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
-import { isValCanvasFrame } from "@valbuild/shared/internal";
+import {
+  isValCanvasFrame,
+  VAL_DRAFT_READY_PATH,
+  VAL_READY_MESSAGE_TYPE,
+} from "@valbuild/shared/internal";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 
@@ -359,21 +363,30 @@ export const ValNextProvider = (props: {
             event.detail.value === null)
         ) {
           const draftMode = event.detail.value;
+          /**
+           * Where the iframe lands after the flag is flipped.
+           *
+           * `/draft/ready` rather than the `/val` Studio route. Sending one
+           * message back does not need the Studio, and loading it here RELOADED
+           * the Studio: `next dev` answers a new client connecting by
+           * broadcasting a `sync` with the current webpack hash, and every other
+           * document reloads itself when that hash has moved. See
+           * VAL_DRAFT_READY_PATH for the whole chain, with the Next sources.
+           */
+          const readyUrl = encodeURIComponent(
+            window.location.origin + route + VAL_DRAFT_READY_PATH,
+          );
           if (draftMode === true) {
             setIframeSrc((prev) => {
               if (prev === null) {
-                return `${route}/draft/enable?redirect_to=${encodeURIComponent(
-                  window.location.origin + "/val?message_onready=true",
-                )}`;
+                return `${route}/draft/enable?redirect_to=${readyUrl}`;
               }
               return prev;
             });
           } else if (draftMode === false) {
             setIframeSrc((prev) => {
               if (prev === null) {
-                return `${route}/draft/disable?redirect_to=${encodeURIComponent(
-                  window.location.origin + "/val?message_onready=true",
-                )}`;
+                return `${route}/draft/disable?redirect_to=${readyUrl}`;
               }
               return prev;
             });
@@ -533,7 +546,10 @@ export const ValNextProvider = (props: {
       return;
     }
     const listener = (event: MessageEvent) => {
-      if (event.origin === location.origin && event.data.type === "val-ready") {
+      if (
+        event.origin === location.origin &&
+        event.data.type === VAL_READY_MESSAGE_TYPE
+      ) {
         setIframeSrc(null);
       }
     };

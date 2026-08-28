@@ -2,6 +2,7 @@
 
 import { ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
+import { VAL_READY_MESSAGE_TYPE } from "@valbuild/shared/internal";
 import Script from "next/script";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
@@ -20,23 +21,41 @@ export const ValApp = ({
   const isClientSIde = inMessageMode === undefined;
   useConfigStorageSave(config);
   const container = useRef<HTMLDivElement>(null);
+  /**
+   * The legacy landing page for the draft-mode iframe.
+   *
+   * Kept for a `redirect_to` that was already in flight, and for a hosted
+   * `valEnableRedirectUrl` chain still pointing here. The normal path is
+   * `/api/val/draft/ready` — plain HTML with no Next client bundle, because
+   * loading this route in an iframe reloads the Studio (see
+   * `VAL_DRAFT_READY_PATH`).
+   *
+   * The interval has a delay. It was created with none, which in an iframe that
+   * lives until its parent hears the message meant posting as fast as the event
+   * loop allowed, on the same dev server that is compiling. Repeated at all
+   * because the parent attaches its listener when the iframe mounts and a fast
+   * load can beat it; bounded so a parent that never hears it leaves a stopped
+   * timer rather than a running one.
+   */
   useEffect(() => {
-    if (location.search === "?message_onready=true") {
-      setInMessageMode(true);
-      const interval = setInterval(() => {
-        window.parent.postMessage(
-          {
-            type: "val-ready",
-          },
-          "*",
-        );
-      });
-      return () => {
-        clearInterval(interval);
-      };
-    } else {
+    if (location.search !== "?message_onready=true") {
       setInMessageMode(false);
+      return;
     }
+    setInMessageMode(true);
+    let sent = 0;
+    const announce = () => {
+      window.parent.postMessage({ type: VAL_READY_MESSAGE_TYPE }, "*");
+      sent++;
+      if (sent > 20) {
+        clearInterval(interval);
+      }
+    };
+    const interval = setInterval(announce, 250);
+    announce();
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
   useEffect(() => {
     if (container.current?.childElementCount === 0) {

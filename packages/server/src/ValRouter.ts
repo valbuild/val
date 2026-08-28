@@ -5,6 +5,8 @@ import {
   Api,
   ApiEndpoint,
   ValServerGenericResult,
+  VAL_DRAFT_READY_PATH,
+  VAL_READY_MESSAGE_TYPE,
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
@@ -527,6 +529,9 @@ export function createValApiRouter<Res>(
       return res;
     }
 
+    if (path === VAL_DRAFT_READY_PATH) {
+      return convert(draftReadyResponse());
+    }
     if (path.startsWith("/static")) {
       return convert(
         await uiRequestHandler(path.slice("/static".length), url.href),
@@ -534,6 +539,60 @@ export function createValApiRouter<Res>(
     } else {
       return convert(await getValServerResponse(path, req));
     }
+  };
+}
+
+/**
+ * Where the draft-mode iframe lands once the flag is flipped.
+ *
+ * Deliberately NOT a Next route. See {@link VAL_DRAFT_READY_PATH}: a new Next
+ * document connecting to the dev server makes it broadcast a `sync` with the
+ * current compilation hash, and every other document reloads itself if that
+ * hash has moved. This is plain HTML with no client bundle, so it opens no HMR
+ * socket and the Studio stays put.
+ *
+ * Answered here rather than through the typed API surface because that surface
+ * is JSON-only, and this has to be a document a browser will run.
+ *
+ * The message repeats for a few seconds rather than once: the parent attaches
+ * its listener when the iframe mounts, so a fast load can beat it. It stops on
+ * its own — the parent removes the iframe when it hears the message — and the
+ * bound is there so a parent that never hears it leaves a stopped timer rather
+ * than one running for the length of the session.
+ */
+function draftReadyResponse(): ValServerGenericResult {
+  const body = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Val draft mode</title></head>
+<body>
+<script>
+  (function () {
+    var sent = 0;
+    function announce() {
+      sent++;
+      if (sent > 20) clearInterval(timer);
+      // Opened top-level rather than in the iframe: nothing to tell. Counted
+      // above rather than returned before, so the timer still stops.
+      if (window.parent === window) return;
+      window.parent.postMessage(
+        { type: ${JSON.stringify(VAL_READY_MESSAGE_TYPE)} },
+        window.location.origin
+      );
+    }
+    var timer = setInterval(announce, 250);
+    announce();
+  })();
+</script>
+</body>
+</html>
+`;
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+    body,
   };
 }
 
