@@ -3,6 +3,7 @@ import {
   createDefaultValFSHost,
   createFixPatch,
   createService,
+  createValModuleFileInspector,
   fixHandlers,
   type FixHandlerContext,
   type IValFSHost,
@@ -61,8 +62,13 @@ export async function* runValidation({
   const service = await createService(projectRoot, fs);
 
   // Modules registered in the project's val.modules. Files found on disk that
-  // are not registered here are not validated (a warning is emitted instead).
+  // are not registered here are not validated; what (if anything) is reported
+  // for them is decided by `reportUnregistered` below.
   const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
+
+  // Only used for files that are NOT registered, so it never duplicates the
+  // evaluation `createService` already did.
+  const inspectValModuleFile = createValModuleFileInspector(projectRoot, fs);
 
   let errors = 0;
 
@@ -83,10 +89,48 @@ export async function* runValidation({
     }
   }
 
+  /**
+   * What to report for a `*.val.ts` file that val.modules does not register.
+   *
+   * The `*.val.ts` suffix is used for more than Val modules — shared schemas and
+   * other content-adjacent helpers wear it too — and those are not meant to be
+   * registered, so warning about every unregistered file buries the one warning
+   * that matters under a wall of noise. The default export is what separates
+   * them: a file that default exports a module is one someone meant to register
+   * and forgot (a warning), a file that default exports something else can never
+   * be loaded by Val under that name (an error), and a file with no default
+   * export is simply not a module (silence).
+   */
+  async function* reportUnregistered(
+    file: string,
+  ): AsyncGenerator<ValidationEvent> {
+    const start = Date.now();
+    const inspection = inspectValModuleFile(path.join(projectRoot, file));
+    if (inspection.status === "no-default-export") {
+      return;
+    }
+    if (inspection.status === "val-module") {
+      yield { type: "unregistered-module", file };
+      return;
+    }
+    errors += 1;
+    yield {
+      type: "fatal-error",
+      file: `/${file}`,
+      message: inspection.message,
+    };
+    yield {
+      type: "file-error-count",
+      file: `/${file}`,
+      errorCount: 1,
+      durationMs: Date.now() - start,
+    };
+  }
+
   async function* validateFile(file: string): AsyncGenerator<ValidationEvent> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     if (!registered.has(moduleFilePath)) {
-      yield { type: "unregistered-module", file };
+      yield* reportUnregistered(file);
       return;
     }
     const start = Date.now();
