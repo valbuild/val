@@ -23,6 +23,7 @@ import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
+import { GlobalErrors } from "../GlobalErrors";
 import { TransientErrorToasts } from "../TransientErrorToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
@@ -37,7 +38,6 @@ import {
   useAuthenticationState,
   useConnectionStatus,
   useProfilesError,
-  useAIConnectionError,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -84,6 +84,7 @@ export function ValShell() {
       <Toaster />
       <TransientErrorToasts />
       <PatchErrorsDialog />
+      <GlobalErrors />
     </>
   );
 }
@@ -106,8 +107,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * problem, not a reason to stop working.
    */
   const profilesError = useProfilesError();
-  /** Why the assistant is unavailable, once it has stopped trying to connect. */
-  const aiConnectionError = useAIConnectionError();
   /**
    * Whether there is an assistant at all.
    *
@@ -722,7 +721,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
   /**
-   * The real auto-save setting, shared with the classic layout's toggle.
+   * The real auto-save setting, not one of the shell's own.
    *
    * The shell used to hold its own `useState(true)` for this: a checkbox that
    * showed on, changed nothing when clicked, and disagreed with the setting
@@ -831,19 +830,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       pendingChangesLoaded={pendingChangesLoaded}
       pendingChangesProgress={pendingChangesProgress}
       pendingChangesError={pendingChangesError}
-      aiUnavailable={
-        aiConnectionError
-          ? {
-              message: aiConnectionError.message,
-              onRetry: aiConnectionError.retry,
-            }
-          : undefined
-      }
     />
   );
 }
 
-/** The compare view, as `ContentArea` renders it. */
+/** The compare view, in the editor column. */
 function CompareView() {
   const val = useValSystem();
   /**

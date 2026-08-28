@@ -299,14 +299,15 @@ a fresh element each time or the probe never runs again.
 `input[type="file"]`, and it is `multiple`. Select the field's with
 `input[type="file"]:not([multiple])`.
 
-**The assistant is not mounted until its panel is opened.** It is a floating
-panel behind the top bar's "AI assistant" button, so a test has to click that
-button before any chat locator resolves, and a mobile-width viewport does not
-offer the button at all. Closing the panel unmounts the chat but NOT the socket,
-which belongs to `ValProvider`; the conversation comes back because
-`AIChatSurface` seeds itself from the session id in the URL, the same trick the
-on-page overlay plays with `sessionStorage`. What does not survive is a turn in
-flight — its tool calls have nobody to answer them until the panel is back.
+**The assistant panel is hidden, not unmounted.** Every other `FloatingPanel`
+comes and goes with `openPanel`; this one stays mounted and takes `hidden`. It
+has to: the scrim covers the whole viewport and closes on any click outside, so
+carrying on editing while the model works "dismisses" the assistant — and
+unmounting it there dropped the turn, because the chat is the only thing that
+answers the model's tool calls. So a test cannot assert the chat is ABSENT when
+the panel is closed, only that it is not visible; and it still has to click the
+top bar's "AI assistant" button to reveal it, which a mobile-width viewport does
+not offer at all.
 
 **A field mention can arrive before the chat exists, and then arrive too early.**
 "Mention this field" opens the assistant and inserts a reference, and in the

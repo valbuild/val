@@ -40,6 +40,7 @@ import {
   FilePlus,
   Hash,
   List,
+  AlertTriangle,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
@@ -188,6 +189,17 @@ export type AIChatProps = {
   isConnected: boolean;
   /** Set when /ai/initialize returned 401 — the user needs to authenticate */
   authError: boolean;
+  /**
+   * Why the assistant cannot be reached, once the studio has stopped retrying.
+   *
+   * Replaces the composer — and the "Connecting…" strip with it — and nothing
+   * else. A composer with nothing listening is an invitation to type a question
+   * that goes nowhere, with silence as the only feedback; but the conversation
+   * above it is still worth reading, and blanking it is not an improvement on a
+   * dead input. `authError` is NOT this: being signed out has its own prompt,
+   * which is the only thing that can say how to sign in.
+   */
+  unavailable?: { message: string; onRetry: () => void };
   /** Val server mode — controls which auth instructions to show on authError */
   mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
@@ -518,6 +530,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     className,
     isConnected,
     authError,
+    unavailable,
     mode,
     sessions,
     currentSessionId,
@@ -1198,123 +1211,169 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
-        {!isConnected && !authError && (
-          <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
-            <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
-            Connecting…
-          </div>
-        )}
-        {/* Attached file previews */}
-        {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {attachedFiles.map((f) => (
-              <div
-                key={f.id}
-                className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
-              >
-                {f.previewUrl ? (
-                  <img
-                    src={f.previewUrl}
-                    alt={f.file.name}
-                    className="h-8 w-8 rounded object-cover"
-                  />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
-                )}
-                <span className="max-w-[120px] truncate">{f.file.name}</span>
-                {f.status === "uploading" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
-                )}
-                {f.status === "error" && (
-                  <XCircle className="h-3 w-3 text-fg-error-primary" />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeAttachedFile(f.id)}
-                  className="ml-0.5 text-fg-secondary hover:text-fg-primary"
-                  aria-label={`Remove ${f.file.name}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+        {unavailable && !authError ? (
+          <AIUnavailable {...unavailable} />
+        ) : (
+          <>
+            {!isConnected && !authError && (
+              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
+                <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+                Connecting…
               </div>
-            ))}
-          </div>
-        )}
-        {onUploadFile && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-            accept="image/*"
-          />
-        )}
-        <div
-          className={cn(
-            "flex flex-col rounded-md border border-border-primary bg-bg-primary",
-            "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
-          )}
-        >
-          <AIChatEditor
-            ref={editorRef}
-            disabled={authError || !isConnected || isStreaming}
-            placeholder={isConnected && !authError ? "Ask something…" : ""}
-            onSubmit={() => handleSend()}
-            onUploadAiImage={onUploadFile}
-            getPortalContainer={() => portalContainer}
-            onChange={(doc) => {
-              const empty =
-                doc.length === 0 ||
-                (doc.length === 1 &&
-                  doc[0].tag === "p" &&
-                  doc[0].children.length === 0);
-              setIsEditorEmpty(empty);
-              const keys = collectImageKeysFromDoc(doc);
-              setHasPendingInlineImage(
-                keys.some((k) => k.startsWith("pending:")),
-              );
-            }}
-            className={cn(
-              "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
-              "text-fg-primary text-base",
             )}
-          />
-          <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+            {/* Attached file previews */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {attachedFiles.map((f) => (
+                  <div
+                    key={f.id}
+                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+                  >
+                    {f.previewUrl ? (
+                      <img
+                        src={f.previewUrl}
+                        alt={f.file.name}
+                        className="h-8 w-8 rounded object-cover"
+                      />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                    )}
+                    <span className="max-w-[120px] truncate">
+                      {f.file.name}
+                    </span>
+                    {f.status === "uploading" && (
+                      <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
+                    )}
+                    {f.status === "error" && (
+                      <XCircle className="h-3 w-3 text-fg-error-primary" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedFile(f.id)}
+                      className="ml-0.5 text-fg-secondary hover:text-fg-primary"
+                      aria-label={`Remove ${f.file.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {onUploadFile && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={!isConnected || isStreaming || authError}
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Attach files"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+                accept="image/*"
+              />
             )}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={
-                !isConnected ||
-                isStreaming ||
-                isUploading ||
-                hasPendingInlineImage ||
-                authError ||
-                isEditorEmpty
-              }
-              onClick={() => handleSend()}
-              aria-label="Send message"
-              className="ml-auto"
+            <div
+              className={cn(
+                "flex flex-col rounded-md border border-border-primary bg-bg-primary",
+                "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+              )}
             >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+              <AIChatEditor
+                ref={editorRef}
+                disabled={authError || !isConnected || isStreaming}
+                placeholder={isConnected && !authError ? "Ask something…" : ""}
+                onSubmit={() => handleSend()}
+                onUploadAiImage={onUploadFile}
+                getPortalContainer={() => portalContainer}
+                onChange={(doc) => {
+                  const empty =
+                    doc.length === 0 ||
+                    (doc.length === 1 &&
+                      doc[0].tag === "p" &&
+                      doc[0].children.length === 0);
+                  setIsEditorEmpty(empty);
+                  const keys = collectImageKeysFromDoc(doc);
+                  setHasPendingInlineImage(
+                    keys.some((k) => k.startsWith("pending:")),
+                  );
+                }}
+                className={cn(
+                  "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
+                  "text-fg-primary text-base",
+                )}
+              />
+              <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+                {onUploadFile && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={!isConnected || isStreaming || authError}
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach files"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={
+                    !isConnected ||
+                    isStreaming ||
+                    isUploading ||
+                    hasPendingInlineImage ||
+                    authError ||
+                    isEditorEmpty
+                  }
+                  onClick={() => handleSend()}
+                  aria-label="Send message"
+                  className="ml-auto"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 });
+
+/**
+ * The assistant is not there, and this is what is known about why.
+ *
+ * The retry matters more than the message: the usual causes are a key missing
+ * from the server's config or the AI service being down, both of which can be
+ * fixed in another window while this is on screen — and without a button the
+ * only way to find out is to reload the studio.
+ */
+function AIUnavailable({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border-primary bg-bg-secondary p-2.5">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-error-primary" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg-primary">
+            The assistant is unavailable
+          </p>
+          <p className="mt-0.5 text-[0.6875rem] text-fg-secondary">{message}</p>
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        className="mt-2 text-xs"
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components

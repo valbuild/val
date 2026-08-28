@@ -3,7 +3,7 @@ import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
-import { useValMode } from "./ValProvider";
+import { useAIConnectionError, useValMode } from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
 
 /**
@@ -34,6 +34,14 @@ import { useSessionParam } from "./ValRouter";
 export function AIChatSurface({ className }: { className?: string }) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
+  /**
+   * Why the assistant cannot be reached, once the studio has given up.
+   *
+   * Read here rather than passed down from the shell: it belongs with the
+   * composer it replaces, and the shell has no business knowing that the socket
+   * is the reason its panel looks different.
+   */
+  const unavailable = useAIConnectionError();
   const { chatEditorRef, flushPendingFieldRefs } = useAIChatActions();
   const { sessionParam, setSessionParam } = useSessionParam();
   // Read once, on the first render. Later URL changes — a navigation rewriting
@@ -106,6 +114,11 @@ export function AIChatSurface({ className }: { className?: string }) {
       onNewSession={newSession}
       isConnected={isConnected}
       authError={authError}
+      unavailable={
+        unavailable
+          ? { message: unavailable.message, onRetry: unavailable.retry }
+          : undefined
+      }
       mode={mode}
       sessions={sessions}
       currentSessionId={currentSessionId}

@@ -818,11 +818,13 @@ test.describe("ai chat tools", () => {
       studio.getByRole("button", { name: "Mention this field in AI chat" }),
     ).not.toHaveCount(0);
 
-    // The assistant is closed: this click has to open it AND land the reference.
+    // The assistant is dismissed: this click has to reveal it AND land the
+    // reference. Hidden rather than absent — the panel stays mounted so a turn
+    // in flight survives being dismissed — so this asks about visibility.
     await expect(
       studio.locator(".val-chat-editor-content"),
       "the assistant was already open, so this proves nothing",
-    ).toHaveCount(0);
+    ).toBeHidden();
     await studio
       .getByRole("button", { name: "Mention this field in AI chat" })
       .first()
@@ -845,6 +847,108 @@ test.describe("ai chat tools", () => {
       "the mentioned field did not reach the assistant",
     ).toContain(TAGS);
     expect(prompt.text).toContain("what is this?");
+  });
+
+  /**
+   * A turn survives a click in the editor.
+   *
+   * The panel's scrim covers the whole viewport and closes on any click outside
+   * it, so "dismissing" the assistant is one stray click away — and the obvious
+   * thing to do while the model is working is to carry on editing. Unmounting
+   * the chat on close meant the `ai_tool_call` reached no handler, no result was
+   * ever sent, the edit never landed, and nothing anywhere said so.
+   *
+   * Driven with a tool the turn BLOCKS on, so the click lands mid-turn: the mock
+   * will not move on until the Studio answers.
+   */
+  test("finishes a turn started before the panel was dismissed", async ({
+    page,
+  }) => {
+    await openChatStudio(page);
+    await mock.aiScript({
+      steps: [
+        {
+          type: "tool",
+          name: "create_patch",
+          // Long enough that the click below is comfortably inside the turn.
+          timeoutMs: 60_000,
+          arguments: {
+            module_file_path: TAGS,
+            patch: [
+              { op: "replace", path: ["guides", "label"], value: "Dismissed" },
+            ],
+          },
+        },
+      ],
+      response: "Done anyway.",
+    });
+
+    await send(page, "Rename the guides tag");
+    // A click in the editor column, by coordinate: the panel's scrim covers the
+    // whole viewport, so whatever is underneath, the scrim is what receives this
+    // and closes the panel. Well left of the 420px panel on the right.
+    await page.mouse.click(200, 500);
+    await expect(
+      page.locator("#val-shadow-root").locator(".val-chat-editor-content"),
+      "the click did not dismiss the assistant, so this proves nothing",
+    ).toBeHidden();
+
+    const [call] = await toolCalls(1);
+    okResult(call);
+    expect(JSON.stringify(await peek(page, TAGS))).toContain("Dismissed");
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patches.filter((patch) => patch.path === TAGS)
+            .length,
+        {
+          timeout: 30_000,
+          message: "the AI's patch never reached the content service",
+        },
+      )
+      .toBe(1);
+  });
+
+  /**
+   * When the assistant cannot be started, the composer says so and offers a way
+   * back.
+   *
+   * The studio retries `/ai/initialize` five times and then stops. What it shows
+   * for that is the one thing a person can act on, so it is worth pinning: a
+   * composer with nothing behind it invites a question that goes nowhere, and
+   * silence is the only feedback.
+   */
+  test("says so when it cannot reach the assistant, and can be retried", async ({
+    page,
+  }) => {
+    await mock.aiOffline(true);
+    await openHttpStudio(page);
+    const studio = page.locator("#val-shadow-root");
+    await studio.getByRole("button", { name: "AI assistant" }).click();
+
+    // Five attempts, three seconds apart, before the studio gives up.
+    await expect(
+      studio.getByText("The assistant is unavailable"),
+      "the studio never reported giving up",
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(
+      studio.locator(
+        '.val-chat-editor-content .ProseMirror[contenteditable="true"]',
+      ),
+      "a composer with nothing listening",
+    ).toHaveCount(0);
+
+    // And the way back works: the service returns, the button reconnects.
+    await mock.aiOffline(false);
+    await studio.getByRole("button", { name: "Try again" }).click();
+    await expect(
+      studio.locator(
+        '.val-chat-editor-content .ProseMirror[contenteditable="true"]',
+      ),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(studio.getByText("The assistant is unavailable")).toHaveCount(
+      0,
+    );
   });
 
   /**

@@ -360,6 +360,17 @@ export const mock = {
   aiState(): Promise<MockAiState> {
     return control<MockAiState>("ai-state");
   },
+
+  /**
+   * Make `/ai/initialize` fail, or let it succeed again.
+   *
+   * The studio tries five times before it gives up and reports that the
+   * assistant is unavailable, and no editor action can produce that — so a test
+   * that wants to see the studio out of options has to say so here.
+   */
+  async aiOffline(offline: boolean): Promise<void> {
+    await control("ai-offline", { method: "POST", body: { offline } });
+  },
 };
 
 // #endregion

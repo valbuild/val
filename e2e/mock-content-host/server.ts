@@ -279,6 +279,14 @@ type State = {
   aiPrompts: RecordedPrompt[];
   /** Every tool call played, with the Studio's answer. */
   aiToolCalls: RecordedToolCall[];
+  /**
+   * Refuse to start the assistant, so the studio runs out of attempts.
+   *
+   * The one AI failure a test cannot produce by asking for it: the studio tries
+   * five times before it gives up and says so, and there is no editor action
+   * that makes `/ai/initialize` fail.
+   */
+  aiOffline: boolean;
 };
 
 function emptyState(): State {
@@ -296,6 +304,7 @@ function emptyState(): State {
     aiScripts: [],
     aiPrompts: [],
     aiToolCalls: [],
+    aiOffline: false,
   };
 }
 
@@ -901,6 +910,10 @@ const putRemoteFile: Handler = async (req, res, url) => {
  * this has to do is hand out a nonce the socket will accept.
  */
 const aiInitialize: Handler = (req, res) => {
+  if (state.aiOffline) {
+    json(res, 500, { message: "The assistant is having a bad day" });
+    return;
+  }
   const nonce = randomUUID();
   state.nonces.add(nonce);
   json(res, 200, { nonce });
@@ -1277,6 +1290,12 @@ const controlPlane: Handler = async (req, res, url) => {
     }
     state.aiScripts.push(body);
     json(res, 200, { queued: state.aiScripts.length });
+    return;
+  }
+  if (action === "ai-offline" && req.method === "POST") {
+    const body = await readJsonBody<{ offline?: boolean }>(req);
+    state.aiOffline = body?.offline !== false;
+    json(res, 200, { offline: state.aiOffline });
     return;
   }
   if (action === "ai-state" && req.method === "GET") {

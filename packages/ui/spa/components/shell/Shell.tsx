@@ -103,8 +103,8 @@ export type ShellProps = {
    * Whether changes are written to the working tree on a pause in typing.
    *
    * A prop, like `saveState`, rather than state this component owns: the
-   * setting is `fs`-mode-only, persisted, and shared with the classic layout's
-   * toggle and the Save button that disables itself while it is on. A local
+   * setting is `fs`-mode-only, persisted, and shared with the Save button that
+   * disables itself while it is on. A local
    * `useState` here — which is what this was — put a checkbox on screen that
    * showed `true`, changed nothing when clicked, and disagreed with the real
    * setting, whose default is `false`.
@@ -233,13 +233,6 @@ export type ShellProps = {
    */
   accountError?: ShellAccountError;
   /**
-   * Why the assistant is unavailable, once the studio has stopped trying.
-   *
-   * Shown in the AI panel in place of the composer. Absent means it is either
-   * working or still connecting, and the panel offers a composer as usual.
-   */
-  aiUnavailable?: { message: string; onRetry: () => void };
-  /**
    * Whether this project has an assistant at all.
    *
    * Absent means it does not, and every way into one is hidden: the top bar
@@ -356,7 +349,6 @@ export function Shell({
   previewHref,
   onSignOut,
   accountError,
-  aiUnavailable,
   aiEnabled = false,
   aiSlot,
   onMentionField,
@@ -884,11 +876,17 @@ export function Shell({
         />
       )}
 
-      {openPanel === "ai" && aiEnabled && (
+      {/*
+       * Mounted for as long as the studio is, and merely hidden when dismissed.
+       * Everything else here comes and goes with `openPanel`; the assistant
+       * cannot, because closing it would drop a turn in flight — see `hidden`
+       * on `FloatingPanel`.
+       */}
+      {aiEnabled && (
         <AIChatPanel
           breakpoint={breakpoint}
+          hidden={openPanel !== "ai"}
           onClose={closePanel}
-          unavailable={aiUnavailable}
         >
           {aiSlot ?? <NoAssistantConfigured />}
         </AIChatPanel>
