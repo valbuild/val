@@ -52,7 +52,14 @@ describe("ValOpsFS patch store", () => {
           },
         ],
       },
-      { config },
+      {
+        config,
+        // Short, so the long-poll test does not sit out a 20 second fallback.
+        // Every other test here uses shas that cannot match, so `getStat`
+        // answers before it ever reaches the wait.
+        statPollingInterval: 2000,
+        statFilePollingInterval: 25,
+      },
     );
   });
 
@@ -488,5 +495,70 @@ describe("ValOpsFS patch store", () => {
     expect(ids[0]).toBe("patch-0");
     expect(ids.slice(1).sort()).toEqual(["concurrent-a", "concurrent-b"]);
     expect(await announced()).toEqual(ids);
+  });
+
+  /**
+   * A long poll answers about the moment it ANSWERS.
+   *
+   * `getStat` reads the store, and if nothing has changed it waits — up to a
+   * whole polling interval — for a file to move. What usually moves the file is
+   * the studio's own `/save`, which in `fs` mode commits the patches and deletes
+   * them. Answering with the list read before the wait therefore names patches
+   * that no longer exist, and the studio then puts them back in its chain and
+   * fetches them from a server that correctly no longer has them: "unpublished
+   * changes could not be loaded", for changes that were published. With auto-save
+   * on that is every pause in typing.
+   */
+  describe("what a long poll answers with", () => {
+    it("names the patches the store holds now, not the ones it held when the poll opened", async () => {
+      const [patchId] = await createPatches(1);
+      // The params a client sends when it is up to date, so `getStat` finds
+      // nothing changed and waits.
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: [patchId],
+      });
+      // Let it get past its read and into the wait before anything moves.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // What `/save` does to a patch it has committed.
+      await ops.deletePatches([patchId]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      expect(stat.type).toBe("request-again");
+      expect(stat.patches).toEqual([]);
+    });
+
+    /**
+     * The other half: what it announces still comes out of the read
+     * `fetchPatches` delivers from, so the two cannot disagree at the moment of
+     * the answer either.
+     */
+    it("announces exactly what the fetch will deliver", async () => {
+      const created = await createPatches(2);
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: created,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await ops.deletePatches([created[0]]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      const fetched = await ops.fetchPatches({ excludePatchOps: true });
+      expect(stat.patches).toEqual(
+        fetched.patches.map((patch) => patch.patchId),
+      );
+      expect(stat.patches).toEqual([created[1]]);
+    });
   });
 });

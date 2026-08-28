@@ -57,6 +57,32 @@ could break.**
 another is the bug; deriving both from one array is the fix. If you add a third
 caller, take it from there too.
 
+**And one answer per MOMENT.** `/stat` long polls: it reads, finds nothing
+changed, and waits up to `statPollingInterval` for a file to move. So "one read"
+is not enough on its own — the read has to be the one the answer is sent with.
+`getStat` reads the store again after the wait — the store only, because the
+shas and schemas come from `initSources`, which is memoised for the lifetime of
+the `ValOpsFS` instance and never invalidated. The reason is `/save`:
+
+- The write that ends most waits is the studio's own publish, which in `fs` mode
+  commits the patches and **deletes** them.
+- Answering with the list read before it names patches that stopped existing a
+  polling interval ago.
+- The studio then puts those ids back in its chain and fetches them from a server
+  that correctly no longer has them — "unpublished changes could not be loaded",
+  for changes that were just published. With auto-save on, that is every pause in
+  typing.
+
+`request-again` and `no-change` differ in why the wait ended, not in how current
+the answer has to be, so both re-read. **If you add a branch that returns after
+the wait, read again there too.**
+
+The studio does not rely on this. A snapshot protocol cannot promise its list was
+not overtaken, so `PatchStore` treats an announcement of a patch it has already
+published as stale (`publishedIds`), and gives an announced-but-undelivered id one
+more stat before reporting it (`notDeliveredOnce`). The server fix removes the
+routine case; the client fix is what makes the rest correct.
+
 **A crash can only ever leave a directory the log does not name.** `appendPatch`
 writes the record, then the log line. Interrupted, that leaves an unreferenced
 directory: inert, and swept up by repair. The reverse order would leave the log

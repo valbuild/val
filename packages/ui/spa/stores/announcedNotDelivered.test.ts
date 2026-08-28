@@ -1,6 +1,11 @@
 import { initVal } from "@valbuild/core";
 import type { PatchId } from "@valbuild/core";
-import { externalPatch, initTestSystem, patchIds } from "./testSystem";
+import {
+  externalPatch,
+  initTestSystem,
+  patchIds,
+  type TestSystem,
+} from "./testSystem";
 
 /** Let the fetch a stat kicked off actually come back. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -20,6 +25,14 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
  * "retry later", it is never again: no further request was ever made for them,
  * no error was ever raised, the chain never settled, and the studio sat on
  * "Loading unpublished changes…" for as long as the tab was open.
+ *
+ * The REPORT takes two stats, and that is not a softening of any of the above.
+ * An announcement can be older than a delete — `/stat` long polls, so its patch
+ * list is read when the poll opens and answered when a file changes, and the
+ * file that changes is usually the one `/save` just wrote — so one empty answer
+ * says nothing about whether the server is wrong. A stat issued after the delete
+ * does, and the id is out of `fetching` while we wait for it, which is the
+ * property the incident above was about. See `PatchStore.notDeliveredOnce`.
  */
 describe("changes the server announced and did not send", () => {
   const module = () => {
@@ -35,11 +48,22 @@ describe("changes the server announced and did not send", () => {
     return system;
   };
 
+  /**
+   * A second stat still naming the id, which is what turns an announcement that
+   * MIGHT be stale into a server contradicting itself. `simulateAnnouncedNotDelivered([])`
+   * adds nothing and re-sends the same list, which is exactly the next poll.
+   */
+  const confirm = async (server: TestSystem["server"]) => {
+    server.simulateAnnouncedNotDelivered([]);
+    await settle();
+  };
+
   it("settles the chain instead of waiting on them forever", async () => {
     const { patchStore, server, dispose } = await setup();
 
     server.simulateAnnouncedNotDelivered(["never-sent" as PatchId]);
     await settle();
+    await confirm(server);
 
     const head = await patchStore.getHead();
     // `-partial` is the waiting state, and it is the one that never ended.
@@ -52,6 +76,7 @@ describe("changes the server announced and did not send", () => {
 
     server.simulateAnnouncedNotDelivered(["never-sent" as PatchId]);
     await settle();
+    await confirm(server);
 
     const [error] = status.current().errors;
     expect(error?.message).toBe("An unpublished change could not be loaded.");
@@ -68,10 +93,30 @@ describe("changes the server announced and did not send", () => {
       "c" as PatchId,
     ]);
     await settle();
+    await confirm(server);
 
     expect(status.current().errors[0]?.message).toBe(
       "3 unpublished changes could not be loaded.",
     );
+    dispose();
+  });
+
+  /**
+   * One empty answer is not the report, and the reason is the shape of `/stat` in
+   * `fs` mode rather than caution for its own sake — see the file comment. The
+   * chain stays UNSETTLED meanwhile, so nothing on screen claims to be current
+   * while the question is still open.
+   */
+  it("waits for a second stat before saying anything", async () => {
+    const { patchStore, server, status, dispose } = await setup();
+
+    server.simulateAnnouncedNotDelivered(["never-sent" as PatchId]);
+    await settle();
+
+    expect(status.current().errors).toEqual([]);
+    // `-partial` is "still on its way", which is what it is: the id is out of
+    // `fetching`, so the next stat asks for it again.
+    expect((await patchStore.getHead()).type).toBe("external-partial");
     dispose();
   });
 
@@ -101,11 +146,13 @@ describe("changes the server announced and did not send", () => {
 
     server.simulateAnnouncedNotDelivered(["never-sent" as PatchId]);
     await settle();
-    server.simulateAnnouncedNotDelivered([]);
-    await settle();
+    await confirm(server);
+    await confirm(server);
+    await confirm(server);
 
-    // The id is settled as failed, so nothing asks for it again — which is what
-    // stops a permanent server fault becoming a permanent stream of toasts.
+    // A server that keeps announcing what it cannot send is asked on every stat
+    // and answers the same way every time. `StatusStore` de-duplicates by
+    // message, which is what stops a permanent fault becoming a stream of toasts.
     expect(status.current().errors).toHaveLength(1);
     dispose();
   });

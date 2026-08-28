@@ -203,6 +203,15 @@ two backwards and you either resurrect deleted edits as permanent failures, or
 wait forever on changes that will never arrive — the second of which is a real
 bug that shipped. See `architecture/patch-store.md`.
 
+**`/stat`'s patch list can be a polling interval old.** It long polls in `fs`
+mode, and it used to answer with the list it read when the poll _opened_ — so the
+response that arrives right after a publish still named the patches the publish
+committed and deleted. Announced-but-undelivered is therefore not, on its own,
+the server contradicting itself: the announcement may simply predate a delete.
+`getStat` now reads again before answering, and the studio still gives such an id
+one more stat before reporting it. Auto-save is what made this loud, because it
+publishes on every pause in typing. See `architecture/patch-store.md`.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in
