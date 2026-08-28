@@ -28,7 +28,7 @@
     "cors": "^2.8.5",
     "diff": "^5.1.0",
     "eslint": "^8.31.0",
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "fast-glob": "^3.3.1",
     "jscodeshift": "^0.15.1",
     "meow": "^9.0.0",
@@ -36,7 +36,7 @@
     "picocolors": "^1.0.0",
     "recast": "^0.23.4",
     "semver": "^7.5.4",
-    "simple-git": "^3.22.0",
+    "simple-git": "^3.36.0",
     "typescript": "^5.9.3",
     "zod": "^4.3.5"
   },
