@@ -2,6 +2,10 @@
   "compilerOptions": {
     "lib": ["es2020", "DOM"],
     "strict": true,
+    // Declared rather than auto-discovered: TypeScript 6 stopped finding these
+    // by walking up to the workspace root, so `process`, `fs` and the jest
+    // globals all went missing at once.
+    "types": ["node", "jest"],
     "isolatedModules": true,
     "esModuleInterop": true,
     "module": "esnext",

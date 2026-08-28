@@ -1,6 +1,11 @@
 {
   "compilerOptions": {
     "esModuleInterop": true,
+    // Declared, not auto-discovered: TypeScript 6 no longer includes every
+    // @types package it can find, so leaving this unset loses the node and
+    // jest globals. The packages are still resolved through the default
+    // typeRoots walk up to the workspace root.
+    "types": ["node", "jest"],
     "strict": true,
     "allowJs": true,
     "isolatedModules": true,
@@ -20,8 +25,7 @@
     "target": "ES2015",
     "outDir": "dist",
     "rootDir": ".",
-    "skipLibCheck": true,
-    "baseUrl": "."
+    "skipLibCheck": true
   },
   "include": ["spa/**/*", "src/**/*"]
 }

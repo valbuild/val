@@ -54,7 +54,22 @@ autoTagJSX();
 export type * as t from "./ValTypes";
 export type { DecodeVal } from "@valbuild/react/stega";
 
-export const Internal = {
+/**
+ * Annotated rather than inferred.
+ *
+ * The inferred type of the spread below reaches into @valbuild/core's internal
+ * declaration files for names like `NonEmptyArray` and `createValPathOfItem`,
+ * which the declaration emitter cannot write down portably: `preconstruct
+ * build` fails with a wall of TS2883 "the inferred type of 'Internal' cannot be
+ * named without a reference to ..." while `tsc --noEmit` stays happy, so it only
+ * shows up in the build job. Naming the type in terms of `typeof InternalCore`
+ * keeps everything the emitter needs reachable through the package entry point.
+ */
+type InternalWithNextVersion = Omit<typeof InternalCore, "VERSION"> & {
+  VERSION: typeof InternalCore.VERSION & { next: typeof VERSION };
+};
+
+export const Internal: InternalWithNextVersion = {
   ...InternalCore,
   VERSION: {
     ...InternalCore.VERSION,
