@@ -89,6 +89,23 @@ export function CanvasFrame({
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
   const [isEnabling, setIsEnabling] = useState(false);
+  /**
+   * Bumped every time the page announces itself.
+   *
+   * The catch-up snapshot below has to run once per DOCUMENT, and `reloadKey`
+   * only counts the reloads the studio asked for. A page reloads itself too —
+   * `next dev` does it when a `.val.ts` changes, which is exactly what
+   * publishing writes — and that new document arrives as another `ready` with
+   * the same `draftMode`, so nothing in `state` changes and the effect keyed on
+   * it did not re-run. The document then kept whatever the server rendered
+   * until the next keystroke happened to relay something, which with auto-save
+   * on is how the canvas came to sit on pre-publish content.
+   *
+   * A counter rather than a flag: `ready` is also posted when draft mode
+   * changes, and re-sending the snapshot then is harmless — it is the same
+   * sources again.
+   */
+  const [documentEpoch, setDocumentEpoch] = useState(0);
 
   // The URL the frame is actually given: the page, marked as a canvas load so
   // it renders itself without its own overlay.
@@ -126,6 +143,7 @@ export function CanvasFrame({
       const message = event.data;
       if (message.type === "ready") {
         setState({ status: "ready", draftMode: message.draftMode });
+        setDocumentEpoch((epoch) => epoch + 1);
         setIsEnabling(false);
       } else if (message.type === "elements") {
         onElements?.(message.elements);
@@ -214,8 +232,9 @@ export function CanvasFrame({
    * full of edits — then corrected itself on the next keystroke, which made it
    * look intermittent rather than like a missing step.
    *
-   * Keyed on the reload as well as on going live, because a reload is a new
-   * document with the same problem.
+   * Keyed on {@link documentEpoch} rather than on `reloadKey`: every new
+   * document has this problem, not only the ones the studio asked for, and the
+   * page announcing itself is the one signal that covers both.
    */
   const sendPendingSources = useValPendingSourceSnapshot();
   useEffect(() => {
@@ -233,7 +252,7 @@ export function CanvasFrame({
      * draft, and renders committed source for it immediately.
      */
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
-  }, [isLive, reloadKey, sendPendingSources, sendSourceUpdate, send]);
+  }, [isLive, documentEpoch, sendPendingSources, sendSourceUpdate, send]);
 
   const blocked =
     (state.status === "ready" && !state.draftMode) ||

@@ -1,6 +1,6 @@
 import {
   Internal,
-  renderScope,
+  previewScope,
   type Json,
   type ModuleFilePath,
   type Schema,
@@ -15,7 +15,7 @@ import type { SystemEvent } from "./types";
 import type {
   HostBridge,
   HostCustomValidateResult,
-  HostRenderResult,
+  HostPreviewResult,
 } from "./bridges";
 import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
@@ -25,7 +25,7 @@ import { noopActivity, type ActivitySink } from "./activity";
  * REALM: host. Cannot ever move to a worker.
  *
  * The only place that holds real `Schema` INSTANCES — the objects carrying the
- * user's `select`, `render` and custom `validate` closures. Closures cannot be
+ * user's `preview` and custom `validate` closures. Closures cannot be
  * structured-cloned, so this store defines the edge of what can be threaded, and
  * everything that needs to execute one has to be on this side of it.
  *
@@ -37,7 +37,7 @@ import { noopActivity, type ActivitySink } from "./activity";
  *    SERIALIZED halves — serialized schema, JSON source — into the other
  *    stores. Nothing downstream can accidentally hold a closure.
  *
- * 2. **Execution.** It implements {@link HostBridge}, so the render and
+ * 2. **Execution.** It implements {@link HostBridge}, so the preview and
  *    validation stores can have the two things done that only an instance can
  *    do, without ever holding one.
  */
@@ -161,10 +161,10 @@ export class HostStore implements HostBridge {
     this.sourceStore.receive(sources);
   }
 
-  async render(
+  async preview(
     moduleFilePath: ModuleFilePath,
     only?: readonly SourcePath[],
-  ): Promise<HostRenderResult> {
+  ): Promise<HostPreviewResult> {
     const instance = this.instances[moduleFilePath];
     if (!instance) {
       return { status: "unknown-module" };
@@ -176,25 +176,25 @@ export class HostStore implements HostBridge {
       return { status: "unknown-module" };
     }
     try {
-      this.activity.work("host:execute-render", moduleFilePath);
+      this.activity.work("host:execute-preview", moduleFilePath);
       // An empty `only` is not "nothing": a caller with no paths to name wants
       // the module, which is what every caller before scoping got. Only a
       // non-empty list narrows anything.
       const scope =
         only !== undefined && only.length > 0
-          ? renderScope([...only])
+          ? previewScope([...only])
           : undefined;
       return {
-        status: "rendered",
-        render: instance["executeRender"](
+        status: "previewed",
+        preview: instance["executePreview"](
           moduleFilePath,
           source as SelectorSource,
           scope,
         ),
       };
     } catch (error) {
-      // A render is decoration. A schema whose render throws must not take the
-      // module's fields down with it — same rule as `computeRender` today.
+      // A preview is decoration. A schema whose preview throws must not take
+      // the module's fields down with it.
       return {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -276,7 +276,7 @@ export class HostStore implements HostBridge {
     }
   }
 
-  /** For a render/validation store deciding whether asking is worth it. */
+  /** For a preview/validation store deciding whether asking is worth it. */
   has(moduleFilePath: ModuleFilePath): boolean {
     return this.instances[moduleFilePath] !== undefined;
   }

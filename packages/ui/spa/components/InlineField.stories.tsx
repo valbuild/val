@@ -4,7 +4,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -56,7 +56,7 @@ function createMockData(
 ) {
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Json> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
 
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
@@ -67,13 +67,13 @@ function createMockData(
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
@@ -85,7 +85,7 @@ function StoryProviders({
   mockData: {
     schemas: Record<ModuleFilePath, SerializedSchema>;
     sources: Record<ModuleFilePath, Json>;
-    renders: Record<ModuleFilePath, ReifiedRender>;
+    previews: Record<ModuleFilePath, ReifiedPreview>;
   };
 }) {
   const client = useMemo(() => createMockClient(), []);
@@ -94,7 +94,7 @@ function StoryProviders({
     return createStorySystem({
       schemas: mockData.schemas,
       sources: mockData.sources,
-      renders: mockData.renders,
+      previews: mockData.previews,
     });
   }, [client, mockData]);
 

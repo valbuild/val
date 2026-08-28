@@ -174,7 +174,7 @@ test.describe("the Studio, through its own UI", () => {
    * hid this: a field wrote a patch per keystroke, so a paragraph left a few
    * hundred patches in the chain — enough to slow every stat, make the publish
    * a wall of one-character diffs, and eventually to break the request that
-   * reads the chain back (see `planPatchIdQuery`). It also made a validation
+   * reads the chain back (see `chunkPatchIds`). It also made a validation
    * error appear and clear mid-word, jumping everything below the field.
    */
   test("types a word a key at a time and writes one patch", async ({

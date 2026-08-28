@@ -23,7 +23,7 @@ import { StatStore } from "./StatStore";
 import { StatusStore } from "./StatusStore";
 import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
 import { HostStore } from "./HostStore";
-import { RenderStore } from "./RenderStore";
+import { PreviewStore } from "./PreviewStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
 import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
 import type { PatchErrorEntry, PatchRecord } from "./types";
@@ -48,6 +48,7 @@ import type {
   DiscardPatches,
   PublishPatches,
   PublishResult,
+  PublishOptions,
 } from "./PublishSeam";
 import type {
   PatchSetBridge,
@@ -63,6 +64,30 @@ import type {
  * than one per patch. See `scheduleValidationOfPendingModules`.
  */
 const PENDING_VALIDATION_DEBOUNCE_MS = 300;
+
+/**
+ * How much of the chain a caller that named a set may publish.
+ *
+ * The longest prefix of `chain` that is both named and already on the server.
+ * A PREFIX, never an arbitrary subset: committing a patch while an earlier one
+ * stays pending would write a file that no ordering of what is left can
+ * explain. Stopping early is always safe — the rest is a chain on top of a base
+ * that moved, and it goes in the next round.
+ */
+export function takeNamedPrefix(
+  chain: readonly PatchId[],
+  named: ReadonlySet<PatchId>,
+  unsaved: ReadonlySet<PatchId>,
+): PatchId[] {
+  const prefix: PatchId[] = [];
+  for (const patchId of chain) {
+    if (!named.has(patchId) || unsaved.has(patchId)) {
+      break;
+    }
+    prefix.push(patchId);
+  }
+  return prefix;
+}
 
 /**
  * How long a publish waits for local edits to reach the server.
@@ -92,7 +117,7 @@ export type HostRealm = {
    * and because a retry timer has to live where the chain does.
    */
   patchSync: PatchSync;
-  renderStore: RenderStore;
+  previewStore: PreviewStore;
   validationStore: ValidationStore;
 };
 
@@ -161,7 +186,18 @@ export type System = HostRealm &
      * once: validation decides whether it may happen, patches say what is being
      * published, and source has to be left showing the right thing afterwards.
      */
-    publish(patchIds: PatchId[], message?: string): Promise<PublishResult>;
+    publish(
+      patchIds: PatchId[],
+      message?: string,
+      options?: PublishOptions,
+    ): Promise<PublishResult>;
+    /**
+     * Validate every loaded module, announcing start and finish.
+     *
+     * A second call while one is running is a no-op rather than a queue: the
+     * answer the first one produces is the answer the second one wanted.
+     */
+    validateEverything(): Promise<void>;
     /**
      * Throw patches away.
      *
@@ -383,7 +419,7 @@ export function createSystem(options: SystemOptions): System {
   patchStore.setParentRefSource(() => patchSync.currentParentRef());
   const host = new HostStore(schemaStore, sourceStore, activity);
   const hostBridge = options.hostBridge ?? host;
-  const renderStore = new RenderStore(
+  const previewStore = new PreviewStore(
     hostBridge,
     sourceStore,
     schemaStore,
@@ -416,6 +452,8 @@ export function createSystem(options: SystemOptions): System {
   const patchSetChain = new PatchSetChain();
   /** One publish at a time. See `publish`. */
   let publishing = false;
+  /** One whole-project validation at a time. See `validateEverything`. */
+  let fullValidationRunning = false;
   /**
    * `fs` by default — dev, and the mode a wrong guess is cheapest in. Replaced
    * by {@link System.setMode} once `/stat` says which one this really is.
@@ -719,7 +757,7 @@ export function createSystem(options: SystemOptions): System {
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();
     }),
-    renderStore.listenTo(),
+    previewStore.listenTo(),
     validationStore.listenTo(),
 
     /**
@@ -919,7 +957,7 @@ export function createSystem(options: SystemOptions): System {
     sourceStore,
     patchStore,
     patchSync,
-    renderStore,
+    previewStore,
     validationStore,
     searchStore,
     patchSetStore,
@@ -992,8 +1030,42 @@ export function createSystem(options: SystemOptions): System {
      * the caller's list instead is how a project ships without its newest edit,
      * or ships a broken patch whose fix was still local.
      */
-    async publish(requestedPatchIds, message) {
-      void requestedPatchIds;
+    /**
+     * Validate every module that has been loaded, and say while it runs.
+     *
+     * For the quiet moment after auto-save has caught up. The per-save gate only
+     * checks the modules the batch touched, which is what keeps typing cheap —
+     * but it means a module nobody has edited this session is never checked, and
+     * a cross-module break (a `keyOf` pointing at a key another file just lost)
+     * belongs to neither module's patches.
+     *
+     * Sequential on purpose: the validation worker is a single FIFO queue, so
+     * firing all of them at once would put a whole project ahead of the next
+     * keystroke's module in that queue. One at a time leaves gaps for it.
+     */
+    async validateEverything() {
+      if (fullValidationRunning) {
+        return;
+      }
+      fullValidationRunning = true;
+      validationStore.events.emit({
+        type: "validation:full-pass",
+        running: true,
+      });
+      try {
+        for (const moduleFilePath of sourceStore.loadedModules()) {
+          await validationStore.validate(moduleFilePath);
+        }
+      } finally {
+        fullValidationRunning = false;
+        validationStore.events.emit({
+          type: "validation:full-pass",
+          running: false,
+        });
+      }
+    },
+    async publish(requestedPatchIds, message, publishOptions) {
+      const exact = publishOptions?.exact === true;
       if (options.publishPatches === undefined) {
         return {
           status: "failed",
@@ -1021,6 +1093,12 @@ export function createSystem(options: SystemOptions): System {
          * local source — would have been about a document including it.
          */
         if (
+          // Never in `exact` mode. Waiting for the queue to drain is the right
+          // thing when a person clicked Save and expects their last word in it;
+          // it is the wrong thing on a timer, where the queue may never be empty
+          // because they are still typing. There, an unsaved patch is simply not
+          // in this batch and goes in the next one.
+          !exact &&
           options.savePatches !== undefined &&
           patchStore.unsavedRecords().length > 0
         ) {
@@ -1054,7 +1132,9 @@ export function createSystem(options: SystemOptions): System {
         // patches that are local by definition — there is nothing to wait for,
         // and refusing would make publish unreachable rather than safe.
         const stillUnsaved =
-          options.savePatches === undefined ? [] : patchStore.unsavedRecords();
+          options.savePatches === undefined || exact
+            ? []
+            : patchStore.unsavedRecords();
         if (stillUnsaved.length > 0) {
           // The flush could not get everything up. Refused rather than
           // published-in-part: the alternative publishes a chain whose tail is
@@ -1076,9 +1156,32 @@ export function createSystem(options: SystemOptions): System {
          * publishing a proper subset would mean committing a patch while keeping
          * an earlier one pending.
          */
-        const toPublish = patchStore
+        const chainNow = patchStore
           .allRecords()
           .map((record) => record.patchId);
+        /*
+         * In `exact` mode: the longest PREFIX of the chain the caller named.
+         *
+         * A prefix, not a subset, and that distinction is the whole safety
+         * property — committing a patch while keeping an earlier one pending
+         * would write a file that no sequence of the remaining patches can
+         * explain. A prefix has no such problem: what is left is still a chain,
+         * on top of a base that moved.
+         *
+         * Stopping at the first unsaved patch for the same reason. Nothing here
+         * refuses because the chain grew: growing is what it does while someone
+         * is typing, and a save that refuses whenever that happens is a save
+         * that never runs.
+         */
+        const toPublish = exact
+          ? takeNamedPrefix(
+              chainNow,
+              new Set(requestedPatchIds),
+              new Set(
+                patchStore.unsavedRecords().map((record) => record.patchId),
+              ),
+            )
+          : chainNow;
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
         }
@@ -1138,7 +1241,7 @@ export function createSystem(options: SystemOptions): System {
             modules: invalid,
           };
         }
-        if (patchStore.chainVersion() !== chainAt) {
+        if (!exact && patchStore.chainVersion() !== chainAt) {
           // An edit landed while the gate was running, so what was just checked
           // is not what would be published. Refused, and retryable: the caller
           // clicks Save again — or the UI does — and the gate runs against the
@@ -1180,6 +1283,32 @@ export function createSystem(options: SystemOptions): System {
           };
         }
 
+        /*
+         * Changes the save threw away to be able to write anything at all.
+         *
+         * Dropped locally FIRST, before anything else moves: they are gone from
+         * the server, and a chain still holding them would offer them to the
+         * next save, fail the same way, and never get past it. `drop` rather
+         * than `forgetPublished` — their effect is NOT in the base and has to
+         * come off the screen, which is the whole difference between the two.
+         */
+        const removed = outcome.removed ?? [];
+        if (removed.length > 0) {
+          patchStore.drop(removed.map((entry) => entry.patchId));
+          status.reportError(
+            removed.length === 1
+              ? "An edit could not be applied and was removed."
+              : `${removed.length} edits could not be applied and were removed.`,
+            removed
+              .map((entry) => `${entry.moduleFilePath}: ${entry.message}`)
+              .join("\n"),
+          );
+          console.error(
+            "Val: the save removed these changes because they could not be applied.",
+            removed,
+          );
+        }
+
         // Recorded before the mode split, because it is true in both: these
         // patches are in a commit now. `filePatchIds` needs it in `http` mode,
         // where the chain keeps them — see `PatchStore.publishedIds`.
@@ -1190,8 +1319,11 @@ export function createSystem(options: SystemOptions): System {
           // goes the displayed value does not move. Reversed, every published
           // field would flash back to its pre-publish text until the next source
           // fetch landed.
-          sourceStore.promoteToBase([...affected]);
-          sourceStore.forgetPublished(toPublish);
+          // Bakes the published prefix into the base and keeps whatever was
+          // typed while the request was in flight. Was `promoteToBase` plus
+          // `forgetPublished`, which together baked the tail into the base AND
+          // left it in the chain to be applied again on top of itself.
+          sourceStore.promotePublished(toPublish, [...affected]);
           patchStore.forgetPublished(toPublish);
         }
         // In `http` mode the patches stay server-side and are re-applied, so the
@@ -1199,7 +1331,11 @@ export function createSystem(options: SystemOptions): System {
         // the next fetch, and promoting the base would then double-apply.
         // The ids that were actually published, which is what the caller has to
         // forget — it asked with a list taken before the flush.
-        return { status: "published", patchIds: toPublish };
+        return {
+          status: "published",
+          patchIds: toPublish,
+          ...(removed.length > 0 ? { removed } : {}),
+        };
       } finally {
         publishing = false;
       }

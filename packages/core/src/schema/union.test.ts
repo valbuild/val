@@ -57,7 +57,7 @@ describe("UnionSchema", () => {
     expect(res.success).toEqual(false);
   });
 
-  test("render union object schema", () => {
+  test("preview union object schema", () => {
     const schema = union(
       "type",
       object({
@@ -66,20 +66,17 @@ describe("UnionSchema", () => {
           object({
             value: string(),
           }),
-        ).render({
-          as: "list",
-          select: ({ val }) => {
-            return {
-              title: val.value,
-            };
-          },
+        ).preview(({ val }) => {
+          return {
+            title: val.value,
+          };
         }),
       }),
       object({ type: literal("value2"), innerString: string() }),
     );
 
     expect(
-      schema["executeRender"]("/test.foo.val.ts" as ModuleFilePath, {
+      schema["executePreview"]("/test.foo.val.ts" as ModuleFilePath, {
         type: "value1",
         innerObject: {
           record1: { value: "test value 1" },
@@ -90,7 +87,6 @@ describe("UnionSchema", () => {
       '/test.foo.val.ts?p="innerObject"': {
         status: "success",
         data: {
-          layout: "list",
           parent: "record",
           items: [
             [

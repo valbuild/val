@@ -60,12 +60,6 @@ export type TopBarProps = {
   pendingChanges: number;
   publishState?: PublishState;
   /**
-   * Number of validation errors across the project. Publishing with errors is
-   * blocked, so the count is surfaced next to the button that is blocked.
-   */
-  validationErrorCount?: number;
-  onShowErrors?: () => void;
-  /**
    * Set when the account could not be loaded, and the studio has stopped trying.
    *
    * This is the case where `user` is absent, so it also has to *put* a control
@@ -114,8 +108,6 @@ export function TopBar({
   publishSlot,
   pendingChanges,
   publishState = "idle",
-  validationErrorCount = 0,
-  onShowErrors,
   accountError,
   isLoading,
   aiEnabled = false,
@@ -158,12 +150,6 @@ export function TopBar({
               onToggleCanvas={onToggleCanvas}
               isCanvasOpen={isCanvasOpen}
             />
-            {validationErrorCount > 0 && onShowErrors && (
-              <ValidationErrorPill
-                count={validationErrorCount}
-                onClick={onShowErrors}
-              />
-            )}
             {publishSlot ?? (
               <PublishButton
                 pendingChanges={pendingChanges}
@@ -530,28 +516,6 @@ export function PublishButton({
       {publishState === "idle" && pendingChanges > 0 && (
         <span className="tabular-nums opacity-80">{pendingChanges}</span>
       )}
-    </button>
-  );
-}
-
-/** How many validation errors stand between here and a publish. */
-function ValidationErrorPill({
-  count,
-  onClick,
-}: {
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={`${count} validation ${count === 1 ? "error" : "errors"} — fix these before publishing`}
-      aria-label={`${count} validation ${count === 1 ? "error" : "errors"}`}
-      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-error-on-surface border border-border-error-primary hover:bg-bg-error-secondary"
-    >
-      <AlertTriangle size={14} />
-      <span className="tabular-nums">{count}</span>
     </button>
   );
 }

@@ -61,6 +61,24 @@ describe("describePublishButton", () => {
     expect(state.reason).toContain("1 validation error to fix");
   });
 
+  test("past nine, the label stops counting", () => {
+    // The button is one width in every state: a three-digit count would widen
+    // it, and "how many exactly" stops being useful long before that.
+    expect(
+      describePublishButton(input({ validationErrorCount: 9 })).label,
+    ).toBe("Fix 9");
+    expect(
+      describePublishButton(input({ validationErrorCount: 10 })).label,
+    ).toBe("Fix 9+");
+    expect(
+      describePublishButton(input({ validationErrorCount: 137 })).label,
+    ).toBe("Fix 9+");
+    // The reason still names the real number — it has room for it.
+    expect(
+      describePublishButton(input({ validationErrorCount: 137 })).reason,
+    ).toContain("137 validation errors");
+  });
+
   test("both blockers are named, not just the first", () => {
     const state = describePublishButton(
       input({ validationErrorCount: 2, conflictingChangeCount: 1 }),

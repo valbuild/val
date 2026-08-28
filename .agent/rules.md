@@ -488,6 +488,27 @@ supplies the dimensions and mime type at resolve time.
 
 The `/api/val/files` endpoint (`ValServer.ts`) serves draft files by loading them from the patch directory (via `getBase64EncodedBinaryFileFromPatch`) and published files directly from the filesystem (`getBinaryFile`). No auth is required on this endpoint (patch IDs serve as unguessable tokens).
 
+## Releasing
+
+Releases go out through changesets: land a PR with a changeset on `main`, the
+Release workflow opens a "Version Packages" PR, and merging that publishes to
+npm.
+
+**After a release, ask whether to update the starter template** — and default to
+yes. The template repository ([`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter))
+pins `@valbuild/*` versions in its `package.json`, so it keeps serving the old
+release to everyone who runs `npm create @valbuild` / `pnpm create @valbuild`
+until someone bumps it. So, once the new version is on npm:
+
+1. Ask the user whether to update the template now, proposing that we do.
+2. Bump the `@valbuild/*` dependencies in the template's `package.json`, install
+   so the lock file follows, and open a PR on the template repository.
+3. **Test it out** — do not ship the bump on a green typecheck alone. Install and
+   run the template against the new version, open `/val`, and check that the
+   Studio loads and that an edit can be made and saved. Breakage from a release
+   shows up here first, and this is the last place to catch it before it is what
+   every new project starts from.
+
 ## Common Fixes
 
 ### "Type 'X' does not satisfy constraint 'Source'"

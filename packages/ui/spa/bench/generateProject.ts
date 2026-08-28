@@ -13,11 +13,11 @@ import { initVal, type SelectorSource, type ValModule } from "@valbuild/core";
  *
  * - **plain modules** — objects of strings with `minLength` validators, so schema
  *   validation has real work to do rather than returning `false` immediately;
- * - **list modules** — `s.array(...).render({ as: "list", select })`, where
- *   `select` is a user closure invoked per row. This is the expensive thing;
- * - **one nested list** — a list whose items each contain a list, both with
- *   `select`. This is the `handboka` shape, the worst case named throughout
- *   `architecture.md`, and the reason path-scoped renders were built.
+ * - **list modules** — `s.array(...).preview(select)`, where `select` is a user
+ *   closure invoked per row. This is the expensive thing;
+ * - **one nested list** — a list whose items each contain a list, both with a
+ *   `preview`. This is the `handboka` shape, the worst case named throughout
+ *   `architecture.md`, and the reason path-scoped previews were built.
  *
  * `select` is instrumented so a run can report how many times it ran. A duration
  * without that number cannot distinguish "faster" from "did less".
@@ -27,7 +27,7 @@ export type ProjectSize = {
   plainModules: number;
   /** Fields per plain module. */
   fieldsPerModule: number;
-  /** Modules that are a rendered list. */
+  /** Modules that are a previewed list. */
   listModules: number;
   /** Rows per list module. */
   rowsPerList: number;
@@ -156,7 +156,7 @@ export type GeneratedProject = {
   typedModule: string;
   /** Paths a UI would plausibly have mounted at once. */
   mountedPaths: string[];
-  /** A path inside the nested list, for the render worst case. */
+  /** A path inside the nested list, for the preview worst case. */
   nestedRowPath: string;
   nestedModule: string;
   moduleCount: number;
@@ -201,12 +201,9 @@ export function generateProject(size: ProjectSize): GeneratedProject {
         path,
         s
           .array(s.object({ title: s.string().minLength(2), body: s.string() }))
-          .render({
-            as: "list",
-            select: ({ val }) => {
-              selectCalls++;
-              return { title: val.title, subtitle: val.body };
-            },
+          .preview(({ val }) => {
+            selectCalls++;
+            return { title: val.title, subtitle: val.body };
           }),
         rows,
       ),
@@ -228,21 +225,15 @@ export function generateProject(size: ProjectSize): GeneratedProject {
             title: s.string().minLength(2),
             sections: s
               .array(s.object({ heading: s.string().minLength(2) }))
-              .render({
-                as: "list",
-                select: ({ val }) => {
-                  selectCalls++;
-                  return { title: val.heading };
-                },
+              .preview(({ val }) => {
+                selectCalls++;
+                return { title: val.heading };
               }),
           }),
         )
-        .render({
-          as: "list",
-          select: ({ val }) => {
-            selectCalls++;
-            return { title: val.title };
-          },
+        .preview(({ val }) => {
+          selectCalls++;
+          return { title: val.title };
         }),
       Array.from({ length: size.nestedChapters }, (_unused, chapter) => ({
         title: `chapter ${chapter}`,

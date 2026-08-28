@@ -47,6 +47,7 @@ import {
   usePatchFetchError,
   usePendingChangesProgress,
   useValMode,
+  useAutoPublish,
 } from "../ValProvider";
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -623,12 +624,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [validationErrors],
   );
 
-  const showErrors = useCallback(() => {
-    navigation.navigate(VAL_ERRORS_ROUTE, {
-      errorFields: allValidationErrorPaths,
-    });
-  }, [navigation, allValidationErrorPaths]);
-
   /** One module's errors, from the row in the utility panel. */
   const onSelectValidationError = useCallback(
     (error: ShellValidationError) => {
@@ -695,6 +690,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
   /**
+   * The real auto-save setting, shared with the classic layout's toggle.
+   *
+   * The shell used to hold its own `useState(true)` for this: a checkbox that
+   * showed on, changed nothing when clicked, and disagreed with the setting
+   * that actually governs saving, whose default is off.
+   */
+  const { autoPublish, setAutoPublish } = useAutoPublish();
+
+  /**
    * Something in the editor column that is not a selection.
    *
    * The compare and errors views are the whole column and have no row in the
@@ -736,6 +740,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       publishSlot={<PublishButton />}
       publishState={publishState}
       saveState={saveState}
+      autoSave={autoPublish}
+      onAutoSaveChange={setAutoPublish}
       pendingChanges={data.pendingChanges ?? 0}
       isLoading={state.status === "loading"}
       loadError={state.status === "error" ? state.error : undefined}
@@ -758,7 +764,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       // Also as an href, so the menu item is a link that can be copied. The URL
       // enables preview and redirects, so it is worth sending to someone.
       previewHref={previewHref}
-      onShowErrors={showErrors}
       onSelectValidationError={onSelectValidationError}
       onCompare={showCompare}
       // Recent activity rows did nothing: the panel listed them and no handler

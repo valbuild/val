@@ -4,10 +4,35 @@ import path from "node:path";
 import { initVal, ModuleFilePath, PatchId } from "@valbuild/core";
 import { ParentRef } from "@valbuild/shared/internal";
 import { ValOpsFS } from "./ValOpsFS";
-import type { BaseSha, SchemaSha, SourcesSha } from "./ValOps";
-import { patchDir, patchesLogFile } from "./patchStore";
+import type { BaseSha, OpsMetadata, SchemaSha, SourcesSha } from "./ValOps";
+import {
+  patchDir,
+  patchesLogFile,
+  patchRecordFile,
+  patchUploadDir,
+} from "./patchStore";
 
 const { s, c, config } = initVal();
+
+/**
+ * The real thing, with one `protected` reader opened up.
+ *
+ * A subclass rather than a cast: reading a patch file's metadata is a genuine
+ * seam of this class, and a test is allowed to be one of its subclasses. `as any`
+ * would stop the signature being checked, which is the part worth keeping.
+ */
+class TestValOpsFS extends ValOpsFS {
+  readPatchFileMetadata(
+    filePath: string,
+    patchId: PatchId,
+  ): Promise<OpsMetadata<"image">> {
+    return this.getBase64EncodedBinaryFileMetadataFromPatch(
+      filePath,
+      "image",
+      patchId,
+    );
+  }
+}
 
 const MODULE_PATH = "/test/page.val.ts" as ModuleFilePath;
 
@@ -26,7 +51,7 @@ const MODULE_PATH = "/test/page.val.ts" as ModuleFilePath;
  */
 describe("ValOpsFS patch store", () => {
   let rootDir: string;
-  let ops: ValOpsFS;
+  let ops: TestValOpsFS;
 
   const patchesDir = (): string => path.join(rootDir, ".val", "patches");
 
@@ -37,7 +62,7 @@ describe("ValOpsFS patch store", () => {
       path.join(rootDir, "test", "page.val.ts"),
       `import { s, c } from "val.config";\n\nexport default c.define(\n  "${MODULE_PATH}",\n  s.object({ title: s.string() }),\n  { title: "start" },\n);\n`,
     );
-    ops = new ValOpsFS(
+    ops = new TestValOpsFS(
       "http://localhost:4000",
       rootDir,
       {
@@ -52,7 +77,14 @@ describe("ValOpsFS patch store", () => {
           },
         ],
       },
-      { config },
+      {
+        config,
+        // Short, so the long-poll test does not sit out a 20 second fallback.
+        // Every other test here uses shas that cannot match, so `getStat`
+        // answers before it ever reaches the wait.
+        statPollingInterval: 2000,
+        statFilePollingInterval: 25,
+      },
     );
   });
 
@@ -88,9 +120,16 @@ describe("ValOpsFS patch store", () => {
     return created;
   };
 
-  const announced = async (): Promise<PatchId[]> => {
-    // Shas that cannot match, so getStat answers immediately with what it sees
-    // rather than long-polling for a change.
+  /** A whole stat answer, taken with shas that cannot match so it returns at once. */
+  const announcedStat = async (): Promise<{
+    baseSha: string;
+    patches: PatchId[];
+    /**
+     * Carried here as well, because the server DRAINS it on handover: taking one
+     * stat to read the patches and another to read the notice loses it.
+     */
+    removed?: { patchId: PatchId; reason: string }[];
+  }> => {
     const stat = await ops.getStat({
       baseSha: "never-matches" as BaseSha,
       schemaSha: "never-matches" as SchemaSha,
@@ -103,8 +142,15 @@ describe("ValOpsFS patch store", () => {
     if (stat.type !== "did-change") {
       throw new Error(`expected did-change, got ${stat.type}`);
     }
-    return stat.patches;
+    return {
+      baseSha: stat.baseSha,
+      patches: stat.patches,
+      removed: stat.removed,
+    };
   };
+
+  const announced = async (): Promise<PatchId[]> =>
+    (await announcedStat()).patches;
 
   /** What the next stat tells the studio it threw away. */
   const removedNotice = async (): Promise<
@@ -488,5 +534,361 @@ describe("ValOpsFS patch store", () => {
     expect(ids[0]).toBe("patch-0");
     expect(ids.slice(1).sort()).toEqual(["concurrent-a", "concurrent-b"]);
     expect(await announced()).toEqual(ids);
+  });
+
+  /**
+   * A long poll answers about the moment it ANSWERS.
+   *
+   * `getStat` reads the store, and if nothing has changed it waits — up to a
+   * whole polling interval — for a file to move. What usually moves the file is
+   * the studio's own `/save`, which in `fs` mode commits the patches and deletes
+   * them. Answering with the list read before the wait therefore names patches
+   * that no longer exist, and the studio then puts them back in its chain and
+   * fetches them from a server that correctly no longer has them: "unpublished
+   * changes could not be loaded", for changes that were published. With auto-save
+   * on that is every pause in typing.
+   */
+  describe("what a long poll answers with", () => {
+    it("names the patches the store holds now, not the ones it held when the poll opened", async () => {
+      const [patchId] = await createPatches(1);
+      // The params a client sends when it is up to date, so `getStat` finds
+      // nothing changed and waits.
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: [patchId],
+      });
+      // Let it get past its read and into the wait before anything moves.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // What `/save` does to a patch it has committed.
+      await ops.deletePatches([patchId]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      expect(stat.type).toBe("request-again");
+      expect(stat.patches).toEqual([]);
+    });
+
+    /**
+     * The other half: what it announces still comes out of the read
+     * `fetchPatches` delivers from, so the two cannot disagree at the moment of
+     * the answer either.
+     */
+    it("announces exactly what the fetch will deliver", async () => {
+      const created = await createPatches(2);
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: created,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await ops.deletePatches([created[0]]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      const fetched = await ops.fetchPatches({ excludePatchOps: true });
+      expect(stat.patches).toEqual(
+        fetched.patches.map((patch) => patch.patchId),
+      );
+      expect(stat.patches).toEqual([created[1]]);
+    });
+  });
+
+  /**
+   * What the server serves as COMMITTED content after it has just written it.
+   *
+   * The sources are memoised per `ValOps` instance, and the way they are re-read
+   * is by awaiting each module's `def` — in a real app the app's own `import()`,
+   * which resolves from the module registry rather than from the file on disk. So
+   * invalidating the memo after a save gets the PRE-SAVE content back and stores
+   * it as fresh. This suite's `def` models that exactly: it builds the module
+   * from a literal, so re-evaluating always answers `title: "start"` no matter
+   * what is on disk.
+   *
+   * It matters because committed content is what a page rendering DRAFT content
+   * falls back on once a publish has removed the patches. Stale there means the
+   * page shows what was there before the publish, with nothing left to correct
+   * it.
+   */
+  describe("adopting the sources a save has written", () => {
+    /** What `/save` does, in the order it does it. */
+    const publish = async (
+      title: string,
+      options?: { adopt?: boolean },
+    ): Promise<void> => {
+      await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: title }],
+        crypto.randomUUID() as PatchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      const patches = await ops.fetchPatches({ excludePatchOps: false });
+      const analysis = ops.analyzePatches(patches.patches);
+      const prepared = await ops.prepare({ ...analysis, ...patches });
+      expect(prepared.hasErrors).toBe(false);
+      const saved = await ops.saveOrUploadFiles(prepared, "skip-remote");
+      expect(saved.errors).toEqual({});
+      if (options?.adopt !== false) {
+        await ops.adoptCommittedSources({ ...analysis, ...patches }, prepared);
+      }
+      await ops.deletePatches(patches.patches.map((entry) => entry.patchId));
+    };
+
+    const committedTitle = async (): Promise<unknown> => {
+      const { sources } = await ops.getSources();
+      const source = sources[MODULE_PATH];
+      if (source === null || typeof source !== "object") {
+        throw new Error(`expected an object, got ${JSON.stringify(source)}`);
+      }
+      return (source as Record<string, unknown>)["title"];
+    };
+
+    it("serves the published content once the patches are gone", async () => {
+      await publish("published");
+
+      expect(await ops.fetchPatches({ excludePatchOps: true })).toMatchObject({
+        patches: [],
+      });
+      expect(await committedTitle()).toBe("published");
+    });
+
+    /**
+     * The same run without the adoption, so what it is for is on the record: the
+     * file on disk is right and the answer is still the old one.
+     */
+    it("would answer with the pre-save content without it", async () => {
+      await publish("published", { adopt: false });
+
+      expect(
+        fs.readFileSync(path.join(rootDir, "test", "page.val.ts"), "utf-8"),
+      ).toContain("published");
+      expect(await committedTitle()).toBe("start");
+    });
+
+    it("moves the source shas with the sources, and leaves the schema sha alone", async () => {
+      const before = {
+        baseSha: await ops.getBaseSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        schemaSha: await ops.getSchemaSha(),
+      };
+
+      await publish("published");
+
+      expect(await ops.getSourcesSha()).not.toBe(before.sourcesSha);
+      // The moved base is what tells a second studio "these were published, not
+      // discarded" — see `PatchStore.reconcileVanished`.
+      expect(await ops.getBaseSha()).not.toBe(before.baseSha);
+      // Nothing about the schemas moved, and the client refetches `/schema` on
+      // this one.
+      expect(await ops.getSchemaSha()).toBe(before.schemaSha);
+    });
+
+    it("leaves the shas alone when there is nothing to adopt", async () => {
+      const before = await ops.getBaseSha();
+
+      await ops.adoptCommittedSources(
+        { ...ops.analyzePatches([]), patches: [] },
+        { patchedJsonEntries: {} },
+      );
+
+      expect(await ops.getBaseSha()).toBe(before);
+    });
+
+    /**
+     * `/stat` answers with the SHAs, so a publish has to be visible there — that
+     * is the whole channel a second studio learns anything on.
+     */
+    it("shows up on the next stat", async () => {
+      const before = await announcedStat();
+      await publish("published");
+      const after = await announcedStat();
+
+      expect(after.baseSha).not.toBe(before.baseSha);
+      expect(after.patches).toEqual([]);
+    });
+  });
+
+  /**
+   * The window between a file upload and the patch record that will reference
+   * it.
+   *
+   * Replacing an image is TWO requests, in this order: the bytes go up first
+   * (`POST /upload/patches/:patchId/files`), and the patch that points at them
+   * is written after (`PUT /patches`) — the patch alone is useless, since its
+   * `file` op carries only a sha. So between them the store holds a directory
+   * with `files/` in it and no `patch.json`.
+   *
+   * Anything reading the store in that window used to classify that as an
+   * unreadable patch — "there is no .../patch.json" — and repair removed it and
+   * reported it as unpublished work thrown away. The bytes went with it, so the
+   * image 404ed from `?patch_id=...` and the replacement silently did not happen.
+   *
+   * And the read is not hypothetical: writing into the patches directory is
+   * exactly what breaks `getStat`'s long poll, so the upload itself summons the
+   * read that destroys it. Which is why replacing an image worked only when the
+   * two requests happened to land close enough together.
+   */
+  describe("a file uploaded before its patch record", () => {
+    const PNG =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
+    const FILE_PATH = "/public/val/replaced_a1b2c.png";
+
+    /** The upload half, as `POST /upload/patches/:patchId/files` does it. */
+    const upload = async (patchId: PatchId) => {
+      const res = await ops.saveBase64EncodedBinaryFileFromPatch(
+        FILE_PATH,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        patchId,
+        PNG,
+        "image",
+        { width: 1, height: 1, mimeType: "image/png" },
+      );
+      if ("error" in res && res.error !== undefined) {
+        throw new Error(`upload failed: ${res.error.message}`);
+      }
+    };
+
+    /** The patch half, as `PUT /patches` does it. */
+    const writeRecord = async (patchId: PatchId) => {
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [
+          {
+            op: "file",
+            path: ["image"],
+            filePath: FILE_PATH,
+            value: "sha256-placeholder",
+            remote: false,
+          },
+        ],
+        patchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      if (res.kind !== "ok") {
+        throw new Error(`createPatch failed: ${JSON.stringify(res.error)}`);
+      }
+    };
+
+    it("survives a stat taken before the record lands", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // The read the upload's own write used to wake up.
+      expect(await announcedStat()).toMatchObject({ patches: [] });
+
+      // Served from staging, because the studio asks for the new image before
+      // the patch that references it has been written.
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    it("is not reported as unpublished work that was thrown away", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // Nothing was lost, so the person editing must not be told anything was.
+      expect((await announcedStat()).removed).toBeUndefined();
+    });
+
+    it("is still there for the record that arrives after it", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      await announcedStat();
+      await writeRecord(patchId);
+
+      expect(await announcedStat()).toMatchObject({ patches: [patchId] });
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    /**
+     * The property the whole design rests on, asserted directly: there is no
+     * moment at which the store holds a patch directory without a record. The
+     * bytes are outside the store until they belong to something.
+     */
+    it("does not put anything in the store before the record", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      expect(fs.existsSync(patchDir(patchesDir(), patchId))).toBe(false);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(true);
+    });
+
+    /**
+     * And the record comes first when they do move in, so an interrupted append
+     * leaves a directory the log does not name WITH a record — the benign half
+     * of a crash, swept silently — rather than the shape that gets reported as
+     * lost work.
+     */
+    it("moves them in behind the record, and empties the staging area", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      await writeRecord(patchId);
+
+      expect(fs.existsSync(patchRecordFile(patchesDir(), patchId))).toBe(true);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
+    });
+
+    /**
+     * A delete that arrives before the record does — nothing has been moved in,
+     * so the bytes are still in staging and have to go from there.
+     */
+    it("takes staged bytes with it when the patch is deleted", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      await ops.deletePatches([patchId]);
+
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
+    });
+
+    /**
+     * Both readers of those bytes, not just the one serving the image. A
+     * validation that ran in the window used to answer "Metadata file not found"
+     * for a file that was on disk.
+     */
+    it("serves the metadata from staging too", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      const res = await ops.readPatchFileMetadata(FILE_PATH, patchId);
+      if (res.errors !== undefined) {
+        throw new Error(`expected metadata, got ${JSON.stringify(res.errors)}`);
+      }
+      expect(res.metadata).toMatchObject({ mimeType: "image/png" });
+    });
+
+    /**
+     * And a directory in the store with no record is STILL reported as lost
+     * work, unchanged. That reading was never wrong — it was the upload putting
+     * the store into a shape the reading does not describe. With the bytes kept
+     * outside until they belong to something, there is nothing to soften.
+     */
+    it("still reports a record-less directory in the store", async () => {
+      fs.mkdirSync(patchDir(patchesDir(), "junk" as PatchId), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(patchDir(patchesDir(), "junk" as PatchId), "something.txt"),
+        "not a patch",
+      );
+
+      expect((await announcedStat()).removed).toMatchObject([
+        { patchId: "junk" },
+      ]);
+    });
   });
 });

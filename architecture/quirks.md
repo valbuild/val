@@ -77,6 +77,19 @@ and all. It has to be nested (the message being retired lives in
 streamed in the same tick), so the inner update is keyed by message id and skips
 what is already there. If you nest one, make it idempotent.
 
+**An uncontrolled `defaultValue` can be masked by an async gate, and it will not
+stay masked.** `StringField`'s textarea worked for years while being
+uncontrolled, because the thing that decided it should BE a textarea arrived from
+the host a tick after the effect that fills `currentValue` — so by the time it
+mounted, the value was there. Making the layout synchronous (it is static schema
+config now, not something the host computes) removed that ordering, and the
+textarea started mounting at `null`. `.value` still looked right, because a
+textarea's value follows `defaultValue` while it is untouched — but
+`AutoGrowingTextarea` seeds its invisible sizing ghost from props exactly once,
+so the box rendered one line tall for any amount of text. If a field is
+uncontrolled, check what is actually keeping it correct before you change the
+timing around it. Pinned in `StringField.test.tsx`.
+
 **A context value built inline is a fresh object every render.** Harmless until
 something downstream takes it as a `useMemo`/effect dependency — then it is the
 whole subtree recomputing per keystroke. `FieldSourceOverrideContext` in the
@@ -193,10 +206,13 @@ to a table the endpoint already holds, so an absent filter is not "none" — it 
   request and pulls the whole project's pending changes.
 - "I asked for 5 and got 400 back" is not a bug in the server.
 
-The ids go on the query string as repeated `patch_id` params, and there is no
-paging. At ~46 characters each, a few hundred pending changes overruns the 16KB
-of request head Node accepts, so the studio chunks them
-(`packages/ui/spa/stores/react/patchIdChunks.ts`). Dropping the filter instead
+The ids go on the query string as repeated `patch_id` params (and `id` for the
+delete), and there is no paging. At ~46 characters each, a few hundred pending
+changes overruns any of the limits in play — Node caps the request head at 16KB
+and answers 431, a proxy caps it lower and answers 413 — so the studio chunks
+them (`packages/ui/spa/stores/react/patchIdChunks.ts`). One splitter and one
+budget for both endpoints, aimed at the ~2000 characters that are safe for a URL
+anywhere rather than at any particular server's cap. Dropping the filter instead
 would return the same set today, but then "did I get what I asked for" has no
 answer — which is the question that catches a server sending back less than it
 announced.
@@ -222,6 +238,49 @@ Studio and a publish committed a UUID in place of a PNG, with the tool reporting
 success throughout. Hence `filesAlreadyUploaded` on `createPatch`: it suppresses
 the upload and nothing else — a `file` op with a null value is still a delete and
 still runs. Pinned by `e2e/http/aiChat.spec.ts`.
+
+**`/stat`'s patch list can be a polling interval old.** It long polls in `fs`
+mode, and it used to answer with the list it read when the poll _opened_ — so the
+response that arrives right after a publish still named the patches the publish
+committed and deleted. Announced-but-undelivered is therefore not, on its own,
+the server contradicting itself: the announcement may simply predate a delete.
+`getStat` now reads again before answering, and the studio still gives such an id
+one more stat before reporting it. Auto-save is what made this loud, because it
+publishes on every pause in typing. See `architecture/patch-store.md`.
+
+**Writing into `.val/patches` wakes the stat that reads it.** `getStat` long
+polls on a watcher over the patches directory, so any write in there ends the
+poll and the next read happens immediately. That makes every "window" in the
+patch write path a window something actually looks into — which is how uploading
+an image, whose bytes land a round trip before the patch record that references
+them, came to summon the read that classified the half-written directory as lost
+work and deleted the bytes. Uploads now land in `.val/uploads/` and are moved in
+behind the record, so there is no half-written directory to read; see
+[patch-store.md](./patch-store.md).
+
+**The server's committed sources do not come from disk.** `ValOps` memoises them,
+and re-reading means awaiting each module's `def` — the app's own `import()`,
+which resolves from the module registry. So a save that rewrites a `.val.ts`
+cannot be picked up by invalidating the memo: the re-extraction returns the
+pre-save content and stores it as fresh. The save tells `ValOps` instead
+(`adoptCommittedSources`), which also re-folds the SHAs so `baseSha` moves — the
+first thing that moves it within a server's lifetime in `fs` mode, and the signal
+`PatchStore.reconcileVanished` needs to tell a publish from a discard.
+
+**A `.jsonValues()` entry needs its own adoption, for a sharper reason.** Its
+content is not in the memoised source at all — the source holds markers, and the
+content sits behind the marker's own `import()` thunk, which caches the same way.
+So there is nothing to re-extract: the memo was never holding it. `prepare` is the
+only thing that knows what an entry now holds, and it reports that as
+`PreparedCommit.patchedJsonEntries` — **keyed by entry key, not by file path**,
+because a marker does not carry its path at read time and two different producers
+turn a key into a path (`resolveEntryJsonPath`, and `getNewJsonEntryPaths` for an
+`add` or a move's destination). `getJsonEntries` consults the adopted map before
+the thunk, as the committed BASELINE, so pending patches still replay on top.
+
+Adopted only for a module whose source was also adopted: the source decides which
+keys exist, so taking one without the other would leave the content and the key
+set describing different moments.
 
 ## Testing
 

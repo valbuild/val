@@ -6,11 +6,12 @@ import {
   SerializedSchema,
 } from ".";
 import {
-  ListRecordRender,
-  RenderSelector,
-  ReifiedRender,
-  RenderScope,
-} from "../render";
+  RecordPreview,
+  PreviewItem,
+  PreviewSelector,
+  ReifiedPreview,
+  PreviewScope,
+} from "../preview";
 import { splitModuleFilePathAndModulePath } from "../module";
 import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
@@ -18,7 +19,6 @@ import {
   createValPathOfItem,
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/media";
 import { JsonOf, JsonSource, isJson } from "../source/json";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
@@ -40,8 +40,8 @@ export type SerializedRecordSchema = {
   item: SerializedSchema;
   key?: SerializedSchema;
   opt: boolean;
-  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
-  render?: true;
+  /** Set when this schema declares a `preview`. See `SerializedArraySchema`. */
+  preview?: true;
   router?: string;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
@@ -79,14 +79,10 @@ export type JsonValuesRecordSrc<
   JsonSource<JsonOf<SelectorOfSchema<T>>> | SelectorOfSchema<T>
 >;
 
-type RecordRenderInput<T extends Schema<SelectorSource>> = {
-  layout: "list";
-  select: (input: { key: string; val: RenderSelector<T> }) => {
-    title: string;
-    subtitle?: string | null;
-    image?: ImageSource | null;
-  };
-};
+type RecordPreviewInput<T extends Schema<SelectorSource>> = (input: {
+  key: string;
+  val: PreviewSelector<T>;
+}) => PreviewItem;
 
 export class RecordSchema<
   T extends Schema<SelectorSource>,
@@ -108,7 +104,7 @@ export class RecordSchema<
     private readonly description?: string,
     /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
     private readonly isJsonValues: boolean = false,
-    private readonly renderInput: RecordRenderInput<T> | null = null,
+    private readonly previewInput: RecordPreviewInput<T> | null = null,
   ) {
     super();
   }
@@ -125,7 +121,7 @@ export class RecordSchema<
       this.isHidden,
       description ?? undefined,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -143,7 +139,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -589,7 +585,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -605,7 +601,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -621,7 +617,7 @@ export class RecordSchema<
       true,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -637,7 +633,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -653,7 +649,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -698,7 +694,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       true,
-      this.renderInput,
+      this.previewInput,
     ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
   }
 
@@ -781,7 +777,7 @@ export class RecordSchema<
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
-      render: this.renderInput ? true : undefined,
+      preview: this.previewInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&
@@ -816,12 +812,12 @@ export class RecordSchema<
     return this.item["executeValidate"](path, content);
   }
 
-  protected override executeRender(
+  protected override executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-    scope?: RenderScope,
-  ): ReifiedRender {
-    const res: ReifiedRender = {};
+    scope?: PreviewScope,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
       return res;
     }
@@ -832,34 +828,28 @@ export class RecordSchema<
       }
       if (isJson(itemSrc)) {
         // An un-loaded `.jsonValues()` entry: an opaque marker, not the item this
-        // schema describes. Skipping it is what makes rendering a partially
+        // schema describes. Skipping it is what makes previewing a partially
         // loaded record work — the result comes out covering exactly the loaded
-        // keys, and the caller renders a placeholder for the rest.
+        // keys, and the caller shows a placeholder for the rest.
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.item["executeRender"](subPath, itemSrc, scope);
+      const itemResult = this.item["executePreview"](subPath, itemSrc, scope);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
-    if (this.renderInput) {
-      const { select: prepare, layout: layout } = this.renderInput;
-      if (layout !== "list") {
-        res[sourcePath] = {
-          status: "error",
-          message: "Unknown layout type: " + layout,
-        };
-      }
+    if (this.previewInput) {
+      const prepare = this.previewInput;
       // See the same block in `array`: the whole record when the record is what
       // is being shown, only the wanted entries when it is not.
       const window =
         scope !== undefined && !scope.wants(sourcePath) ? scope : null;
-      const items: ListRecordRender["items"] = [];
+      const items: RecordPreview["items"] = [];
       for (const [key, val] of Object.entries(src)) {
         if (isJson(val)) {
           continue; // as above: nothing to select from an un-loaded entry
@@ -870,7 +860,7 @@ export class RecordSchema<
         ) {
           continue;
         }
-        // Per KEY, not per record: `select` is user code, and one entry whose
+        // Per KEY, not per record: the closure is user code, and one entry whose
         // data trips it up must not take out the whole list.
         try {
           // NB NB: display is actually defined by the user
@@ -889,7 +879,6 @@ export class RecordSchema<
       res[sourcePath] = {
         status: "success",
         data: {
-          layout: "list",
           parent: "record",
           items,
         },
@@ -898,14 +887,15 @@ export class RecordSchema<
     return res;
   }
 
-  render(input: {
-    as: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  }): RecordSchema<T, K, Src> {
+  /**
+   * What the editor shows for each ENTRY of this record: a title, and optionally
+   * a subtitle and an image.
+   *
+   * `select` is your own code over the entry's key and source, so it is run on
+   * demand for the entries that are actually being looked at — see
+   * `PreviewScope`.
+   */
+  preview(select: RecordPreviewInput<T>): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -917,10 +907,7 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       this.isJsonValues,
-      {
-        layout: input.as,
-        select: input.select,
-      },
+      select,
     );
   }
 }

@@ -1,6 +1,6 @@
 import type {
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   Source,
   SourcePath,
@@ -22,9 +22,9 @@ import type {
  * Consequences, both load-bearing:
  * - Nothing may use `instanceof Schema` across it — the class identities differ.
  *   `extractValModules` already documents this; bracket access to
- *   `executeSerialize` / `executeRender` is the contract instead.
+ *   `executeSerialize` / `executePreview` is the contract instead.
  * - No clone is involved, because no thread is crossed. It is async anyway, so
- *   an expensive `executeRender` can be deferred or yielded rather than blocking
+ *   an expensive `executePreview` can be deferred or yielded rather than blocking
  *   whoever asked.
  *
  * The host can never move into a worker: it holds the user's `select` and
@@ -45,8 +45,8 @@ import type {
  * running inside arbitrary customer apps cannot require.
  */
 
-export type HostRenderResult =
-  | { status: "rendered"; render: ReifiedRender }
+export type HostPreviewResult =
+  | { status: "previewed"; preview: ReifiedPreview }
   /** The host has no instance for this module (not loaded, or not a val module). */
   | { status: "unknown-module" }
   | { status: "error"; message: string };
@@ -57,7 +57,7 @@ export type HostCustomValidateResult =
   | { status: "error"; message: string };
 
 /**
- * What the render and validation stores are allowed to ask the host for.
+ * What the preview and validation stores are allowed to ask the host for.
  *
  * Deliberately narrow: exactly the two operations that cannot be done without
  * the real `Schema` instances. Everything else those stores do — caching,
@@ -66,18 +66,18 @@ export type HostCustomValidateResult =
  *
  * No `source` parameter: the host reads patched source directly, because the
  * source store is in the host realm. That is the whole point of putting it
- * there — a `source` argument here would be a 129 KB copy per render.
+ * there — a `source` argument here would be a 129 KB copy per preview.
  */
 export interface HostBridge {
   /**
-   * @param only The paths a render is actually wanted for. Omitting it renders
+   * @param only The paths a preview is actually wanted for. Omitting it previews
    * the whole module, which is what a whole-list view wants; passing the visible
-   * paths is what makes one row cost one `select` call. See `RenderScope`.
+   * paths is what makes one row cost one closure call. See `PreviewScope`.
    */
-  render(
+  preview(
     moduleFilePath: ModuleFilePath,
     only?: readonly SourcePath[],
-  ): Promise<HostRenderResult>;
+  ): Promise<HostPreviewResult>;
   customValidate(
     moduleFilePath: ModuleFilePath,
     paths: SourcePath[],

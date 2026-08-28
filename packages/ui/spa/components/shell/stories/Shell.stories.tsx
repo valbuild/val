@@ -208,6 +208,13 @@ function ShellHarness({
   canvasReported,
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
+  /**
+   * Held here because the real one lives in `localStorage` behind
+   * `useAutoPublish`, which needs a running system. `mode="fs"` below for the
+   * same reason the toggle is gated on it: auto save is a dev-server setting,
+   * and a story that did not say so would render a shell where it is hidden.
+   */
+  const [autoSave, setAutoSave] = useState(false);
   const full = empty ? emptyShellData : mockShellData;
   // A project of nothing but content files: no `s.router`, no `s.images()`.
   // The shell answers by showing one destination instead of three.
@@ -236,6 +243,9 @@ function ShellHarness({
       pendingChanges={empty ? 0 : 12}
       publishState={publishState}
       saveState={saveState}
+      mode="fs"
+      autoSave={autoSave}
+      onAutoSaveChange={setAutoSave}
       isLoading={isLoading}
       loadError={loadError || undefined}
       initialDeploymentsOpen={deploymentsOpen}

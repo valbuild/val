@@ -2,11 +2,11 @@ import { initVal } from "@valbuild/core";
 import { initTestSystem, mfp, sp } from "./testSystem";
 
 /**
- * Render and search are the two most expensive things in the system, and neither
+ * Preview and search are the two most expensive things in the system, and neither
  * should ever run because something CHANGED. They should run because someone is
  * looking.
  *
- * The demand signal for a render is a listener existing at a path — not a caller
+ * The demand signal for a preview is a listener existing at a path — not a caller
  * happening to invoke `get()`. That distinction is the whole point: `get()` is a
  * caller choosing to pay, so nothing stops a speculative or unmounted caller
  * paying for a whole module. A registered listener is the system's own record of
@@ -17,10 +17,10 @@ import { initTestSystem, mfp, sp } from "./testSystem";
  *
  * Tests marked SPEC describe wiring that does not exist yet and are expected to
  * fail. Tests marked GUARD pass today and are here so that satisfying a SPEC
- * cannot be done by simply rendering more.
+ * cannot be done by simply previewing more.
  */
 
-/** A module whose render counts how many items `select` was run over. */
+/** A module whose preview counts how many items the closure was run over. */
 function listModule(itemCount: number): {
   module: ReturnType<ReturnType<typeof initVal>["c"]["define"]>;
   selectCalls: () => number;
@@ -32,12 +32,9 @@ function listModule(itemCount: number): {
   }));
   const module = c.define(
     "/list.val.ts",
-    s.array(s.object({ title: s.string() })).render({
-      as: "list",
-      select: ({ val }) => {
-        calls++;
-        return { title: val.title };
-      },
+    s.array(s.object({ title: s.string() })).preview(({ val }) => {
+      calls++;
+      return { title: val.title };
     }),
     items,
   );
@@ -49,9 +46,9 @@ function plainModule(path: string) {
   return c.define(path, s.object({ title: s.string() }), { title: "Hello" });
 }
 
-describe("render is driven by demand, not by change", () => {
-  /** GUARD: nothing renders on its own. */
-  it("does not render a module nobody is listening to", async () => {
+describe("preview is driven by demand, not by change", () => {
+  /** GUARD: nothing previews on its own. */
+  it("does not preview a module nobody is listening to", async () => {
     const { sourceStore, patchStore, activity, dispose } = initTestSystem();
     const { module } = listModule(3);
 
@@ -62,35 +59,35 @@ describe("render is driven by demand, not by change", () => {
       ]);
     }
 
-    expect(activity.count("host:execute-render")).toBe(0);
+    expect(activity.count("host:execute-preview")).toBe(0);
     dispose();
   });
 
   /**
-   * SPEC: a listener appearing at a path is what asks for the render.
+   * SPEC: a listener appearing at a path is what asks for the preview.
    *
-   * This is the "user clicks to a path that needs a render" case. Nobody calls
+   * This is the "user clicks to a path that needs a preview" case. Nobody calls
    * `get()` here — a field mounted, and that alone should be enough for the
-   * render to be ready when it looks.
+   * preview to be ready when it looks.
    */
-  it("renders when a listener appears at a path", async () => {
-    const { sourceStore, renderStore, activity, listeners, ledger, dispose } =
+  it("previews when a listener appears at a path", async () => {
+    const { sourceStore, previewStore, activity, listeners, ledger, dispose } =
       initTestSystem();
     const { module } = listModule(3);
 
     await sourceStore.testReceive([module]);
-    expect(activity.count("host:execute-render")).toBe(0);
+    expect(activity.count("host:execute-preview")).toBe(0);
 
     listeners.set("/list.val.ts?p=1");
 
     await ledger.has({
-      type: "render:result",
+      type: "preview:result",
       moduleFilePath: "/list.val.ts",
     });
-    expect(activity.count("host:execute-render")).toBe(1);
-    // `peek` never triggers work, so this asserts the render is genuinely ready
+    expect(activity.count("host:execute-preview")).toBe(1);
+    // `peek` never triggers work, so this asserts the preview is genuinely ready
     // rather than merely obtainable.
-    expect(renderStore.peek(sp("/list.val.ts?p=1")).status).toBe("rendered");
+    expect(previewStore.peek(sp("/list.val.ts?p=1")).status).toBe("previewed");
     dispose();
   });
 
@@ -99,7 +96,7 @@ describe("render is driven by demand, not by change", () => {
    *
    * Deliberately not "the change recomputes". An earlier draft of this test
    * asserted that, and the 40-keystroke guard in `activityCost.test.ts` caught
-   * it immediately: recomputing on change costs one whole-module render per
+   * it immediately: recomputing on change costs one whole-module preview per
    * keystroke, which is the exact cost this design exists to remove. A change
    * marks; demand computes. Nothing is lost, because the change wakes the
    * fields on the affected paths and a woken field re-reads.
@@ -108,7 +105,7 @@ describe("render is driven by demand, not by change", () => {
     const {
       sourceStore,
       patchStore,
-      renderStore,
+      previewStore,
       activity,
       listeners,
       dispose,
@@ -117,7 +114,7 @@ describe("render is driven by demand, not by change", () => {
 
     await sourceStore.testReceive([module]);
     listeners.set("/list.val.ts?p=1");
-    await renderStore.get(sp("/list.val.ts?p=1"));
+    await previewStore.get(sp("/list.val.ts?p=1"));
 
     const beforeEdits = activity.position();
     for (let index = 0; index < 3; index++) {
@@ -126,29 +123,29 @@ describe("render is driven by demand, not by change", () => {
       ]);
     }
     // Three changes, no reads: nothing recomputed.
-    expect(activity.count("host:execute-render", { since: beforeEdits })).toBe(
+    expect(activity.count("host:execute-preview", { since: beforeEdits })).toBe(
       0,
     );
 
     const beforeRead = activity.position();
-    await renderStore.get(sp("/list.val.ts?p=1"));
-    // One read, one render, covering all three changes.
-    expect(activity.count("host:execute-render", { since: beforeRead })).toBe(
+    await previewStore.get(sp("/list.val.ts?p=1"));
+    // One read, one preview, covering all three changes.
+    expect(activity.count("host:execute-preview", { since: beforeRead })).toBe(
       1,
     );
     dispose();
   });
 
   /**
-   * GUARD: the complement of the SPEC above. Re-rendering on change must be
-   * gated on demand, or "re-render what is listened to" becomes "re-render
+   * GUARD: the complement of the SPEC above. Recomputing on change must be
+   * gated on demand, or "re-preview what is listened to" becomes "re-preview
    * everything", which is the behaviour this design exists to replace.
    */
-  it("does not re-render a module whose listeners have all gone", async () => {
+  it("does not re-preview a module whose listeners have all gone", async () => {
     const {
       sourceStore,
       patchStore,
-      renderStore,
+      previewStore,
       activity,
       listeners,
       dispose,
@@ -157,7 +154,7 @@ describe("render is driven by demand, not by change", () => {
 
     await sourceStore.testReceive([module]);
     const listener = listeners.set("/list.val.ts?p=1");
-    await renderStore.get(sp("/list.val.ts?p=1"));
+    await previewStore.get(sp("/list.val.ts?p=1"));
 
     listener.unsubscribe();
     const before = activity.position();
@@ -165,13 +162,13 @@ describe("render is driven by demand, not by change", () => {
       { op: "replace", path: ["1", "title"], value: "changed" },
     ]);
 
-    expect(activity.count("host:execute-render", { since: before })).toBe(0);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(0);
     dispose();
   });
 
   /** GUARD: demand in one module never pays for another. */
-  it("does not render a module because another one is listened to", async () => {
-    const { sourceStore, renderStore, activity, listeners, dispose } =
+  it("does not preview a module because another one is listened to", async () => {
+    const { sourceStore, previewStore, activity, listeners, dispose } =
       initTestSystem();
 
     await sourceStore.testReceive([
@@ -179,10 +176,10 @@ describe("render is driven by demand, not by change", () => {
       plainModule("/b.val.ts"),
     ]);
     listeners.set('/a.val.ts?p="title"');
-    await renderStore.get(sp('/a.val.ts?p="title"'));
+    await previewStore.get(sp('/a.val.ts?p="title"'));
 
     expect(
-      activity.count("host:execute-render", { subject: "/b.val.ts" }),
+      activity.count("host:execute-preview", { subject: "/b.val.ts" }),
     ).toBe(0);
     dispose();
   });
@@ -191,20 +188,20 @@ describe("render is driven by demand, not by change", () => {
    * One listener, on one row of a three-row list. `select` is the user's own
    * closure and the actual expense — `handboka` has it at two nested array
    * levels — so counting `select` invocations is the only honest measure of
-   * whether a render is path-scoped.
+   * whether a preview is path-scoped.
    *
-   * This was `it.failing` while renders were whole-module: it ran 3 times to
-   * serve 1 listened row. `RenderScope` is what closed it — `ArraySchema`'s list
-   * render is now WINDOWED, carrying only the rows that were asked for, which is
-   * why `ListArrayRender.items` pairs each item with its index.
+   * This was `it.failing` while previews were whole-module: it ran 3 times to
+   * serve 1 listened row. `PreviewScope` is what closed it — `ArraySchema`'s
+   * preview is now WINDOWED, carrying only the rows that were asked for, which is
+   * why `ArrayPreview.items` pairs each item with its index.
    */
   it("runs select only for the path being listened to", async () => {
-    const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
+    const { sourceStore, previewStore, listeners, dispose } = initTestSystem();
     const { module, selectCalls } = listModule(3);
 
     await sourceStore.testReceive([module]);
     listeners.set("/list.val.ts?p=1");
-    await renderStore.get(sp("/list.val.ts?p=1"));
+    await previewStore.get(sp("/list.val.ts?p=1"));
 
     expect(selectCalls()).toBe(1);
     dispose();
@@ -216,68 +213,68 @@ describe("render is driven by demand, not by change", () => {
    * A list VIEW asks for the container, and it needs every row — a windowed
    * answer there would be a list with rows missing. So `wants(containerPath)`
    * means the whole list, and only a request for descendants alone windows it.
-   * Without this the fix for the test above would just be "render less", which
+   * Without this the fix for the test above would just be "preview less", which
    * breaks the screen that renders lists.
    */
   it("runs select for every row when the list itself is what is asked for", async () => {
-    const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
+    const { sourceStore, previewStore, listeners, dispose } = initTestSystem();
     const { module, selectCalls } = listModule(3);
 
     await sourceStore.testReceive([module]);
     listeners.set("/list.val.ts");
-    const read = await renderStore.get(sp("/list.val.ts"));
+    const read = await previewStore.get(sp("/list.val.ts"));
 
     expect(selectCalls()).toBe(3);
-    if (read.status !== "rendered" || read.render.status !== "success") {
-      throw new Error("expected the list to render");
+    if (read.status !== "previewed" || read.preview.status !== "success") {
+      throw new Error("expected the list to preview");
     }
-    const data = read.render.data;
-    if (data.layout !== "list" || data.parent !== "array") {
-      throw new Error("expected an array list render");
+    const data = read.preview.data;
+    if (data.parent !== "array") {
+      throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([0, 1, 2]);
     dispose();
   });
 
   /**
-   * And the windowed render says WHICH rows it carries.
+   * And the windowed preview says WHICH rows it carries.
    *
-   * The reason `ListArrayRender.items` became `[index, value][]`: a windowed
-   * render is a shorter array, so a consumer reading `items[n]` positionally
+   * The reason `ArrayPreview.items` became `[index, value][]`: a windowed
+   * preview is a shorter array, so a consumer reading `items[n]` positionally
    * would silently get a different row. Carrying the index makes that
    * unrepresentable — the two call sites in the UI became lookups, and the
    * compiler pointed at both.
    */
-  it("labels a windowed list render with the indices it covers", async () => {
-    const { sourceStore, renderStore, listeners, dispose } = initTestSystem();
+  it("labels a windowed list preview with the indices it covers", async () => {
+    const { sourceStore, previewStore, listeners, dispose } = initTestSystem();
     const { module } = listModule(3);
 
     await sourceStore.testReceive([module]);
     listeners.set("/list.val.ts?p=1");
-    const read = await renderStore.get(sp("/list.val.ts?p=1"));
+    const read = await previewStore.get(sp("/list.val.ts?p=1"));
 
-    if (read.status !== "rendered" || read.render.status !== "success") {
-      throw new Error("expected a render");
+    if (read.status !== "previewed" || read.preview.status !== "success") {
+      throw new Error("expected a preview");
     }
-    const data = read.render.data;
-    if (data.layout !== "list" || data.parent !== "array") {
-      throw new Error("expected an array list render");
+    const data = read.preview.data;
+    if (data.parent !== "array") {
+      throw new Error("expected an array preview");
     }
     expect(data.items).toEqual([[1, { title: "item 1" }]]);
     dispose();
   });
 
   /**
-   * Two rows visible, read concurrently: ONE render, covering both.
+   * Two rows visible, read concurrently: ONE preview, covering both.
    *
-   * The case that makes scoping worth having rather than a way to render twice.
-   * A scoped render's coverage is fixed when it is issued, so a reader that
+   * The case that makes scoping worth having rather than a way to preview twice.
+   * A scoped preview's coverage is fixed when it is issued, so a reader that
    * arrives after that either gets an answer about someone else's path or needs
-   * its own render — which for a scrolling list would be one render per row.
+   * its own preview — which for a scrolling list would be one preview per row.
    * `refreshFor` collects the asked-for paths across the turn and issues once.
    */
-  it("serves concurrent readers of different rows with one render", async () => {
-    const { sourceStore, renderStore, activity, listeners, dispose } =
+  it("serves concurrent readers of different rows with one preview", async () => {
+    const { sourceStore, previewStore, activity, listeners, dispose } =
       initTestSystem();
     const { module, selectCalls } = listModule(10);
 
@@ -287,72 +284,75 @@ describe("render is driven by demand, not by change", () => {
     const before = activity.position();
 
     await Promise.all([
-      renderStore.get(sp("/list.val.ts?p=3")),
-      renderStore.get(sp("/list.val.ts?p=4")),
+      previewStore.get(sp("/list.val.ts?p=3")),
+      previewStore.get(sp("/list.val.ts?p=4")),
     ]);
 
-    // The eager render on the first `listeners.set` saw only row 3, so the reads
+    // The eager preview on the first `listeners.set` saw only row 3, so the reads
     // owe one more pass — but one, not one each, and it covers both rows.
-    expect(activity.count("host:execute-render", { since: before })).toBe(1);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(1);
     // Two rows of ten. `select` ran for those two and no others.
     expect(selectCalls()).toBeLessThanOrEqual(4);
-    const read = await renderStore.get(sp("/list.val.ts?p=4"));
-    if (read.status !== "rendered" || read.render.status !== "success") {
+    const read = await previewStore.get(sp("/list.val.ts?p=4"));
+    if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected row 4 to be covered");
     }
-    const data = read.render.data;
-    if (data.layout !== "list" || data.parent !== "array") {
-      throw new Error("expected an array list render");
+    const data = read.preview.data;
+    if (data.parent !== "array") {
+      throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 4]);
     dispose();
   });
 
   /**
-   * SPEC: a row that scrolls into view says `needs-render`, not `rendered`.
+   * SPEC: a row that scrolls into view says `needs-preview`, not `previewed`.
    *
    * The one case where nothing else asks on the reader's behalf. A field
-   * mounting is normally what triggers the render, but `source:listen`
+   * mounting is normally what triggers the preview, but `source:listen`
    * deliberately returns early once the module has one — that is the coalescing
-   * that makes twenty mounting rows cost two renders instead of twenty — so the
+   * that makes twenty mounting rows cost two previews instead of twenty — so the
    * new row's own read is the only thing left that can widen the scope. It only
-   * reads when `peek` tells it to, and `peek` used to answer `rendered` here:
-   * the WINDOWED container render is keyed under the container, so the fallback
+   * reads when `peek` tells it to, and `peek` used to answer `previewed` here:
+   * the WINDOWED container preview is keyed under the container, so the fallback
    * found it, even though its `items` do not contain this row. The row then sat
    * with no preview until something else in the module changed.
    */
-  it("reports needs-render for a row outside the rendered scope", async () => {
-    const { sourceStore, renderStore, activity, listeners, ledger, dispose } =
+  it("reports needs-preview for a row outside the previewed scope", async () => {
+    const { sourceStore, previewStore, activity, listeners, ledger, dispose } =
       initTestSystem();
     const { module } = listModule(10);
 
     await sourceStore.testReceive([module]);
     listeners.set("/list.val.ts?p=3");
-    await ledger.has({ type: "render:result", moduleFilePath: "/list.val.ts" });
-    expect(renderStore.peek(sp("/list.val.ts?p=3")).status).toBe("rendered");
+    await ledger.has({
+      type: "preview:result",
+      moduleFilePath: "/list.val.ts",
+    });
+    expect(previewStore.peek(sp("/list.val.ts?p=3")).status).toBe("previewed");
 
-    // Row 7 scrolls into view. Its listener does NOT trigger a render, so the
+    // Row 7 scrolls into view. Its listener does NOT trigger a preview, so the
     // cached one still only covers row 3.
     const before = activity.position();
     listeners.set("/list.val.ts?p=7");
-    expect(activity.count("host:execute-render", { since: before })).toBe(0);
+    expect(activity.count("host:execute-preview", { since: before })).toBe(0);
 
-    expect(renderStore.peek(sp("/list.val.ts?p=7")).status).toBe(
-      "needs-render",
+    expect(previewStore.peek(sp("/list.val.ts?p=7")).status).toBe(
+      "needs-preview",
     );
 
-    // And asking resolves it, in one render, without leaving row 3 behind.
-    const read = await renderStore.get(sp("/list.val.ts?p=7"));
-    expect(activity.count("host:execute-render", { since: before })).toBe(1);
-    if (read.status !== "rendered" || read.render.status !== "success") {
+    // And asking resolves it, in one preview, without leaving row 3 behind.
+    const read = await previewStore.get(sp("/list.val.ts?p=7"));
+    expect(activity.count("host:execute-preview", { since: before })).toBe(1);
+    if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error(`expected row 7 to be covered, got ${read.status}`);
     }
-    const data = read.render.data;
-    if (data.layout !== "list" || data.parent !== "array") {
-      throw new Error("expected an array list render");
+    const data = read.preview.data;
+    if (data.parent !== "array") {
+      throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 7]);
-    expect(renderStore.peek(sp("/list.val.ts?p=7")).status).toBe("rendered");
+    expect(previewStore.peek(sp("/list.val.ts?p=7")).status).toBe("previewed");
     dispose();
   });
 });
@@ -422,7 +422,7 @@ describe("search is driven by demand, not by change", () => {
    * SPEC: a query after an edit rebuilds, once, at the point of the query.
    *
    * The rebuild is owed to the edit but paid at the query — which is the same
-   * rule as the render: the change marks, the demand computes.
+   * rule as the preview: the change marks, the demand computes.
    */
   it("rebuilds once on the first query after an edit", async () => {
     const { sourceStore, patchStore, search, activity, dispose } =

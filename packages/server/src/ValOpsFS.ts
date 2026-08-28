@@ -47,6 +47,10 @@ import {
   patchBinaryFile,
   patchBinaryFileMetadata,
   patchDir,
+  removeStagedUploads,
+  stagedPatchBinaryFile,
+  stagedPatchBinaryFileMetadata,
+  sweepStaleUploads,
   patchesLogFile,
   PATCH_REPAIR_LOG_FILE_NAME,
   PatchStoreEntry,
@@ -283,16 +287,29 @@ export class ValOpsFS extends ValOps {
       const patches: PatchId[] = announceRes.entries.map(
         (entry) => entry.patchId,
       );
-      // Drained here, on the channel that always flows. A repair that removed
-      // everything leaves the studio nothing to fetch, so a notice riding on
-      // `GET /patches` would sit here unread.
-      const removed = this.removedPatchNotices.splice(
-        0,
-        this.removedPatchNotices.length,
-      );
-      const removedNotice: {
+      /**
+       * Drained on the channel that always flows.
+       *
+       * A repair that removed everything leaves the studio nothing to fetch, so
+       * a notice riding on `GET /patches` would sit here unread.
+       *
+       * Accumulating rather than assigning, because the long poll below drains
+       * again before it answers: a repair during the wait must not have to sit
+       * out another whole stat.
+       */
+      const removed: { patchId: PatchId; reason: string }[] = [];
+      const drainRemoved = (): {
         removed?: { patchId: PatchId; reason: string }[];
-      } = removed.length > 0 ? { removed } : {};
+      } => {
+        removed.push(
+          ...this.removedPatchNotices.splice(
+            0,
+            this.removedPatchNotices.length,
+          ),
+        );
+        return removed.length > 0 ? { removed } : {};
+      };
+      const removedNotice = drainRemoved();
       // something changed: return immediately
       const didChange =
         !params ||
@@ -394,6 +411,14 @@ export class ValOpsFS extends ValOps {
             if (Date.now() - start > interval) {
               console.warn("Val: polling interval of files exceeded");
             }
+            // Checked BEFORE rescheduling, as the patches-directory poller
+            // above does. Without it this walk goes on forever: the `finally`
+            // that ends the race clears the handle it can see, and a `go`
+            // already on the queue then schedules one nothing will ever clear —
+            // a leaked timer, re-stat-ing the whole project, per stat poll.
+            if (stopPolling) {
+              return;
+            }
             setHandle(setTimeout(() => go(resolve), interval));
           };
           if (stopPolling) {
@@ -408,6 +433,11 @@ export class ValOpsFS extends ValOps {
       const disableFilePolling = this.options?.disableFilePolling || false;
       let patchesDirHandle: NodeJS.Timeout;
       let valFilesIntervalHandle: NodeJS.Timeout;
+      // Held so the `finally` can clear it. A race the timeout LOSES still
+      // leaves its timer armed, and it is the long one — so every stat that
+      // returned on a file change kept the whole poll interval alive behind it,
+      // doing nothing but holding the event loop open.
+      let noChangeHandle: NodeJS.Timeout;
       const type = await Promise.race([
         // we poll the patches directory for changes since fs.watch does not work reliably on all system (in particular on WSL) and just checking the patches dir is relatively cheap
         disableFilePolling
@@ -473,12 +503,12 @@ export class ValOpsFS extends ValOps {
             },
           );
         }),
-        new Promise<"no-change">((resolve) =>
-          setTimeout(
+        new Promise<"no-change">((resolve) => {
+          noChangeHandle = setTimeout(
             () => resolve("no-change"),
             this.options?.statPollingInterval || 20000,
-          ),
-        ),
+          );
+        }),
       ]).finally(() => {
         if (fsWatcher) {
           fsWatcher.close();
@@ -486,14 +516,47 @@ export class ValOpsFS extends ValOps {
         stopPolling = true;
         clearInterval(patchesDirHandle);
         clearInterval(valFilesIntervalHandle);
+        clearTimeout(noChangeHandle);
       });
+      /**
+       * Read the store AGAIN, because `patches` above describes the moment this
+       * poll OPENED — up to a whole polling interval ago.
+       *
+       * That staleness is not a detail: what ends the wait is a write, and the
+       * write the studio does most is `/save`, which in `fs` mode commits the
+       * patches and DELETES them. Answering with the list read before it names
+       * patches that no longer exist, and the studio then puts those ids back in
+       * its chain and fetches them from a server that correctly no longer has
+       * them — "unpublished changes could not be loaded", for changes that were
+       * published a moment earlier. With auto-save on, that is every pause in
+       * typing.
+       *
+       * So a stat describes the moment it ANSWERS. `request-again` and
+       * `no-change` differ in why the wait ended, not in how current the answer
+       * has to be, so both come through here.
+       *
+       * The patch list is the only part that CAN have moved: the shas and the
+       * schemas come from `initSources`, which is memoised for the lifetime of
+       * this instance and never invalidated — a module change makes a new
+       * `ValOpsFS` rather than updating this one. Recomputing them would be a
+       * second full schema serialization per poll for a value that cannot have
+       * changed.
+       *
+       * A read error is returned as one rather than papered over with the list
+       * from the open: a patch store that cannot be read is what the error path
+       * is for, and the studio asks again.
+       */
+      const answerRes = await this.readStore();
+      if (answerRes.status === "error") {
+        return { type: "error", error: { message: answerRes.message } };
+      }
       return {
         type,
         baseSha: currentBaseSha,
         schemaSha: currentSchemaSha,
         sourcesSha: currentSourcesSha,
-        patches,
-        ...removedNotice,
+        patches: answerRes.entries.map((entry) => entry.patchId),
+        ...drainRemoved(),
         jsonEntriesSha: currentJsonEntriesSha,
       };
     } catch (err) {
@@ -846,22 +909,41 @@ export class ValOpsFS extends ValOps {
     metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     // Keyed by the patch's own id, so the parent is not needed and is not asked
-    // for. Uploads arrive before the patch record does, which is fine: the
-    // directory sits there unreferenced until the log line that names it lands,
-    // and repair sweeps it up if that never happens.
+    // for.
+    //
+    // Written OUTSIDE the store, and moved in by `appendPatch` once the record
+    // exists. Uploads arrive before the patch record does — the record's `file`
+    // op carries only a sha, so it would otherwise point at nothing — and
+    // writing them straight into `<patchId>/files/` left a directory holding
+    // files and no `patch.json` for a whole round trip. Nothing can read that as
+    // anything but a patch whose contents are lost, so repair removed it, bytes
+    // and all, and the image 404ed.
+    //
+    // Staging is what makes that state unreachable rather than tolerated. See
+    // `uploadsDir`.
     const patchesDir = this.getPatchesDir();
-    const patchFilePath = patchBinaryFile(patchesDir, patchId, filePath);
-    const metadataFilePath = patchBinaryFileMetadata(
+    const patchFilePath = stagedPatchBinaryFile(patchesDir, patchId, filePath);
+    const metadataFilePath = stagedPatchBinaryFileMetadata(
       patchesDir,
       patchId,
       filePath,
     );
     try {
       if (data === null) {
+        // A delete is the other order — the record is written first — so the
+        // bytes are already in the store. Both locations, because a file staged
+        // and then removed before its record never got there.
+        this.host.deleteFile(patchBinaryFile(patchesDir, patchId, filePath));
+        this.host.deleteFile(
+          patchBinaryFileMetadata(patchesDir, patchId, filePath),
+        );
         this.host.deleteFile(patchFilePath);
         this.host.deleteFile(metadataFilePath);
         return { patchId, filePath };
       }
+      // Cheap, and this is the one path that creates staging directories, so it
+      // is where the ones nobody claimed get noticed.
+      sweepStaleUploads(patchesDir);
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
         return {
@@ -883,16 +965,34 @@ export class ValOpsFS extends ValOps {
     }
   }
 
+  /**
+   * Which of the two places a patch's file can be, if either.
+   *
+   * The bytes are in the store once the patch's record is, and in the staging
+   * area before that — see `uploadsDir`. Every reader has to accept both, and
+   * they decide it here rather than each on its own, so two readers of the same
+   * file cannot disagree about whether it exists.
+   */
+  private wherePatchFileIs(inStore: string, staged: string): string | null {
+    if (this.host.fileExists(inStore)) {
+      return inStore;
+    }
+    if (this.host.fileExists(staged)) {
+      return staged;
+    }
+    return null;
+  }
+
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
-    const metadataFilePath = patchBinaryFileMetadata(
-      this.getPatchesDir(),
-      patchId,
-      filePath,
+    const patchesDir = this.getPatchesDir();
+    const metadataFilePath = this.wherePatchFileIs(
+      patchBinaryFileMetadata(patchesDir, patchId, filePath),
+      stagedPatchBinaryFileMetadata(patchesDir, patchId, filePath),
     );
 
-    if (!this.host.fileExists(metadataFilePath)) {
+    if (metadataFilePath === null) {
       return {
         errors: [{ message: "Metadata file not found", filePath }],
       };
@@ -927,8 +1027,12 @@ export class ValOpsFS extends ValOps {
   ): Promise<Buffer | null> {
     // Straight from the id. This used to read and parse every patch on disk to
     // work out which directory the file was under, on every single image request.
-    const absPath = patchBinaryFile(this.getPatchesDir(), patchId, filePath);
-    if (!this.host.fileExists(absPath)) {
+    const patchesDir = this.getPatchesDir();
+    const absPath = this.wherePatchFileIs(
+      patchBinaryFile(patchesDir, patchId, filePath),
+      stagedPatchBinaryFile(patchesDir, patchId, filePath),
+    );
+    if (absPath === null) {
       return null;
     }
     return this.host.readBinaryFile(absPath);
@@ -989,6 +1093,9 @@ export class ValOpsFS extends ValOps {
               recursive: true,
               force: true,
             });
+            // And anything this patch had staged but never moved in, which is
+            // the case where a delete arrives before the record does.
+            removeStagedUploads(patchesDir, patchId);
             deleted.push(patchId);
           } catch (err) {
             // Reported. This endpoint used to answer "deleted" unconditionally —

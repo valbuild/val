@@ -2,7 +2,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   Source,
   SerializedSchema,
   ValModule,
@@ -299,7 +299,7 @@ function createMockData() {
     },
   );
 
-  // Team members record with list view rendering
+  // Team members record with a list preview
   const team = c.define(
     "/content/team.val.ts",
     s
@@ -311,14 +311,11 @@ function createMockData() {
           email: s.string(),
         }),
       )
-      .render({
-        as: "list",
-        select({ val }) {
-          return {
-            title: val.name,
-            subtitle: val.position,
-          };
-        },
+      .preview(({ val }) => {
+        return {
+          title: val.name,
+          subtitle: val.position,
+        };
       }),
     {
       "team-1": {
@@ -342,7 +339,7 @@ function createMockData() {
     },
   );
 
-  // Product pages router with list view rendering
+  // Product pages router with a list preview
   const productPages = c.define(
     "/app/products/[product]/page.val.ts",
     s
@@ -355,14 +352,11 @@ function createMockData() {
         }),
       )
       .router(mockRouter)
-      .render({
-        as: "list",
-        select({ val }) {
-          return {
-            title: val.name,
-            subtitle: `$${val.price}`,
-          };
-        },
+      .preview(({ val }) => {
+        return {
+          title: val.name,
+          subtitle: `$${val.price}`,
+        };
       }),
     {
       "/products/product-1": {
@@ -414,7 +408,7 @@ function createMockData() {
     },
   );
 
-  // Configuration array with render methods
+  // Configuration array with renders on its string fields
   const config = c.define(
     "/content/config.val.ts",
     s
@@ -425,14 +419,11 @@ function createMockData() {
           description: s.string().render({ as: "textarea" }),
         }),
       )
-      .render({
-        as: "list",
-        select({ val }) {
-          return {
-            title: val.key,
-            subtitle: val.description,
-          };
-        },
+      .preview(({ val }) => {
+        return {
+          title: val.key,
+          subtitle: val.description,
+        };
       }),
     [
       {
@@ -477,7 +468,7 @@ function createMockData() {
   ];
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Source> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
     const schema = Internal.getSchema(module);
@@ -489,19 +480,19 @@ function createMockData() {
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
 
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
 export const {
   schemas: mockSchemas,
   sources: mockSources,
-  renders: mockRenders,
+  previews: mockPreviews,
 } = createMockData();

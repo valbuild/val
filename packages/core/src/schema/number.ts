@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -232,7 +232,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

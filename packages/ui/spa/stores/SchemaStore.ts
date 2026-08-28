@@ -23,14 +23,14 @@ export class SchemaStore {
   private schemas: Record<ModuleFilePath, SerializedSchema> = {};
   private versions = new Map<ModuleFilePath, number>();
   /**
-   * Whether each module's schema declares a render anywhere, by version.
+   * Whether each module's schema declares a preview anywhere, by version.
    *
    * Cached against the version rather than recomputed, and answered from the
-   * SCHEMA rather than from a render that came back empty — the difference
-   * matters at mount, when nothing has been rendered yet. See
-   * {@link SchemaStore.declaresRender}.
+   * SCHEMA rather than from a preview that came back empty — the difference
+   * matters at mount, when nothing has been previewed yet. See
+   * {@link SchemaStore.declaresPreview}.
    */
-  private renderDeclared = new Map<
+  private previewDeclared = new Map<
     ModuleFilePath,
     { version: number; declared: boolean }
   >();
@@ -77,55 +77,62 @@ export class SchemaStore {
   }
 
   /**
-   * Can this module produce a render at all?
+   * Can this module produce a preview at all?
    *
-   * The render itself needs the host — `select` is a user closure — but whether
-   * one is DECLARED is in the serialized schema, and asking here first is what
-   * stops the render store crossing the host seam for a module that can only
-   * answer "nothing".
+   * The preview itself needs the host — it is a user closure — but whether one
+   * is DECLARED is in the serialized schema, and asking here first is what stops
+   * the preview store crossing the host seam for a module that can only answer
+   * "nothing".
    *
    * This is not a micro-optimisation: browser measurement showed mounting 260
-   * fields across 141 modules spending ~2.3ms of 3.1ms inside `executeRender`
+   * fields across 141 modules spending ~2.3ms of 3.1ms inside `executePreview`
    * on modules that returned an empty result. In a real project most modules
-   * declare no render, so most of that work was provably wasted.
+   * declare no preview, so most of that work was provably wasted.
    *
    * `false` for a module whose schema has not arrived — there is nothing to
-   * render yet either way, and the store's `module-loading`/absent handling
+   * preview yet either way, and the store's `module-loading`/absent handling
    * covers it.
    *
-   * VERSION SKEW: this trusts the `render` marker to be present whenever a
-   * render is declared. It is set by `executeSerialize` on a real instance, so
+   * VERSION SKEW: this trusts the `preview` marker to be present whenever a
+   * preview is declared. It is set by `executeSerialize` on a real instance, so
    * it is there for schemas from local modules AND from `GET /schema` (the
    * server serializes from instances too). A server old enough to predate the
-   * marker would serve schemas without it, and renders would then silently stop
+   * marker would serve schemas without it, and previews would then silently stop
    * appearing rather than fail — which is why Val's existing schema-skew check
    * (`schema-out-of-date`) is the thing that has to catch that, not this.
    */
-  declaresRender(moduleFilePath: ModuleFilePath): boolean {
+  declaresPreview(moduleFilePath: ModuleFilePath): boolean {
     const version = this.version(moduleFilePath);
-    const cached = this.renderDeclared.get(moduleFilePath);
+    const cached = this.previewDeclared.get(moduleFilePath);
     if (cached !== undefined && cached.version === version) {
       return cached.declared;
     }
     const schema = this.schemas[moduleFilePath];
-    const declared = schema === undefined ? false : declaresRender(schema);
-    this.renderDeclared.set(moduleFilePath, { version, declared });
+    const declared = schema === undefined ? false : declaresPreview(schema);
+    this.previewDeclared.set(moduleFilePath, { version, declared });
     return declared;
   }
 }
 
 /**
- * Does this schema, or anything under it, declare a render?
+ * Does this schema, or anything under it, declare a preview?
  *
- * Only three schemas can: `array` and `record` (a list, via `select`) and
- * `string` (a static layout hint). Every other node is pure recursion, which is
- * why the walk only has to look for the `render` marker and descend.
+ * Only two schemas can: `array` and `record`, the containers that have items to
+ * preview. Every other node is pure recursion, which is why the walk only has to
+ * look for the `preview` marker and descend.
+ *
+ * There is deliberately NO `string` arm. `s.string().render({as:"textarea"})` is
+ * a render, not a preview: static config that travels WITH the serialized schema
+ * and is read where the field is drawn, so a module whose only such declaration
+ * is a string layout must never be sent to the host. Restoring an arm here would
+ * put that whole-module walk back for a fact the schema already carried. See
+ * `core/src/render.ts`.
  *
  * `seen` guards a schema that refers to itself structurally, so this cannot
  * recurse forever — the same guard `collectReferences` and
  * `jsonValuesLoadRequirements` use.
  */
-function declaresRender(
+function declaresPreview(
   schema: SerializedSchema,
   seen: Set<SerializedSchema> = new Set(),
 ): boolean {
@@ -133,17 +140,15 @@ function declaresRender(
   seen.add(schema);
   switch (schema.type) {
     case "array":
-      return schema.render === true || declaresRender(schema.item, seen);
+      return schema.preview === true || declaresPreview(schema.item, seen);
     case "record":
-      return schema.render === true || declaresRender(schema.item, seen);
-    case "string":
-      return schema.render === true;
+      return schema.preview === true || declaresPreview(schema.item, seen);
     case "object":
       return Object.values(schema.items).some((item) =>
-        declaresRender(item, seen),
+        declaresPreview(item, seen),
       );
     case "union":
-      return schema.items.some((item) => declaresRender(item, seen));
+      return schema.items.some((item) => declaresPreview(item, seen));
     default:
       return false;
   }

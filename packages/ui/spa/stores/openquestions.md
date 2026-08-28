@@ -22,7 +22,7 @@ it was entirely possible those bought most of the available win.
 **Answered, and it is not close.** `bench/` runs both systems in a real Chromium.
 The fairness contract is at the top of `bench/drivers.ts`; the short version is
 that the unit of measurement is **a field becoming ready** (source + validation +
-render in hand), because timing `addPatch` against `createPatch` would time the
+preview in hand), because timing `addPatch` against `createPatch` would time the
 eager system doing all the work and the lazy system doing none of it.
 
 ### First, the fixture — because it decided the answer three times
@@ -58,7 +58,7 @@ found on `page` and nowhere else — but they are not descriptions of a session.
 
 | scenario                          | engine  | stores  |                     |
 | --------------------------------- | ------- | ------- | ------------------- |
-| keystroke into a rendered list    | 18.3 ms | 0.4 ms  | **45.7x**           |
+| keystroke into a previewed list   | 18.3 ms | 0.4 ms  | **45.7x**           |
 | mount (register + first paint)    | 17.5 ms | 0.4 ms  | **43.8x**           |
 | keystroke                         | 17.0 ms | 0.4 ms  | **42.5x**           |
 | nested-row (the `handboka` shape) | 17.9 ms | 0.9 ms  | **19.9x**           |
@@ -114,9 +114,9 @@ Three, all real, all fixed. This is the argument for keeping the harness:
 
 1. `listenedPaths(module)` walked the whole listener registry, making a mount
    O(fields x modules). Now indexed per module.
-2. Mounting rendered every module — ~2.3 ms of 3.1 ms inside `executeRender` on
-   modules that declare no render. `SerializedSchema` carries `render?: true` and
-   `SchemaStore.declaresRender` answers from the schema.
+2. Mounting previewed every module — ~2.3 ms of 3.1 ms inside `executePreview` on
+   modules that declare no preview. `SerializedSchema` carries `preview?: true`
+   and `SchemaStore.declaresPreview` answers from the schema.
 3. **The listener scan was O(all registered paths) per patch.** On the
    1202-field shape a 40-key burst walked all 1202 paths 40 times and made the
    stores **slower than the engine** (12.8 ms vs 9.2 ms). The comment in
@@ -356,73 +356,77 @@ much cheaper before hooks exist than after.
 
 ---
 
-## 3. ~~Renders are not path-scoped~~ — FIXED, in `packages/core`
+## 3. ~~Previews are not path-scoped~~ — FIXED, in `packages/core`
 
-**Was:** `RenderStore.get(path)` is per-path, but `executeRender` took a whole
-module, so one request walked everything. For `handboka` — `select` at two nested
-array levels — that was every chapter and every section on any change to the
-module. Measured: one listener on one row of a three-row list cost **3** `select`
-invocations to serve **1**.
+> Renamed 2026-08-28: what this section calls a "render" is now a **preview**
+> (`.preview(select)` on `array` and `record`), and `render` names the unrelated
+> static field layout on `string`. See `core/src/render.ts`.
+
+**Was:** `PreviewStore.get(path)` is per-path, but `executePreview` took a whole
+module, so one request walked everything. For `handboka` — a preview at two
+nested array levels — that was every chapter and every section on any change to
+the module. Measured: one listener on one row of a three-row list cost **3**
+closure invocations to serve **1**.
 
 **Done**, once changing `packages/core` was allowed (decided 2026-08-23: no
 external users, two internal ones).
 
-`RenderScope` in `packages/core/src/render.ts` is threaded as an optional third
-argument through every `executeRender`. It answers two questions, and the split
+`PreviewScope` in `packages/core/src/preview.ts` is threaded as an optional third
+argument through every `executePreview`. It answers two questions, and the split
 is the whole design:
 
-- `wants(path)` — is a render AT this exact path wanted? A container answers
-  `true` when the whole of it is being shown, and its list render is computed in
+- `wants(path)` — is a preview AT this exact path wanted? A container answers
+  `true` when the whole of it is being shown, and its preview is computed in
   full. **A list VIEW asks for the container and needs every row**, so windowing
   there would be a list with rows missing — a broken screen, not a saving.
 - `wantsUnder(path)` — could anything at or below this path be wanted? Recursion
   is pruned where this is `false`, and a container whose own path is NOT wanted
-  but which has wanted descendants renders a **window**: only the items asked
+  but which has wanted descendants previews a **window**: only the items asked
   for. That is what a single visible row is.
 
 It compares path SEGMENTS, not string prefixes. `"title"` is a string prefix of
 `"titles"` but not a path ancestor of it, and a key may contain a dot or a quote,
-so `startsWith` silently renders siblings. Pinned in `render.test.ts`.
+so `startsWith` silently previews siblings. Pinned in `preview.test.ts`.
 
-`ListArrayRender.items` became `[index, value][]` — the shape
-`ListRecordRender` already had. This is the load-bearing part: a windowed render
-is a SHORTER array, so a consumer reading `items[n]` positionally would get a
-different row. Carrying the index makes that unrepresentable, and the compiler
-pointed at both UI call sites (`SortableList.tsx`, `useRefPreview.ts`) rather
-than letting them read the wrong row at runtime.
+`ArrayPreview.items` became `[index, value][]` — the shape `RecordPreview`
+already had. This is the load-bearing part: a windowed preview is a SHORTER
+array, so a consumer reading `items[n]` positionally would get a different row.
+Carrying the index makes that unrepresentable, and the compiler pointed at both
+UI call sites (`SortableList.tsx`, `useRefPreview.ts`) rather than letting them
+read the wrong row at runtime.
 
-A side effect worth naming: `array`'s `select` is now wrapped per ITEM rather
+A side effect worth naming: `array`'s closure is now wrapped per ITEM rather
 than per list, matching what `record` already did. Before, one throwing row
 produced an error at the container and NO items at all — one bad row took out the
 whole list.
 
-Above core, `RenderStore` had to learn two things:
+Above core, `PreviewStore` had to learn two things:
 
-- **The cache entry carries the scope it was computed at.** A render scoped to
+- **The cache entry carries the scope it was computed at.** A preview scoped to
   one visible row says nothing about another row, and serving it there is worse
   than a cache miss — a miss is slow, that is wrong. Coverage is asked per
   CALLER, not "is every listened path covered": folding those together makes one
   field's read pay for everyone else's, which is the fan-out being removed.
-- **Concurrent readers of different paths must still cost one render.** Sharing
+- **Concurrent readers of different paths must still cost one preview.** Sharing
   an already-issued request cannot do it, because its scope was fixed when it was
   issued. `refreshFor` collects the asked-for paths across the turn (one
   microtask) and issues once. The in-flight map carries its scope too, so a
   request that will not answer the caller's question is not mistaken for one that
   will; that case retries exactly once and then issues unconditionally, because a
-  duplicate render costs time whereas a wrong `no-render-at-path` is a bug.
+  duplicate preview costs time whereas a wrong `no-preview-at-path` is a bug.
 
 The eager `source:listen` path deliberately does NOT wait a microtask: it is
-dispatched synchronously from `addListener`, and "the render is ready when the
+dispatched synchronously from `addListener`, and "the preview is ready when the
 mounting field first looks" is the whole promise of computing on demand arriving.
 Only the FIRST listener in a module triggers it — twenty rows mounting would
 otherwise refresh twenty times at growing scope, strictly worse than the one
-whole-module render this replaces. The other nineteen are covered by their own
-reads, and the first of those renders at the scope of everything mounted by then:
-**twenty rows cost two renders, not twenty.**
+whole-module preview this replaces. The other nineteen are covered by their own
+reads, and the first of those previews at the scope of everything mounted by
+then: **twenty rows cost two previews, not twenty.**
 
-Four callers of `executeRender` remain; only `HostStore` passes a scope.
-`ValOps.ts:595` (server) and `InlineField.stories.tsx:70` want whole modules and
-pass nothing, which is exactly the old behaviour.
+Three callers of `executePreview` remain; only `HostStore` passes a scope.
+`ValOps.ts` (server) and the story harnesses want whole modules and pass nothing,
+which is exactly the old behaviour.
 
 ## 4. `executeValidate` has no custom-only mode, so errors are merged by message. 🟡
 
@@ -837,8 +841,8 @@ ask-rather-than-infer shape works for `jsonEntriesSha`.
 
 ## 9. ~~Five of the nine stores have no committed test.~~ ✅ CLOSED
 
-`host`, `render`, `validation`, `search` and `patch sets` were verified end to end
-by hand — render routed through the host, a custom validator's own message came
+`host`, `preview`, `validation`, `search` and `patch sets` were verified end to end
+by hand — a preview routed through the host, a custom validator's own message came
 back, search and patch sets worked off pushed snapshots — and that scratch test
 was **deleted** rather than committed, per instruction.
 
@@ -846,7 +850,7 @@ was **deleted** rather than committed, per instruction.
 
 - [x] Committed. `systemFlow` walks one session in order; `systemInvariants`
       takes one claim per test; `activityCost` asserts how many times each
-      expensive thing runs; `demandDriven` asserts that render and search run
+      expensive thing runs; `demandDriven` asserts that preview and search run
       only for what is being looked at. Between them they found six defects, of
       which five are fixed and one — item 3 — needs the decision below.
 
@@ -952,7 +956,7 @@ makes the author write it twice.
       unreferenced patch files is the only real answer; until then the bytes leak.
 - [x] **~~`.jsonValues()` is not handled at all.~~** Implemented. Entry content
       is fetched on demand and substituted where source lives, so fields,
-      renders, validation and the search walk all see real content without
+      previews, validation and the search walk all see real content without
       knowing markers exist. The read IS the demand signal and the read WAITS
       (`get` triggers the fetch and awaits it); `peek` is the side-effect-free
       companion, because the moment a read can cause a fetch, anything that

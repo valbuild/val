@@ -1,5 +1,6 @@
 import {
   useAutoPublish,
+  useFullValidationRunning,
   useErrors,
   useLoadingStatus,
   usePublishSummary,
@@ -439,6 +440,7 @@ export function ToolsMenuButtons() {
   ]);
   const mode = useValMode();
   const { setAutoPublish, autoPublish } = useAutoPublish();
+  const fullValidationRunning = useFullValidationRunning();
   return (
     <div className="flex flex-col">
       <div className="flex gap-2 justify-between items-center p-4 w-full">
@@ -446,14 +448,34 @@ export function ToolsMenuButtons() {
           <TransientErrorsDisplay />
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
+              {/*
+                Only while a whole-project pass is running, which happens once
+                the chain is empty — so it reads as "caught up, now checking the
+                rest" rather than as progress on the save itself.
+              */}
+              {fullValidationRunning && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate text-fg-secondary-alt animate-pulse">
+                      Checking everything…
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>
+                      Your changes are on disk. Val is now validating every
+                      module it has loaded, not just the ones you edited.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="truncate text-fg-secondary">Auto-save</span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>
-                    When auto-save is enabled Val will save to changes to disk
-                    automatically
+                    When auto-save is enabled Val writes your changes to disk on
+                    a pause in typing, without you hitting Save.
                   </p>
                   <p>This is a development mode feature</p>
                 </TooltipContent>

@@ -3,7 +3,12 @@ import { ListPreviewItem } from "./ListPreviewItem";
 import { Preview } from "./Preview";
 import { useRefPreview } from "./useRefPreview";
 
-export function PreviewWithRender({
+/**
+ * A container item's own preview — title, subtitle, image, as its schema's
+ * `preview` produced it — falling back to the generic {@link Preview} of the
+ * value when the container declares none.
+ */
+export function RefPreview({
   path,
   className,
   size,
@@ -12,14 +17,14 @@ export function PreviewWithRender({
   className?: string;
   size?: "compact";
 }) {
-  const render = useRefPreview(path);
+  const preview = useRefPreview(path);
 
-  if (render) {
+  if (preview) {
     return (
       <ListPreviewItem
-        title={render.title}
-        image={render.image ?? null}
-        subtitle={render.subtitle ?? null}
+        title={preview.title}
+        image={preview.image ?? null}
+        subtitle={preview.subtitle ?? null}
         className={className}
         size={size}
       />

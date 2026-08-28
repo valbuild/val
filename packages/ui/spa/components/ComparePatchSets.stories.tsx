@@ -4,7 +4,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
@@ -63,7 +63,7 @@ function createMockData(
 ) {
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Json> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
 
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
@@ -74,13 +74,13 @@ function createMockData(
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
@@ -142,14 +142,14 @@ function applyPatchesAndSerialize(
 type MockData = {
   schemas: Record<ModuleFilePath, SerializedSchema>;
   sources: Record<ModuleFilePath, Json>;
-  renders: Record<ModuleFilePath, ReifiedRender>;
+  previews: Record<ModuleFilePath, ReifiedPreview>;
 };
 
 function makeSystem(mockData: MockData): System {
   return createStorySystem({
     schemas: mockData.schemas,
     sources: mockData.sources,
-    renders: mockData.renders,
+    previews: mockData.previews,
   });
 }
 

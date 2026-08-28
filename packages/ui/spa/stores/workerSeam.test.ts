@@ -40,9 +40,11 @@ const project = () => {
         // Every serialized-schema shape that could plausibly hide something
         // non-cloneable, in one module: a regexp (serialized as {source, flags}
         // rather than a RegExp), a keyOf (carries a path), an image (carries a
-        // referencedModule), a route, a richtext (carries an options object), and
-        // a union (carries an items array).
+        // referencedModule), a route, a richtext (carries an options object), a
+        // union (carries an items array), and a `render` (which is the LAYOUT
+        // itself now, not a boolean marker, so it is new data on this seam).
         slug: s.string().regexp(/^[a-z-]+$/),
+        notes: s.string().render({ as: "code", language: "json" }),
         owner: s.keyOf(authors),
         hero: s.image(),
         link: s.route(),
@@ -56,6 +58,7 @@ const project = () => {
       {
         title: "Hello",
         slug: "hello",
+        notes: "{}",
         owner: "ada",
         hero: {
           path: "/public/val/x.png",
@@ -70,10 +73,9 @@ const project = () => {
     ),
     c.define(
       "/list.val.ts",
-      s.array(s.object({ name: s.string() })).render({
-        as: "list",
-        select: ({ val }) => ({ title: val.name }),
-      }),
+      s
+        .array(s.object({ name: s.string() }))
+        .preview(({ val }) => ({ title: val.name })),
       [{ name: "one" }, { name: "two" }],
     ),
   ];

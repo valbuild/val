@@ -20,7 +20,7 @@ import type { Revision } from "../stores/types";
  * method" did not exist. The engine's `getSourceSnapshot(module)` was per MODULE
  * and deep-cloned the whole module; `SourceStore.get(path, revision)` is per
  * PATH and clones nothing. The engine was EAGER — `addPatch` applied the patch
- * and kicked validation, renders and patch sets before returning — and the
+ * and kicked validation, previews and patch sets before returning — and the
  * stores are LAZY: a patch marks, and the following read computes.
  *
  * Timing `addPatch` against `createPatch` would therefore have been rigged in
@@ -31,7 +31,7 @@ import type { Revision } from "../stores/types";
  * **So the unit of measurement is a FIELD BECOMING READY.** Every scenario runs
  * from "the keystroke is issued" to "every mounted field has, in hand, the three
  * things it needs to paint: the source at its path, the validation errors for its
- * module, and the render at its path (where there is one)." That is what the user
+ * module, and the preview at its path (where there is one)." That is what the user
  * waits for, and nothing can win it by deferring work past the stopwatch.
  *
  * Two rules follow, and they still bind:
@@ -52,7 +52,7 @@ import type { Revision } from "../stores/types";
  */
 
 export type DriverReads = {
-  /** Fields that got source, validation and render. Guards against no-ops. */
+  /** Fields that got source, validation and preview. Guards against no-ops. */
   fieldsReady: number;
 };
 
@@ -167,7 +167,7 @@ async function readStoresField(
     revisions.set(path, read.revision);
   }
   await system.validationStore.validate(moduleFilePath);
-  await system.renderStore.get(path as SourcePath);
+  await system.previewStore.get(path as SourcePath);
   // `unchanged` counts as ready: it means the field already holds the right
   // value, which is the cheap path the protocol exists to provide. Excluding it
   // would charge the stores for their own optimisation.

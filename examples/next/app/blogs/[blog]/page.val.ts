@@ -24,13 +24,10 @@ export default c.define(
       s.string().describe("The URL of the blog post"),
       blogSchema,
     )
-    .render({
-      as: "list",
-      select: ({ val }) => ({
-        title: val.title,
-        subtitle: val.author,
-      }),
-    }),
+    .preview(({ val }) => ({
+      title: val.title,
+      subtitle: val.author,
+    })),
   {
     "/blogs/blog2": {
       title: "Blog 2",
