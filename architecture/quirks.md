@@ -181,10 +181,30 @@ a hand-made session cookie has to be encoded too — an HMAC signature is base64
 routinely contains `+` and `/`. Sending it raw decodes to something else and reads
 as "you will need to login again".
 
-**The deployment UI is not mounted.** `DraftChanges` is the only component that
-renders `useDeployments()`, and nothing imports it as a component. Deployments and
-commits still arrive over the WebSocket and still land in provider state; there is
-just nothing on screen.
+**Only `/stat` can say a publish has gone live, and it is asked rarely.** The
+deploy feed's build states (`created` / `pending` / `success` / `failure`) are
+relayed from GitHub through the content service, and the socket pushes them — but
+none of them means the site is serving the commit. That answer is `/stat`'s
+`commitSha`, read from `VAL_GIT_COMMIT` when the app boots, so a finished deploy
+is a NEW PROCESS answering with a new sha. Nothing pushes it: while a socket is
+up, `/stat` is on a twenty-minute timer, and `awaitingDeploymentInterval` in
+`useStatus.ts` is what tightens that to seconds while a publish is outstanding.
+The classic (`?val-ui=classic`) layout mounts no deployment UI at all — the feed
+lives in the shell's status bar.
+
+**A commit with no deployment shows up in the feed as `created`.** There is no
+such build state; `mergeCommitsAndDeployments` invents it for a commit no
+deployment has claimed. So a project whose deployment events never arrive — which
+is every project whose build host is not wired to the content service — parks
+every publish at "Queued" and stays there. `isLive` (Val saw the site answer with
+the commit) is deliberately allowed to overrule any build state, including that
+one, and that is the only reason such a project ever reaches a resting state.
+
+**The content service returns deployments newest-updated FIRST, the socket
+delivers them last.** `getByCommitShas` is `ORDER BY updated_at DESC`; the client
+appends socket messages. Both feed the same fold, which keeps the last entry per
+commit sha — so anything reading that list has to sort before folding, or a
+finished build gets overwritten by the pending one it replaced.
 
 ## Patches
 

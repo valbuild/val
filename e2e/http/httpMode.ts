@@ -254,11 +254,19 @@ export const mock = {
     return res.content;
   },
 
-  /** Announce a deployment, or move an existing one to a new state. */
+  /**
+   * Announce a deployment, or move an existing one to a new state.
+   *
+   * `broadcast: false` records it without pushing it down the socket, so the
+   * Studio can only learn about it from the next `/stat` — which is how a
+   * Studio that was not connected, or was reconnecting, finds out in
+   * production.
+   */
   deployment(body: {
     commitSha?: string;
     deploymentId?: string;
     deploymentState?: string;
+    broadcast?: boolean;
   }): Promise<{ deployment: MockDeployment }> {
     return control<{ deployment: MockDeployment }>("deployment", {
       method: "POST",
