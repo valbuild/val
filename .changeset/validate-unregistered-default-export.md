@@ -32,5 +32,9 @@ The default export is what separates the two. An unregistered file is now:
 The default export is checked syntactically first and only evaluated if it is
 there, so a helper file is never run just to find out it is a helper.
 
+The fix for a file the last rule now flags is a NAMED export, not a rename: a
+file that imports `s` or `c` is a `.val` file, and stays one. Only the default
+export slot is reserved for a module.
+
 Adds `Internal.isValModule` to `@valbuild/core` and
 `createValModuleFileInspector` to `@valbuild/server`.

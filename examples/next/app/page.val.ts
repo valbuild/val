@@ -1,6 +1,6 @@
 import { s, c, type t, nextAppRouter } from "../val.config";
 import authorsVal from "../content/authors.val";
-import image from "../schema/image";
+import { defaultImage } from "../schema/image.val";
 
 export const schema = s.object({
   /**
@@ -53,7 +53,7 @@ export const schema = s.object({
 });
 
 export type Content = t.inferSchema<typeof schema>;
-export type Image = t.inferSchema<typeof image>;
+export type Image = t.inferSchema<typeof defaultImage>;
 export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
   "/": {
     video: {
