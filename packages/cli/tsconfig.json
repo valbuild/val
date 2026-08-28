@@ -5,7 +5,10 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: typechecking pulls in @valbuild/language-server's
+    // source (via preconstruct dev), and vscode-languageserver 10 ships its
+    // types behind an `exports` map that the legacy `node` resolver cannot see.
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "target": "ESNext",
     "resolveJsonModule": true

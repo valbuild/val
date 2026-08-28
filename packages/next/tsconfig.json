@@ -7,7 +7,10 @@
     "jsx": "react-jsx",
     "lib": ["es6", "dom"],
     "module": "ESNext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: typechecking pulls in @valbuild/language-server's
+    // source (via preconstruct dev), and vscode-languageserver 10 ships its
+    // types behind an `exports` map that the legacy `node` resolver cannot see.
+    "moduleResolution": "bundler",
     "noEmit": true,
     "target": "ES2017",
     "outDir": "dist",

@@ -34,8 +34,8 @@
     "@types/jest": "^30.0.0",
     "@typescript-eslint/rule-tester": "^8.68.0",
     "eslint": "^9.39.2",
-    "jest": "^30.2",
-    "minimatch": "^3.1.4"
+    "jest": "^30.5.0",
+    "minimatch": "^10.2.6"
   },
   "scripts": {
     "test": "jest",
