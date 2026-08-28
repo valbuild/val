@@ -23,8 +23,38 @@ export type PublishPatches = (request: {
   message?: string;
 }) => Promise<PublishOutcome>;
 
+/**
+ * How a caller wants a publish scoped.
+ *
+ * `exact` is auto-save's mode, and it exists because the two callers want
+ * genuinely different things. A person clicking Save wants everything they can
+ * see, and wants to be told if it moved under them. A timer firing while they
+ * type wants the batch it named, expects the chain to keep growing, and must
+ * never refuse just because it did — a save that refuses whenever someone is
+ * typing is a save that never runs.
+ *
+ * What it does NOT relax is ordering: see `takeNamedPrefix`.
+ */
+export type PublishOptions = {
+  exact?: boolean;
+};
+
+/**
+ * An unpublished change the save threw away because it could not be applied.
+ *
+ * `fs` mode only. There, refusing the whole commit for one bad patch is a dead
+ * stop rather than a refusal — the editor keeps typing and nothing is ever
+ * written again — so the failing change and the rest of its module's chain go,
+ * and this is how the studio finds out which.
+ */
+export type RemovedPatch = {
+  patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
+  message: string;
+};
+
 export type PublishOutcome =
-  | { status: "published" }
+  | { status: "published"; removed?: RemovedPatch[] }
   | { status: "not-fast-forward"; message: string }
   | {
       status: "patch-errors";
@@ -50,7 +80,7 @@ export type DiscardPatches = (
  * to them rather than saying no.
  */
 export type PublishResult =
-  | { status: "published"; patchIds: PatchId[] }
+  | { status: "published"; patchIds: PatchId[]; removed?: RemovedPatch[] }
   | { status: "nothing-to-publish" }
   | {
       status: "refused";

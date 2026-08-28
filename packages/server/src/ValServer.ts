@@ -31,6 +31,7 @@ import {
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
+import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
   BaseSha,
@@ -1858,15 +1859,71 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Exactly the patches this request consumes, and the ONLY ones it may
+         * delete afterwards.
+         *
+         * Taken from what was fetched rather than from what was asked for, and
+         * held across everything below, because the store keeps accepting writes
+         * while this runs. A change typed during a save is not in this list, is
+         * not applied, and must still be here when the save finishes — that is
+         * the whole contract, and `deleteAllPatches` broke it by removing the
+         * store wholesale.
+         */
+        const consumed = patches.patches.map((patch) => patch.patchId);
         const analysis = serverOps.analyzePatches(
           patches.patches,
           patches.commits,
           commit,
         );
-        const preparedCommit = await serverOps.prepare({
+        let preparedCommit = await serverOps.prepare({
           ...analysis,
           ...patches,
         });
+        /*
+         * In `fs` mode a change that cannot be applied is removed rather than
+         * blocking the save.
+         *
+         * Refusing the whole commit is right for a git commit — it is one
+         * atomic thing, and the content api owns its own patches. It is wrong
+         * for auto-save: the editor keeps typing, every save fails on the same
+         * patch, and nothing is ever written again. So the failing change and
+         * the rest of its module's chain go, the rest is written, and the person
+         * editing is told what was thrown away.
+         */
+        let removed: DroppedPatch[] = [];
+        if (preparedCommit.hasErrors && serverOps instanceof ValOpsFS) {
+          removed = computePatchesToDrop(preparedCommit);
+          /*
+           * Nothing to drop means nothing a second `prepare` could do better.
+           *
+           * `hasErrors` covers failures no patch is to blame for — a binary file
+           * that could not be written, a module that could not be formatted, a
+           * `.val.ts` that could not be read at all. Re-preparing every module
+           * with an unchanged patch set would fail identically, and logging
+           * "removed unpublished changes []" on the way would say something
+           * untrue. It falls through to the 400 instead, which is the honest
+           * answer: this save did not happen and the changes are still here.
+           */
+          if (removed.length > 0) {
+            const doomed = new Set(removed.map((entry) => entry.patchId));
+            const survivors = patches.patches.filter(
+              (patch) => !doomed.has(patch.patchId),
+            );
+            const survivingPatches = { ...patches, patches: survivors };
+            // One retry is enough: what is left of each module is the prefix
+            // that already applied, and `prepare` walks modules independently,
+            // so nothing new can fail.
+            preparedCommit = await serverOps.prepare({
+              ...serverOps.analyzePatches(survivors, patches.commits, commit),
+              ...survivingPatches,
+            });
+            console.error(
+              "Val: removed unpublished changes that could not be applied",
+              removed,
+            );
+          }
+        }
         if (preparedCommit.hasErrors) {
           console.error(
             "Failed to create commit",
@@ -1940,15 +1997,34 @@ export const ValServer = (
               },
             };
           }
-          const deleteRes = await serverOps.deleteAllPatches();
-          if (deleteRes.error) {
+          /*
+           * Only what this request consumed.
+           *
+           * This used to be `deleteAllPatches()`, which renamed the whole store
+           * aside and deleted it. Anything typed while the save was in flight
+           * went with it — never applied, and indistinguishable on the client
+           * from having been published, because both look like "the patch is
+           * gone and the base moved". A visible edit that exists nowhere on
+           * disk, with nothing reporting a problem.
+           */
+          const deleteRes = await serverOps.deletePatches(consumed);
+          if ("error" in deleteRes && deleteRes.error !== undefined) {
             console.error(
               `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+            );
+          } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
+            // Per patch, and not fatal: the files are written, so the save
+            // succeeded. A patch left behind is announced again on the next
+            // stat, applies to a base that already contains it, and is removed
+            // then.
+            console.error(
+              "Val: could not clean up some patches after publish",
+              deleteRes.errors,
             );
           }
           return {
             status: 200,
-            json: {} as Record<string, never>, // TODO:
+            json: removed.length > 0 ? { removed } : {},
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {

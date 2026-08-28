@@ -869,15 +869,29 @@ export class SourceStore {
     moduleFilePath: ModuleFilePath,
     raw: Json,
     patched: Json,
+    /*
+     * The realm to write into, defaulting to the live one.
+     *
+     * Passed the same way — and for the same reason — as `substitutedSource`
+     * takes the entry map it substitutes from: the two are inverses, and a split
+     * that wrote to one realm what was substituted from the other would put
+     * entry content where a marker belongs. `promotePublished` is the caller
+     * that needs the base realm.
+     */
+    into?: {
+      sources: Record<ModuleFilePath, Json>;
+      entries: Map<ModuleFilePath, Map<string, Json>>;
+    },
   ): void {
-    const entries = this.jsonEntries.get(moduleFilePath);
+    const sources = into?.sources ?? this.sources;
+    const entries = (into?.entries ?? this.jsonEntries).get(moduleFilePath);
     if (
       entries === undefined ||
       entries.size === 0 ||
       !isJsonObject(patched) ||
       !isJsonObject(raw)
     ) {
-      this.sources[moduleFilePath] = patched;
+      sources[moduleFilePath] = patched;
       return;
     }
     const nextSource: Record<string, Json> = { ...patched };
@@ -894,7 +908,7 @@ export class SourceStore {
       entries.set(key, nextSource[key]);
       nextSource[key] = raw[key];
     }
-    this.sources[moduleFilePath] = nextSource;
+    sources[moduleFilePath] = nextSource;
     // The substitution cache is keyed on the source object it was built from,
     // and that object is now a different one — but the revision this patch is
     // about to bump is what invalidates it, so nothing to clear here.
@@ -1059,6 +1073,127 @@ export class SourceStore {
           ),
         );
       }
+    }
+  }
+
+  /**
+   * Bake SOME of a module's chain into the base, and keep the rest.
+   *
+   * {@link promoteToBase} bakes the whole displayed value, which is right only
+   * when everything on screen shipped. Auto-save makes that no longer the normal
+   * case: it publishes the snapshot it named, and a field carries on being typed
+   * into while the request is in flight, so the patches that shipped are a PREFIX
+   * of the chain rather than all of it.
+   *
+   * Baking the whole value there is a silent double-apply — the tail's effect
+   * goes into the base AND the tail stays in the chain to be applied again on
+   * top. Invisible for a `replace`, which is most typing, and content-corrupting
+   * for an array `add`: the item appears twice, and nothing reports anything.
+   *
+   * So the new base is recomputed as base + the published prefix, and the tail
+   * stays in the chain where it belongs. The displayed value does not move —
+   * base + published + surviving is what it already was — which is the same
+   * property {@link promoteToBase} has and the reason neither of them bumps a
+   * revision.
+   */
+  promotePublished(
+    publishedIds: readonly PatchId[],
+    modules: readonly ModuleFilePath[],
+  ): void {
+    const published = new Set(publishedIds);
+    for (const moduleFilePath of modules) {
+      const chain = this.chains.get(moduleFilePath) ?? [];
+      const surviving = chain.filter(
+        (entry) => !published.has(entry.record.patchId),
+      );
+      if (surviving.length === chain.length) {
+        // None of this module's chain shipped. Nothing to bake.
+        continue;
+      }
+      if (surviving.length === 0) {
+        // Everything shipped, so what is on screen IS the new base and no
+        // recompute is needed. The common case, and the cheap one.
+        this.promoteToBase([moduleFilePath]);
+        this.chains.set(moduleFilePath, []);
+        continue;
+      }
+      const base = this.baseSources[moduleFilePath];
+      if (base === undefined) {
+        // Never loaded, so there is no base to move. The chain edit still has to
+        // happen or the published patches re-land when it does load.
+        this.chains.set(moduleFilePath, surviving);
+        continue;
+      }
+      /*
+       * The SUBSTITUTED base, not the raw one — the same choice the apply path
+       * makes, and for the same reason.
+       *
+       * Raw base holds `.jsonValues()` markers and the entry content lives in
+       * `baseJsonEntries`, so a published edit at `["/a", "title"]` applied to
+       * the raw base fails on a `{_type: "json"}` that has no `title`. That put
+       * a jsonValues module in the one state this method exists to prevent: the
+       * chain trimmed, the base never moved, and the published edit in neither.
+       */
+      let next: JSONValue = deepClone(
+        this.substitutedSource(
+          moduleFilePath,
+          base,
+          this.baseJsonEntries,
+        ) as JSONValue,
+      );
+      let rebuilt = true;
+      for (const entry of chain) {
+        if (!published.has(entry.record.patchId)) continue;
+        // `file` ops carry bytes, not source edits — the same filter the apply
+        // path uses.
+        const patchableOps = entry.record.patch.filter(
+          (op) => op.op !== "file",
+        );
+        if (patchableOps.length === 0) continue;
+        this.activity.work("source:apply-patch", entry.record.patchId);
+        const res = applyPatch(deepClone(next), ops, patchableOps);
+        if (!result.isOk(res)) {
+          /*
+           * The server applied it and this could not.
+           *
+           * Bailing out rather than storing a half-built base: a base that is
+           * neither the old one nor the new one is worse than a stale one, and a
+           * stale one is what the next intake replaces anyway. The mismatch
+           * itself is worth knowing about — the two sides apply the same ops to
+           * the same JSON, so they should not disagree.
+           */
+          console.error(
+            "Val: could not rebuild the base after a partial save. The value on screen is right; the base behind it is stale until the next load.",
+            { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+          );
+          rebuilt = false;
+          break;
+        }
+        next = res.value;
+      }
+      if (!rebuilt) {
+        /*
+         * The chain KEEPS what was published, because the base did not move.
+         *
+         * Trimming here would leave the edit in neither base nor chain, so the
+         * next rebuild would show the value as it was before it shipped —
+         * silently losing on screen a change that is on disk. Holding it costs
+         * nothing: the server no longer has these ids, so the next save cannot
+         * name them, and the next stat reconciles the chain against what the
+         * server actually holds.
+         */
+        continue;
+      }
+      this.activity.work("source:promote-to-base", moduleFilePath);
+      // Split back into the base realm the same way an apply is split back into
+      // the live one, so entry content lands in `baseJsonEntries` and the marker
+      // stays in `baseSources`. Without it a published edit INSIDE an entry kept
+      // showing in a compare as an outstanding change.
+      this.storePatched(moduleFilePath, base, next, {
+        sources: this.baseSources,
+        entries: this.baseJsonEntries,
+      });
+      this.chains.set(moduleFilePath, surviving);
     }
   }
 

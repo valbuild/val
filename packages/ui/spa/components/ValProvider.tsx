@@ -1,5 +1,7 @@
 import React, {
+  createContext,
   Dispatch,
+  ReactNode,
   SetStateAction,
   useCallback,
   useContext,
@@ -727,26 +729,28 @@ export function ValProvider({
                 stat={storeStat}
               >
                 <ValErrorProvider>
-                  <ValPortalProvider>
-                    <ValRemoteProvider remoteFiles={remoteFiles}>
-                      <ValFieldProvider
-                        getDirectFileUploadSettings={
-                          getDirectFileUploadSettings
-                        }
-                        config={runtimeConfig}
-                      >
-                        {/*
+                  <AutoPublishProvider>
+                    <ValPortalProvider>
+                      <ValRemoteProvider remoteFiles={remoteFiles}>
+                        <ValFieldProvider
+                          getDirectFileUploadSettings={
+                            getDirectFileUploadSettings
+                          }
+                          config={runtimeConfig}
+                        >
+                          {/*
                           Tell the host page when a module's source moves, so the
                           customer's own components behind the Studio show the
                           edit rather than the committed value.
                         */}
-                        <ValOverlayEmitter enabled={dispatchValEvents} />
-                        <LocalModulesErrorBanner />
-                        {children}
-                        <SchemaOutOfDateGate />
-                      </ValFieldProvider>
-                    </ValRemoteProvider>
-                  </ValPortalProvider>
+                          <ValOverlayEmitter enabled={dispatchValEvents} />
+                          <LocalModulesErrorBanner />
+                          {children}
+                          <SchemaOutOfDateGate />
+                        </ValFieldProvider>
+                      </ValRemoteProvider>
+                    </ValPortalProvider>
+                  </AutoPublishProvider>
                 </ValErrorProvider>
               </ValStoreProvider>
             </ValThemeProvider>
@@ -1790,73 +1794,206 @@ export function useCurrentProfile() {
 }
 
 /**
- * Publish every pending change automatically, without a summary.
+ * How long the chain must sit still before auto-save writes it.
+ *
+ * A trailing edge, not a rate limit: the timer restarts on every chain
+ * movement, so a burst of typing produces one save at the end of it rather than
+ * one per keystroke. Long enough that a normal pause between words does not
+ * trigger it, short enough that stopping to look at the page writes what you
+ * just typed.
+ */
+const AUTO_SAVE_DEBOUNCE_MS = 700;
+
+type AutoPublishContextValue = {
+  autoPublish: boolean;
+  setAutoPublish: (next: boolean) => void;
+};
+
+/**
+ * Shared, and that is the fix rather than an implementation detail.
+ *
+ * `useAutoPublish` used to hold its own `useState` per call site, and it has
+ * three: the toggle in the tools menu, the Save button that disables itself when
+ * it is on, and the draft-changes list that hides itself. Toggling it in one
+ * updated only that one — the button stayed enabled, the list stayed open — and
+ * each copy ALSO ran the publish effect, so every chain movement fired three
+ * concurrent publishes of the same patches. Two of them were refused as
+ * `already-publishing` and dropped on the floor, which is the only reason it
+ * ever looked like it worked.
+ */
+const AutoPublishContext = createContext<AutoPublishContextValue>({
+  autoPublish: false,
+  setAutoPublish: () => {},
+});
+
+const AUTO_PUBLISH_STORAGE_KEY = "val-auto-publish";
+
+/**
+ * Write every pending change to disk on a pause in typing, without a summary.
  *
  * `fs` mode only — it is the dev-server workflow, where "publish" means writing
  * the `.val.ts` files on disk and there is nothing to write a commit message
  * for. Kept in `localStorage` because it is a preference of the person editing,
  * not of the project.
  */
-export function useAutoPublish() {
+export function AutoPublishProvider({ children }: { children: ReactNode }) {
   const val = useValSystem();
   const mode = useValMode();
   const [autoPublish, setAutoPublishState] = useState(() => {
     try {
-      return localStorage.getItem("val-auto-publish") === "true";
+      return localStorage.getItem(AUTO_PUBLISH_STORAGE_KEY) === "true";
     } catch {
       return false;
     }
   });
-  const patchIds = useCurrentPatchIds();
-  const { patchErrors } = useAllPatchErrors();
-  const hasPatchErrors =
-    patchErrors !== undefined &&
-    Object.values(patchErrors).some(
-      (forModule) => Object.keys(forModule).length > 0,
-    );
+  /**
+   * Only what the server already has.
+   *
+   * A patch still in the write queue cannot be published — `/save` reads the
+   * store on disk — and naming it would just shorten the prefix `publish`
+   * takes. It goes in the next round, which is one debounce away.
+   */
+  const savedPatchIds = usePendingServerSidePatchIds();
 
   /**
-   * Publish when there is something to publish.
+   * The batch that just failed, so it is not tried again unchanged.
    *
-   * On the CHAIN rather than on a poll tick, which is the difference from the
-   * engine: it checked this once per second inside `sync`, so an edit waited up
-   * to a second before it was written and a session with nothing pending still
-   * ran the check 3600 times an hour. Here it runs when the chain moves.
+   * A failed `/save` reports per-patch errors, and recording them bumps the
+   * chain — which is what `savedPatchIds` is memoised on, so the effect re-runs
+   * with an identical batch and publishes it again 700 ms later. Nothing in
+   * `publish` stops that: it gates on validation errors, not on a previous
+   * refusal from the server. The result was one `POST /save` and one toast every
+   * 700 ms, forever, with nobody typing.
    *
-   * `system.publish` refuses on validation errors itself, so this does not
-   * re-check them — one gate, in the place that has the errors.
+   * Cleared on any outcome that is not a failure, and a changed chain gives a
+   * different key on its own — so this holds back the identical retry and
+   * nothing else. The next keystroke tries again, which is the right trigger:
+   * the batch is different by then.
+   */
+  const failedBatch = useRef<string | null>(null);
+
+  /**
+   * Save on a PAUSE, not on the chain moving.
+   *
+   * The previous version ran on every chain movement, which for a field being
+   * typed into is once per patch: a `POST /save` per keystroke, each one
+   * rewriting the `.val.ts` files. `savedPatchIds` changes identity whenever the
+   * chain does, so the effect re-runs and the timer restarts — a trailing-edge
+   * debounce for free, and the cleanup means a torn-down provider cannot fire.
    */
   useEffect(() => {
     if (!autoPublish || mode !== "fs" || val === null) {
       return;
     }
-    if (patchIds.length === 0 || hasPatchErrors) {
+    if (savedPatchIds.length === 0) {
+      return;
+    }
+    const batch = savedPatchIds.join(",");
+    if (failedBatch.current === batch) {
+      // Already tried, exactly as it stands, and it failed. Waiting for the
+      // chain to change is the only thing that can make a difference — see
+      // `failedBatch`.
       return;
     }
     let cancelled = false;
-    void val.system.publish(patchIds).then((res) => {
-      if (cancelled) return;
-      if (res.status === "failed") {
-        val.system.status.reportError("Auto-publish failed", res.message);
-      }
-    });
+    const timer = setTimeout(() => {
+      void val.system
+        .publish(savedPatchIds, undefined, { exact: true })
+        .then((res) => {
+          if (cancelled) {
+            return;
+          }
+          if (res.status === "failed") {
+            failedBatch.current = batch;
+            val.system.status.reportError(
+              "Changes could not be saved to disk.",
+              res.message,
+            );
+            return;
+          }
+          failedBatch.current = null;
+          if (res.status === "published") {
+            /*
+             * Everything is on disk and nothing new has arrived: the moment to
+             * check the whole project.
+             *
+             * The per-save gate only validates the modules the batch touched,
+             * which is what keeps typing cheap — but a break that belongs to no
+             * single module's patches, or a module nobody has opened, is invisible
+             * to it. Skipped when the chain has already moved on: another save is
+             * coming, and a whole-project pass in front of it in the worker queue
+             * is the lag this design exists to avoid.
+             */
+            if (val.system.patchStore.allRecords().length === 0) {
+              void val.system.validateEverything();
+            }
+          }
+          /*
+           * Every other outcome is silent, deliberately.
+           *
+           * `refused: validation-errors` is the gate working, and the fields
+           * already show the errors — a toast per pause in typing would be the
+           * loudest possible way to say something the screen is saying already.
+           * `already-publishing`, `chain-moved` and `nothing-to-publish` all
+           * mean the next pause handles it.
+           */
+        });
+    }, AUTO_SAVE_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [autoPublish, mode, val, patchIds, hasPatchErrors]);
+  }, [autoPublish, mode, val, savedPatchIds]);
 
-  return {
-    autoPublish,
-    setAutoPublish: (next: boolean) => {
-      setAutoPublishState(next);
-      try {
-        localStorage.setItem("val-auto-publish", next.toString());
-      } catch {
-        // A browser with storage disabled still gets the setting, just not
-        // across reloads.
-      }
-    },
-  };
+  const value = useMemo<AutoPublishContextValue>(
+    () => ({
+      autoPublish,
+      setAutoPublish: (next: boolean) => {
+        setAutoPublishState(next);
+        try {
+          localStorage.setItem(AUTO_PUBLISH_STORAGE_KEY, next.toString());
+        } catch {
+          // A browser with storage disabled still gets the setting, just not
+          // across reloads.
+        }
+      },
+    }),
+    [autoPublish],
+  );
+
+  return (
+    <AutoPublishContext.Provider value={value}>
+      {children}
+    </AutoPublishContext.Provider>
+  );
+}
+
+export function useAutoPublish(): AutoPublishContextValue {
+  return useContext(AutoPublishContext);
+}
+
+/**
+ * Whether a whole-project validation is running.
+ *
+ * Worth showing: it is the one validation the editor did not ask for, it can
+ * take a moment on a large project, and "checking everything" is a different
+ * thing to be told than "saved".
+ */
+export function useFullValidationRunning(): boolean {
+  const val = useValSystem();
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    if (val === null) {
+      return;
+    }
+    return val.system.validationStore.events.on(
+      "validation:full-pass",
+      (event) => {
+        setRunning(event.running);
+      },
+    );
+  }, [val]);
+  return running;
 }
 
 export function useGlobalTransientErrors() {

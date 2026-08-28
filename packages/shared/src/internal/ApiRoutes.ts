@@ -986,7 +986,27 @@ export const Api = {
         unauthorizedResponse,
         z.object({
           status: z.literal(200),
-          json: z.object({}), // TODO:
+          json: z.object({
+            /**
+             * Unpublished changes the save threw away because they could not be
+             * applied.
+             *
+             * `fs` mode only, and the reason the save is a 200 rather than the
+             * 400 it used to be: with auto-save on, refusing the whole commit
+             * for one bad patch means nothing is ever written again. The rest is
+             * written, these are removed, and the studio drops them locally and
+             * says so.
+             */
+            removed: z
+              .array(
+                z.object({
+                  patchId: PatchId,
+                  moduleFilePath: ModuleFilePath,
+                  message: z.string(),
+                }),
+              )
+              .optional(),
+          }),
         }),
         z.object({
           status: z.literal(409),
