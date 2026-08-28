@@ -100,7 +100,7 @@ $ grep -rc "toHaveScreenshot" e2e/ | grep -v ':0'
 (no output)
 ```
 
-There is no visual regression coverage. The 21 e2e specs assert behaviour and
+There is no visual regression coverage. The 19 e2e specs assert behaviour and
 values — `toHaveValue`, `toContain` — not appearance. The smoke suite renders the
 Studio in Chromium and would stay green through every change above. The
 stylesheet also grows 107 KB → 161 KB, which wants a look on its own.
