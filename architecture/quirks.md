@@ -67,6 +67,16 @@ on one render and runs more hooks on the next — "Rendered more hooks than duri
 the previous render", from inside `useMemo`, with nothing in the message about
 media. Compute hooks unconditionally and defensively; guard after.
 
+**A `setState` call inside another state updater runs as many times as the
+updater does.** Under `StrictMode` — which the SPA mounts in — that is twice, so
+the inner update happens twice. `AIChat.completeAssistantMessage` appended the
+finished message to `completedMessages` from inside the `setCurrentMessage`
+updater, and every assistant reply therefore appeared TWICE in dev, tool activity
+and all. It has to be nested (the message being retired lives in
+`currentMessage`, and reading it from the render closure would drop a chunk that
+streamed in the same tick), so the inner update is keyed by message id and skips
+what is already there. If you nest one, make it idempotent.
+
 **A context value built inline is a fresh object every render.** Harmless until
 something downstream takes it as a `useMemo`/effect dependency — then it is the
 whole subtree recomputing per keystroke. `FieldSourceOverrideContext` in the
@@ -200,6 +210,19 @@ two backwards and you either resurrect deleted edits as permanent failures, or
 wait forever on changes that will never arrive — the second of which is a real
 bug that shipped. See `architecture/patch-store.md`.
 
+**An AI-written `file` op carries a session key where every other one carries
+bytes.** An image the editor attaches in the chat is uploaded to the content
+service straight from the browser; the assistant is only ever told an opaque key,
+and a tool turns that key into patch bytes by asking the SERVICE to copy them
+(`patches/{id}/files/from-session-file`). The client never holds the bytes, so the
+`file` op it emits has the key as its `value` — and `PatchStore.createPatch`
+happily uploaded that string as the file's contents, over the image the service
+had just written, on the same (patch id, file path). The image then 404'd in the
+Studio and a publish committed a UUID in place of a PNG, with the tool reporting
+success throughout. Hence `filesAlreadyUploaded` on `createPatch`: it suppresses
+the upload and nothing else — a `file` op with a null value is still a delete and
+still runs. Pinned by `e2e/http/aiChat.spec.ts`.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in
@@ -216,6 +239,15 @@ a fresh element each time or the probe never runs again.
 **The e2e file input picker is ambiguous.** The AI chat has its own
 `input[type="file"]`, and it is `multiple`. Select the field's with
 `input[type="file"]:not([multiple])`.
+
+**The wired AI chat is only in the classic layout.** The floating shell's AI panel
+(`shell/AIChatPanel.tsx`) is still the design-system stand-in: it echoes what you
+type into local state and calls no tools. The real one is `AIChat` on `useAI`,
+mounted by `ToolsMenu` — reachable at `/val?val-ui=classic`, and in the on-page
+overlay. So a test that drives the assistant has to ask for the classic layout, or
+it will assert against a component with no `useAI` in it and see nothing happen.
+It also lives in a sidebar that is `hidden xl:block`, so the viewport has to be at
+least 1280 wide or there is no chat in the DOM at all.
 
 ## Dev environment
 

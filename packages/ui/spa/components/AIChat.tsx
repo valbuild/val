@@ -583,33 +583,58 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
   ).some(isPendingQuestion);
+
+  /**
+   * Move the in-progress message into the finished list. Exactly once.
+   *
+   * The append has to happen from INSIDE the `setCurrentMessage` updater: the
+   * message being retired lives in `currentMessage`, and reading it from the
+   * render closure instead would drop a chunk that streamed in the same tick.
+   * But React may call an updater more than once — twice under `StrictMode`,
+   * which the Studio mounts in — so an unconditional append ran twice and every
+   * assistant reply appeared TWICE in dev, tool activity and all. Appending by
+   * id is what makes it idempotent.
+   *
+   * `id` of `null` means "whatever is in progress", which is what the timeout
+   * wants: it fires for the message it was scheduled for, not for one named by
+   * the server.
+   */
+  const retireCurrentMessage = useCallback(
+    (id: string | null, finish: (message: ChatMessage) => ChatMessage) => {
+      setCurrentMessage((prev) => {
+        if (!prev) return null;
+        if (id !== null && prev.message.id !== id) return prev;
+        const finished = finish(prev.message);
+        setCompletedMessages((msgs) =>
+          msgs.some((msg) => msg.id === finished.id)
+            ? msgs
+            : [...msgs, finished],
+        );
+        return null;
+      });
+    },
+    [],
+  );
+  const timedOut = useCallback(
+    (message: ChatMessage): ChatMessage => ({
+      ...message,
+      status: "error",
+      error: "Response timed out",
+    }),
+    [],
+  );
   useEffect(() => {
     if (!currentMessage || awaitingUserAnswer) return;
     const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
     if (remaining <= 0) {
-      setCompletedMessages((prev) => [
-        ...prev,
-        {
-          ...currentMessage.message,
-          status: "error",
-          error: "Response timed out",
-        },
-      ]);
-      setCurrentMessage(null);
+      retireCurrentMessage(currentMessage.message.id, timedOut);
       return;
     }
     const timer = setTimeout(() => {
-      setCurrentMessage((prev) => {
-        if (!prev) return null;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error: "Response timed out" },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(null, timedOut);
     }, remaining);
     return () => clearTimeout(timer);
-  }, [currentMessage, awaitingUserAnswer]);
+  }, [currentMessage, awaitingUserAnswer, retireCurrentMessage, timedOut]);
 
   // ---- Local state mutators (shared by imperative handle and inline UI) ----
 
@@ -692,24 +717,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       );
     },
     completeAssistantMessage(id: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "complete" },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "complete",
+      }));
     },
     errorAssistantMessage(id: string, error: string, code?: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error, errorCode: code },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "error",
+        error,
+        errorCode: code,
+      }));
     },
     addToolCall(
       messageId: string,
