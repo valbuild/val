@@ -2,6 +2,7 @@ import {
   ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -935,6 +936,9 @@ function SplitDivider({
 /** Which half of the workspace a phone is showing. */
 export type WorkspacePane = "editor" | "canvas";
 
+/** Where the thumb sits, in pixels from the inside of the control's border. */
+type SegmentedThumb = { left: number; width: number };
+
 /**
  * A two-state switch whose selected state travels between the options.
  *
@@ -942,8 +946,17 @@ export type WorkspacePane = "editor" | "canvas";
  * pane switch and the swipe do the same thing — and a control that slides
  * says that, where one that blinks between two colours does not.
  *
- * Options are laid out in equal columns (`auto-cols-fr`) so the thumb can be
- * one column wide and travel by exactly one column, whatever the labels say.
+ * Each option is as wide as what is written on it, so every label gets the
+ * SAME padding either side of it. Equal columns (`auto-cols-fr`) did not: the
+ * widest option decides the column, so it ends up flush against its own
+ * padding while every shorter one is centred in the slack left over. On the
+ * canvas switch that is "Fields 18" against "Normal" — the count made the
+ * fields option the wide one, so the selected pill looked tight around
+ * "Fields 18" and roomy around "Normal", from the same `px-4`.
+ *
+ * The price is that the thumb can no longer be "one column, moved by one
+ * column": it is measured off the selected button instead, which is what
+ * {@link SegmentedThumb} holds.
  */
 function SegmentedControl<T extends string>({
   label,
@@ -968,22 +981,72 @@ function SegmentedControl<T extends string>({
     0,
     options.findIndex((option) => option.value === value),
   );
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [thumb, setThumb] = useState<SegmentedThumb | null>(null);
+
+  /*
+   * Measured, and re-measured whenever a label's width can have changed.
+   *
+   * A layout effect rather than an effect: the first measurement has to land
+   * before the browser paints, or the thumb is drawn at zero width and then
+   * springs open. The observer covers the rest — a webfont arriving, the badge
+   * going from 9 to 10, the control being laid out in a narrower column.
+   */
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (list === null) {
+      return;
+    }
+    const measure = () => {
+      const buttons = list.querySelectorAll("button");
+      const selected = buttons[index];
+      if (selected === undefined) {
+        return;
+      }
+      // Against the padding box, which is what `absolute; left: 0` is measured
+      // from — `clientLeft` takes the border back off.
+      const left =
+        selected.getBoundingClientRect().left -
+        list.getBoundingClientRect().left -
+        list.clientLeft;
+      const width = selected.getBoundingClientRect().width;
+      setThumb((current) =>
+        current !== null && current.left === left && current.width === width
+          ? current
+          : { left, width },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    list
+      .querySelectorAll("button")
+      .forEach((button) => observer.observe(button));
+    return () => observer.disconnect();
+    // `options.length` rather than `options`: the array is a literal at every
+    // call site, so depending on it would tear down and re-observe on every
+    // render. What the effect reads off it is how many buttons there are; a
+    // label or badge that changes width is what the observer is for.
+  }, [index, options.length]);
+
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label={label}
-      className="relative inline-grid auto-cols-fr grid-flow-col rounded-md border border-border-float bg-bg-float p-0.5"
+      className="relative inline-flex rounded-md border border-border-float bg-bg-float p-0.5"
     >
       <span
         aria-hidden
         style={{
-          width: `calc((100% - 4px) / ${options.length})`,
-          transform: `translateX(${index * 100}%)`,
-          transition: animate
-            ? `transform ${SWITCH_MS}ms ${OPEN_EASE}`
-            : undefined,
+          width: thumb?.width ?? 0,
+          transform: `translateX(${thumb?.left ?? 0}px)`,
+          transition:
+            animate && thumb !== null
+              ? `transform ${SWITCH_MS}ms ${OPEN_EASE}, width ${SWITCH_MS}ms ${OPEN_EASE}`
+              : undefined,
         }}
-        className="absolute inset-y-0.5 left-0.5 rounded bg-bg-float-raised shadow-sm"
+        className="absolute inset-y-0.5 left-0 rounded bg-bg-float-raised shadow-sm"
       />
       {options.map((option) => (
         <button
@@ -994,7 +1057,7 @@ function SegmentedControl<T extends string>({
           onClick={() => onChange(option.value)}
           className={cn(
             // Above the thumb, which is painted behind the whole row.
-            "relative inline-flex h-7 items-center justify-center gap-1.5 rounded px-2.5 text-[0.6875rem] transition-colors",
+            "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-4 text-[0.6875rem] transition-colors",
             value === option.value
               ? "font-medium text-fg-primary"
               : "text-fg-secondary hover:text-fg-primary",
