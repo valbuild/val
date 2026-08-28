@@ -1,9 +1,16 @@
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import degit from "degit";
 import { input } from "@inquirer/prompts";
 import chalk from "chalk";
+import {
+  foreignLockFiles,
+  PACKAGE_MANAGER_COMMANDS,
+  PACKAGE_MANAGERS,
+  PackageManager,
+  resolvePackageManager,
+} from "./packageManager";
 
 const PKG = {
   name: "@valbuild/create",
@@ -33,11 +40,20 @@ function printHelp() {
   console.log(`
 ${chalk.bold("Usage:")}
   ${chalk.cyan("npm create @valbuild [project-name]")}
+  ${chalk.cyan("pnpm create @valbuild [project-name]")}
 
 ${chalk.bold("Options:")}
   -h, --help Show help
   -v, --version Show version
   --root <path> Specify the root directory for project creation (default: current directory)
+  --use-npm, --use-pnpm, --use-yarn, --use-bun Use this package manager instead of the one that ran this command
+  --package-manager <${PACKAGE_MANAGERS.join(
+    "|",
+  )}> Same, spelled out (--pm also works)
+
+${chalk.dim(
+  "By default the package manager that ran this command is used, so `pnpm create @valbuild` installs with pnpm.",
+)}
 `);
 }
 
@@ -101,14 +117,18 @@ function displayValLogo() {
   process.stdout.write(logo);
 }
 
-function displaySuccessMessage(projectName: string) {
+function displaySuccessMessage(
+  projectName: string,
+  packageManager: PackageManager,
+) {
+  const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
   const nextSteps = chalk.bold(`
 ${chalk.cyan("Next steps:")}
   ${chalk.cyan("cd")} ${chalk.white(projectName)}
-  ${chalk.cyan("npm run dev")}
+  ${chalk.cyan(`${commands.run} dev`)}
 
 ${chalk.bold("Optionally run:")}
-  ${chalk.cyan("npx -p @valbuild/cli val connect")}  
+  ${chalk.cyan(`${commands.exec} val connect`)}  
 ${chalk.bold("to connect your project to Val Build")}
 
 ${chalk.bold("Need help?")} Join our community on Discord: ${chalk.underline(
@@ -148,6 +168,30 @@ function processTemplateFiles(projectPath: string, projectName: string) {
   });
 }
 
+/**
+ * Drop the lock files of every package manager but the one we are about to use.
+ *
+ * The template commits a lock file for one package manager. Left in place, it
+ * is at best noise — pnpm, yarn and bun all ignore `package-lock.json` while
+ * writing their own lock file — and at worst a stale second source of truth
+ * that `npm ci` in a deploy pipeline would prefer.
+ */
+function pruneForeignLockFiles(
+  projectPath: string,
+  packageManager: PackageManager,
+) {
+  for (const lockFile of foreignLockFiles(packageManager)) {
+    const lockFilePath = join(projectPath, lockFile);
+    if (existsSync(lockFilePath)) {
+      try {
+        rmSync(lockFilePath);
+      } catch {
+        console.log(chalk.dim(`Note: Could not remove ${lockFile}`));
+      }
+    }
+  }
+}
+
 async function main() {
   try {
     const args = process.argv.slice(2);
@@ -168,6 +212,30 @@ async function main() {
       // Remove --root and its value from args for project name parsing
       args.splice(rootIndex, 2);
     }
+
+    // Which package manager to install with: a flag if given, otherwise the
+    // one that ran this command.
+    const resolved = resolvePackageManager(
+      args,
+      process.env.npm_config_user_agent,
+    );
+    if (resolved.invalidFlag !== null) {
+      console.error(
+        chalk.red(
+          `❌ Error: unknown package manager "${resolved.invalidFlag}".`,
+        ),
+      );
+      console.error(
+        chalk.yellow(
+          `Supported package managers: ${PACKAGE_MANAGERS.join(", ")}`,
+        ),
+      );
+      process.exit(1);
+    }
+    const packageManager = resolved.packageManager;
+    const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
+    // Keep parsing off the package manager flags from here on.
+    args.splice(0, args.length, ...resolved.rest);
 
     let currentStep = 0;
     renderTimeline(currentStep);
@@ -266,14 +334,24 @@ async function main() {
 
     // Process template files
     processTemplateFiles(projectPath, projectName);
+    pruneForeignLockFiles(projectPath, packageManager);
 
     // Change to project directory and install dependencies
-    process.stdout.write(chalk.bold("\n📦 Installing dependencies...\n"));
+    process.stdout.write(
+      chalk.bold(`\n📦 Installing dependencies with ${packageManager}...\n`),
+    );
+    if (resolved.source !== "flag") {
+      process.stdout.write(
+        chalk.dim(
+          "  Use --use-npm, --use-pnpm, --use-yarn or --use-bun to pick another package manager.\n",
+        ),
+      );
+    }
 
     try {
-      execSync("npm install", {
+      execSync(commands.install, {
         cwd: projectPath,
-        stdio: "inherit", // Show npm output in real-time
+        stdio: "inherit", // Show install output in real-time
       });
 
       // Clear the npm output and show success
@@ -291,14 +369,14 @@ async function main() {
       );
 
       // Show final success message
-      displaySuccessMessage(projectName);
+      displaySuccessMessage(projectName, packageManager);
       process.stdout.write("\n");
       process.exit(0);
     } catch (error) {
       renderTimeline(currentStep, currentStep);
       console.error(
         chalk.red(
-          '❌ Failed to install dependencies. You can try running "npm install" manually.',
+          `❌ Failed to install dependencies. You can try running "${commands.install}" manually.`,
         ),
       );
       console.error("Error:", error);
