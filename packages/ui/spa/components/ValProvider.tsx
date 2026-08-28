@@ -1856,6 +1856,23 @@ export function AutoPublishProvider({ children }: { children: ReactNode }) {
   const savedPatchIds = usePendingServerSidePatchIds();
 
   /**
+   * The batch that just failed, so it is not tried again unchanged.
+   *
+   * A failed `/save` reports per-patch errors, and recording them bumps the
+   * chain — which is what `savedPatchIds` is memoised on, so the effect re-runs
+   * with an identical batch and publishes it again 700 ms later. Nothing in
+   * `publish` stops that: it gates on validation errors, not on a previous
+   * refusal from the server. The result was one `POST /save` and one toast every
+   * 700 ms, forever, with nobody typing.
+   *
+   * Cleared on any outcome that is not a failure, and a changed chain gives a
+   * different key on its own — so this holds back the identical retry and
+   * nothing else. The next keystroke tries again, which is the right trigger:
+   * the batch is different by then.
+   */
+  const failedBatch = useRef<string | null>(null);
+
+  /**
    * Save on a PAUSE, not on the chain moving.
    *
    * The previous version ran on every chain movement, which for a field being
@@ -1871,6 +1888,13 @@ export function AutoPublishProvider({ children }: { children: ReactNode }) {
     if (savedPatchIds.length === 0) {
       return;
     }
+    const batch = savedPatchIds.join(",");
+    if (failedBatch.current === batch) {
+      // Already tried, exactly as it stands, and it failed. Waiting for the
+      // chain to change is the only thing that can make a difference — see
+      // `failedBatch`.
+      return;
+    }
     let cancelled = false;
     const timer = setTimeout(() => {
       void val.system
@@ -1880,12 +1904,14 @@ export function AutoPublishProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (res.status === "failed") {
+            failedBatch.current = batch;
             val.system.status.reportError(
               "Changes could not be saved to disk.",
               res.message,
             );
             return;
           }
+          failedBatch.current = null;
           if (res.status === "published") {
             /*
              * Everything is on disk and nothing new has arrived: the moment to

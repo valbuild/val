@@ -5,6 +5,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem, takeNamedPrefix, type System } from "./createSystem";
+import type { PublishPatches } from "./PublishSeam";
 
 /**
  * Publishing while someone is still typing.
@@ -19,6 +20,13 @@ import { createSystem, takeNamedPrefix, type System } from "./createSystem";
  * `exact` mode names a batch instead: the chain is expected to grow, and only
  * what was named is published.
  */
+/**
+ * The one entry's content, shared by the module definition and the fetch seam
+ * so they cannot drift — a `.jsonValues()` entry is served by `GET /json`, not
+ * read out of the module.
+ */
+const BLOG_A = { title: "Alpha", body: "First body" };
+
 const project = () => {
   const { c, s } = initVal();
   return [
@@ -28,17 +36,41 @@ const project = () => {
     c.define("/list.val.ts", s.object({ items: s.array(s.string()) }), {
       items: ["one"],
     }),
+    /*
+     * A `.jsonValues()` record, because it is the module shape where the two
+     * realms come apart: source keeps an opaque marker and the entry content
+     * lives beside it, in `jsonEntries` for the live realm and
+     * `baseJsonEntries` for the base one.
+     */
+    c.define(
+      "/blogs.val.ts",
+      s.record(s.object({ title: s.string(), body: s.string() })).jsonValues(),
+      {
+        "/a": c.json(() => Promise.resolve({ default: { ...BLOG_A } })),
+      },
+    ),
   ];
 };
 
 function makeSystem(options?: {
   onPublish?: (patchIds: PatchId[]) => Promise<void>;
   holdSaves?: boolean;
+  publishOutcome?: Awaited<ReturnType<PublishPatches>>;
 }) {
   const publishes: PatchId[][] = [];
   const held: (() => void)[] = [];
+  const modules = project();
   const system = createSystem({
     fetchPatches: async () => ({ patches: [] }),
+    fetchJsonEntry: async (moduleFilePath, key) => {
+      // Genuinely async, like the real `GET /json`, so nothing can come to
+      // depend on an entry being there synchronously.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (moduleFilePath !== "/blogs.val.ts" || key !== "/a") {
+        return { status: "error", message: `no entry '${key}'` };
+      }
+      return { status: "ok", content: { ...BLOG_A } };
+    },
     createPatchId: (() => {
       let next = 0;
       return () => `p${++next}` as PatchId;
@@ -54,10 +86,10 @@ function makeSystem(options?: {
     publishPatches: async (request) => {
       publishes.push(request.patchIds);
       await options?.onPublish?.(request.patchIds);
-      return { status: "published" };
+      return options?.publishOutcome ?? { status: "published" };
     },
   });
-  system.host.receive(project());
+  system.host.receive(modules);
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
   return { system, publishes, releaseSaves: () => held.forEach((r) => r()) };
 }
@@ -289,6 +321,68 @@ describe("publishing in exact mode", () => {
   });
 
   /**
+   * The same partial publish, on the module shape where the base is not one
+   * object.
+   *
+   * A `.jsonValues()` module keeps `{_type:"json"}` markers in source and the
+   * entry content beside it, and every apply goes through the SUBSTITUTED value
+   * — stitch the content in, apply, split it back out. `promotePublished` did
+   * not: it applied the published prefix to the raw base, where a patch at
+   * `["/a", "title"]` has no `title` to replace. The rebuild failed, the chain
+   * was trimmed anyway, and the published edit ended up in neither base nor
+   * chain — so the next rebuild showed the value as it was BEFORE it shipped,
+   * with the change sitting on disk.
+   */
+  it("moves the base of a jsonValues module when a prefix publishes", async () => {
+    let typeDuringPublish: (() => Promise<PatchId>) | null = null;
+    const { system } = makeSystem({
+      onPublish: async () => {
+        await typeDuringPublish?.();
+      },
+    });
+    // Reading inside the entry is what loads it — into both realms.
+    const loaded = await system.sourceStore.get(
+      sp('/blogs.val.ts?p="/a"."title"'),
+      null,
+    );
+    expect(loaded.status).toBe("resolved-head");
+
+    const first = await edit(system, "/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Published" },
+    ]);
+    await saved(system);
+    typeDuringPublish = () =>
+      edit(system, "/blogs.val.ts", [
+        { op: "replace", path: ["/a", "body"], value: "typed mid-save" },
+      ]);
+
+    await system.publish([first], undefined, { exact: true });
+    await settle();
+
+    /*
+     * The published edit is IN the base — which for this module means in
+     * `baseJsonEntries`, since that is where the entry's content lives.
+     */
+    const base = system.sourceStore.peekBase(
+      sp('/blogs.val.ts?p="/a"."title"'),
+    );
+    if (base.status !== "ready") {
+      throw new Error(`expected a base value, got ${base.status}`);
+    }
+    expect(base.data).toEqual("Published");
+
+    // And the change still pending is NOT, so a compare still offers it.
+    const pendingInBase = system.sourceStore.peekBase(
+      sp('/blogs.val.ts?p="/a"."body"'),
+    );
+    if (pendingInBase.status !== "ready") {
+      throw new Error(`expected a base value, got ${pendingInBase.status}`);
+    }
+    expect(pendingInBase.data).toEqual("First body");
+    system.dispose();
+  });
+
+  /**
    * The other half of the server change: a patch that cannot be applied is
    * removed rather than refusing the whole commit, so the client has to take it
    * out of the chain and off the screen.
@@ -384,6 +478,40 @@ describe("publishing in exact mode", () => {
     system.dispose();
   });
 
+  /**
+   * The loop the timer used to spin in.
+   *
+   * A 400 that blames no particular patch — "Failed to save files", a module
+   * that could not be formatted — reaches the client as an empty error map.
+   * Recording it bumped the chain, and the auto-save batch is memoised on the
+   * chain, so the debounce re-ran with an identical batch and published it
+   * again. One `POST /save` and one toast every 700 ms, with nobody typing.
+   *
+   * Nothing was recorded, so nothing changed, so nothing should be woken. The
+   * effect itself also refuses to re-send an identical batch after a failure —
+   * this is the half that can be pinned here, and it is the one that fires for
+   * the errors nobody can act on.
+   */
+  it("does not move the chain when a failed publish blames no patch", async () => {
+    const { system } = makeSystem({
+      publishOutcome: {
+        status: "patch-errors",
+        message: "Failed to save files",
+        errors: {},
+      },
+    });
+    const first = await setTitle(system, "typed");
+    await saved(system);
+    const before = system.patchStore.chainVersion();
+
+    const res = await system.publish([first], undefined, { exact: true });
+    await settle();
+
+    expect(res.status).toBe("failed");
+    expect(system.patchStore.chainVersion()).toBe(before);
+    system.dispose();
+  });
+
   describe("the whole-project pass", () => {
     /**
      * The per-save gate only checks the modules a batch touched, which is what
@@ -403,7 +531,11 @@ describe("publishing in exact mode", () => {
 
       await system.validateEverything();
 
-      expect(seen.sort()).toEqual(["/a.val.ts", "/list.val.ts"]);
+      expect(seen.sort()).toEqual([
+        "/a.val.ts",
+        "/blogs.val.ts",
+        "/list.val.ts",
+      ]);
       system.dispose();
     });
 
