@@ -95,9 +95,13 @@ export function describePublishButton(
     return {
       kind: "blocked",
       // The count, because it is the useful part and it fits: "Fix 3" is a
-      // number someone can go and work through.
+      // number someone can go and work through. Past 9 the exact number stops
+      // being one — and a fourth digit would push the button wider than the
+      // width every other state is sized to — so it caps at "Fix 9+".
       label:
-        validationErrorCount > 0 ? `Fix ${validationErrorCount}` : "Fix errors",
+        validationErrorCount > 0
+          ? `Fix ${validationErrorCount > 9 ? "9+" : validationErrorCount}`
+          : "Fix errors",
       description:
         validationErrorCount > 0
           ? "Show the validation errors"
