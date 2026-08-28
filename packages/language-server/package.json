@@ -44,7 +44,7 @@
     "vscode-jsonrpc": "^9.0.2"
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": "^20.19.0 || >=22"
   },
   "files": [
     "dist",

@@ -39,7 +39,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": "^20.19.0 || >=22"
   },
   "files": [
     "dist"
