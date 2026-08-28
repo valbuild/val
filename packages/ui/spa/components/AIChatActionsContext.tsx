@@ -37,6 +37,25 @@ export interface AIChatActions {
   openAIChat(): void;
   setOpenAIChatImpl(fn: (() => void) | null): void;
   chatEditorRef: RefObject<ChatEditorRef | null>;
+  /**
+   * Mention a field in the assistant, opening it if it is not already there.
+   *
+   * Here rather than at the call site because of the gap between those two: the
+   * shell renders the assistant panel on demand, so `openAIChat()` returns with
+   * the editor not yet mounted and an insert straight after it lands on a ref
+   * that is still null — the panel opens and the field is silently missing. A
+   * mention made in that window is queued and replayed by
+   * {@link AIChatActions.flushPendingFieldRefs} when the editor arrives.
+   */
+  insertFieldRef(path: SourcePath): void;
+  /**
+   * The chat editor is mounted; deliver anything queued for it.
+   *
+   * Called by whatever surface owns the editor, in an effect. Safe to call
+   * whenever — an empty queue is a no-op — which is what lets the surface call
+   * it on every mount rather than having to know whether one is waiting.
+   */
+  flushPendingFieldRefs(): void;
 }
 
 const AIChatActionsContext = createContext<AIChatActions>({
@@ -45,6 +64,8 @@ const AIChatActionsContext = createContext<AIChatActions>({
   openAIChat: () => {},
   setOpenAIChatImpl: () => {},
   chatEditorRef: { current: null },
+  insertFieldRef: () => {},
+  flushPendingFieldRefs: () => {},
 });
 
 export function AIChatActionsProvider({
@@ -68,6 +89,9 @@ export function AIChatActionsProvider({
    */
   const [hasChatSurface, setHasChatSurface] = useState(false);
 
+  /** Mentions made before the editor existed, oldest first. See `insertFieldRef`. */
+  const pendingFieldRefs = useRef<SourcePath[]>([]);
+
   const openAIChat = useCallback(() => {
     openImplRef.current?.();
   }, []);
@@ -77,6 +101,29 @@ export function AIChatActionsProvider({
     setHasChatSurface(fn !== null);
   }, []);
 
+  const insertFieldRef = useCallback(
+    (path: SourcePath) => {
+      openAIChat();
+      const editor = chatEditorRef.current;
+      if (editor === null) {
+        pendingFieldRefs.current.push(path);
+        return;
+      }
+      editor.insertFieldRef(path);
+    },
+    [openAIChat],
+  );
+
+  const flushPendingFieldRefs = useCallback(() => {
+    const editor = chatEditorRef.current;
+    if (editor === null || pendingFieldRefs.current.length === 0) return;
+    const queued = pendingFieldRefs.current;
+    pendingFieldRefs.current = [];
+    for (const path of queued) {
+      editor.insertFieldRef(path);
+    }
+  }, []);
+
   const value = useMemo<AIChatActions>(
     () => ({
       isAIChatEnabled,
@@ -84,6 +131,8 @@ export function AIChatActionsProvider({
       openAIChat,
       setOpenAIChatImpl,
       chatEditorRef,
+      insertFieldRef,
+      flushPendingFieldRefs,
     }),
     [
       isAIChatEnabled,
@@ -91,6 +140,8 @@ export function AIChatActionsProvider({
       hasChatSurface,
       openAIChat,
       setOpenAIChatImpl,
+      insertFieldRef,
+      flushPendingFieldRefs,
     ],
   );
 
@@ -106,12 +157,5 @@ export function useAIChatActions(): AIChatActions {
 }
 
 export function useInsertFieldRef() {
-  const { chatEditorRef, openAIChat } = useAIChatActions();
-  return useCallback(
-    (path: SourcePath) => {
-      openAIChat();
-      chatEditorRef.current?.insertFieldRef(path);
-    },
-    [chatEditorRef, openAIChat],
-  );
+  return useAIChatActions().insertFieldRef;
 }

@@ -776,6 +776,18 @@ export function useAI(
        * the image resolved to nothing.
        */
       withPatchId?: PatchId,
+      /**
+       * The bytes this patch's `file` ops name are already attached to
+       * `withPatchId`, because the content service copied them there.
+       *
+       * True for the two image flows and nothing else. Their `file` ops carry
+       * the session KEY where every other producer puts a base64 data URL, and
+       * the store would otherwise upload that string as the file's contents —
+       * over the image the service had just written, on the same path. The image
+       * then 404'd in the Studio and a publish committed the key in place of the
+       * PNG.
+       */
+      filesAlreadyUploaded?: boolean,
     ): Promise<
       | { status: "patch-synced"; patchId: PatchId }
       | { status: "patch-error"; message: string }
@@ -794,6 +806,13 @@ export function useAI(
         undefined,
         withPatchId,
         sessionId ?? undefined,
+        // The store's own default, spelled out because the argument after it is
+        // not. Only `ValOpsHttp` reads it, and only for an upload — which is
+        // exactly what `filesAlreadyUploaded` suppresses — so an `s.file()`
+        // session key being described as an image costs nothing here. It would
+        // if these bytes were ever uploaded from the client.
+        "image",
+        filesAlreadyUploaded,
       );
       if (res.status !== "created") {
         return { status: "patch-error", message: res.message };
@@ -1128,6 +1147,8 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -1353,6 +1374,8 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({

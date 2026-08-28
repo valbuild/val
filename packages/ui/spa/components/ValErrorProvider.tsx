@@ -93,7 +93,7 @@ export function useAllValidationErrors(): Record<
    * and loading a `.jsonValues()` record announces one per batch. Each of those
    * used to hand back a brand-new object.
    *
-   * `NavMenuWrapper` memoises the whole nav tree on this value, so a new object
+   * The nav tree is memoised on this value, so a new object
    * rebuilt the entire tree — and the tree contains a Radix `ScrollArea` inside
    * an `AccordionContent`, both of which measure and set state from a ref. Enough
    * rebuilds in a row and that becomes "Maximum update depth exceeded", thrown
