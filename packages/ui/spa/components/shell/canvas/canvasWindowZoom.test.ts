@@ -1,4 +1,11 @@
-import { anchoredScroll, fitScale, MAX_SCALE, MIN_SCALE } from "./CanvasWindow";
+import {
+  anchoredScroll,
+  clampScale,
+  fitScale,
+  MAX_SCALE,
+  MIN_SCALE,
+  screenSpan,
+} from "./CanvasWindow";
 
 /**
  * The maths behind "zoom towards the thing I am pointing at".
@@ -143,5 +150,79 @@ describe("fitScale", () => {
     );
     expect(Number.isFinite(scale)).toBe(true);
     expect(scale).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A pinch, run frame by frame the way a real one arrives.
+ *
+ * The single-frame version of this test passes against the broken code, which
+ * is exactly why it is written as a loop: on the first `move` the scale is
+ * still the one the gesture started at, so the wrong unit and the right one
+ * give the same answer. It takes two frames for them to diverge, and after that
+ * they never agree again.
+ *
+ * The page reports the span in ITS pixels, so what it sends back depends on the
+ * zoom the studio has just applied — that feedback is the whole hazard, and is
+ * modelled here rather than assumed away.
+ */
+function runPinch(
+  startScale: number,
+  /** The physical distance between the fingers, one entry per frame. */
+  frames: number[],
+): number[] {
+  let scale = startScale;
+  // `touchstart`: the page reports the span in its own pixels.
+  const origin = { span: screenSpan(frames[0] / scale, scale), scale };
+  const seen: number[] = [];
+  for (const physical of frames.slice(1)) {
+    const reported = physical / scale; // what the page measures, at this zoom
+    const span = screenSpan(reported, scale);
+    scale = clampScale(origin.scale * (span / origin.span));
+    seen.push(scale);
+  }
+  return seen;
+}
+
+/** Where a pinch left the zoom. */
+function endsAt(seen: number[]): number {
+  return seen[seen.length - 1];
+}
+
+describe("a pinch", () => {
+  test("settles instead of strobing when the fingers are held still", () => {
+    // Fingers opened to 2x and then held there for ten frames. The scale must
+    // reach 2x and STAY — under the page-pixel unit this alternates between 1x
+    // and 2x forever, which on screen is the canvas flickering under the hand.
+    const frames = [100, ...Array(10).fill(200)];
+    const seen = runPinch(0.5, frames);
+    for (const scale of seen) {
+      expect(scale).toBeCloseTo(1);
+    }
+  });
+
+  test("a pinch that ends where it began leaves the zoom where it found it", () => {
+    // Out and back. The gesture is a ratio against its own start, so returning
+    // the fingers has to return the zoom — no accumulated drift.
+    expect(endsAt(runPinch(0.8, [120, 180, 240, 180, 120]))).toBeCloseTo(0.8);
+  });
+
+  test("the ratio is the ratio, whatever zoom it started from", () => {
+    // Doubling the finger distance doubles the zoom, from anywhere.
+    expect(endsAt(runPinch(0.25, [100, 200]))).toBeCloseTo(0.5);
+    expect(endsAt(runPinch(0.5, [100, 200]))).toBeCloseTo(1);
+    expect(endsAt(runPinch(1, [100, 50]))).toBeCloseTo(0.5);
+  });
+
+  test("holds at the limit rather than running away past it", () => {
+    // Kept pinching after the ceiling: every later frame stays clamped rather
+    // than accumulating a debt that has to be un-pinched before the zoom moves
+    // again. A property of the clamp rather than of the unit — unlike the two
+    // above, this one holds under the old formula too.
+    const frames = [100, 400, 800, 1600, 1600, 1600];
+    const seen = runPinch(1, frames);
+    for (const scale of seen) {
+      expect(scale).toBe(MAX_SCALE);
+    }
   });
 });

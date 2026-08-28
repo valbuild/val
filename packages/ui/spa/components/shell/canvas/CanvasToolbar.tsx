@@ -86,7 +86,13 @@ export function CanvasToolbar({
         // On a phone the canvas is a pane a little narrower than the screen,
         // and this is nine controls: it has to be able to run out of room
         // without pushing itself off both sides of the page it sits on.
-        "max-w-[calc(100%-1.5rem)] overflow-x-auto scrollbar-none",
+        //
+        // `[&>*]:shrink-0` is what makes it SCROLL rather than squash. A flex
+        // child shrinks below its own width by default, so without this the
+        // buttons quietly compress towards their 14px icons and the dividers
+        // vanish — the strip always fits, and never once overflows enough to
+        // scroll.
+        "max-w-[calc(100%-1.5rem)] overflow-x-auto scrollbar-none [&>*]:shrink-0",
         className,
       )}
     >

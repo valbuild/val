@@ -72,6 +72,14 @@ export type CanvasWindowProps = {
    */
   autoFit?: boolean;
   /**
+   * Someone zoomed, by any of the ways of asking.
+   *
+   * Reported so the caller can stop wanting a fit. It cannot infer that from
+   * `onScaleChange`, because fitting changes the scale too — and a zoom the
+   * caller did not hear about is one the next resize silently undoes.
+   */
+  onUserZoom?: () => void;
+  /**
    * Where the window was left scrolled, from a link.
    *
    * Applied once, when the page has a size to scroll within — before that
@@ -122,6 +130,7 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
       scale,
       onScaleChange,
       autoFit = false,
+      onUserZoom,
       initialScroll,
       onScrollChange,
       children,
@@ -197,6 +206,16 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
       (nextScale: number, at: CanvasPoint, hold: CanvasPoint) => {
         const el = windowRef.current;
         if (!el) return;
+        /*
+         * Every route into here is someone asking for a zoom — the buttons, a
+         * wheel, a pinch. Fitting is not: it goes straight to `onScaleChange`.
+         * So this is the one place that has to say so, and saying it here is
+         * what keeps the wheel handler below from being the one path that
+         * forgets: it does not go through the caller at all, so a zoom over the
+         * canvas background used to leave the fit armed and be thrown away by
+         * the next resize.
+         */
+        onUserZoom?.();
         const from = scaleRef.current;
         const to = clampScale(nextScale);
         const page = { width: pageWidth, height: pageHeightRef.current };
@@ -213,7 +232,7 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
         scaleRef.current = to;
         onScaleChange(to);
       },
-      [pageWidth, onScaleChange],
+      [pageWidth, onScaleChange, onUserZoom],
     );
 
     /** The middle of the window, in the page's own coordinates. */
@@ -256,39 +275,41 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
       onScaleChange(next);
     }, [pageWidth, onScaleChange]);
 
-    /** Where the fingers went down, held for the length of the gesture. */
-    const pinchOrigin = useRef<{ span: number; center: CanvasPoint } | null>(
-      null,
-    );
     /**
-     * And the scale they went down at.
+     * Where the fingers went down, held for the length of the gesture.
      *
-     * The gesture is a ratio against where it STARTED, not a nudge per frame:
-     * accumulating per-frame factors drifts, and lets a pinch that ends where it
-     * began leave the page at a different zoom than it found it.
+     * The span is stored in SCREEN px — see {@link screenSpan} — while the
+     * centre stays in the page's own coordinates, because that is what
+     * `anchoredScroll` anchors on and a page coordinate does not move when the
+     * zoom does.
      */
-    const pinchStartScale = useRef(scale);
+    const pinchOrigin = useRef<{
+      span: number;
+      center: CanvasPoint;
+      scale: number;
+    } | null>(null);
     const pinch = useCallback(
       (gesture: CanvasPinch) => {
         if (gesture.phase === "end") {
           pinchOrigin.current = null;
           return;
         }
+        const span = screenSpan(gesture.span, scaleRef.current);
         if (gesture.phase === "start" || pinchOrigin.current === null) {
           // A `move` with no origin means the `start` was lost — a frame that
           // reloaded mid-gesture, say. Treating it as the start is better than
           // dividing by a span nobody measured.
           pinchOrigin.current = {
-            span: gesture.span,
+            span,
             center: gesture.center,
+            scale: scaleRef.current,
           };
-          pinchStartScale.current = scaleRef.current;
           return;
         }
         const origin = pinchOrigin.current;
         if (origin.span <= 0) return;
         applyZoom(
-          pinchStartScale.current * (gesture.span / origin.span),
+          origin.scale * (span / origin.span),
           gesture.center,
           origin.center,
         );
@@ -475,6 +496,32 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
     );
   },
 );
+
+/**
+ * A finger span, converted out of the page's pixels and into the screen's.
+ *
+ * The page is inside a scaled box, and a scaled box has its own idea of a
+ * pixel: at 50% zoom, two fingers 200 screen px apart land 400 page px apart,
+ * and the page — which measures in its own coordinates and knows nothing about
+ * the zoom — reports 400.
+ *
+ * That unit cannot be used for a pinch, because the pinch is what changes the
+ * number it is divided by. Take the ratio in page px and the next scale works
+ * out as `s0² · r / s`, which in terms of `k = s / s0` is `k' = r / k` — a
+ * period-2 map. Held at a steady 2×, it does not settle at 2×: it alternates
+ * between 1× and 2× on every frame, so the canvas strobes under the fingers and
+ * a completed 4× pinch lands somewhere near 2×.
+ *
+ * One frame of it looks perfect, which is the trap — the first `move` still has
+ * the starting scale, so a test that sends a single move sees exactly the right
+ * answer. It takes two.
+ *
+ * Multiplying by the scale the reading was taken at undoes the box, leaving a
+ * distance that means the same thing on every frame.
+ */
+export function screenSpan(pageSpan: number, scale: number): number {
+  return pageSpan * scale;
+}
 
 export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));

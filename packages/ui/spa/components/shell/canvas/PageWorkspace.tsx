@@ -471,20 +471,23 @@ export function PageWorkspace({
   }, []);
 
   /**
-   * A zoom someone asked for, by any of the four ways of asking.
+   * A zoom someone asked for ends the fit.
    *
-   * All of them end the fit: after this the zoom is a choice that was made,
-   * and re-fitting on the next resize would quietly undo it.
+   * Answered once, by the window, rather than at each of the four ways of
+   * asking: the buttons and the relayed gestures come through here, but a
+   * ctrl/cmd + wheel over the canvas background never leaves the window at all.
+   * That path had no way to say so, so a zoom made that way stayed armed for a
+   * fit and was thrown away by the next resize — the split divider, the browser
+   * window, or the column's own opening animation a third of a second later.
    */
+  const onUserZoom = useCallback(() => setAutoFit(false), []);
   const zoomByUser = useCallback(
     (factor: number, center: CanvasPoint | null) => {
-      setAutoFit(false);
       canvasWindowRef.current?.zoomBy(factor, center);
     },
     [],
   );
   const onPinch = useCallback((gesture: CanvasPinch) => {
-    if (gesture.phase === "start") setAutoFit(false);
     canvasWindowRef.current?.pinch(gesture);
   }, []);
 
@@ -643,12 +646,20 @@ export function PageWorkspace({
   const onPicked = useCallback(() => {
     if (!isPicking) return;
     onViewChange("fields");
-    if (!isPhone) return;
-    // See `placePaneInstantly`: a glide here is cancelled by the focus the
-    // click just gave the frame.
+    if (!isPhone || pane === "editor") return;
+    /*
+     * See `placePaneInstantly`: a glide here is cancelled by the focus the
+     * click just gave the frame.
+     *
+     * Only when the pane is actually MOVING. `setPane` to the pane you are
+     * already on is not a state change, so the effect that consumes this flag
+     * never runs — and the flag would sit there until the next pane change,
+     * whoever made it, and turn that one into a jump with 400ms of held
+     * position. A swipe answered that way feels like the switch fighting back.
+     */
     placePaneInstantly.current = true;
     setPane("editor");
-  }, [isPicking, onViewChange, isPhone]);
+  }, [isPicking, onViewChange, isPhone, pane]);
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -834,6 +845,7 @@ export function PageWorkspace({
         scale={scale}
         onScaleChange={setScale}
         autoFit={autoFit}
+        onUserZoom={onUserZoom}
         initialScroll={
           initialTransform && { x: initialTransform.x, y: initialTransform.y }
         }

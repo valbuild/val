@@ -32,7 +32,11 @@ the site in a frame, and a frame keeps its own touches, so a pinch there was
 invisible to the Studio. `ValCanvasBridge` now relays two-finger gestures and
 ctrl/cmd + wheel zooms over the protocol (`pinch` and `zoom` messages in
 `valCanvasProtocol`), which is also what makes a trackpad pinch work over the
-page rather than only over the background beside it.
+page rather than only over the background beside it. The page reports the finger
+span in its OWN pixels — it knows nothing about the zoom it is being shown at —
+so the Studio converts back to screen pixels before taking the ratio; left in
+page pixels the gesture divides by its own result and a held pinch alternates
+between two zooms instead of settling.
 
 **Selecting on the page takes you to the field.** Picking was never an end in
 itself — nobody outlines a headline to admire the outline — so a pick now opens

@@ -89,7 +89,18 @@ export function CanvasFields({
       clearTimeout(stop);
       observer.disconnect();
     };
-  }, [selectedPath]);
+    /*
+     * Re-run when the LIST changes as well as when the selection does.
+     *
+     * A selection can arrive before the rows it names: a deep link, a search
+     * hit or a validation error all name a field while the page is still being
+     * scanned, and the column is empty until it reports back. The observer does
+     * not cover that — it watches the rows that exist when it is set up, and
+     * the column's own box does not change when sections are added inside a
+     * scroller — so without this the one case where the scroll matters most is
+     * the one it never happens in.
+     */
+  }, [selectedPath, paths]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
