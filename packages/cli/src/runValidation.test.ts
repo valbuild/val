@@ -485,6 +485,104 @@ describe("runValidation", () => {
     expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
   });
 
+  describe("unregistered files", () => {
+    const runOn = async (valFiles: string[]) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles,
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("warns about an unregistered file that IS a Val module", async () => {
+      const events = await runOn(["content/unregistered-module.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          {
+            type: "unregistered-module",
+            file: "content/unregistered-module.val.ts",
+          },
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("says nothing about an unregistered file with no default export", async () => {
+      // The `.val.ts` suffix is used for shared schemas and other helpers too.
+      // Those are not meant to be registered, so warning about them buried the
+      // one warning that matters under a wall of noise.
+      const events = await runOn(["content/unregistered-helper.val.ts"]);
+
+      expect(events.filter((e) => e.type !== "summary-success")).toHaveLength(
+        0,
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("says nothing about a type-only default export", async () => {
+      // `export type { T as default }` does not survive transpilation, so the
+      // file has no runtime default export - evaluating it would report a pure
+      // helper as an error.
+      const events = await runOn(["content/unregistered-type-default.val.ts"]);
+
+      expect(events.filter((e) => e.type !== "summary-success")).toHaveLength(
+        0,
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("errors when an unregistered file default exports a non-module", async () => {
+      // Nothing can ever load this file under this name, so it is not something
+      // to skip quietly - it is a mistake.
+      const events = await runOn(["content/unregistered-not-a-module.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            file: "/content/unregistered-not-a-module.val.ts",
+            message: expect.stringContaining("not a Val module"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("reports every file broken by the same throwing import", async () => {
+      // Regression: the inspector shares one module cache across files, and the
+      // loader caches a module BEFORE evaluating it so cycles resolve. A module
+      // that threw therefore left a half-built entry behind, and the next file
+      // to import it hit that entry, saw empty exports, and got reported as
+      // "default export is undefined" - downgrading a real error to a warning,
+      // in an order-dependent way.
+      const events = await runOn([
+        "content/unregistered-throws-a.val.ts",
+        "content/unregistered-throws-b.val.ts",
+      ]);
+
+      const fatal = events.filter((e) => e.type === "fatal-error");
+      expect(fatal).toEqual([
+        expect.objectContaining({
+          file: "/content/unregistered-throws-a.val.ts",
+          message: expect.stringContaining("helper boom"),
+        }),
+        expect.objectContaining({
+          file: "/content/unregistered-throws-b.val.ts",
+          message: expect.stringContaining("helper boom"),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
+    });
+  });
+
   describe("jsonValues", () => {
     const runOn = async (valFiles: string[]) => {
       const events: ValidationEvent[] = [];

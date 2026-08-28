@@ -96,7 +96,8 @@ export type { ModulePathMap } from "./modulePathMap";
 // need to drive the same ops the app's api routes drive.
 export { ValOpsFS } from "./ValOpsFS";
 export { ValOpsHttp } from "./ValOpsHttp";
-export { loadValModules } from "./loadValModules";
+export { loadValModules, createValModuleFileInspector } from "./loadValModules";
+export type { ValModuleFileInspection } from "./loadValModules";
 export { formatPatchSourceError } from "./ValOps";
 export {
   compareWithCapturedReport,

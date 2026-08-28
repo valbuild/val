@@ -3,7 +3,7 @@ import fs from "fs";
 import vm from "node:vm";
 import { Module } from "node:module";
 import ts from "typescript";
-import type { ValModules } from "@valbuild/core";
+import { Internal, type ValModules } from "@valbuild/core";
 import { getCompilerOptions } from "./getCompilerOptions";
 
 /**
@@ -252,4 +252,175 @@ function resolveRelative(
     }
   }
   return null;
+}
+
+/**
+ * What a `*.val.ts` file that is NOT registered in `val.modules` turns out to
+ * be.
+ *
+ * A file matching `*.val.ts` is not necessarily a Val module: the same
+ * convention is used for shared schemas and other content-adjacent helpers, and
+ * those are not meant to be registered. Only a file that actually default
+ * exports a module is worth warning about; one that default exports something
+ * else is a mistake, because nothing will ever load it.
+ *
+ * See {@link createValModuleFileInspector}.
+ */
+export type ValModuleFileInspection =
+  /** No default export at all: not a Val module, and not trying to be one. */
+  | { status: "no-default-export" }
+  /** A real Val module — `export default c.define(...)`. */
+  | { status: "val-module" }
+  /** A default export that is not a Val module, or that would not evaluate. */
+  | { status: "invalid"; message: string };
+
+/**
+ * Inspects individual `*.val.{ts,js}` files, sharing one module cache and one
+ * parsed tsconfig across every call.
+ *
+ * The default export is checked SYNTACTICALLY first and only evaluated if it is
+ * there. That ordering is the point: a `.val.ts` with no default export is a
+ * helper file, and evaluating it to learn that would be both wasted work and a
+ * way to turn an unrelated top-level throw into a reported error.
+ *
+ * SECURITY: evaluation goes through the same `vm` loader as
+ * {@link loadValModules} — see the warning there. Only ever point this at the
+ * project's own first-party files.
+ */
+export function createValModuleFileInspector(
+  projectRoot: string,
+  host: ValModulesHost = ts.sys,
+): (absPath: string) => ValModuleFileInspection {
+  const compilerOptions = getCompilerOptions(projectRoot, host);
+  const cache: Record<string, { exports: Record<string, unknown> }> = {};
+  return (absPath) => {
+    const code = host.readFile(absPath);
+    if (code === undefined) {
+      return {
+        status: "invalid",
+        message: `Could not read file: '${absPath}'`,
+      };
+    }
+    const sourceFile = ts.createSourceFile(
+      absPath,
+      code,
+      ts.ScriptTarget.ES2020,
+      true,
+    );
+    if (!hasDefaultExport(sourceFile)) {
+      return { status: "no-default-export" };
+    }
+    let exports: Record<string, unknown>;
+    // `loadModule` inserts a module into the cache BEFORE evaluating it, so
+    // that a cycle resolves. One that throws therefore leaves a half-built
+    // entry behind - and unlike `loadValModules`, which builds a cache per
+    // call and lets the throw escape, this cache outlives the failure. A later
+    // inspection of the same file (or of the helper that actually threw) would
+    // hit that entry, see empty exports, and report "default export is
+    // undefined" instead of the real error - or, worse, quietly downgrade it to
+    // a warning. So roll the cache back to what it was before this attempt.
+    const before = new Set(Object.keys(cache));
+    try {
+      exports = loadModule(absPath, cache, compilerOptions, host).exports;
+    } catch (e) {
+      for (const key of Object.keys(cache)) {
+        if (!before.has(key)) {
+          delete cache[key];
+        }
+      }
+      return {
+        status: "invalid",
+        message: `Could not be loaded. Error: ${errorMessage(e)}`,
+      };
+    }
+    if (Internal.isValModule(exports.default)) {
+      return { status: "val-module" };
+    }
+    // NOTE: do NOT suggest wrapping this in `c.define`. A shared schema turned
+    // into a module is an UNREGISTERED module, i.e. straight back to a warning.
+    // The fix is to move it out of the default export slot, which is the one
+    // thing about a `.val.ts` that Val reserves for itself.
+    return {
+      status: "invalid",
+      message: `Default export is ${describeDefaultExport(
+        exports.default,
+      )}, not a Val module. Only 'c.define(...)' may be the default export of a '*.val.ts' file: use a named export for a shared schema or helper`,
+    };
+  };
+}
+
+/**
+ * Whether the file exports a RUNTIME value as `default`, without evaluating it.
+ *
+ * Two things deliberately do not count, because neither exists once the file is
+ * transpiled — and treating either as a default export would send a pure helper
+ * off to be evaluated and reported:
+ *
+ *  - `export * from "./x"`, since a star re-export never carries the default;
+ *  - a type-only export, in either of its spellings
+ *    (`export type { T as default }` and `export { type T as default }`).
+ */
+function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    // `export default <expr>` — but not `export = x`, which shares this node.
+    if (ts.isExportAssignment(statement)) {
+      return !statement.isExportEquals;
+    }
+    // `export { x as default }` / `export { default } from "./x"`
+    if (
+      ts.isExportDeclaration(statement) &&
+      !statement.isTypeOnly &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      return statement.exportClause.elements.some(
+        (element) => !element.isTypeOnly && element.name.text === "default",
+      );
+    }
+    // `export default function f() {}` / `export default class C {}`, which are
+    // declarations carrying a `default` modifier rather than export assignments.
+    return (
+      ts.canHaveModifiers(statement) &&
+      (ts.getModifiers(statement) ?? []).some(
+        (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,
+      )
+    );
+  });
+}
+
+/** A short, human-readable "what you exported instead" for the error message. */
+function describeDefaultExport(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "an array";
+  }
+  if (typeof value === "object") {
+    // Duck-typed rather than `instanceof Schema`, for the same cross-realm
+    // reason `isValModule` avoids a constructor check.
+    if (
+      "executeSerialize" in value &&
+      typeof value["executeSerialize"] === "function"
+    ) {
+      return "a schema";
+    }
+    return "an object";
+  }
+  if (typeof value === "undefined") {
+    return "undefined";
+  }
+  return `a ${typeof value}`;
+}
+
+function errorMessage(e: unknown): string {
+  // NOT `e instanceof Error`: an error thrown from inside the `vm` context is
+  // built from that realm's Error constructor. Duck-type the message instead.
+  if (typeof e === "object" && e !== null && "message" in e) {
+    const { message } = e;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  return String(e);
 }

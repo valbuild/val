@@ -62,6 +62,27 @@ export function getSource<T extends Source>(valModule: ValModule<T>): T {
   return valModule[GetSource] as T;
 }
 
+/**
+ * Whether `value` is a Val module, i.e. something {@link define} produced.
+ *
+ * Checks for the three symbols `define` writes, rather than a class identity:
+ * a module may have been created by a different copy of `@valbuild/core` (the
+ * editor SPA and the host bundle each ship their own, and the CLI evaluates
+ * user modules inside a `node:vm` context). The symbols are created with
+ * `Symbol.for`, so they are shared across all of those; a constructor is not.
+ */
+export function isValModule(
+  value: unknown,
+): value is ValModule<SelectorSource> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    GetSource in value &&
+    GetSchema in value &&
+    Path in value
+  );
+}
+
 export function splitModuleFilePathAndModulePath(
   path: SourcePath | ModuleFilePath,
 ): [moduleId: ModuleFilePath, path: ModulePath] {
