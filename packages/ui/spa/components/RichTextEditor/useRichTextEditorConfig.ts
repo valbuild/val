@@ -3,11 +3,10 @@ import {
   type SerializedRichTextOptions,
   type SerializedImageSchema,
   type ModuleFilePath,
-  type ListRecordRender,
   Internal,
 } from "@valbuild/core";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
-import { useAllRenders } from "../ValFieldProvider";
+import { useAllPreviews } from "../ValFieldProvider";
 import { serializedRichTextOptionsToFeatures } from "./convertOptions";
 import type { EditorFeatures, EditorLinkCatalogItem } from "./types";
 
@@ -73,12 +72,12 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   );
 
   const routesWithModulePaths = useRoutesWithModulePaths();
-  const allRenders = useAllRenders();
+  const allPreviews = useAllPreviews();
 
   const linkCatalog: EditorLinkCatalogItem[] | undefined = useMemo(() => {
     if (!isRouteLink) return undefined;
 
-    const renderItemsByModule = new Map<
+    const previewItemsByModule = new Map<
       ModuleFilePath,
       Map<string, { title: string; subtitle?: string | null; image?: string }>
     >();
@@ -90,23 +89,21 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
         return true;
       })
       .map(({ route, moduleFilePath }) => {
-        if (!renderItemsByModule.has(moduleFilePath)) {
+        if (!previewItemsByModule.has(moduleFilePath)) {
           const itemMap = new Map<
             string,
             { title: string; subtitle?: string | null; image?: string }
           >();
-          const renderAtModule = allRenders[moduleFilePath];
-          if (renderAtModule) {
-            const moduleRender = renderAtModule[moduleFilePath];
+          const previewAtModule = allPreviews[moduleFilePath];
+          if (previewAtModule) {
+            const modulePreview = previewAtModule[moduleFilePath];
             if (
-              moduleRender &&
-              "data" in moduleRender &&
-              moduleRender.data &&
-              moduleRender.data.layout === "list" &&
-              moduleRender.data.parent === "record"
+              modulePreview &&
+              "data" in modulePreview &&
+              modulePreview.data &&
+              modulePreview.data.parent === "record"
             ) {
-              const recordRender = moduleRender.data as ListRecordRender;
-              for (const [key, value] of recordRender.items) {
+              for (const [key, value] of modulePreview.data.items) {
                 itemMap.set(key, {
                   title: value.title,
                   subtitle: value.subtitle,
@@ -115,17 +112,19 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
               }
             }
           }
-          renderItemsByModule.set(moduleFilePath, itemMap);
+          previewItemsByModule.set(moduleFilePath, itemMap);
         }
 
-        const renderItem = renderItemsByModule.get(moduleFilePath)?.get(route);
+        const previewItem = previewItemsByModule
+          .get(moduleFilePath)
+          ?.get(route);
 
-        if (renderItem) {
+        if (previewItem) {
           return {
-            title: renderItem.title,
-            subtitle: renderItem.subtitle ?? moduleFilePath,
+            title: previewItem.title,
+            subtitle: previewItem.subtitle ?? moduleFilePath,
             href: route,
-            image: renderItem.image,
+            image: previewItem.image,
           };
         }
 
@@ -140,7 +139,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     routesWithModulePaths,
     includePattern,
     excludePattern,
-    allRenders,
+    allPreviews,
   ]);
 
   const imageModulePath = useMemo((): ModuleFilePath | undefined => {

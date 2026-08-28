@@ -58,10 +58,14 @@ function makeSystem(options?: {
   publishOutcome?: Awaited<ReturnType<PublishPatches>>;
 }) {
   const publishes: PatchId[][] = [];
+  const fetched: PatchId[][] = [];
   const held: (() => void)[] = [];
   const modules = project();
   const system = createSystem({
-    fetchPatches: async () => ({ patches: [] }),
+    fetchPatches: async (patchIds) => {
+      fetched.push([...patchIds]);
+      return { patches: [] };
+    },
     fetchJsonEntry: async (moduleFilePath, key) => {
       // Genuinely async, like the real `GET /json`, so nothing can come to
       // depend on an entry being there synchronously.
@@ -91,7 +95,12 @@ function makeSystem(options?: {
   });
   system.host.receive(modules);
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
-  return { system, publishes, releaseSaves: () => held.forEach((r) => r()) };
+  return {
+    system,
+    publishes,
+    fetched,
+    releaseSaves: () => held.forEach((r) => r()),
+  };
 }
 
 const edit = async (
@@ -570,5 +579,150 @@ describe("publishing in exact mode", () => {
       expect(starts).toBe(1);
       system.dispose();
     });
+  });
+});
+
+/**
+ * The stat that arrives right after `/save`, naming what `/save` just deleted.
+ *
+ * `/stat` long polls in `fs` mode: its patch list is read when the poll opens
+ * and the response is sent when a file changes — and the file that changes is
+ * the one the publish just wrote. So the answer routinely names the patches the
+ * publish committed and removed, a whole polling interval after they stopped
+ * existing.
+ *
+ * With auto-save on, that is every pause in typing, which is how this reached a
+ * user as "3 unpublished changes could not be loaded." for three changes that
+ * had been published a moment earlier. `ValOpsFS.getStat` now reads again before
+ * answering, so the stale list is not produced in the first place; this is the
+ * studio holding up its end regardless, because no snapshot protocol can promise
+ * the list was not overtaken.
+ */
+describe("a stat older than the publish it follows", () => {
+  it("ignores the patches it has already published", async () => {
+    const { system, fetched } = makeSystem();
+    const first = await setTitle(system, "one");
+    await saved(system);
+    expect(await system.publish([first], undefined, { exact: true })).toEqual({
+      status: "published",
+      patchIds: [first],
+    });
+
+    system.stat.receiveStat({ patches: [first], baseSha: "sha" });
+    await settle();
+
+    // Not reported, because nothing is wrong: the change is published and its
+    // effect is in the base.
+    expect(system.status.current().errors).toEqual([]);
+    // Not fetched either. Asking for it is what produces the empty answer that
+    // used to be read as the server contradicting itself.
+    expect(fetched).toEqual([]);
+    // And not back in the chain: re-adding it moves the head and unsettles it,
+    // which stops fields rendering while it is "on its way".
+    expect(system.patchStore.allRecords()).toEqual([]);
+    expect(await titleOf(system)).toBe("one");
+    system.dispose();
+  });
+
+  /**
+   * The value is the point. A published patch's effect lives in the base now, so
+   * anything that puts its id back in the chain has to be wrong in one direction
+   * or the other: dropped, and the field reverts; applied, and it lands twice.
+   */
+  it("does not apply a published patch a second time", async () => {
+    const { system } = makeSystem();
+    const first = await edit(system, "/list.val.ts", [
+      { op: "add", path: ["items", "-"], value: "two" },
+    ]);
+    await saved(system);
+    await system.publish([first], undefined, { exact: true });
+
+    system.stat.receiveStat({ patches: [first], baseSha: "sha" });
+    await settle();
+
+    const read = await system.sourceStore.get(
+      sp('/list.val.ts?p="items"'),
+      null,
+    );
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toEqual(["one", "two"]);
+    system.dispose();
+  });
+});
+
+/**
+ * What the canvas has to be told about after a publish.
+ *
+ * The relay into a canvas document carries changes; a freshly loaded document is
+ * caught up with a snapshot of "every module the editor knows a newer value for
+ * than the page might". That used to mean modules with a PENDING patch, which is
+ * the set a publish empties — so the document loaded by the reload the publish
+ * itself caused was caught up with nothing, told that was all of it, and left
+ * rendering whatever the server gave it. Right after a publish that can be the
+ * content from before it, and nothing moved again until someone typed.
+ */
+describe("modules the editor stays authoritative about", () => {
+  it("names a module it published into, after the chain has emptied", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    await saved(system);
+    await system.publish([first], undefined, { exact: true });
+
+    // The chain is empty: nothing pending says this module was touched.
+    expect(system.patchStore.allRecords()).toEqual([]);
+    expect(system.patchStore.publishedModules()).toEqual(["/a.val.ts"]);
+    system.dispose();
+  });
+
+  it("says nothing about a module that was only saved", async () => {
+    const { system } = makeSystem();
+    await setTitle(system, "one");
+    await saved(system);
+
+    // Saved is not published: the patch is still in the chain, so the pending
+    // set already names this module and there is nothing to add.
+    expect(system.patchStore.publishedModules()).toEqual([]);
+    system.dispose();
+  });
+
+  it("names every module a publish spanned", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    const second = await edit(system, "/list.val.ts", [
+      { op: "add", path: ["items", "-"], value: "two" },
+    ]);
+    await saved(system);
+    await system.publish([first, second], undefined, { exact: true });
+
+    expect(system.patchStore.publishedModules().sort()).toEqual([
+      "/a.val.ts",
+      "/list.val.ts",
+    ]);
+    system.dispose();
+  });
+
+  /**
+   * Not emptied by anything, and that is the point: re-sending a value the page
+   * already has changes nothing on screen, while forgetting one too early is a
+   * stale canvas with no way back.
+   */
+  it("keeps naming it across a later publish", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    await saved(system);
+    await system.publish([first], undefined, { exact: true });
+    const second = await edit(system, "/list.val.ts", [
+      { op: "add", path: ["items", "-"], value: "two" },
+    ]);
+    await saved(system);
+    await system.publish([second], undefined, { exact: true });
+
+    expect(system.patchStore.publishedModules().sort()).toEqual([
+      "/a.val.ts",
+      "/list.val.ts",
+    ]);
+    system.dispose();
   });
 });

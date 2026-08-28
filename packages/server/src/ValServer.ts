@@ -15,7 +15,7 @@ import {
   SelectorSource,
   hasRemoteFileSchema,
 } from "@valbuild/core";
-import { ReifiedRender } from "@valbuild/core";
+import { ReifiedPreview } from "@valbuild/core";
 import {
   Api,
   ParentRef,
@@ -1513,11 +1513,11 @@ export const ValServer = (
         // The studio client always passes false: it owns patch application
         // and validation, and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
-        // NOTE: renders are computed here even when the client applies patches
-        // itself: the render select functions live on the Schema instances and
-        // are not part of the serialized schema, so the client cannot derive
-        // them. They are computed on the patched sources, so that previews
-        // (list titles / subtitles / images) reflect the patches that apply.
+        // NOTE: previews are computed here even when the client applies patches
+        // itself: the preview functions live on the Schema instances and are not
+        // part of the serialized schema, so the client cannot derive them. They
+        // are computed on the patched sources, so that previews (list titles /
+        // subtitles / images) reflect the patches that apply.
         let patchedSources = sourcesRes.sources;
         if ((patchOps.patches?.length ?? 0) > 0) {
           const onlyPatchedTreeModules = await serverOps.getSources({
@@ -1538,7 +1538,7 @@ export const ValServer = (
             };
           }
         }
-        const renderRes = await serverOps.getRenders(
+        const previewRes = await serverOps.getPreviews(
           schemasRes,
           patchedSources,
         );
@@ -1587,7 +1587,7 @@ export const ValServer = (
           {
             source: Json;
             baseSource?: Json;
-            render: ReifiedRender | null;
+            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1631,7 +1631,7 @@ export const ValServer = (
                 applyPatches && hasPatches
                   ? unpatchedSources[moduleFilePath]
                   : undefined,
-              render: renderRes.renders[moduleFilePath] || null,
+              preview: previewRes.previews[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||
@@ -1997,6 +1997,26 @@ export const ValServer = (
               },
             };
           }
+          /*
+           * The files on disk are the committed content now, so say so here too.
+           *
+           * Nothing else will: the sources are memoised per `ValOps` instance
+           * and are re-read by awaiting each module's `def`, which is the app's
+           * own `import()` — that resolves from the module registry, not from
+           * the file this save just rewrote. So until the host rebuilds its
+           * module graph, every read of committed content answers with what was
+           * there before the save. A page rendering draft content sees exactly
+           * that once the patches below are gone: `getJsonEntry` resolves the
+           * committed entry and has no patches left to replay over it.
+           *
+           * Before `deletePatches`, because it needs the patches it is adopting
+           * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
+           * move with them.
+           */
+          await serverOps.adoptCommittedSources(
+            { ...analysis, ...patches },
+            preparedCommit,
+          );
           /*
            * Only what this request consumed.
            *

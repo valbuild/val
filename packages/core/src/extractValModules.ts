@@ -20,6 +20,15 @@ export type ExtractedValModules = {
   sourcesSha: string;
   configSha: string;
   moduleErrors: ExtractedModuleError[];
+  /**
+   * What the SHAs above are a fold over, in order.
+   *
+   * Kept so they can be recomputed from a source that did NOT come from
+   * evaluating the modules — see {@link computeValModuleShas}. A record keyed by
+   * path could not do this: the fold is order-dependent, and the order is
+   * `val.modules`, which a record does not promise to preserve.
+   */
+  shaEntries: ValModuleShaEntry[];
 };
 
 // Lazily constructed: this module is also evaluated inside the `vm` sandbox
@@ -112,6 +121,93 @@ function collectObjectRecursive(
 }
 
 /**
+ * One module's contribution to the SHAs, in fold order.
+ *
+ * The SHAs are a FOLD, not a hash of a set: each module is mixed into the
+ * running value in `val.modules` order, so reproducing one means replaying the
+ * same modules with the same inputs in the same order. That is what this type
+ * is for — see {@link computeValModuleShas}.
+ */
+export type ValModuleShaEntry = {
+  path: ModuleFilePath;
+  source: Source;
+  serializedSchema: SerializedSchema;
+  /**
+   * How many module errors had been collected when this module was folded in.
+   *
+   * The base SHA mixes in the error array as it stood at each step, so a module
+   * that failed to load changes the hash of every module folded in AFTER it and
+   * of none before. Errors are only ever appended, so the state at step _i_ is
+   * the final array's first `moduleErrorsAt` entries — one number is enough to
+   * reproduce it exactly, and a per-step copy is not needed.
+   */
+  moduleErrorsAt: number;
+};
+
+export type ValModuleShas = {
+  baseSha: string;
+  schemaSha: string;
+  sourcesSha: string;
+  configSha: string;
+};
+
+/**
+ * The SHAs, from the entries they are a fold over.
+ *
+ * Split out from {@link extractValModules} because there are two ways to arrive
+ * at a set of sources. Extraction evaluates the modules; the server also
+ * PROMOTES the sources it has just written to disk, because re-evaluating gets
+ * it nothing — a module `def` is the app's own `import()`, which resolves from
+ * the module registry rather than from the file that was just rewritten. Both
+ * have to produce SHAs the other side can compare, so the fold has one
+ * implementation and both call it.
+ *
+ * Feeding back the entries a previous fold used, unchanged, reproduces its SHAs
+ * exactly. That is the property the promotion relies on: only the modules whose
+ * source actually moved change anything.
+ */
+export function computeValModuleShas(
+  config: ValModules["config"],
+  entries: readonly ValModuleShaEntry[],
+  moduleErrors: readonly ExtractedModuleError[],
+): ValModuleShas {
+  const configSha = hash(JSON.stringify(config));
+  let sourcesSha = "";
+  let baseSha = configSha;
+  // NOTE: schemaSha is deliberately NOT seeded with configSha. It is compared
+  // across bundles (the server extracts from the Node bundle, the editor SPA
+  // from the browser bundle) to detect that a new version has been deployed.
+  // The config contains values that are not part of the schema and that differ
+  // between those two bundles - most notably the documented
+  // `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` / `gitBranch`, which are
+  // server-only env vars and therefore `undefined` in the browser. Seeding with
+  // them made the two sides disagree on every production load.
+  let schemaSha = "";
+  for (const entry of entries) {
+    const { path, source, serializedSchema } = entry;
+    sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
+    baseSha = hash(
+      baseSha +
+        JSON.stringify({
+          path,
+          schema: serializedSchema,
+          source,
+          modulesErrors: moduleErrors.slice(0, entry.moduleErrorsAt),
+        }),
+    );
+    // The PATH is part of the schema set, not just the schema: renaming a
+    // module while leaving its schema byte-identical still changes which paths
+    // exist, and an open client keyed its schema cache by the old path. Hashing
+    // the schema alone left this SHA unchanged, so with no commitSha to fall
+    // back on the client never refetched /schema.
+    schemaSha = hash(
+      schemaSha + JSON.stringify({ path, schema: serializedSchema }),
+    );
+  }
+  return { baseSha, schemaSha, sourcesSha, configSha };
+}
+
+/**
  * Extracts schemas and sources from a ValModules registry and computes the
  * deterministic SHAs that the server and client both use to detect changes.
  *
@@ -133,18 +229,15 @@ export async function extractValModules(
   const sources: Record<ModuleFilePath, Source> = {};
   const schemas: Record<ModuleFilePath, Schema<SelectorSource>> = {};
   const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-  const configSha = hash(JSON.stringify(valModules.config));
-  let sourcesSha = "";
-  let baseSha = configSha;
-  // NOTE: schemaSha is deliberately NOT seeded with configSha. It is compared
-  // across bundles (the server extracts from the Node bundle, the editor SPA
-  // from the browser bundle) to detect that a new version has been deployed.
-  // The config contains values that are not part of the schema and that differ
-  // between those two bundles - most notably the documented
-  // `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` / `gitBranch`, which are
-  // server-only env vars and therefore `undefined` in the browser. Seeding with
-  // them made the two sides disagree on every production load.
-  let schemaSha = "";
+  /**
+   * What the fold below runs over, collected here rather than hashed inline.
+   *
+   * The hashing itself moved to `computeValModuleShas`, so the server can
+   * recompute these SHAs for sources it did not get by evaluating the modules.
+   * Collected in loop order, which is `val.modules` order, which is the order
+   * the fold is defined by.
+   */
+  const shaEntries: ValModuleShaEntry[] = [];
   for (let moduleIdx = 0; moduleIdx < valModules.modules.length; moduleIdx++) {
     const module = valModules.modules[moduleIdx];
     // NOTE: `at index N` refers to the module's position in the val.modules
@@ -222,33 +315,21 @@ export async function extractValModules(
     sources[pathM] = source;
     schemas[pathM] = schema;
     serializedSchemas[pathM] = serializedSchema;
-    sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
-    baseSha = hash(
-      baseSha +
-        JSON.stringify({
-          path,
-          schema: serializedSchema,
-          source,
-          modulesErrors: moduleErrors,
-        }),
-    );
-    // The PATH is part of the schema set, not just the schema: renaming a
-    // module while leaving its schema byte-identical still changes which paths
-    // exist, and an open client keyed its schema cache by the old path. Hashing
-    // the schema alone left this SHA unchanged, so with no commitSha to fall
-    // back on the client never refetched /schema.
-    schemaSha = hash(
-      schemaSha + JSON.stringify({ path, schema: serializedSchema }),
-    );
+    shaEntries.push({
+      path: pathM,
+      source,
+      serializedSchema,
+      // The errors so far, which is what the base SHA used to mix in by hashing
+      // the live array at this point in the loop. See `moduleErrorsAt`.
+      moduleErrorsAt: moduleErrors.length,
+    });
   }
   return {
     sources,
     schemas,
     serializedSchemas,
-    baseSha,
-    schemaSha,
-    sourcesSha,
-    configSha,
+    ...computeValModuleShas(valModules.config, shaEntries, moduleErrors),
     moduleErrors,
+    shaEntries,
   };
 }

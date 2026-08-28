@@ -15,7 +15,7 @@ import {
   ModuleFilePath,
   ModulePath,
   PatchId,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
   ValConfig,
@@ -574,21 +574,28 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
-/** `undefined` when the module has nothing to render at this path. */
-type RenderOverrideAtPathResult = ReifiedRender[SourcePath] | undefined;
+/** `undefined` when the module has nothing to preview at this path. */
+type PreviewAtPathResult = ReifiedPreview[SourcePath] | undefined;
 
-export function useRenderOverrideAtPath(
+/**
+ * The preview at a path — a container's rows, computed by the host on demand.
+ *
+ * NOT where a field's layout comes from: `s.string().render(...)` is static
+ * config carried by the serialized schema, so a field reads it off
+ * `useSchemaAtPath`. See `core/src/render.ts`.
+ */
+export function usePreviewAtPath(
   sourcePath: SourcePath | ModuleFilePath,
-): RenderOverrideAtPathResult {
+): PreviewAtPathResult {
   const val = useValSystem();
   const path = sourcePath as SourcePath;
   const initializedAt = useInitialized(val);
   /**
    * Registering interest IS the demand signal.
    *
-   * `RenderStore` listens for `source:listen` and computes a render for the
+   * `PreviewStore` listens for `source:listen` and computes a preview for the
    * paths that have listeners on them — which is what makes one visible row cost
-   * one `select` call instead of the whole module. So this hook subscribes even
+   * one closure call instead of the whole module. So this hook subscribes even
    * though it does not read source: mounting is the thing that asks.
    */
   const ownId = useId();
@@ -600,16 +607,16 @@ export function useRenderOverrideAtPath(
         ownId,
         onChange,
       );
-      const offResult = val.system.renderStore.events.on(
-        "render:result",
+      const offResult = val.system.previewStore.events.on(
+        "preview:result",
         onChange,
       );
-      const offInvalidate = val.system.renderStore.events.on(
-        "render:invalidate",
+      const offInvalidate = val.system.previewStore.events.on(
+        "preview:invalidate",
         onChange,
       );
-      const offError = val.system.renderStore.events.on(
-        "render:error",
+      const offError = val.system.previewStore.events.on(
+        "preview:error",
         onChange,
       );
       return () => {
@@ -622,7 +629,7 @@ export function useRenderOverrideAtPath(
     [val, path, ownId],
   );
   const getSnapshot = useCallback(
-    () => (val === null ? null : val.system.renderStore.peek(path)),
+    () => (val === null ? null : val.system.previewStore.peek(path)),
     [val, path],
   );
   const seen = useSyncExternalStore(
@@ -632,44 +639,44 @@ export function useRenderOverrideAtPath(
   );
 
   /**
-   * Compute a render this module does not have.
+   * Compute a preview this module does not have.
    *
-   * Only on `needs-render`, which is exactly the state that says asking would
-   * help. `no-render` means the schema declares none, and asking for it forever
-   * is the loop the store added `needs-render` to make impossible — the same
+   * Only on `needs-preview`, which is exactly the state that says asking would
+   * help. `no-preview` means the schema declares none, and asking for it forever
+   * is the loop the store added `needs-preview` to make impossible — the same
    * distinction, for the same reason, as `entry-missing` against `entry-failed`.
    */
   useEffect(() => {
-    if (val === null || seen === null || seen.status !== "needs-render") {
+    if (val === null || seen === null || seen.status !== "needs-preview") {
       return;
     }
-    void val.system.renderStore.get(path);
+    void val.system.previewStore.get(path);
   }, [val, path, seen]);
 
-  return useMemo<RenderOverrideAtPathResult>(() => {
+  return useMemo<PreviewAtPathResult>(() => {
     if (val === null || seen === null) {
       return undefined;
     }
-    if (initializedAt === null || seen.status === "needs-render") {
-      // Before intake, and while a render is owed, `loading` — with no data,
-      // because there is none yet. The engine returned the previous render's
+    if (initializedAt === null || seen.status === "needs-preview") {
+      // Before intake, and while a preview is owed, `loading` — with no data,
+      // because there is none yet. The engine returned the previous preview's
       // data here; it could, because it recomputed eagerly and therefore always
-      // had one. Nothing shows a stale render in the meantime, which is the
+      // had one. Nothing shows a stale preview in the meantime, which is the
       // honest reading of "not computed".
       return { status: "loading" };
     }
     switch (seen.status) {
-      case "rendered":
-        // Already a `WithStatus<RenderTypes>` — the store caches what the host
+      case "previewed":
+        // Already a `WithStatus<PreviewTypes>` — the store caches what the host
         // produced, statuses and all — so it is returned as it is rather than
         // wrapped again.
-        return seen.render;
+        return seen.preview;
       case "error":
         // `message`, not `error`: `WithStatus` in core names it that, and this
         // hook returns core's own shape rather than a translation of it.
         return { status: "error", message: seen.message };
-      case "no-render":
-      case "no-render-at-path":
+      case "no-preview":
+      case "no-preview-at-path":
         return undefined;
     }
   }, [val, seen, initializedAt]);
@@ -993,21 +1000,24 @@ export function useJsonEntriesProgress(): JsonEntriesProgress {
   }, [val, version]);
 }
 
-export function useAllRenders(): Record<ModuleFilePath, ReifiedRender | null> {
+export function useAllPreviews(): Record<
+  ModuleFilePath,
+  ReifiedPreview | null
+> {
   const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
       if (val === null) return () => {};
-      const offResult = val.system.renderStore.events.on(
-        "render:result",
+      const offResult = val.system.previewStore.events.on(
+        "preview:result",
         onChange,
       );
-      const offInvalidate = val.system.renderStore.events.on(
-        "render:invalidate",
+      const offInvalidate = val.system.previewStore.events.on(
+        "preview:invalidate",
         onChange,
       );
-      const offError = val.system.renderStore.events.on(
-        "render:error",
+      const offError = val.system.previewStore.events.on(
+        "preview:error",
         onChange,
       );
       return () => {
@@ -1019,7 +1029,7 @@ export function useAllRenders(): Record<ModuleFilePath, ReifiedRender | null> {
     [val],
   );
   const getSnapshot = useCallback(
-    () => (val === null ? EMPTY_RENDERS : val.system.renderStore.all()),
+    () => (val === null ? EMPTY_PREVIEWS : val.system.previewStore.all()),
     [val],
   );
   return useSyncExternalStore(
@@ -1029,7 +1039,7 @@ export function useAllRenders(): Record<ModuleFilePath, ReifiedRender | null> {
   );
 }
 
-const EMPTY_RENDERS: Record<ModuleFilePath, ReifiedRender | null> = {};
+const EMPTY_PREVIEWS: Record<ModuleFilePath, ReifiedPreview | null> = {};
 
 /**
  * How far the `.jsonValues()` entry load has got. See

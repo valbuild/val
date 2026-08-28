@@ -24,10 +24,7 @@ export default c.define(
         body: s.string(),
       }),
     )
-    .render({
-      as: "list",
-      select: ({ val }) => ({ title: val.title, subtitle: val.body }),
-    }),
+    .preview(({ val }) => ({ title: val.title, subtitle: val.body })),
   {
     "/notes/first": {
       title: "First note",

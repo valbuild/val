@@ -21,4 +21,6 @@ module.exports = {
    * Run those with `pnpm run test:e2e`.
    */
   testPathIgnorePatterns: ["<rootDir>/e2e/", "/node_modules/"],
+  /** jsdom's missing web globals. See the file. */
+  setupFiles: ["<rootDir>/jest.setup.js"],
 };

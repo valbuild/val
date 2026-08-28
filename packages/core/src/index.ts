@@ -2,7 +2,10 @@ export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export {
   extractValModules,
+  computeValModuleShas,
   type ExtractedValModules,
+  type ValModuleShaEntry,
+  type ValModuleShas,
   type ExtractedModuleError,
 } from "./extractValModules";
 export type {
@@ -163,14 +166,14 @@ export {
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
-  type ListRecordRender,
-  type ListArrayRender,
-  type ReifiedRender,
-  type RenderScope,
-  type CodeLanguage,
-  type CodeRender,
-  renderScope,
-} from "./render";
+  type PreviewItem,
+  type RecordPreview,
+  type ArrayPreview,
+  type ReifiedPreview,
+  type PreviewScope,
+  previewScope,
+} from "./preview";
+export { type CodeLanguage, type StringRender, CODE_LANGUAGES } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";

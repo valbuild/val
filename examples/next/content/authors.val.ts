@@ -16,14 +16,11 @@ export const schema = s
       image: s.image(mediaVal).nullable(),
     }),
   )
-  .render({
-    as: "list",
-    select: ({ val }) => ({
-      title: val.name,
-      subtitle: val.birthdate,
-      image: val.image,
-    }),
-  });
+  .preview(({ val }) => ({
+    title: val.name,
+    subtitle: val.birthdate,
+    image: val.image,
+  }));
 
 export type Author = t.inferSchema<typeof schema>;
 export default c.define("/content/authors.val.ts", schema, {
