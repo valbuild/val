@@ -50,10 +50,10 @@ export const FSPatch = z.object({
     ),
   patch: Patch,
   patchId: z.string(),
-  baseSha: z.string().refine((p): p is BaseSha => true),
+  baseSha: z.string().refine((_p): _p is BaseSha => true),
   authorId: z
     .string()
-    .refine((p): p is AuthorId => true)
+    .refine((_p): _p is AuthorId => true)
     .nullable(),
   createdAt: z.string().datetime(),
   coreVersion: z.string().nullable(),
@@ -62,7 +62,7 @@ export const FSPatch = z.object({
 export type FSPatchRecord = z.infer<typeof FSPatch>;
 
 export const FSPatchBase = z.object({
-  baseSha: z.string().refine((p): p is BaseSha => true),
+  baseSha: z.string().refine((_p): _p is BaseSha => true),
   timestamp: z.string().datetime(),
 });
 export type FSPatchBaseRecord = z.infer<typeof FSPatchBase>;

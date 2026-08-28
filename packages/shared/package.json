@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",
-    "zod": "^4.3.5",
+    "zod": "^4.4.3",
     "zod-validation-error": "^5.0.0"
   },
   "files": [

@@ -35,7 +35,7 @@
     "meow": "^9.0.0",
     "open": "^9.1.0",
     "picocolors": "^1.1.1",
-    "zod": "^4.3.5"
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "prettier": "*",
@@ -50,7 +50,7 @@
     "node": ">=18.17.0"
   },
   "devDependencies": {
-    "@jest/globals": "^30.2.0",
-    "tsx": "^4.21.0"
+    "@jest/globals": "^30.5.0",
+    "tsx": "^4.23.12"
   }
 }

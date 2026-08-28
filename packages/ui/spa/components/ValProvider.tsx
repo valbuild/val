@@ -235,7 +235,6 @@ export function ValProvider({
   void _config;
   const [
     stat,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _setStat,
     authenticationState,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
