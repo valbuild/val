@@ -12,8 +12,11 @@ import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
+  CircleAlert,
   Equal,
+  Lock,
   Minus,
   Pencil,
   Plus,
@@ -39,7 +42,15 @@ import {
   useSourceAtPath,
 } from "./ValFieldProvider";
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
-import { useDeletePatches, Profile } from "./ValProvider";
+import {
+  useCommittedPatches,
+  useDeletePatches,
+  useDeployments,
+  Profile,
+} from "./ValProvider";
+import type { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import { relativeLocalDate } from "../utils/relativeLocalDate";
+import { discardAllDescription } from "./discardAllDescription";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
 import { PrimitiveListDiff } from "./PrimitiveListDiff";
@@ -91,6 +102,20 @@ import { refToUrl } from "./MediaPicker/refToUrl";
  * `canDiscard` is therefore about the DISCARD controls only. It was one boolean
  * for both, which is why turning editing off would have taken discarding with
  * it — and discarding is what this view is for.
+ *
+ * The deploy line
+ * ---------------
+ * In `http` mode a published patch STAYS in the chain and is re-applied until the
+ * commit it went out in has been deployed and the server drops it. So this view
+ * shows two different things at once: work that is still yours, and work that is
+ * already on its way to production. They are separated by a divider, the
+ * committed side comes second, and its discard controls are gone rather than
+ * disabled — the commit exists, and there is nothing a Discard button could
+ * honestly do about it. Editing the field and publishing again is the way back.
+ *
+ * The trees arrive already grouped and ordered for this: see
+ * `computeChangedSourcePaths`, which splits a patch set that holds both kinds and
+ * sorts the unshipped side first.
  */
 export function ComparePatchSets({
   patchSets,
@@ -98,6 +123,9 @@ export function ComparePatchSets({
   mode = "unknown",
   canDiscard = false,
   reloadKey,
+  showSummary = false,
+  committedPatchIds,
+  deployment,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
@@ -108,15 +136,55 @@ export function ComparePatchSets({
    * result on screen while the new one is computed. See `usePatchSetsWorker`.
    */
   reloadKey?: unknown;
+  /**
+   * Render the summary strip — the count and the discard-all — above the changes.
+   *
+   * Off by default because the classic layout puts the same strip in its sticky
+   * header (`CompareSummaryInHeader`), where it belongs. The floating shell has
+   * no header to put it in: the compare view IS the column there, so without this
+   * there was no way to discard everything at all.
+   */
+  showSummary?: boolean;
+  /**
+   * Which patches have shipped, when the caller already knows.
+   *
+   * Read from the store otherwise, which is what the app does. The override is
+   * for a story or a test rendering this without a mounted system.
+   */
+  committedPatchIds?: ReadonlySet<PatchId>;
+  /**
+   * The deploy the divider should describe, when the caller already knows.
+   *
+   * Read from `ValContext` otherwise. Present-but-null is a real answer — "shipped,
+   * and the deploy feed has nothing on it yet" — so this is distinguished by being
+   * PASSED at all, which is what lets a story render the line without standing up
+   * a `ValProvider`.
+   */
+  deployment?: ValEnrichedDeployment | null;
 }) {
   const portalContainer = useValPortal();
   const schemas = useSchemas();
+  const storeCommittedPatchIds = useCommittedPatches();
+  const committed = committedPatchIds ?? storeCommittedPatchIds;
   const { trees, isComputing, hasComputed } = usePatchSetsWorker(
     patchSets,
     reloadKey,
+    committed,
   );
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
+  const summary = useCompareSummary(trees);
+  /*
+   * Where the divider goes: the first tree whose work has already shipped.
+   *
+   * An index rather than two arrays, so the trees keep the single order
+   * `computeChangedSourcePaths` gave them and nothing here can reorder them by
+   * accident.
+   */
+  const firstCommittedIndex = useMemo(() => {
+    const index = trees.findIndex((tree) => tree.isCommitted);
+    return index === -1 ? trees.length : index;
+  }, [trees]);
 
   // Until the first result is in, an empty `trees` means "not computed yet",
   // not "nothing changed": showing the empty state here would flash "No
@@ -138,20 +206,112 @@ export function ComparePatchSets({
   const schemasData = schemas.status === "success" ? schemas.data : undefined;
 
   return (
-    <div className="mx-auto max-w-7xl flex flex-col gap-8 min-w-[380px]">
-      {trees.map((tree) => (
-        <ModuleGroup
-          key={tree.sourcePath}
-          tree={tree}
+    /*
+     * `min-w-0`, not a minimum width.
+     *
+     * This was `min-w-[380px]`, which is wider than the content box of a 360px
+     * phone — so the whole review view scrolled sideways before a single change
+     * had been read. The rows inside stack below `lg` and are fine at any width;
+     * the floor was protecting nothing.
+     */
+    <div className="mx-auto max-w-7xl flex flex-col gap-6 lg:gap-8 min-w-0">
+      {showSummary && (
+        <CompareSummaryStrip
+          authorIds={summary.authorIds}
+          pendingAuthorIds={summary.pendingAuthorIds}
           profilesByAuthorIds={profilesByAuthorIds}
-          portalContainer={portalContainer}
           mode={mode}
-          schemas={schemasData}
+          pendingPatchIds={summary.pendingPatchIds}
+          deployingCount={summary.deployingCount}
           canDiscard={canDiscard}
+          portalContainer={portalContainer}
         />
+      )}
+      {trees.map((tree, index) => (
+        <Fragment
+          key={`${tree.isCommitted ? "committed" : "pending"}-${tree.sourcePath}`}
+        >
+          {index === firstCommittedIndex &&
+            (deployment === undefined ? (
+              <DeployedDivider />
+            ) : (
+              <DeployedDividerPure deployment={deployment} />
+            ))}
+          <ModuleGroup
+            tree={tree}
+            profilesByAuthorIds={profilesByAuthorIds}
+            portalContainer={portalContainer}
+            mode={mode}
+            schemas={schemasData}
+            canDiscard={canDiscard}
+          />
+        </Fragment>
       ))}
     </div>
   );
+}
+
+/**
+ * Everything the summary strip needs, counted once.
+ *
+ * Shared by this view and by the classic layout's sticky header, which is the
+ * point: two copies of "what is the total" is two places for the number under
+ * Discard to stop agreeing with the number beside it. Derived from the TREES
+ * rather than from the flat rows, because which side of the deploy line a change
+ * is on is a property of its tree.
+ */
+export function useCompareSummary(trees: ChangeTreeNode[]): {
+  authorIds: string[];
+  pendingAuthorIds: string[];
+  pendingPatchIds: PatchId[];
+  deployingCount: number;
+} {
+  return useMemo(() => {
+    const pendingRows = trees
+      .filter((tree) => !tree.isCommitted)
+      .flatMap(flattenChanges);
+    const committedRows = trees
+      .filter((tree) => tree.isCommitted)
+      .flatMap(flattenChanges);
+    return {
+      authorIds: collectAuthorIds(trees.flatMap(flattenChanges)),
+      pendingAuthorIds: collectAuthorIds(pendingRows),
+      pendingPatchIds: collectPatchIds(pendingRows),
+      deployingCount: collectPatchIds(committedRows).length,
+    };
+  }, [trees]);
+}
+
+/**
+ * Every patch id in these rows, once, in the order they were met.
+ */
+export function collectPatchIds(rows: ChangeTreeNode[]): PatchId[] {
+  const ids: PatchId[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const id of row.change?.patchIds ?? []) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/** Every author in these rows, once, in the order they were met. */
+export function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const id of row.change?.authors ?? []) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
 }
 
 /**
@@ -212,49 +372,240 @@ export function CompareLoading() {
 
 // #region SummaryStrip
 
+/**
+ * The count, who made the changes, and the one control that throws them away.
+ *
+ * The pending patches and the shipped ones are counted SEPARATELY by the caller
+ * rather than filtered apart in here, because the strip has to be able to say
+ * "1 change to review · 2 deploying" — and because what Discard offers is the
+ * pending subset and nothing else. A committed patch has shipped; a button
+ * claiming to undo it would be lying.
+ */
 export function CompareSummaryStrip({
   authorIds,
+  pendingAuthorIds,
   profilesByAuthorIds,
   mode,
-  allPatchIds,
+  pendingPatchIds,
+  deployingCount,
   canDiscard,
   portalContainer,
 }: {
+  /** Everyone whose work is on screen — the avatar stack shows all of them. */
   authorIds: string[];
+  /**
+   * Everyone whose work Discard would actually throw away.
+   *
+   * Separate from `authorIds` because the confirm names names, and naming the
+   * author of a change that is deploying — one this button cannot touch — would
+   * be describing the wrong act. Defaults to `authorIds`, which is the same list
+   * whenever nothing has shipped.
+   */
+  pendingAuthorIds?: string[];
   profilesByAuthorIds: Record<string, Profile>;
   mode: "fs" | "http" | "unknown";
-  allPatchIds: PatchId[];
+  /** The patches Discard would remove. Never includes a committed one. */
+  pendingPatchIds: PatchId[];
+  /** How many of the patches on screen have shipped and are on their way out. */
+  deployingCount: number;
   canDiscard: boolean;
   portalContainer: HTMLElement | null;
 }) {
   const { deletePatches } = useDeletePatches();
+  const authorNames = useMemo(
+    () =>
+      (pendingAuthorIds ?? authorIds)
+        .map((id) => profilesByAuthorIds[id]?.fullName)
+        .filter((name): name is string => !!name),
+    [pendingAuthorIds, authorIds, profilesByAuthorIds],
+  );
 
+  /*
+   * Two rows on a phone, one from `sm` up.
+   *
+   * At 336px of content the single row had to give something up, and what it gave
+   * up was the Discard button's label — leaving a bare undo arrow beside other
+   * people's avatars as the control that throws away the whole project's
+   * unpublished work. The count and the faces belong together; the action and
+   * what it acts on belong together; so the break goes between those pairs.
+   */
   return (
-    <div className="flex items-center gap-4 flex-1 min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="text-xl font-medium leading-none text-fg-primary">
-          {allPatchIds.length}
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-1 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xl font-medium leading-none text-fg-primary tabular-nums">
+          {pendingPatchIds.length > 0 ? pendingPatchIds.length : deployingCount}
         </span>
-        <span className="text-sm text-fg-secondary whitespace-nowrap">
-          {allPatchIds.length === 1 ? "change" : "changes"} to review
+        <span className="text-sm text-fg-secondary truncate">
+          {pendingPatchIds.length > 0
+            ? `${pendingPatchIds.length === 1 ? "change" : "changes"} to review`
+            : `${deployingCount === 1 ? "change" : "changes"} deploying`}
+        </span>
+        <span className="ml-auto sm:hidden">
+          <AvatarStack
+            authorIds={authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            mode={mode}
+          />
         </span>
       </div>
-      <div className="ml-auto flex items-center gap-3 shrink-0">
-        {canDiscard && allPatchIds.length > 0 && (
+      <div className="flex items-center gap-3 shrink-0 sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0">
+        {deployingCount > 0 && pendingPatchIds.length > 0 && (
+          <span className="text-xs text-fg-tertiary whitespace-nowrap">
+            {deployingCount} deploying
+          </span>
+        )}
+        {canDiscard && pendingPatchIds.length > 0 && (
           <DiscardConfirmPopover
-            description="Discard all pending changes? This cannot be undone."
-            onConfirm={() => deletePatches(allPatchIds)}
+            description={discardAllDescription(
+              pendingPatchIds.length,
+              authorNames,
+            )}
+            title={`Discard ${pendingPatchIds.length} ${
+              pendingPatchIds.length === 1 ? "change" : "changes"
+            }?`}
+            confirmLabel={`Discard ${pendingPatchIds.length}`}
+            onConfirm={() => deletePatches(pendingPatchIds)}
             portalContainer={portalContainer}
-            ariaLabel="Discard all changes"
-            label="Discard"
+            ariaLabel={`Discard all ${pendingPatchIds.length} pending ${
+              pendingPatchIds.length === 1 ? "change" : "changes"
+            }`}
+            label="Discard all"
           />
         )}
-        <AvatarStack
-          authorIds={authorIds}
-          profilesByAuthorIds={profilesByAuthorIds}
-          mode={mode}
-        />
+        {/*
+         * Said rather than left as a missing button.
+         *
+         * Everything is deploying, so there is nothing Discard could act on — and
+         * a control that is simply absent reads as a bug in a view that had one a
+         * moment ago.
+         */}
+        {canDiscard && pendingPatchIds.length === 0 && deployingCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-fg-tertiary whitespace-nowrap">
+            <Lock size={12} aria-hidden />
+            Nothing left to discard
+          </span>
+        )}
+        <span className="ml-auto hidden sm:inline-flex">
+          <AvatarStack
+            authorIds={authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            mode={mode}
+          />
+        </span>
       </div>
+    </div>
+  );
+}
+// #region DeployedDivider
+
+/**
+ * The line between work that is still yours and work that has shipped.
+ *
+ * Drawn once, above the first committed module, and it carries the deploy rather
+ * than merely labelling the side: the same feed the status bar reads
+ * (`useDeployments`), so the two cannot end up saying different things about the
+ * same commit. A deploy that failed still locks what is below it — the commit
+ * exists either way, which is the whole reason those patches cannot be discarded.
+ *
+ * On a phone the pill becomes a full-width banner. The text is around 420px set
+ * on one line, so as a centred pill between two rules it would either truncate
+ * the commit or scroll the view sideways; as a banner it gets two lines, and the
+ * reason gets to be a sentence instead of an aside.
+ */
+function DeployedDivider() {
+  const { deployments } = useDeployments();
+  // Newest first — `mergeCommitsAndDeployments` sorts by `updatedAt` descending.
+  return <DeployedDividerPure deployment={deployments[0] ?? null} />;
+}
+
+/**
+ * The divider, given the deploy rather than reading it.
+ *
+ * Split out for the same reason `FieldPatchAuthorsPure` is: the connected version
+ * reads `ValContext`, which throws outside a `ValProvider`, and a story or a test
+ * that wants to see the deploy line should not have to stand up the whole
+ * provider tree to get one.
+ */
+export function DeployedDividerPure({
+  deployment: latest,
+}: {
+  deployment: ValEnrichedDeployment | null;
+}) {
+  const [now] = useState(() => new Date());
+  const state = latest?.deploymentState;
+  const isBuilding = state === "created" || state === "pending";
+  const isFailed = state === "failure" || state === "error";
+  const isLive = state === "success";
+
+  const title = isFailed
+    ? "Published — deploy failed"
+    : isBuilding
+      ? "Published & deploying"
+      : isLive
+        ? "Published — live"
+        : "Published";
+  const detail = latest
+    ? `${latest.commitSha.slice(0, 7)} · ${relativeLocalDate(
+        now,
+        latest.updatedAt,
+      )}`
+    : null;
+
+  const hairline = (
+    <span
+      className="hidden sm:block h-px flex-1 bg-border-primary"
+      role="separator"
+      aria-hidden
+    />
+  );
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-4">
+      <span className="block sm:hidden h-px bg-border-primary" aria-hidden />
+      {hairline}
+      <div
+        className={classNames(
+          "flex items-start sm:items-center gap-2 min-w-0",
+          "border rounded-lg px-3 py-2 -mt-px",
+          "sm:rounded-full sm:py-1.5 sm:mt-0 sm:shrink-0",
+          {
+            "bg-bg-error-secondary border-border-error-secondary text-fg-error-secondary":
+              isFailed,
+            "bg-bg-warning-primary border-border-warning-primary text-fg-warning-primary":
+              isBuilding,
+            "bg-bg-brand-primary border-border-brand-primary text-fg-brand-primary":
+              isLive,
+            "bg-bg-secondary border-border-primary text-fg-secondary":
+              !isFailed && !isBuilding && !isLive,
+          },
+        )}
+      >
+        {isBuilding ? (
+          <Loader2
+            size={14}
+            className="animate-spin shrink-0 mt-0.5 sm:mt-0"
+            aria-hidden
+          />
+        ) : isFailed ? (
+          <CircleAlert
+            size={14}
+            className="shrink-0 mt-0.5 sm:mt-0"
+            aria-hidden
+          />
+        ) : isLive ? (
+          <Check size={14} className="shrink-0 mt-0.5 sm:mt-0" aria-hidden />
+        ) : (
+          <Lock size={14} className="shrink-0 mt-0.5 sm:mt-0" aria-hidden />
+        )}
+        <span className="flex flex-col sm:flex-row sm:items-center sm:gap-2 min-w-0 text-xs sm:text-[13px]">
+          <span className="font-medium">{title}</span>
+          <span className="opacity-80">
+            {detail && <span className="tabular-nums">{detail} — </span>}
+            these cannot be discarded
+          </span>
+        </span>
+      </div>
+      {hairline}
     </div>
   );
 }
@@ -361,24 +712,62 @@ function ModuleGroup({
     [tree],
   );
 
+  /*
+   * Below the deploy line nothing is discardable, and the whole module is on one
+   * side of it — `computeChangedSourcePaths` splits a patch set that straddles, so
+   * a tree is never half shipped. Narrowing `canDiscard` here is therefore enough
+   * to take the control off every row inside as well: they all read it off
+   * `rowProps`.
+   */
+  const canDiscardHere = canDiscard && !tree.isCommitted;
+
   const rowProps: RowProps = {
     moduleFilePath,
     isRouterModule,
     profilesByAuthorIds,
     portalContainer,
     mode,
-    canDiscard,
+    canDiscard: canDiscardHere,
   };
 
   return (
     <section
       data-val-studio-path={tree.sourcePath}
-      className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
+      className={classNames(
+        "border rounded-lg overflow-hidden",
+        // Dashed and a flatter ground for a module that has shipped: dimming
+        // alone reads as "still loading", and this is the opposite — settled, and
+        // no longer something you can act on.
+        tree.isCommitted
+          ? "border-dashed border-border-primary bg-bg-secondary"
+          : "border-border-primary bg-bg-primary",
+      )}
     >
-      <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
+      <header
+        className={classNames(
+          "flex items-center gap-2 px-4 lg:px-5 py-4 border-b min-w-0",
+          tree.isCommitted
+            ? "border-dashed border-border-primary"
+            : "border-border-primary",
+        )}
+      >
         <ModulePathLabel moduleFilePath={moduleFilePath} />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {canDiscard && modulePatchIds.length > 0 && (
+          {tree.isCommitted && (
+            /*
+             * The lock, with the word only where there is room for it. On a phone
+             * the divider directly above has already said "deploying", and the
+             * module name is what the row is for.
+             */
+            <span
+              className="inline-flex items-center gap-1.5 text-xs text-fg-tertiary"
+              title="Published — this cannot be discarded"
+            >
+              <Lock size={12} aria-hidden />
+              <span className="hidden sm:inline">Deploying</span>
+            </span>
+          )}
+          {canDiscardHere && modulePatchIds.length > 0 && (
             <DiscardControl
               isEqual={isModuleEqual}
               onDiscard={() => deletePatches(modulePatchIds)}
@@ -1830,6 +2219,18 @@ function BeforeAfterLayout({
           borderColor,
         )}
       >
+        {/*
+         * Labelled only while STACKED.
+         *
+         * Side by side, position says which is which and the arrow between them
+         * says which way it went. Stacked, all of that is gone: below `lg` the two
+         * values sit one under the other, told apart by a coloured left rail — and
+         * vertically that reads as two list items rather than as before and after.
+         * The media variant above has always labelled them; this is the same fix
+         * for the field variant, at the breakpoint where it is needed and no
+         * wider, so the dense desktop row does not grow two redundant captions.
+         */}
+        <StackedSideLabel>Before</StackedSideLabel>
         {before}
       </div>
       <div
@@ -1838,7 +2239,19 @@ function BeforeAfterLayout({
       >
         <MiddleIcon size={14} />
       </div>
-      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">{after}</div>
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">
+        <StackedSideLabel>After</StackedSideLabel>
+        {after}
+      </div>
+    </div>
+  );
+}
+
+/** A "Before" / "After" caption that exists only below `lg`. See `BeforeAfterLayout`. */
+function StackedSideLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="lg:hidden text-[10px] uppercase tracking-wider font-medium text-fg-tertiary mb-1">
+      {children}
     </div>
   );
 }
@@ -1891,12 +2304,24 @@ function MediaEntryCard({
 
 function DiscardConfirmPopover({
   description,
+  title,
+  confirmLabel,
   onConfirm,
   portalContainer,
   ariaLabel,
   label,
 }: {
   description: string;
+  /**
+   * The question, above the description.
+   *
+   * Optional: a per-row discard has the row right next to it and does not need
+   * one. The discard-all does, and it names its count — "Discard all pending
+   * changes?" was true and never said how much was about to go.
+   */
+  title?: string;
+  /** Defaults to "Discard". Name the count where there is one to name. */
+  confirmLabel?: string;
   onConfirm: () => void;
   portalContainer: HTMLElement | null;
   ariaLabel: string;
@@ -1918,24 +2343,42 @@ function DiscardConfirmPopover({
       </PopoverTrigger>
       <PopoverContent
         container={portalContainer}
-        className="w-auto max-w-xs p-3"
+        // Near the full width of a small phone, capped from `sm` up. The default
+        // `max-w-xs` is 320px, which on a 360px screen leaves 8px of margin on
+        // each side once the popover is aligned to the strip's edge.
+        className="w-[calc(100vw-24px)] sm:w-auto sm:max-w-xs p-3"
         side="bottom"
         align="end"
       >
+        {title && (
+          <p className="flex items-start gap-2 text-sm font-medium text-fg-primary mb-1.5">
+            <CircleAlert
+              size={15}
+              className="shrink-0 mt-0.5 text-fg-error-on-surface"
+              aria-hidden
+            />
+            <span>{title}</span>
+          </p>
+        )}
         <p className="text-sm text-fg-secondary mb-3">{description}</p>
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" size="xs" onClick={() => setOpen(false)}>
+        {/*
+         * Half and half on a phone, so each action is a target a thumb can find
+         * rather than two `xs` buttons crowded into the bottom-right corner.
+         * Right-aligned and back to their own widths from `sm` up.
+         */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+          <Button variant="secondary" size="sm" onClick={() => setOpen(false)}>
             Cancel
           </Button>
           <Button
             variant="destructive"
-            size="xs"
+            size="sm"
             onClick={() => {
               onConfirm();
               setOpen(false);
             }}
           >
-            Discard
+            {confirmLabel ?? "Discard"}
           </Button>
         </div>
       </PopoverContent>

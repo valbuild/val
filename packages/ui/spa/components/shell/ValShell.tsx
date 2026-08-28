@@ -839,6 +839,13 @@ function CompareView() {
       mode={mode}
       canDiscard
       reloadKey={publishCount}
+      /*
+       * The shell has no header to hang the summary in — the compare view is the
+       * whole column here — so it renders inside the view. Without it there was no
+       * way to discard everything in the layout the studio actually opens in: the
+       * strip existed, but only the classic layout mounted it.
+       */
+      showSummary
     />
   );
 }

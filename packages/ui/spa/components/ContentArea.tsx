@@ -1,10 +1,10 @@
-import { useMemo } from "react";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
 import { CopyIcon, PanelRightOpen, Search as SearchIcon } from "lucide-react";
 import { useNavigation } from "./ValRouter";
 import { Search } from "./Search";
 import {
+  useCommittedPatches,
   useConnectionStatus,
   useGlobalError,
   usePatchSets,
@@ -16,7 +16,7 @@ import {
   ComparePatchSets,
   CompareLoading,
   CompareSummaryStrip,
-  flattenChanges,
+  useCompareSummary,
 } from "./ComparePatchSets";
 import { ValidationErrorsView } from "./ValidationErrors";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
@@ -247,42 +247,22 @@ function CompareSummaryInHeader() {
   const profilesByAuthorIds = useProfilesByAuthorId();
   const mode = useValMode();
   const portalContainer = useValPortal();
+  const committedPatchIds = useCommittedPatches();
 
   const publishCount = usePublishCount();
 
   const patchSets =
     patchSetsResult.status === "success" ? patchSetsResult.data : [];
-  const { trees, hasComputed } = usePatchSetsWorker(patchSets, publishCount);
+  // Grouped the same way the view below is, committed patches split out and all:
+  // the header says how many changes there are to review, and it has to be the
+  // same count the rows add up to.
+  const { trees, hasComputed } = usePatchSetsWorker(
+    patchSets,
+    publishCount,
+    committedPatchIds,
+  );
 
-  const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
-
-  const allPatchIds = useMemo(() => {
-    const ids: import("@valbuild/core").PatchId[] = [];
-    const seen = new Set<string>();
-    for (const row of flatRows) {
-      for (const id of row.change?.patchIds ?? []) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          ids.push(id);
-        }
-      }
-    }
-    return ids;
-  }, [flatRows]);
-
-  const allAuthorIds = useMemo(() => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (const row of flatRows) {
-      for (const id of row.change?.authors ?? []) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          ids.push(id);
-        }
-      }
-    }
-    return ids;
-  }, [flatRows]);
+  const summary = useCompareSummary(trees);
 
   // Nothing to summarise until the changes have actually been counted:
   // rendering early would show "0 changes to review" before the real count.
@@ -292,10 +272,12 @@ function CompareSummaryInHeader() {
 
   return (
     <CompareSummaryStrip
-      authorIds={allAuthorIds}
+      authorIds={summary.authorIds}
+      pendingAuthorIds={summary.pendingAuthorIds}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      allPatchIds={allPatchIds}
+      pendingPatchIds={summary.pendingPatchIds}
+      deployingCount={summary.deployingCount}
       canDiscard
       portalContainer={portalContainer}
     />
