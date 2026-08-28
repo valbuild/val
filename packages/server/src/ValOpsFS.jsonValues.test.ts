@@ -599,3 +599,194 @@ describe("ValOpsFS jsonValues commit flow", () => {
     expect(pc.hasErrors).toBe(true);
   });
 });
+
+/**
+ * What the server serves as an entry's COMMITTED content after a save has just
+ * written it.
+ *
+ * An entry's content is not in the module source — that holds a marker — so
+ * `getJsonEntries` resolves it by awaiting the marker's own `import()`. That
+ * caches, and unlike a module source there is nothing to re-extract, because the
+ * memo was never holding the content in the first place. So once a publish
+ * removes the patches, the committed baseline is the content from before the
+ * publish, and both readers see it: a page rendering draft content
+ * (`apply_patches: true`, with no patches left to replay) and the Studio, which
+ * asks with `apply_patches: false` on purpose.
+ *
+ * This fixture models the staleness faithfully: the entry thunks go through a
+ * `require` shim that caches by absolute path, so an entry resolved once keeps
+ * answering the same way no matter what is written to disk afterwards.
+ */
+describe("adopting the entry content a save has written", () => {
+  /** What `/save` does, in the order it does it. */
+  const publish = async (
+    ops: ValOpsFS,
+    patch: OrderedPatches["patches"][number]["patch"],
+    options?: { adopt?: boolean },
+  ): Promise<void> => {
+    await createPatch(ops, patch);
+    const patches = await ops.fetchPatches({ excludePatchOps: false });
+    const analysis = ops.analyzePatches(patches.patches);
+    const prepared = await ops.prepare({ ...analysis, ...patches });
+    expect(prepared.hasErrors).toBe(false);
+    const saved = await ops.saveOrUploadFiles(prepared, "skip-remote");
+    expect(saved.errors).toEqual({});
+    if (options?.adopt !== false) {
+      await ops.adoptCommittedSources({ ...analysis, ...patches }, prepared);
+    }
+    await ops.deletePatches(patches.patches.map((entry) => entry.patchId));
+  };
+
+  /**
+   * Resolve the entry BEFORE publishing, which is what a rendered page does.
+   *
+   * Load-bearing, not scene-setting: it is what puts the entry in the `require`
+   * cache, and therefore what makes the stale read reproducible at all. Publish
+   * first and the thunk resolves after the write, so the test passes with or
+   * without the adoption and asserts nothing.
+   */
+  const readFirst = async (ops: ValOpsFS, key: string): Promise<void> => {
+    const res = await ops.getJsonEntry(MODULE_PATH, key);
+    expect(res.status).toBe("success");
+  };
+
+  const entry = (ops: ValOpsFS, key: string) =>
+    ops.getJsonEntry(MODULE_PATH, key);
+
+  test("a content edit reads back as published", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Published!" },
+    ]);
+
+    expect(await ops.fetchPatches({ excludePatchOps: true })).toMatchObject({
+      patches: [],
+    });
+    expect(await entry(ops, "/blog/hello")).toEqual({
+      status: "success",
+      content: { title: "Published!", order: 1 },
+    });
+  });
+
+  /**
+   * The same run without the adoption, so what it is for is on the record rather
+   * than assumed: the file on disk is right and the answer is still the old one.
+   */
+  test("would answer with the pre-publish content without it", async () => {
+    const { ops, rootDir } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(
+      ops,
+      [{ op: "replace", path: ["/blog/hello", "title"], value: "Published!" }],
+      { adopt: false },
+    );
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(rootDir, "/test/content/hello.val.json"),
+          "utf-8",
+        ),
+      ),
+    ).toEqual({ title: "Published!", order: 1 });
+    expect(await entry(ops, "/blog/hello")).toEqual({
+      status: "success",
+      content: { title: "Hello", order: 1 },
+    });
+  });
+
+  test("a whole-entry replace reads back as published", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(ops, [
+      {
+        op: "replace",
+        path: ["/blog/hello"],
+        value: { title: "Whole", order: 9 },
+      },
+    ]);
+
+    expect(await entry(ops, "/blog/hello")).toEqual({
+      status: "success",
+      content: { title: "Whole", order: 9 },
+    });
+  });
+
+  test("an added entry reads back as published", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(ops, [
+      { op: "add", path: ["/blog/new"], value: { title: "New", order: 3 } },
+    ]);
+
+    expect(await entry(ops, "/blog/new")).toEqual({
+      status: "success",
+      content: { title: "New", order: 3 },
+    });
+  });
+
+  test("a removed entry reads back as gone", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(ops, [{ op: "remove", path: ["/blog/hello"] }]);
+
+    expect((await entry(ops, "/blog/hello")).status).toBe("not-found");
+    // The untouched entry is unaffected.
+    expect(await entry(ops, "/blog/world")).toEqual({
+      status: "success",
+      content: { title: "World", order: 2 },
+    });
+  });
+
+  test("a moved entry reads back at its new key and not its old one", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+
+    await publish(ops, [
+      { op: "move", from: ["/blog/hello"], path: ["/blog/renamed"] },
+    ]);
+
+    expect((await entry(ops, "/blog/hello")).status).toBe("not-found");
+    expect(await entry(ops, "/blog/renamed")).toEqual({
+      status: "success",
+      content: { title: "Hello", order: 1 },
+    });
+  });
+
+  /**
+   * The adopted value is the BASELINE, not the answer. A draft edit on top of a
+   * published entry has to keep working — that is the whole read path this is
+   * inside of.
+   */
+  test("a pending patch still applies on top of an adopted entry", async () => {
+    const { ops } = setup();
+    await readFirst(ops, "/blog/hello");
+    await publish(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Published!" },
+    ]);
+
+    await createPatch(ops, [
+      { op: "replace", path: ["/blog/hello", "title"], value: "Draft again" },
+    ]);
+
+    expect(await entry(ops, "/blog/hello")).toEqual({
+      status: "success",
+      content: { title: "Draft again", order: 1 },
+    });
+    // And the committed baseline underneath it is the published content.
+    expect(
+      await ops.getJsonEntry(MODULE_PATH, "/blog/hello", {
+        applyPatches: false,
+      }),
+    ).toEqual({
+      status: "success",
+      content: { title: "Published!", order: 1 },
+    });
+  });
+});

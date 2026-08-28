@@ -2013,7 +2013,10 @@ export const ValServer = (
            * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
            * move with them.
            */
-          await serverOps.adoptCommittedSources({ ...analysis, ...patches });
+          await serverOps.adoptCommittedSources(
+            { ...analysis, ...patches },
+            preparedCommit,
+          );
           /*
            * Only what this request consumed.
            *

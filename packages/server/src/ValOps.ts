@@ -156,6 +156,27 @@ export abstract class ValOps {
    * hash. Re-folding with the wrong list changes the base SHA for no reason.
    */
   private shaModuleErrors: ExtractedModuleError[] | null;
+  /**
+   * What a save has told us each `.jsonValues()` entry now holds.
+   *
+   * The entry twin of {@link sources}, and it has to be separate because an
+   * entry's content is not IN the source: the source holds a marker, and
+   * {@link getJsonEntries} resolves it by awaiting the marker's own `import()`.
+   * That resolves from the module registry, so after `/save` rewrites a
+   * `*.val.json` the thunk keeps answering with the content from before — and
+   * unlike a module source there is nothing to re-extract, because the memo was
+   * never holding the content in the first place.
+   *
+   * `null` for an entry the commit deleted.
+   *
+   * Never cleared: it describes what is on disk. A host rebuild makes a new
+   * instance, which is the right reset. Bounded by the project's entry count,
+   * holding only the latest content per key.
+   */
+  private adoptedJsonEntries = new Map<
+    ModuleFilePath,
+    Map<string, JSONValue | null>
+  >();
 
   constructor(
     private readonly valModules: ValModules,
@@ -300,6 +321,7 @@ export abstract class ValOps {
    */
   async adoptCommittedSources(
     analysis: PatchAnalysis & OrderedPatches,
+    preparedCommit: Pick<PreparedCommit, "patchedJsonEntries">,
   ): Promise<void> {
     // Read BEFORE anything is promoted: this applies the chain to the sources as
     // they stand, and promoting first would apply the same patches twice.
@@ -319,6 +341,30 @@ export abstract class ValOps {
       adopt[moduleFilePath] = source;
     }
     this.promoteCommittedSources(adopt);
+    /**
+     * And the `.jsonValues()` entry content, which the sources above do not
+     * carry — they hold markers. See {@link adoptedJsonEntries}.
+     *
+     * Only for a module whose source was adopted. The source is what frames an
+     * entry: it decides which keys exist at all, so adopting one without the
+     * other would leave the content and the key set describing different
+     * moments.
+     */
+    for (const [moduleFilePathS, entries] of Object.entries(
+      preparedCommit.patchedJsonEntries,
+    )) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      if (adopt[moduleFilePath] === undefined) {
+        continue;
+      }
+      const adopted =
+        this.adoptedJsonEntries.get(moduleFilePath) ??
+        new Map<string, JSONValue | null>();
+      for (const [entryKey, content] of Object.entries(entries)) {
+        adopted.set(entryKey, content);
+      }
+      this.adoptedJsonEntries.set(moduleFilePath, adopted);
+    }
   }
 
   /**
@@ -569,6 +615,31 @@ export abstract class ValOps {
         }
         if (marker === undefined) {
           return { entryKey, baseContent: undefined };
+        }
+        /**
+         * What a save told us this entry holds, ahead of the thunk.
+         *
+         * The thunk resolves from the module registry, so after `/save` rewrites
+         * a `*.val.json` it keeps answering with the content from before — and
+         * there is nothing to re-extract, because the committed content was
+         * never in the memoised source to begin with. See
+         * {@link adoptedJsonEntries}.
+         *
+         * `null` means the commit deleted the entry, which is reported the same
+         * way an absent key is. (Nearly unreachable — a `remove` also drops the
+         * thunk from the `.val.ts`, so the key is gone from `record` once the
+         * source is adopted — but the map says it, so this says it too.)
+         *
+         * The BASELINE only. Pending patches replay over it below exactly as
+         * they do over the thunk's answer.
+         */
+        const adopted = this.adoptedJsonEntries.get(moduleFilePath);
+        if (adopted !== undefined && adopted.has(entryKey)) {
+          const content = adopted.get(entryKey);
+          return {
+            entryKey,
+            baseContent: content === null ? undefined : content,
+          };
         }
         const thunk = Internal.getJsonImport(marker);
         if (!thunk) {
@@ -1385,6 +1456,13 @@ export abstract class ValOps {
           result: string | null;
           // Extra files to write/delete (jsonValues `*.val.json` entries).
           extraFiles: Record<string, string | null>;
+          /**
+           * The same entry content, keyed by ENTRY KEY. `null` = deleted.
+           *
+           * `extraFiles` is keyed by file path, which is not what a reader of an
+           * entry has to go on — see `jsonEntryContentsByKey`.
+           */
+          jsonEntries: Record<string, JSONValue | null>;
           appliedPatches: PatchId[];
           errors?: undefined;
         }
@@ -1432,6 +1510,22 @@ export abstract class ValOps {
 
       // jsonValues entry content, keyed by `*.val.json` path. `null` = delete.
       const jsonEntryContents = new Map<string, JSONValue | null>();
+      /**
+       * The same content, keyed by ENTRY KEY rather than by file path.
+       *
+       * The path is what gets written; the key is what a reader asks for, and it
+       * is dropped at the flush below. Reconstructing it afterwards is not on:
+       * TWO producers turn a key into a path — `resolveEntryJsonPath` and
+       * `getNewJsonEntryPaths`, the latter a locked convention for `add` and a
+       * move's destination — and a marker does not carry its path at read time
+       * (see `jsonEntryFiles.ts`). So it is recorded where the key is known.
+       *
+       * Read by `ValOps.adoptCommittedSources`, so a save can tell this instance
+       * what an entry now holds. Nothing else can: an entry's committed content
+       * is resolved through the marker's own `import()`, which caches, so the
+       * memo cannot be refreshed by re-reading.
+       */
+      const jsonEntryContentsByKey = new Map<string, JSONValue | null>();
       // Entries added in this commit → their new `*.val.json` path, so later
       // content ops in the same commit resolve to the freshly-created file.
       const entryKeyToJsonPath = new Map<string, string>();
@@ -1601,6 +1695,7 @@ export abstract class ValOps {
               tsSourceFile = insRes.value;
               tsChanged = true;
               jsonEntryContents.set(jsonPath, op.value);
+              jsonEntryContentsByKey.set(cls.entryKey, op.value);
               entryKeyToJsonPath.set(cls.entryKey, jsonPath);
             } else if (op.op === "remove") {
               const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
@@ -1622,6 +1717,7 @@ export abstract class ValOps {
               tsSourceFile = remRes.value;
               tsChanged = true;
               jsonEntryContents.set(jsonPathRes.value, null);
+              jsonEntryContentsByKey.set(cls.entryKey, null);
             } else if (op.op === "replace") {
               const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
               if (result.isErr(jsonPathRes)) {
@@ -1630,6 +1726,7 @@ export abstract class ValOps {
                 break;
               }
               jsonEntryContents.set(jsonPathRes.value, op.value);
+              jsonEntryContentsByKey.set(cls.entryKey, op.value);
             } else if (op.op === "move" || op.op === "copy") {
               // Rename (move) or duplicate (copy) a whole entry. The new entry
               // gets its own `*.val.json` written with the source entry's
@@ -1703,9 +1800,11 @@ export abstract class ValOps {
               tsSourceFile = insRes.value;
               tsChanged = true;
               jsonEntryContents.set(jsonPath, content);
+              jsonEntryContentsByKey.set(cls.entryKey, content);
               entryKeyToJsonPath.set(cls.entryKey, jsonPath);
               if (op.op === "move" && fromPathRes.value !== jsonPath) {
                 jsonEntryContents.set(fromPathRes.value, null);
+                jsonEntryContentsByKey.set(fromKey, null);
               }
             } else {
               errors.push({
@@ -1761,6 +1860,7 @@ export abstract class ValOps {
               break;
             }
             jsonEntryContents.set(jsonPath, applied.value);
+            jsonEntryContentsByKey.set(cls.entryKey, applied.value);
           }
         }
         if (patchHadError) {
@@ -1845,6 +1945,7 @@ export abstract class ValOps {
             appliedPatches,
             result: sourceFileText,
             extraFiles,
+            jsonEntries: Object.fromEntries(jsonEntryContentsByKey),
           };
         }
       }
@@ -1860,6 +1961,10 @@ export abstract class ValOps {
         errors,
       };
     };
+    const patchedJsonEntries: Record<
+      ModuleFilePath,
+      Record<string, JSONValue | null>
+    > = {};
     const allResults = await Promise.all(
       Object.entries(patchesByModule).map(([path, patches]) =>
         applySourceFilePatches(path as ModuleFilePath, patches),
@@ -1889,6 +1994,12 @@ export abstract class ValOps {
         }
         for (const [extraPath, data] of Object.entries(res.extraFiles)) {
           patchedSourceFiles[extraPath] = data;
+        }
+        // Kept per module and per entry key, not flattened into
+        // `patchedSourceFiles` beside the files: a reader of an entry has a
+        // module and a key, never a path. See `patchedJsonEntries`.
+        if (Object.keys(res.jsonEntries).length > 0) {
+          patchedJsonEntries[res.path] = res.jsonEntries;
         }
         appliedPatches[res.path] = res.appliedPatches ?? [];
       }
@@ -1937,6 +2048,7 @@ export abstract class ValOps {
       binaryFilePatchErrors,
       unappliablePatches,
       patchedSourceFiles,
+      patchedJsonEntries,
       previousSourceFiles,
       partiallyPatchedSourceFiles,
       patchedBinaryFilesDescriptors,
@@ -2172,6 +2284,23 @@ export type PreparedCommit = {
    * A null value signals that the file at that path should be deleted.
    */
   patchedSourceFiles: Record<string, string | null>;
+  /**
+   * The committed content of every `.jsonValues()` entry this commit changed,
+   * per module and entry key. `null` means the entry was deleted.
+   *
+   * Separate from {@link patchedSourceFiles} rather than folded into it, because
+   * that map is keyed by FILE PATH and a reader of an entry has a module and a
+   * key. A marker does not carry its path at read time, so the two are not
+   * interchangeable — see `jsonEntryFiles.ts`.
+   *
+   * Here for {@link ValOps.adoptCommittedSources}: an entry's committed content
+   * is resolved through the marker's own `import()`, which caches, so a save is
+   * the only thing that can tell the server what the entry now holds.
+   *
+   * Only modules whose patches applied cleanly appear; a module that errored
+   * contributes nothing, and `/save` refuses the commit anyway.
+   */
+  patchedJsonEntries: Record<ModuleFilePath, Record<string, JSONValue | null>>;
   /**
    * Previous source files that were patched
    */

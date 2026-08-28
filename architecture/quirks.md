@@ -231,14 +231,20 @@ pre-save content and stores it as fresh. The save tells `ValOps` instead
 first thing that moves it within a server's lifetime in `fs` mode, and the signal
 `PatchStore.reconcileVanished` needs to tell a publish from a discard.
 
-**A `.jsonValues()` entry is NOT covered by that, and is still stale after a
-publish.** Its content is not in the memoised source — the source holds markers,
-and the content sits behind the marker's own `import()` thunk, which caches the
-same way. So `getJsonEntry` keeps answering with the pre-publish entry content
-until the host re-evaluates, and a page rendering draft content sees it as soon as
-the publish removes the patches. Closing it means carrying the committed entry
-content out of `prepare` (which computes it, keyed by `*.val.json` path) into an
-adopted-entries map that `getJsonEntries` consults before the thunk. Not done.
+**A `.jsonValues()` entry needs its own adoption, for a sharper reason.** Its
+content is not in the memoised source at all — the source holds markers, and the
+content sits behind the marker's own `import()` thunk, which caches the same way.
+So there is nothing to re-extract: the memo was never holding it. `prepare` is the
+only thing that knows what an entry now holds, and it reports that as
+`PreparedCommit.patchedJsonEntries` — **keyed by entry key, not by file path**,
+because a marker does not carry its path at read time and two different producers
+turn a key into a path (`resolveEntryJsonPath`, and `getNewJsonEntryPaths` for an
+`add` or a move's destination). `getJsonEntries` consults the adopted map before
+the thunk, as the committed BASELINE, so pending patches still replay on top.
+
+Adopted only for a module whose source was also adopted: the source decides which
+keys exist, so taking one without the other would leave the content and the key
+set describing different moments.
 
 ## Testing
 

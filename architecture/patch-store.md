@@ -94,8 +94,10 @@ lifetime for the first time, which is what `reconcileVanished` needs to tell a
 patch that was PUBLISHED from one that was discarded. `schemaSha` does not move —
 the fold leaves it alone when only sources change, so nothing refetches `/schema`.
 
-What that does NOT cover is `.jsonValues()` entry content: it is not in the
-source, which holds only markers. See `architecture/quirks.md`.
+`.jsonValues()` entry content is adopted alongside it, by a separate route: it is
+not in the source at all, which holds only markers, so `prepare` reports it per
+entry key and `getJsonEntries` consults that before the marker's thunk. See
+`architecture/quirks.md`.
 
 **A crash can only ever leave a directory the log does not name.** `appendPatch`
 writes the record, then the log line. Interrupted, that leaves an unreferenced

@@ -638,7 +638,7 @@ describe("ValOpsFS patch store", () => {
       const saved = await ops.saveOrUploadFiles(prepared, "skip-remote");
       expect(saved.errors).toEqual({});
       if (options?.adopt !== false) {
-        await ops.adoptCommittedSources({ ...analysis, ...patches });
+        await ops.adoptCommittedSources({ ...analysis, ...patches }, prepared);
       }
       await ops.deletePatches(patches.patches.map((entry) => entry.patchId));
     };
@@ -695,10 +695,10 @@ describe("ValOpsFS patch store", () => {
     it("leaves the shas alone when there is nothing to adopt", async () => {
       const before = await ops.getBaseSha();
 
-      await ops.adoptCommittedSources({
-        ...ops.analyzePatches([]),
-        patches: [],
-      });
+      await ops.adoptCommittedSources(
+        { ...ops.analyzePatches([]), patches: [] },
+        { patchedJsonEntries: {} },
+      );
 
       expect(await ops.getBaseSha()).toBe(before);
     });
