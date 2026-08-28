@@ -703,15 +703,39 @@ export class PatchStore {
      * `ValOpsHttp` reads it; `ValOpsFS` ignores it.
      */
     fileType: "image" | "file" = "image",
+    /**
+     * The bytes are ALREADY stored against this patch id. Do not upload them.
+     *
+     * One caller, and one reason: an image the editor attached in the AI chat
+     * never passes through the browser twice. It is uploaded to the content
+     * service when it is attached, and the assistant is told only an opaque key
+     * — so when a tool turns that key into a patch, the SERVICE copies the bytes
+     * onto the patch id (`patches/{id}/files/from-session-file`) and the client
+     * never holds them.
+     *
+     * The `file` op such a patch carries therefore has the session key where
+     * every other producer puts a base64 data URL. Uploading it anyway wrote the
+     * key itself over the image, as the file's contents, on the same
+     * (patch id, file path) the service had just written — so the image 404'd in
+     * the Studio and a publish committed a UUID in place of a PNG. That is what
+     * this flag prevents.
+     *
+     * Deletes are unaffected: a `file` op with a null value still runs, because
+     * "the bytes are already there" says nothing about removing them.
+     */
+    filesAlreadyUploaded: boolean = false,
   ): Promise<CreatePatchResult> {
     const patchId = withPatchId ?? this.newPatchId();
     // Read once, so every file in this patch — and any rollback of them — lands
     // in the same place.
     const parentRef = this.parentRefSource();
     const { patchOps, fileOps } = splitPatchFileOps(patch);
-    const toUpload = fileOps.filter(
-      (op): op is typeof op & { value: string } => typeof op.value === "string",
-    );
+    const toUpload = filesAlreadyUploaded
+      ? []
+      : fileOps.filter(
+          (op): op is typeof op & { value: string } =>
+            typeof op.value === "string",
+        );
     const toDelete = fileOps.filter((op) => op.value === null);
     if ((toUpload.length > 0 || toDelete.length > 0) && !this.uploadFile) {
       return {

@@ -155,31 +155,6 @@ export type ShellActivityEntry = {
 };
 
 /**
- * A chat message. Assistant messages may carry `proposal`: a change the
- * assistant suggests, which the user has to explicitly apply. The assistant
- * never changes content on its own.
- */
-export type ShellChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  proposal?: {
-    /** What the proposal targets, e.g. "Home › Hero › Title". */
-    target: string;
-    /** The proposed replacement content. */
-    content: string;
-    /** Actions offered for this proposal. */
-    actions: ShellProposalAction[];
-  };
-};
-
-export type ShellProposalAction =
-  | "insert"
-  | "apply"
-  | "replace"
-  | "try-another";
-
-/**
  * A content destination: what the left rail switches between.
  *
  * Its own type because a project does not necessarily have all three — a site
@@ -246,13 +221,6 @@ export type ShellData = {
   /** Derived from patch sets. Absent while they are still loading. */
   activity?: ShellActivityEntry[];
   validationErrors: ShellValidationError[];
-  /**
-   * Static seed only. The live conversation comes from `useAI`, not from
-   * here, so this stays optional and empty in the app.
-   */
-  chat?: ShellChatMessage[];
-  /** Suggested prompts, from `config.ai.chat.suggestions`. */
-  chatSuggestions?: string[];
   /** Absent until a profile has loaded, and in modes that have none. */
   user?: { name: string; initials: string; email?: string };
   /** Changes Publish would ship. */

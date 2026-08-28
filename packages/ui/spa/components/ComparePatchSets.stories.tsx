@@ -218,7 +218,6 @@ function StorySetup({
   moduleFilePath,
   serializedSchema,
   canDiscard,
-  showSummary,
   committedCount = 0,
   deployment,
 }: {
@@ -227,7 +226,6 @@ function StorySetup({
   moduleFilePath: ModuleFilePath;
   serializedSchema: SerializedSchema;
   canDiscard?: boolean;
-  showSummary?: boolean;
   /**
    * How many of the supplied patches have already shipped in a commit.
    *
@@ -271,7 +269,6 @@ function StorySetup({
         patchSets={patchSets}
         profilesByAuthorIds={mockProfiles}
         canDiscard={canDiscard}
-        showSummary={showSummary}
         committedPatchIds={committedPatchIds}
         deployment={committedCount > 0 ? (deployment ?? null) : undefined}
       />
@@ -542,8 +539,9 @@ const deployLinePatches: TestPatch[] = [
 /**
  * The summary strip, with everything still discardable.
  *
- * This is what the floating shell renders — it has no header to hang the strip
- * in, so `showSummary` puts it above the changes.
+ * The count and the discard-all sit above the changes, which is where the view
+ * itself now puts them — the strip used to be the surrounding screen's job, and
+ * the shell never had anywhere to put it.
  */
 export const WithSummaryStrip: Story = {
   render: () => (
@@ -552,7 +550,6 @@ export const WithSummaryStrip: Story = {
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
       canDiscard
-      showSummary
       patches={deployLinePatches}
     />
   ),
@@ -572,7 +569,6 @@ export const DeployingBelowDivider: Story = {
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
       canDiscard
-      showSummary
       committedCount={2}
       deployment={buildingDeployment}
       patches={deployLinePatches}
@@ -594,7 +590,6 @@ export const AllDeployedAndLive: Story = {
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
       canDiscard
-      showSummary
       committedCount={3}
       deployment={liveDeployment}
       patches={deployLinePatches}
@@ -615,7 +610,6 @@ export const DeployFailed: Story = {
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
       canDiscard
-      showSummary
       committedCount={2}
       deployment={failedDeployment}
       patches={deployLinePatches}
@@ -639,7 +633,6 @@ export const DeployingOnAPhone: Story = {
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
       canDiscard
-      showSummary
       committedCount={2}
       deployment={buildingDeployment}
       patches={deployLinePatches}

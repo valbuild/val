@@ -124,7 +124,6 @@ export function ComparePatchSets({
   mode = "unknown",
   canDiscard = false,
   reloadKey,
-  showSummary = false,
   committedPatchIds,
   deployment,
 }: {
@@ -137,15 +136,6 @@ export function ComparePatchSets({
    * result on screen while the new one is computed. See `usePatchSetsWorker`.
    */
   reloadKey?: unknown;
-  /**
-   * Render the summary strip — the count and the discard-all — above the changes.
-   *
-   * Off by default because the classic layout puts the same strip in its sticky
-   * header (`CompareSummaryInHeader`), where it belongs. The floating shell has
-   * no header to put it in: the compare view IS the column there, so without this
-   * there was no way to discard everything at all.
-   */
-  showSummary?: boolean;
   /**
    * Which patches have shipped, when the caller already knows.
    *
@@ -216,19 +206,24 @@ export function ComparePatchSets({
      * the floor was protecting nothing.
      */
     <div className="mx-auto max-w-7xl flex flex-col gap-6 lg:gap-8 min-w-0">
-      {showSummary && (
-        <CompareSummaryStrip
-          authorIds={summary.authorIds}
-          pendingAuthorIds={summary.pendingAuthorIds}
-          profilesByAuthorIds={profilesByAuthorIds}
-          mode={mode}
-          pendingPatchIds={summary.pendingPatchIds}
-          deployingCount={summary.deployingCount}
-          canDiscard={canDiscard}
-          portalContainer={portalContainer}
-          layout="stacked"
-        />
-      )}
+      {/*
+       * The summary, always, because this view is the whole column.
+       *
+       * It used to be the surrounding screen's job — the classic layout kept the
+       * strip in its sticky header — and the shell, which has no header, simply
+       * never rendered one. So the count was missing and there was no way to
+       * discard everything at all in the layout the Studio opens in.
+       */}
+      <CompareSummaryStrip
+        authorIds={summary.authorIds}
+        pendingAuthorIds={summary.pendingAuthorIds}
+        profilesByAuthorIds={profilesByAuthorIds}
+        mode={mode}
+        pendingPatchIds={summary.pendingPatchIds}
+        deployingCount={summary.deployingCount}
+        canDiscard={canDiscard}
+        portalContainer={portalContainer}
+      />
       {trees.map((tree, index) => (
         <Fragment
           key={`${tree.isCommitted ? "committed" : "pending"}-${tree.sourcePath}`}
@@ -262,7 +257,7 @@ export function ComparePatchSets({
  * rather than from the flat rows, because which side of the deploy line a change
  * is on is a property of its tree.
  */
-export function useCompareSummary(trees: ChangeTreeNode[]): {
+function useCompareSummary(trees: ChangeTreeNode[]): {
   authorIds: string[];
   pendingAuthorIds: string[];
   pendingPatchIds: PatchId[];
@@ -287,7 +282,7 @@ export function useCompareSummary(trees: ChangeTreeNode[]): {
 /**
  * Every patch id in these rows, once, in the order they were met.
  */
-export function collectPatchIds(rows: ChangeTreeNode[]): PatchId[] {
+function collectPatchIds(rows: ChangeTreeNode[]): PatchId[] {
   const ids: PatchId[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -302,7 +297,7 @@ export function collectPatchIds(rows: ChangeTreeNode[]): PatchId[] {
 }
 
 /** Every author in these rows, once, in the order they were met. */
-export function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
+function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -383,7 +378,7 @@ export function CompareLoading() {
  * pending subset and nothing else. A committed patch has shipped; a button
  * claiming to undo it would be lying.
  */
-export function CompareSummaryStrip({
+function CompareSummaryStrip({
   authorIds,
   pendingAuthorIds,
   profilesByAuthorIds,
@@ -392,7 +387,6 @@ export function CompareSummaryStrip({
   deployingCount,
   canDiscard,
   portalContainer,
-  layout = "inline",
 }: {
   /** Everyone whose work is on screen — the avatar stack shows all of them. */
   authorIds: string[];
@@ -413,18 +407,7 @@ export function CompareSummaryStrip({
   deployingCount: number;
   canDiscard: boolean;
   portalContainer: HTMLElement | null;
-  /**
-   * `stacked` breaks into two rows below `sm`; `inline` stays one row at every
-   * width.
-   *
-   * The classic layout puts this strip in a fixed `h-16` header, where a second
-   * row spills out of the chrome — so stacking is asked for by the caller that
-   * has room for it rather than assumed by the strip. The floating shell renders
-   * it in the scrolling column and asks for `stacked`.
-   */
-  layout?: "inline" | "stacked";
 }) {
-  const isStacked = layout === "stacked";
   const { deletePatches } = useDeletePatches();
   const authorNames = useMemo(
     () =>
@@ -434,15 +417,6 @@ export function CompareSummaryStrip({
     [pendingAuthorIds, authorIds, profilesByAuthorIds],
   );
 
-  /*
-   * Two rows on a phone, one from `sm` up.
-   *
-   * At 336px of content the single row had to give something up, and what it gave
-   * up was the Discard button's label — leaving a bare undo arrow beside other
-   * people's avatars as the control that throws away the whole project's
-   * unpublished work. The count and the faces belong together; the action and
-   * what it acts on belong together; so the break goes between those pairs.
-   */
   /*
    * "0 changes to review" when there is nothing at all.
    *
@@ -454,15 +428,17 @@ export function CompareSummaryStrip({
   const isAllDeploying = pendingPatchIds.length === 0 && deployingCount > 0;
   const count = isAllDeploying ? deployingCount : pendingPatchIds.length;
 
+  /*
+   * Two rows on a phone, one from `sm` up.
+   *
+   * At 336px of content the single row had to give something up, and what it gave
+   * up was the Discard button's label — leaving a bare undo arrow beside other
+   * people's avatars as the control that throws away the whole project's
+   * unpublished work. The count and the faces belong together; the action and
+   * what it acts on belong together; so the break goes between those pairs.
+   */
   return (
-    <div
-      className={classNames(
-        "flex flex-1 min-w-0",
-        isStacked
-          ? "flex-col sm:flex-row sm:items-center gap-2 sm:gap-4"
-          : "flex-row items-center gap-4",
-      )}
-    >
+    <div className="flex flex-1 min-w-0 flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-xl font-medium leading-none text-fg-primary tabular-nums">
           {count}
@@ -472,24 +448,15 @@ export function CompareSummaryStrip({
             ? `${count === 1 ? "change" : "changes"} deploying`
             : `${count === 1 ? "change" : "changes"} to review`}
         </span>
-        {isStacked && (
-          <span className="ml-auto sm:hidden">
-            <AvatarStack
-              authorIds={authorIds}
-              profilesByAuthorIds={profilesByAuthorIds}
-              mode={mode}
-            />
-          </span>
-        )}
+        <span className="ml-auto sm:hidden">
+          <AvatarStack
+            authorIds={authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            mode={mode}
+          />
+        </span>
       </div>
-      <div
-        className={classNames(
-          "flex items-center gap-3 shrink-0",
-          isStacked
-            ? "sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0"
-            : "ml-auto",
-        )}
-      >
+      <div className="flex items-center gap-3 shrink-0 sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0">
         {deployingCount > 0 && pendingPatchIds.length > 0 && (
           <span className="text-xs text-fg-tertiary whitespace-nowrap">
             {deployingCount} deploying
@@ -526,12 +493,7 @@ export function CompareSummaryStrip({
             Nothing left to discard
           </span>
         )}
-        <span
-          className={classNames(
-            "ml-auto",
-            isStacked ? "hidden sm:inline-flex" : "inline-flex",
-          )}
-        >
+        <span className="ml-auto hidden sm:inline-flex">
           <AvatarStack
             authorIds={authorIds}
             profilesByAuthorIds={profilesByAuthorIds}
@@ -590,7 +552,7 @@ function DeployedDivider() {
  * that wants to see the deploy line should not have to stand up the whole
  * provider tree to get one.
  */
-export function DeployedDividerPure({
+function DeployedDividerPure({
   deployment: latest,
   commitShas = [],
 }: {

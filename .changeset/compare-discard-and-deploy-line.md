@@ -7,11 +7,12 @@ Discard all changes from the compare view, and a line where the deploy starts
 Two things the compare view could not say, and one it could not do.
 
 **Discard all had no way in.** `CompareSummaryStrip` — the count, the authors and
-a Discard-all with a confirm — already existed, but only the classic layout
-(`?val-ui=classic`) mounted it, in its sticky header. The floating shell renders
-the compare view as the whole column and has no header to put it in, so in the
-layout the Studio actually opens in there was no way to discard everything at
-all. The shell now renders the strip above the changes.
+a Discard-all with a confirm — already existed, but the surrounding screen had to
+mount it, and only the classic layout did, in its sticky header. The shell
+renders the compare view as the whole column and has no header to put it in, so
+in the layout the Studio actually opens in there was no way to discard everything
+at all — and now that the classic layout has been removed, no way at all. The
+view renders the strip itself.
 
 The confirm says how much is about to go, and whose it is. "Discard all pending
 changes? This cannot be undone." was true and never named a number:
@@ -82,3 +83,11 @@ at 360px:
 - The summary strip breaks into two rows, so the Discard button keeps its label
   instead of collapsing to a bare undo arrow beside other people's avatars, and
   the confirm's actions get a half-and-half row at a size a thumb can find.
+
+Two smaller corrections that came out of reviewing the above: an empty project
+read "0 changes deploying" whenever nothing was pending, and a module with work
+on both sides of the line carries the same `data-val-studio-path` on both of its
+cards — safe, because pending trees always sort first and `findStudioPathTarget`
+takes the first match, so it resolves to the card whose changes can still be
+acted on. That is now documented, with the sort test named as what holds it in
+place.
