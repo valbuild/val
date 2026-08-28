@@ -239,6 +239,20 @@ export class PatchStore {
    */
   private publishedIds = new Set<PatchId>();
   /**
+   * Modules whose base this session moved by publishing into it.
+   *
+   * The question it answers is "where might the editor know something a fresh
+   * server render does not". A published module is exactly that: its value is on
+   * disk, but a page rendered from a server that has not picked the file up yet
+   * shows the content from before — and there is no pending patch left to relay,
+   * so nothing corrects it. See {@link publishedModules}.
+   *
+   * Recorded here rather than derived from {@link publishedIds}, because by the
+   * time anyone asks, `forgetPublished` has deleted the records those ids would
+   * have been looked up in.
+   */
+  private publishedModuleFilePaths = new Set<ModuleFilePath>();
+  /**
    * Bumped whenever the chain or its data changes.
    *
    * A monotonic counter rather than a hash, for the same reason the module
@@ -890,6 +904,26 @@ export class PatchStore {
     if (changed) this.bump();
   }
 
+  /**
+   * Modules this session has published into, in no particular order.
+   *
+   * For the canvas and the overlay: a page that renders one of these from the
+   * server can be showing the content from before the publish, and the chain has
+   * nothing left to say about it. The editor's live source does — it is the
+   * published value — so it is relayed alongside the pending ones.
+   *
+   * Never emptied within a session. The set is bounded by the modules someone
+   * edited, and re-sending a value the page already has costs one message and
+   * changes nothing on screen; forgetting one too early is a stale canvas with
+   * no way back.
+   *
+   * `http` mode never reaches this: a published patch stays in the chain there,
+   * so `allRecords()` already names its module.
+   */
+  publishedModules(): ModuleFilePath[] {
+    return [...this.publishedModuleFilePaths];
+  }
+
   markSaved(patchIds: readonly PatchId[]): void {
     const saved: PatchId[] = [];
     for (const patchId of patchIds) {
@@ -914,6 +948,12 @@ export class PatchStore {
     for (const patchId of patchIds) {
       if (!this.dataById.has(patchId) && !this.ordered.includes(patchId)) {
         continue;
+      }
+      // Before the record goes: it is the only thing that knows which module
+      // this shipped into. See `publishedModuleFilePaths`.
+      const moduleFilePath = this.dataById.get(patchId)?.moduleFilePath;
+      if (moduleFilePath !== undefined) {
+        this.publishedModuleFilePaths.add(moduleFilePath);
       }
       this.dataById.delete(patchId);
       this.originById.delete(patchId);

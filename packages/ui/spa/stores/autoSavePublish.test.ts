@@ -651,3 +651,78 @@ describe("a stat older than the publish it follows", () => {
     system.dispose();
   });
 });
+
+/**
+ * What the canvas has to be told about after a publish.
+ *
+ * The relay into a canvas document carries changes; a freshly loaded document is
+ * caught up with a snapshot of "every module the editor knows a newer value for
+ * than the page might". That used to mean modules with a PENDING patch, which is
+ * the set a publish empties — so the document loaded by the reload the publish
+ * itself caused was caught up with nothing, told that was all of it, and left
+ * rendering whatever the server gave it. Right after a publish that can be the
+ * content from before it, and nothing moved again until someone typed.
+ */
+describe("modules the editor stays authoritative about", () => {
+  it("names a module it published into, after the chain has emptied", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    await saved(system);
+    await system.publish([first], undefined, { exact: true });
+
+    // The chain is empty: nothing pending says this module was touched.
+    expect(system.patchStore.allRecords()).toEqual([]);
+    expect(system.patchStore.publishedModules()).toEqual(["/a.val.ts"]);
+    system.dispose();
+  });
+
+  it("says nothing about a module that was only saved", async () => {
+    const { system } = makeSystem();
+    await setTitle(system, "one");
+    await saved(system);
+
+    // Saved is not published: the patch is still in the chain, so the pending
+    // set already names this module and there is nothing to add.
+    expect(system.patchStore.publishedModules()).toEqual([]);
+    system.dispose();
+  });
+
+  it("names every module a publish spanned", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    const second = await edit(system, "/list.val.ts", [
+      { op: "add", path: ["items", "-"], value: "two" },
+    ]);
+    await saved(system);
+    await system.publish([first, second], undefined, { exact: true });
+
+    expect(system.patchStore.publishedModules().sort()).toEqual([
+      "/a.val.ts",
+      "/list.val.ts",
+    ]);
+    system.dispose();
+  });
+
+  /**
+   * Not emptied by anything, and that is the point: re-sending a value the page
+   * already has changes nothing on screen, while forgetting one too early is a
+   * stale canvas with no way back.
+   */
+  it("keeps naming it across a later publish", async () => {
+    const { system } = makeSystem();
+    const first = await setTitle(system, "one");
+    await saved(system);
+    await system.publish([first], undefined, { exact: true });
+    const second = await edit(system, "/list.val.ts", [
+      { op: "add", path: ["items", "-"], value: "two" },
+    ]);
+    await saved(system);
+    await system.publish([second], undefined, { exact: true });
+
+    expect(system.patchStore.publishedModules().sort()).toEqual([
+      "/a.val.ts",
+      "/list.val.ts",
+    ]);
+    system.dispose();
+  });
+});
