@@ -159,6 +159,12 @@ export type ValidationEvent =
       fixes: string[];
       keyError?: boolean;
     }
+  /**
+   * A file that default exports a Val module, but that val.modules does not
+   * register — so Val will never serve it. Files that do NOT default export a
+   * module are not reported at all, and one whose default export is not a
+   * module is a `fatal-error`; see `reportUnregistered` in the CLI.
+   */
   | { type: "unregistered-module"; file: string }
   | { type: "fix-applied"; file: string; sourcePath: string }
   | { type: "fatal-error"; file: string; message: string }

@@ -1,6 +1,6 @@
 import { s, c, type t, nextAppRouter } from "../val.config";
 import authorsVal from "../content/authors.val";
-import image from "../schema/image.val";
+import image from "../schema/image";
 
 export const schema = s.object({
   /**

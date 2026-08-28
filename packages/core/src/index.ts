@@ -78,6 +78,7 @@ export {
 } from "./selector";
 import {
   getSource,
+  isValModule,
   splitModulePath,
   splitModuleFilePath,
   resolvePath,
@@ -210,6 +211,7 @@ const Internal = {
   getSchema,
   getValPath,
   getSource,
+  isValModule,
   resolvePath,
   safeResolvePath,
   splitModuleFilePathAndModulePath,

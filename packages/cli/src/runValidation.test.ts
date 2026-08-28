@@ -485,6 +485,66 @@ describe("runValidation", () => {
     expect(events.filter((e) => e.type === "validation-error")).toHaveLength(0);
   });
 
+  describe("unregistered files", () => {
+    const runOn = async (valFiles: string[]) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles,
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("warns about an unregistered file that IS a Val module", async () => {
+      const events = await runOn(["content/unregistered-module.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          {
+            type: "unregistered-module",
+            file: "content/unregistered-module.val.ts",
+          },
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("says nothing about an unregistered file with no default export", async () => {
+      // The `.val.ts` suffix is used for shared schemas and other helpers too.
+      // Those are not meant to be registered, so warning about them buried the
+      // one warning that matters under a wall of noise.
+      const events = await runOn(["content/unregistered-helper.val.ts"]);
+
+      expect(events.filter((e) => e.type !== "summary-success")).toHaveLength(
+        0,
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("errors when an unregistered file default exports a non-module", async () => {
+      // Nothing can ever load this file under this name, so it is not something
+      // to skip quietly - it is a mistake.
+      const events = await runOn(["content/unregistered-not-a-module.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            file: "/content/unregistered-not-a-module.val.ts",
+            message: expect.stringContaining("not a Val module"),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+  });
+
   describe("jsonValues", () => {
     const runOn = async (valFiles: string[]) => {
       const events: ValidationEvent[] = [];
