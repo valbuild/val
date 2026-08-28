@@ -38,10 +38,27 @@
  *   POST   /v1/{project}/websocket/nonces
  *   GET    /v1/{project}/settings
  *   GET    /v1/{project}/profiles
+ *   POST   /v1/{project}/ai/initialize
+ *   GET    /v1/{project}/ai/sessions
+ *   PATCH  /v1/{project}/ai/sessions/{sessionId}
+ *   GET    /v1/{project}/ai/sessions/{sessionId}/messages
+ *   POST   /v1/{project}/patches/{patchId}/files/from-session-file
+ *   GET    /v1/{project}/ai/images                    (fs mode mirrors the bytes)
  *
  * The browser, cross-origin, with `x-val-auth-nonce`:
  *   POST   /v1/{project}/patches/{patchId}/files      (the bytes of an upload)
+ *   POST   /v1/{project}/ai/images                    (an image attached in the chat)
  *   WS     /ws                                        (patches, commits, deployments)
+ *   WS     /v1/{project}/ai/connect                   (the assistant)
+ *
+ * ## The assistant
+ *
+ * The AI half of the protocol is here too, and it is scripted rather than
+ * modelled: a test says "this turn calls create_patch with these arguments", the
+ * mock plays that over the assistant socket, and the Studio's own tool handlers
+ * do the rest. That is the point — the tools are the product surface, the model
+ * is not, and a real model would make the assertions non-deterministic without
+ * covering a single line more. See `#region ai`.
  *
  * ## What it deliberately does not do
  *
@@ -141,6 +158,78 @@ type MockDeployment = {
   updatedAt: string;
 };
 
+/**
+ * One image the browser attached in the chat, as the content service holds it.
+ *
+ * Keyed by an opaque `key` because that is the only handle the assistant ever
+ * gets: the model is told the key, names it in a tool call, and the Studio asks
+ * the content service to turn it into a patch file. Nothing in that chain sees
+ * the bytes, which is exactly the part worth testing.
+ */
+type MockAiImage = {
+  key: string;
+  sessionId: string;
+  data: Buffer;
+  mimeType: string;
+  width: number;
+  height: number;
+};
+
+/**
+ * What the scripted assistant does for one turn.
+ *
+ * A `tool` step sends an `ai_tool_call` and BLOCKS until the Studio answers with
+ * the matching `ai_tool_result` — the same rule the real service follows, and the
+ * reason a test can assert on what a tool returned rather than only on what the
+ * UI drew.
+ */
+type AiScriptStep =
+  | { type: "text"; text: string }
+  | {
+      type: "tool";
+      name: string;
+      arguments?: unknown;
+      /** How long to wait for the result. `null` waits indefinitely. */
+      timeoutMs?: number | null;
+    };
+
+type AiScript = {
+  steps: AiScriptStep[];
+  /** The assistant's closing message. */
+  response?: string;
+};
+
+/** A tool call the assistant made, and what the Studio answered. */
+type RecordedToolCall = {
+  name: string;
+  arguments: unknown;
+  result: unknown;
+  isError: boolean;
+};
+
+/** A prompt the Studio sent, flattened to the parts a test asserts on. */
+type RecordedPrompt = {
+  sessionId: string | null;
+  text: string;
+  imageKeys: string[];
+};
+
+type MockAiSession = {
+  id: string;
+  name: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * The conversation so far, as `/ai/sessions/{id}/messages` reports it.
+   *
+   * Kept because reloading a conversation is a real feature and the studio uses
+   * it for something a test can see: the assistant panel unmounts when it is
+   * closed, so what is on screen after reopening it comes from HERE rather than
+   * from anything the browser still held.
+   */
+  messages: { role: "user" | "assistant"; content: string }[];
+};
+
 type State = {
   /** Insertion-ordered: this is the patch chain. */
   patches: Map<string, MockPatch>;
@@ -180,6 +269,24 @@ type State = {
   nonces: Set<string>;
   /** The commit the mock considers current, i.e. what a new build would carry. */
   headCommitSha: string;
+  /** Images attached in the chat, by the key the content service handed back. */
+  aiImages: Map<string, MockAiImage>;
+  /** Chat sessions, as `/ai/sessions` reports them. */
+  aiSessions: Map<string, MockAiSession>;
+  /** Queued turns: one is consumed by each `ai_prompt`. */
+  aiScripts: AiScript[];
+  /** Every prompt the Studio has sent. */
+  aiPrompts: RecordedPrompt[];
+  /** Every tool call played, with the Studio's answer. */
+  aiToolCalls: RecordedToolCall[];
+  /**
+   * Refuse to start the assistant, so the studio runs out of attempts.
+   *
+   * The one AI failure a test cannot produce by asking for it: the studio tries
+   * five times before it gives up and says so, and there is no editor action
+   * that makes `/ai/initialize` fail.
+   */
+  aiOffline: boolean;
 };
 
 function emptyState(): State {
@@ -192,6 +299,12 @@ function emptyState(): State {
     remoteFiles: new Map(),
     nonces: new Set(),
     headCommitSha: process.env.MOCK_CONTENT_INITIAL_COMMIT ?? "mockcommit0",
+    aiImages: new Map(),
+    aiSessions: new Map(),
+    aiScripts: [],
+    aiPrompts: [],
+    aiToolCalls: [],
+    aiOffline: false,
   };
 }
 
@@ -250,12 +363,16 @@ function corsHeaders(res: ServerResponse): Record<string, string> {
   };
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+async function readRawBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(chunk as Buffer);
   }
-  return Buffer.concat(chunks).toString("utf-8");
+  return Buffer.concat(chunks);
+}
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  return (await readRawBody(req)).toString("utf-8");
 }
 
 async function readJsonBody<T>(req: IncomingMessage): Promise<T | undefined> {
@@ -495,7 +612,7 @@ const savePatchFile: Handler = async (req, res, url) => {
   const patchId = url.pathname.split("/").at(-2);
   const body = await readJsonBody<{
     filePath: string;
-    data: string;
+    data: string | null;
     type: "file" | "image";
     metadata: unknown;
     remote?: boolean;
@@ -510,6 +627,20 @@ const savePatchFile: Handler = async (req, res, url) => {
   if (!files) {
     files = new Map();
     state.patchFiles.set(patchId, files);
+  }
+  if (body.data === null) {
+    /**
+     * A null body is a DELETE on the same endpoint.
+     *
+     * That is the wire shape: `createValSystem`'s upload seam posts here with
+     * `data: null` to forget a file, which is what a gallery removal does after
+     * the patch that stops referencing it has landed. Storing null as if it were
+     * bytes left a record whose `data` was not a string, and the first thing to
+     * read it — the control plane's byte count — threw.
+     */
+    files.delete(body.filePath);
+    json(res, 200, { patchId, filePath: body.filePath, deleted: true });
+    return;
   }
   files.set(body.filePath, {
     data: body.data,
@@ -769,6 +900,333 @@ const putRemoteFile: Handler = async (req, res, url) => {
 
 // #endregion
 
+// #region ai
+
+/**
+ * `POST /v1/{project}/ai/initialize`
+ *
+ * The Studio's server proxies this and turns the nonce into a socket url of its
+ * own — `{contentUrl}/v1/{project}/ai/connect` with the scheme swapped — so all
+ * this has to do is hand out a nonce the socket will accept.
+ */
+const aiInitialize: Handler = (req, res) => {
+  if (state.aiOffline) {
+    json(res, 500, { message: "The assistant is having a bad day" });
+    return;
+  }
+  const nonce = randomUUID();
+  state.nonces.add(nonce);
+  json(res, 200, { nonce });
+};
+
+/** `GET /v1/{project}/ai/sessions` — what the chat's session picker lists. */
+const aiSessions: Handler = (req, res) => {
+  json(res, 200, {
+    sessions: [...state.aiSessions.values()].sort((a, b) =>
+      a.updatedAt < b.updatedAt ? 1 : -1,
+    ),
+    nextCursor: null,
+  });
+};
+
+/** `PATCH /v1/{project}/ai/sessions/{id}` — what `set_session_name` ends up as. */
+const aiRenameSession: Handler = async (req, res, url) => {
+  const sessionId = url.pathname.split("/").at(-1) ?? "";
+  const body = await readJsonBody<{ name?: string }>(req);
+  const session = state.aiSessions.get(sessionId);
+  if (session) {
+    session.name = body?.name ?? null;
+    session.updatedAt = nowIso();
+  } else {
+    state.aiSessions.set(sessionId, {
+      id: sessionId,
+      name: body?.name ?? null,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      messages: [],
+    });
+  }
+  json(res, 200, {});
+};
+
+/**
+ * `GET /v1/{project}/ai/sessions/{id}/messages`
+ *
+ * The conversation, as the service would replay it. The Studio asks whenever a
+ * session id is restored — from the URL on load, and every time the assistant
+ * panel is reopened, since closing it unmounts the chat.
+ */
+const aiSessionMessages: Handler = (req, res, url) => {
+  const sessionId = url.pathname.split("/").at(-2) ?? "";
+  json(res, 200, {
+    messages: state.aiSessions.get(sessionId)?.messages ?? [],
+    nextCursor: null,
+  });
+};
+
+/**
+ * `POST /v1/{project}/ai/images?sessionid=&width=&height=&mimetype=`
+ *
+ * The one AI route the BROWSER calls directly, with the presigned nonce rather
+ * than the api key — the bytes of a file the editor attached in the chat. The
+ * reply is the opaque key that is all the model is ever told about the image.
+ */
+const aiUploadImage: Handler = async (req, res, url) => {
+  const data = await readRawBody(req);
+  const sessionId = decodeURIComponent(url.searchParams.get("sessionid") ?? "");
+  const key = randomUUID();
+  state.aiImages.set(key, {
+    key,
+    sessionId,
+    data,
+    mimeType: decodeURIComponent(
+      url.searchParams.get("mimetype") ??
+        (req.headers["content-type"] as string | undefined) ??
+        "application/octet-stream",
+    ),
+    width: Number(decodeURIComponent(url.searchParams.get("width") ?? "0")),
+    height: Number(decodeURIComponent(url.searchParams.get("height") ?? "0")),
+  });
+  json(res, 200, { key });
+};
+
+/** `GET /v1/{project}/ai/images?key=` — the bytes back, as `fs` mode fetches them. */
+const aiDownloadImage: Handler = (req, res, url) => {
+  const image = state.aiImages.get(url.searchParams.get("key") ?? "");
+  if (!image) {
+    json(res, 404, { message: "No such session image" });
+    return;
+  }
+  res.writeHead(200, {
+    "Content-Type": image.mimeType,
+    "Content-Length": image.data.byteLength,
+    ...corsHeaders(res),
+  });
+  res.end(image.data);
+};
+
+/**
+ * `POST /v1/{project}/patches/{patchId}/files/from-session-file`
+ *
+ * The hinge of the whole image flow: a key the model named becomes bytes
+ * attached to a patch. In production the service copies them internally, which
+ * is why the browser never re-uploads and why the Studio only learns the
+ * dimensions here — so the mock does the same copy, into the same `patchFiles`
+ * map an ordinary upload lands in.
+ *
+ * An unknown key is a 400 carrying `availableKeys`, not a 500: that is the shape
+ * the Studio turns into "retry with one of these", and a model naming a
+ * vision-system file id instead of the key is the mistake it exists for.
+ */
+const aiSessionFileToPatchFile: Handler = async (req, res, url) => {
+  const patchId = url.pathname.split("/").at(-3);
+  const body = await readJsonBody<{
+    files: { filePath: string; key: string; isRemote?: boolean }[];
+  }>(req);
+  if (!patchId || !body || !Array.isArray(body.files)) {
+    json(res, 400, { message: "Invalid from-session-file body" });
+    return;
+  }
+  const resolved: { filePath: string; metadata: unknown }[] = [];
+  for (const requested of body.files) {
+    const image = state.aiImages.get(requested.key);
+    if (!image) {
+      json(res, 400, {
+        message: `No session file with key '${requested.key}'`,
+        details: { availableKeys: [...state.aiImages.keys()] },
+      });
+      return;
+    }
+    let files = state.patchFiles.get(patchId);
+    if (!files) {
+      files = new Map();
+      state.patchFiles.set(patchId, files);
+    }
+    files.set(requested.filePath, {
+      data: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+      type: image.mimeType.startsWith("image/") ? "image" : "file",
+      metadata: {
+        width: image.width,
+        height: image.height,
+        mimeType: image.mimeType,
+      },
+      remote: requested.isRemote === true,
+    });
+    resolved.push({
+      filePath: requested.filePath,
+      metadata: {
+        width: image.width,
+        height: image.height,
+        mimeType: image.mimeType,
+      },
+    });
+  }
+  json(res, 200, { patchId, files: resolved });
+};
+
+/**
+ * The assistant sockets, and the result each tool call is waiting for.
+ *
+ * One map for the whole process rather than per socket: a tool result arrives on
+ * the same socket that asked, but the waiter is created inside the script player
+ * and resolved from the socket's message handler, and threading it through would
+ * mean the player owning the socket's listeners.
+ */
+const pendingToolResults = new Map<
+  string,
+  (res: { result: unknown; isError: boolean }) => void
+>();
+
+/** The image keys the Studio attached to a prompt, in the order it sent them. */
+function imageKeysOf(message: unknown): string[] {
+  if (!Array.isArray(message)) return [];
+  const keys: string[] = [];
+  for (const block of message) {
+    if (
+      block &&
+      typeof block === "object" &&
+      (block as { type?: unknown }).type === "image_key" &&
+      typeof (block as { key?: unknown }).key === "string"
+    ) {
+      keys.push((block as { key: string }).key);
+    }
+  }
+  return keys;
+}
+
+function promptTextOf(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (!Array.isArray(message)) return "";
+  return message
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        !!block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string",
+    )
+    .map((block) => block.text)
+    .join("\n");
+}
+
+/**
+ * Fill `{{imageKey:N}}` in a scripted tool call with a key from this prompt.
+ *
+ * A test cannot write the key literally — the content service invents it at
+ * upload time — and having the test read it back and then send the script would
+ * make every image test a two-phase dance. So the script names the Nth image the
+ * user attached and the mock resolves it, exactly as a model would after reading
+ * the `[Attached images]` list.
+ */
+function substituteImageKeys(args: unknown, imageKeys: string[]): unknown {
+  if (args === undefined) return args;
+  const filled = JSON.stringify(args).replace(
+    /\{\{imageKey:(\d+)\}\}/g,
+    (whole, index: string) => imageKeys[Number(index)] ?? whole,
+  );
+  return JSON.parse(filled);
+}
+
+const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+
+/** Play one scripted turn over the assistant socket. */
+async function playAiTurn(
+  socket: WebSocket,
+  prompt: { id?: string; sessionId?: string; message?: unknown },
+): Promise<void> {
+  const messageId = randomUUID();
+  const sessionId = prompt.sessionId ?? randomUUID();
+  const imageKeys = imageKeysOf(prompt.message);
+  state.aiPrompts.push({
+    sessionId: prompt.sessionId ?? null,
+    text: promptTextOf(prompt.message),
+    imageKeys,
+  });
+  let session = state.aiSessions.get(sessionId);
+  if (session) {
+    session.updatedAt = nowIso();
+  } else {
+    session = {
+      id: sessionId,
+      name: null,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      messages: [],
+    };
+    state.aiSessions.set(sessionId, session);
+  }
+  session.messages.push({
+    role: "user",
+    content: promptTextOf(prompt.message),
+  });
+  const send = (message: unknown): void => {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify(message));
+    }
+  };
+  const script = state.aiScripts.shift() ?? {
+    steps: [],
+    response: "No script was queued for this turn.",
+  };
+  for (const step of script.steps) {
+    if (step.type === "text") {
+      send({ type: "ai_streaming", id: messageId, chunk: step.text });
+      continue;
+    }
+    const toolCallId = randomUUID();
+    const args = substituteImageKeys(step.arguments ?? {}, imageKeys);
+    const answered = new Promise<{ result: unknown; isError: boolean }>(
+      (resolve) => {
+        pendingToolResults.set(toolCallId, resolve);
+        const timeoutMs =
+          step.timeoutMs === undefined
+            ? DEFAULT_TOOL_TIMEOUT_MS
+            : step.timeoutMs;
+        if (timeoutMs !== null) {
+          setTimeout(() => {
+            if (pendingToolResults.delete(toolCallId)) {
+              resolve({
+                result: { error: `Timed out waiting for ${step.name}` },
+                isError: true,
+              });
+            }
+          }, timeoutMs).unref();
+        }
+      },
+    );
+    send({
+      type: "ai_tool_call",
+      id: messageId,
+      toolCallId,
+      name: step.name,
+      arguments: args,
+    });
+    const answer = await answered;
+    state.aiToolCalls.push({
+      name: step.name,
+      arguments: args,
+      result: answer.result,
+      isError: answer.isError,
+    });
+  }
+  /**
+   * Stream the reply, then close the turn — in that order, as the real service
+   * does.
+   *
+   * `ai_response` alone would not put the text on screen: the Studio appends the
+   * response body only when nothing has streamed under that message id yet, and a
+   * turn that called a tool has already claimed the id. So a reply sent only as
+   * `ai_response` renders as an empty assistant message, which is not what an
+   * editor would ever see.
+   */
+  const response = script.response ?? "Done.";
+  session.messages.push({ role: "assistant", content: response });
+  send({ type: "ai_streaming", id: messageId, chunk: response });
+  send({ type: "ai_response", id: messageId, sessionId, response });
+}
+
+// #endregion
+
 // #region control plane
 
 /**
@@ -824,6 +1282,39 @@ const controlPlane: Handler = async (req, res, url) => {
     });
     return;
   }
+  if (action === "ai-script" && req.method === "POST") {
+    const body = await readJsonBody<AiScript>(req);
+    if (!body || !Array.isArray(body.steps)) {
+      json(res, 400, { message: "An ai script needs a steps array" });
+      return;
+    }
+    state.aiScripts.push(body);
+    json(res, 200, { queued: state.aiScripts.length });
+    return;
+  }
+  if (action === "ai-offline" && req.method === "POST") {
+    const body = await readJsonBody<{ offline?: boolean }>(req);
+    state.aiOffline = body?.offline !== false;
+    json(res, 200, { offline: state.aiOffline });
+    return;
+  }
+  if (action === "ai-state" && req.method === "GET") {
+    json(res, 200, {
+      prompts: state.aiPrompts,
+      toolCalls: state.aiToolCalls,
+      sessions: [...state.aiSessions.values()],
+      images: [...state.aiImages.values()].map((image) => ({
+        key: image.key,
+        sessionId: image.sessionId,
+        mimeType: image.mimeType,
+        width: image.width,
+        height: image.height,
+        bytes: image.data.byteLength,
+      })),
+      queuedScripts: state.aiScripts.length,
+    });
+    return;
+  }
   if (action === "committed-source" && req.method === "GET") {
     const key = url.searchParams.get("path");
     if (!key) {
@@ -836,6 +1327,21 @@ const controlPlane: Handler = async (req, res, url) => {
       // an image's bytes are stored base64 — handing those back as `content`
       // would be neither readable nor safe to compare.
       content: overlaid && overlaid.encoding === "utf8" ? overlaid.value : null,
+      /**
+       * How big the committed file is, whatever its encoding.
+       *
+       * The only thing a test can check about committed BYTES, and it is worth
+       * checking: a commit that carries the wrong bytes still puts the path in
+       * the overlay, so asserting on the path alone passed while the file was a
+       * UUID where a PNG should have been.
+       */
+      bytes:
+        overlaid === undefined || overlaid === null
+          ? null
+          : Buffer.from(
+              overlaid.value,
+              overlaid.encoding === "base64" ? "base64" : "utf-8",
+            ).byteLength,
     });
     return;
   }
@@ -955,6 +1461,21 @@ async function handle(
       return;
     }
   }
+  if (
+    req.method === "POST" &&
+    /^\/patches\/[^/]+\/files\/from-session-file$/.test(rest)
+  ) {
+    await aiSessionFileToPatchFile(req, res, url);
+    return;
+  }
+  if (/^\/ai\/sessions\/[^/]+$/.test(rest) && req.method === "PATCH") {
+    await aiRenameSession(req, res, url);
+    return;
+  }
+  if (/^\/ai\/sessions\/[^/]+\/messages$/.test(rest) && req.method === "GET") {
+    aiSessionMessages(req, res, url);
+    return;
+  }
   if (req.method === "PUT" && rest.startsWith("/remote/files/")) {
     await putRemoteFile(req, res, url);
     return;
@@ -990,6 +1511,18 @@ async function handle(
     case "GET /profiles":
       profiles(req, res, url);
       return;
+    case "POST /ai/initialize":
+      aiInitialize(req, res, url);
+      return;
+    case "GET /ai/sessions":
+      aiSessions(req, res, url);
+      return;
+    case "POST /ai/images":
+      await aiUploadImage(req, res, url);
+      return;
+    case "GET /ai/images":
+      aiDownloadImage(req, res, url);
+      return;
     default:
       json(res, 404, { message: `Unhandled content-host route: ${route}` });
   }
@@ -1002,7 +1535,7 @@ async function handle(
  * The `subscribed` reply matters: without it the client sits waiting and its
  * long-poll interval never lengthens.
  */
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", (socket) => {
   socket.on("message", (raw) => {
     let parsed: unknown;
@@ -1025,6 +1558,81 @@ wss.on("connection", (socket) => {
   socket.on("close", () => {
     sockets.delete(socket);
   });
+});
+
+/**
+ * The assistant socket, on the url the Studio's server derives from `contentUrl`.
+ *
+ * A prompt plays the next queued script; a tool result unblocks whichever step is
+ * waiting for it. Nothing else is answered — the real service also speaks
+ * `ai_get_sessions` and friends over this socket, but the Studio asks for those
+ * over HTTP, so implementing them here would be inventing traffic.
+ */
+const aiWss = new WebSocketServer({ noServer: true });
+aiWss.on("connection", (socket) => {
+  socket.on("message", (raw) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    const message = parsed as {
+      type?: string;
+      toolCallId?: string;
+      result?: unknown;
+      isError?: boolean;
+    };
+    if (message.type === "ai_prompt") {
+      void playAiTurn(
+        socket,
+        parsed as { id?: string; sessionId?: string; message?: unknown },
+      ).catch((err) => {
+        console.error("[mock-content-host] ai turn failed", err);
+      });
+      return;
+    }
+    if (message.type === "ai_tool_result" && message.toolCallId) {
+      const waiting = pendingToolResults.get(message.toolCallId);
+      if (waiting) {
+        pendingToolResults.delete(message.toolCallId);
+        waiting({
+          result: message.result,
+          isError: message.isError === true,
+        });
+      }
+    }
+  });
+});
+
+/**
+ * Two socket endpoints on one http server, routed by path.
+ *
+ * `WebSocketServer({ server, path })` cannot do this: each instance adds its own
+ * `upgrade` listener and destroys any socket whose path it does not recognise, so
+ * a second one would kill the first one's connections. Routing here and handing
+ * off with `noServer` is the shape `ws` documents for exactly this case.
+ */
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+  if (url.pathname === "/ws") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+    return;
+  }
+  if (url.pathname === `/v1/${PROJECT}/ai/connect`) {
+    const nonce = url.searchParams.get("nonce");
+    if (!nonce || !state.nonces.has(nonce)) {
+      socket.destroy();
+      return;
+    }
+    aiWss.handleUpgrade(req, socket, head, (ws) => {
+      aiWss.emit("connection", ws, req);
+    });
+    return;
+  }
+  socket.destroy();
 });
 
 server.listen(PORT, () => {

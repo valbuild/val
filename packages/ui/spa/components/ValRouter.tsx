@@ -197,7 +197,7 @@ export function ValRouter({
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   // Read `?session=` synchronously on the first render: consumers capture this
-  // value once on mount (see initialSessionIdRef in ToolsMenu), so populating
+  // value once on mount (see initialSessionIdRef in AIChatSurface), so populating
   // it from the popstate listener alone would miss a session id that was
   // already in the URL on initial page load.
   const [sessionParam, setSessionParamState] = useState<string | null>(() =>

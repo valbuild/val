@@ -140,7 +140,6 @@ export function useShellData(): ShellDataState {
           patchSets.status === "success"
             ? toActivity(patchSets.data, Date.now())
             : undefined,
-        chatSuggestions: config?.ai?.chat?.suggestions,
         pendingChanges: currentPatchIds.length - committedPatchIds.size,
         deployments: shellDeployments,
         user: profile

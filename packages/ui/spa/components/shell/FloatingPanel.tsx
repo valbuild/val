@@ -28,6 +28,20 @@ export type FloatingPanelProps = {
   sticky?: ReactNode;
   /** Pinned to the bottom, outside the scroll area, e.g. a chat input. */
   footer?: ReactNode;
+  /**
+   * Render, but out of sight — no scrim, no Escape, no scroll lock.
+   *
+   * For a panel whose CONTENTS have to outlive being dismissed. The assistant
+   * is the one: it holds a conversation, a composer draft and, while a turn is
+   * running, the only thing that can answer the model's tool calls. Unmounting
+   * it on close meant a click anywhere in the editor — the scrim covers the
+   * whole viewport — killed a turn in flight with no error anywhere.
+   *
+   * Not the default, because for every other panel unmounting is the point:
+   * they hold a filter and a scroll position, and reopening one should start
+   * from the top rather than from where you left it a page ago.
+   */
+  hidden?: boolean;
   children: ReactNode;
 };
 
@@ -50,9 +64,10 @@ export function FloatingPanel({
   subheader,
   sticky,
   footer,
+  hidden = false,
   children,
 }: FloatingPanelProps) {
-  const isMobile = breakpoint === "mobile";
+  const isMobile = breakpoint === "mobile" && !hidden;
   const panelRef = useRef<HTMLDivElement>(null);
   // A mobile sheet is measured against the part of the screen the user can
   // actually see. With the keyboard up that is not the layout viewport, and
@@ -62,25 +77,28 @@ export function FloatingPanel({
   const viewport = useVisualViewport(isMobile);
   useLockBodyScroll(isMobile);
   useEffect(() => {
+    if (hidden) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, hidden]);
   return (
     <>
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
           screen, invisible but still click-to-close on larger screens where
           the editor stays visible behind the panel. */}
-      <div
-        onClick={onClose}
-        aria-hidden
-        className={cn(
-          "absolute inset-0 z-window",
-          isMobile ? "bg-black/40" : "bg-transparent",
-        )}
-      />
+      {!hidden && (
+        <div
+          onClick={onClose}
+          aria-hidden
+          className={cn(
+            "absolute inset-0 z-window",
+            isMobile ? "bg-black/40" : "bg-transparent",
+          )}
+        />
+      )}
       <div
         ref={panelRef}
         role="dialog"
@@ -101,6 +119,9 @@ export function FloatingPanel({
         className={cn(
           "absolute z-full flex flex-col",
           "bg-bg-float border border-border-float shadow-lg",
+          // `display: none`, so the subtree keeps its state and its effects but
+          // takes no space, catches no clicks and leaves the accessibility tree.
+          hidden && "hidden",
           isMobile
             ? mobileVariant === "sheet"
               ? "fixed left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"

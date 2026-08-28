@@ -23,6 +23,7 @@ import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
+import { GlobalErrors } from "../GlobalErrors";
 import { TransientErrorToasts } from "../TransientErrorToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
@@ -37,7 +38,6 @@ import {
   useAuthenticationState,
   useConnectionStatus,
   useProfilesError,
-  useAIConnectionError,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -52,7 +52,8 @@ import {
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { useAIChatActions } from "../AIChatActionsContext";
+import { AIChatSurface } from "../AIChatSurface";
+import { useAIChatActions, useInsertFieldRef } from "../AIChatActionsContext";
 import { useValSystem } from "../../stores/react/SystemContext";
 
 /**
@@ -83,6 +84,7 @@ export function ValShell() {
       <Toaster />
       <TransientErrorToasts />
       <PatchErrorsDialog />
+      <GlobalErrors />
     </>
   );
 }
@@ -105,8 +107,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * problem, not a reason to stop working.
    */
   const profilesError = useProfilesError();
-  /** Why the assistant is unavailable, once it has stopped trying to connect. */
-  const aiConnectionError = useAIConnectionError();
   /**
    * Whether there is an assistant at all.
    *
@@ -114,7 +114,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * a configured assistant that is currently offline still gets its panel,
    * which is where `aiConnectionError` and its retry are shown.
    */
-  const { isAIChatEnabled } = useAIChatActions();
+  const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
+  const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
@@ -183,6 +184,36 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);
   }, []);
+
+  /**
+   * Open the assistant from outside the shell.
+   *
+   * Through the same `restoreViewState` command channel `popstate` uses,
+   * because it is the only way in: the shell owns which panel is open, and a
+   * mention on a field — or on the canvas — has to be able to say "the
+   * assistant, now" without becoming a controlled prop that fights every panel
+   * the user opens themselves.
+   *
+   * The canvas half of the command is carried through unchanged, from a ref
+   * rather than from `viewState` directly: this is registered once, and
+   * rebuilding it whenever the canvas moves would re-register on every pan.
+   * Without it, mentioning a field would shut the canvas the field is on.
+   */
+  const viewStateRef = useRef(viewState);
+  viewStateRef.current = viewState;
+  const openAIPanel = useCallback(() => {
+    setRestoreViewState((previous) => ({
+      epoch: (previous?.epoch ?? 0) + 1,
+      panel: "ai",
+      canvasOpen: viewStateRef.current.canvasOpen,
+      canvasView: viewStateRef.current.canvasView,
+    }));
+  }, []);
+  useEffect(() => {
+    if (!isAIChatEnabled) return;
+    setOpenAIChatImpl(openAIPanel);
+    return () => setOpenAIChatImpl(null);
+  }, [isAIChatEnabled, setOpenAIChatImpl, openAIPanel]);
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
@@ -263,12 +294,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           (navigation.currentSourcePath || selection.sourcePath) as SourcePath
         }
         showModuleGalleryChild={null}
-        // No breadcrumb or title beside the canvas: the address bar says which
-        // route this is and the page itself carries its own heading.
-        hideHeader={viewState.canvasOpen}
       />
     ),
-    [navigation.currentSourcePath, viewState.canvasOpen],
+    [navigation.currentSourcePath],
   );
 
   /**
@@ -690,7 +718,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
   /**
-   * The real auto-save setting, shared with the classic layout's toggle.
+   * The real auto-save setting, not one of the shell's own.
    *
    * The shell used to hold its own `useState(true)` for this: a checkbox that
    * showed on, changed nothing when clicked, and disagreed with the setting
@@ -720,11 +748,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
   ) : unlistedModulePath ? (
-    <Module
-      path={unlistedModulePath}
-      showModuleGalleryChild={null}
-      hideHeader={viewState.canvasOpen}
-    />
+    <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
 
   return (
@@ -783,23 +807,27 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           : undefined
       }
       aiEnabled={isAIChatEnabled}
+      /*
+       * The real assistant, not a stand-in.
+       *
+       * Mounted only while the panel is open — same as the on-page overlay.
+       * The socket is not: it belongs to `ValProvider`, so closing the panel
+       * does not disconnect, and the conversation comes back because
+       * `AIChatSurface` seeds itself from the session id in the URL.
+       */
+      aiSlot={
+        isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
+      }
+      onMentionField={(sourcePath) => insertFieldRef(sourcePath as SourcePath)}
       // Held until the first load's patches are in — see `PendingChangesGate`.
       pendingChangesLoaded={pendingChangesLoaded}
       pendingChangesProgress={pendingChangesProgress}
       pendingChangesError={pendingChangesError}
-      aiUnavailable={
-        aiConnectionError
-          ? {
-              message: aiConnectionError.message,
-              onRetry: aiConnectionError.retry,
-            }
-          : undefined
-      }
     />
   );
 }
 
-/** The compare view, as `ContentArea` renders it. */
+/** The compare view, in the editor column. */
 function CompareView() {
   const val = useValSystem();
   /**

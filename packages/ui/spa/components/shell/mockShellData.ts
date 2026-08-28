@@ -1,7 +1,6 @@
 import { ModuleFilePath } from "@valbuild/core";
 import {
   ShellActivityEntry,
-  ShellChatMessage,
   ShellData,
   ShellDataModule,
   ShellDeployment,
@@ -460,31 +459,6 @@ export const mockActivity: ShellActivityEntry[] = [
   },
 ];
 
-export const mockChat: ShellChatMessage[] = [
-  {
-    id: "c1",
-    role: "user",
-    text: "Make the hero heading shorter and a bit punchier.",
-  },
-  {
-    id: "c2",
-    role: "assistant",
-    text: "Here is a shorter heading. It keeps the promise but drops the qualifier.",
-    proposal: {
-      target: "page › hero › title",
-      content: "Content as code",
-      actions: ["apply", "replace", "try-another"],
-    },
-  },
-];
-
-export const mockChatSuggestions: string[] = [
-  "Improve this page",
-  "Make this heading shorter",
-  "Write a meta description",
-  "Suggest sections",
-];
-
 /** Full 40-character shas, as git produces and as the deployment feed joins on. */
 export const mockDeployments: ShellDeployment[] = [
   {
@@ -560,8 +534,6 @@ export const mockShellData: ShellData = {
   activity: mockActivity,
   validationErrors: mockValidationErrors,
   deployments: mockDeployments,
-  chat: mockChat,
-  chatSuggestions: mockChatSuggestions,
   user: {
     name: "Fredrik Ekholdt",
     initials: "FE",
@@ -605,5 +577,4 @@ export const emptyShellData: ShellData = {
   activity: [],
   validationErrors: [],
   deployments: [],
-  chat: [],
 };

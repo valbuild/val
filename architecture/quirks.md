@@ -67,6 +67,16 @@ on one render and runs more hooks on the next — "Rendered more hooks than duri
 the previous render", from inside `useMemo`, with nothing in the message about
 media. Compute hooks unconditionally and defensively; guard after.
 
+**A `setState` call inside another state updater runs as many times as the
+updater does.** Under `StrictMode` — which the SPA mounts in — that is twice, so
+the inner update happens twice. `AIChat.completeAssistantMessage` appended the
+finished message to `completedMessages` from inside the `setCurrentMessage`
+updater, and every assistant reply therefore appeared TWICE in dev, tool activity
+and all. It has to be nested (the message being retired lives in
+`currentMessage`, and reading it from the render closure would drop a chunk that
+streamed in the same tick), so the inner update is keyed by message id and skips
+what is already there. If you nest one, make it idempotent.
+
 **An uncontrolled `defaultValue` can be masked by an async gate, and it will not
 stay masked.** `StringField`'s textarea worked for years while being
 uncontrolled, because the thing that decided it should BE a textarea arrived from
@@ -216,6 +226,19 @@ two backwards and you either resurrect deleted edits as permanent failures, or
 wait forever on changes that will never arrive — the second of which is a real
 bug that shipped. See `architecture/patch-store.md`.
 
+**An AI-written `file` op carries a session key where every other one carries
+bytes.** An image the editor attaches in the chat is uploaded to the content
+service straight from the browser; the assistant is only ever told an opaque key,
+and a tool turns that key into patch bytes by asking the SERVICE to copy them
+(`patches/{id}/files/from-session-file`). The client never holds the bytes, so the
+`file` op it emits has the key as its `value` — and `PatchStore.createPatch`
+happily uploaded that string as the file's contents, over the image the service
+had just written, on the same (patch id, file path). The image then 404'd in the
+Studio and a publish committed a UUID in place of a PNG, with the tool reporting
+success throughout. Hence `filesAlreadyUploaded` on `createPatch`: it suppresses
+the upload and nothing else — a `file` op with a null value is still a delete and
+still runs. Pinned by `e2e/http/aiChat.spec.ts`.
+
 **`/stat`'s patch list can be a polling interval old.** It long polls in `fs`
 mode, and it used to answer with the list it read when the poll _opened_ — so the
 response that arrives right after a publish still named the patches the publish
@@ -275,6 +298,27 @@ a fresh element each time or the probe never runs again.
 **The e2e file input picker is ambiguous.** The AI chat has its own
 `input[type="file"]`, and it is `multiple`. Select the field's with
 `input[type="file"]:not([multiple])`.
+
+**The assistant panel is hidden, not unmounted.** Every other `FloatingPanel`
+comes and goes with `openPanel`; this one stays mounted and takes `hidden`. It
+has to: the scrim covers the whole viewport and closes on any click outside, so
+carrying on editing while the model works "dismisses" the assistant — and
+unmounting it there dropped the turn, because the chat is the only thing that
+answers the model's tool calls. So a test cannot assert the chat is ABSENT when
+the panel is closed, only that it is not visible; and it still has to click the
+top bar's "AI assistant" button to reveal it, which a mobile-width viewport does
+not offer at all.
+
+**A field mention can arrive before the chat exists, and then arrive too early.**
+"Mention this field" opens the assistant and inserts a reference, and in the
+shell the first of those is what mounts the second — so an insert straight after
+`openAIChat()` lands on a ref that is still null and the field goes missing with
+no error. Hence the queue in `AIChatActionsProvider`; use `insertFieldRef` rather
+than reaching for `chatEditorRef` yourself. Draining it from a mount effect is
+still not enough: `StrictMode` runs mount effects, cleans up and runs them again,
+rebuilding the ProseMirror view in between, so the field went into the view that
+was then thrown away. `AIChatSurface` drains on a `requestAnimationFrame` the
+cleanup cancels, which is the only pass that writes to the editor that survives.
 
 ## Dev environment
 

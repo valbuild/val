@@ -22,7 +22,7 @@ function Probe() {
   );
 }
 
-/** Stands in for whichever layout owns the chat, e.g. `ToolsMenu`. */
+/** Stands in for whichever surface owns the chat, e.g. `AIChatSurface`. */
 function ChatSurface() {
   const { setOpenAIChatImpl } = useAIChatActions();
   useEffect(() => {
@@ -68,8 +68,8 @@ describe("canMentionField", () => {
   });
 
   /**
-   * The new shell's assistant panel is a design placeholder — it never calls
-   * `setOpenAIChatImpl` — so a mention there would open nothing at all.
+   * A surface that never calls `setOpenAIChatImpl` — a story, a preview, a
+   * layout that renders no assistant — leaves a mention with nowhere to open.
    */
   test("not when no layout is offering a chat", () => {
     render(tree({ enabled: true, online: true, withChatSurface: false }));

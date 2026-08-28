@@ -2154,12 +2154,18 @@ export function useAIConnectionError(): {
   const { aiAuthError, aiConnectionError, retryAiConnection } =
     useContext(ValContext);
   return useMemo(() => {
-    if (aiAuthError) {
-      return {
-        message: "You are not signed in to the assistant",
-        retry: retryAiConnection,
-      };
-    }
+    /**
+     * Being signed out is NOT reported here, deliberately.
+     *
+     * It used to be, as "You are not signed in to the assistant" with a retry —
+     * and a retry re-opens the socket with the same credentials, so it fails
+     * again. Meanwhile the chat's own signed-out prompt, which is the only
+     * thing that can say HOW to sign in (the `val login` command in `fs` mode,
+     * the authorize link in `http`), was replaced by that message and never
+     * seen. The chat reads `authError` for itself; this is for the case where
+     * the studio is signed in and still cannot reach the assistant.
+     */
+    if (aiAuthError) return null;
     if (aiConnectionError !== null) {
       return { message: aiConnectionError, retry: retryAiConnection };
     }
