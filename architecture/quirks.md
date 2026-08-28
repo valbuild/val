@@ -67,6 +67,19 @@ on one render and runs more hooks on the next — "Rendered more hooks than duri
 the previous render", from inside `useMemo`, with nothing in the message about
 media. Compute hooks unconditionally and defensively; guard after.
 
+**An uncontrolled `defaultValue` can be masked by an async gate, and it will not
+stay masked.** `StringField`'s textarea worked for years while being
+uncontrolled, because the thing that decided it should BE a textarea arrived from
+the host a tick after the effect that fills `currentValue` — so by the time it
+mounted, the value was there. Making the layout synchronous (it is static schema
+config now, not something the host computes) removed that ordering, and the
+textarea started mounting at `null`. `.value` still looked right, because a
+textarea's value follows `defaultValue` while it is untouched — but
+`AutoGrowingTextarea` seeds its invisible sizing ghost from props exactly once,
+so the box rendered one line tall for any amount of text. If a field is
+uncontrolled, check what is actually keeping it correct before you change the
+timing around it. Pinned in `StringField.test.tsx`.
+
 **A context value built inline is a fresh object every render.** Harmless until
 something downstream takes it as a `useMemo`/effect dependency — then it is the
 whole subtree recomputing per keystroke. `FieldSourceOverrideContext` in the

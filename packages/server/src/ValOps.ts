@@ -49,7 +49,7 @@ import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
-import type { ReifiedRender } from "@valbuild/core";
+import type { ReifiedPreview } from "@valbuild/core";
 import {
   ValCommit,
   ValDeployment,
@@ -578,28 +578,31 @@ export abstract class ValOps {
     };
   }
 
-  // #region getRenders
+  // #region getPreviews
   /**
-   * Reifies each module's render from its schema INSTANCE.
+   * Reifies each module's previews from its schema INSTANCE.
    *
-   * Kept even though the Studio also computes renders client-side: `select` is a
-   * user function that lives on the instance and is not part of the serialized
+   * Kept even though the Studio also computes previews client-side: a preview is
+   * a user function that lives on the instance and is not part of the serialized
    * schema, so a host app that does not render `<ValModulesClient>` has no
-   * instances in the browser and would otherwise get no renders at all. See
+   * instances in the browser and would otherwise get no previews at all. See
    * #470.
+   *
+   * A string's `render` needs none of this — it is static config that travels
+   * with the serialized schema.
    */
-  async getRenders(
+  async getPreviews(
     schemas: Schemas,
     sources: Sources,
   ): Promise<{
-    renders: Record<ModuleFilePath, ReifiedRender | null>;
+    previews: Record<ModuleFilePath, ReifiedPreview | null>;
   }> {
-    const renders: Record<ModuleFilePath, ReifiedRender | null> = {};
+    const previews: Record<ModuleFilePath, ReifiedPreview | null> = {};
     for (const [pathS, schema] of Object.entries(schemas)) {
       const path = pathS as ModuleFilePath;
-      renders[path] = schema["executeRender"](path, sources[path]);
+      previews[path] = schema["executePreview"](path, sources[path]);
     }
-    return { renders };
+    return { previews };
   }
 
   // #region getSources

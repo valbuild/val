@@ -2,7 +2,6 @@ import * as React from "react";
 import {
   ImageSource,
   Internal,
-  ListRecordRender,
   ModuleFilePath,
   ModulePath,
   SourcePath,
@@ -15,7 +14,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useAllRenders,
+  useAllPreviews,
 } from "../ValFieldProvider";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -355,27 +354,26 @@ function toAvailableRoute(router: CreatableRouter): AvailableRoute {
 function useRouteSelectorRoutes(
   routesWithModulePaths: Array<{ route: string; moduleFilePath: string }>,
 ): RouteSelectorRoute[] {
-  const allRenders = useAllRenders();
+  const allPreviews = useAllPreviews();
   return React.useMemo(() => {
-    const renderItemsByModule = new Map<
+    const previewItemsByModule = new Map<
       string,
       Map<string, RouteSelectorRoute["preview"]>
     >();
     return routesWithModulePaths.map(({ route, moduleFilePath }) => {
-      if (!renderItemsByModule.has(moduleFilePath)) {
+      if (!previewItemsByModule.has(moduleFilePath)) {
         const itemMap = new Map<string, RouteSelectorRoute["preview"]>();
-        const renderAtModule = allRenders[moduleFilePath as ModuleFilePath];
-        if (renderAtModule) {
-          const moduleRender = renderAtModule[moduleFilePath as ModuleFilePath];
+        const previewAtModule = allPreviews[moduleFilePath as ModuleFilePath];
+        if (previewAtModule) {
+          const modulePreview =
+            previewAtModule[moduleFilePath as ModuleFilePath];
           if (
-            moduleRender &&
-            "data" in moduleRender &&
-            moduleRender.data &&
-            moduleRender.data.layout === "list" &&
-            moduleRender.data.parent === "record"
+            modulePreview &&
+            "data" in modulePreview &&
+            modulePreview.data &&
+            modulePreview.data.parent === "record"
           ) {
-            const recordRender = moduleRender.data as ListRecordRender;
-            for (const [key, value] of recordRender.items) {
+            for (const [key, value] of modulePreview.data.items) {
               itemMap.set(key, {
                 title: value.title,
                 subtitle: value.subtitle ?? null,
@@ -384,13 +382,13 @@ function useRouteSelectorRoutes(
             }
           }
         }
-        renderItemsByModule.set(moduleFilePath, itemMap);
+        previewItemsByModule.set(moduleFilePath, itemMap);
       }
       const preview =
-        renderItemsByModule.get(moduleFilePath)?.get(route) ?? null;
+        previewItemsByModule.get(moduleFilePath)?.get(route) ?? null;
       return { route, moduleFilePath, preview };
     });
-  }, [routesWithModulePaths, allRenders]);
+  }, [routesWithModulePaths, allPreviews]);
 }
 
 export function RouteField({

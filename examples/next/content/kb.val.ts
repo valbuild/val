@@ -41,13 +41,10 @@ export default c.define(
   s
     .record(kbArticleSchema)
     .jsonValues()
-    .render({
-      as: "list",
-      select: ({ val }) => ({
-        title: val.title,
-        subtitle: val.body,
-      }),
-    }),
+    .preview(({ val }) => ({
+      title: val.title,
+      subtitle: val.body,
+    })),
   {
     "kb-000": c.json(() => import("./kb/entry-000.val.json")),
     "kb-001": c.json(() => import("./kb/entry-001.val.json")),

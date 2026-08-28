@@ -1,7 +1,7 @@
 import type {
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
 } from "@valbuild/core";
 import { createSystem, type System } from "../createSystem";
@@ -12,14 +12,14 @@ import type { HostBridge } from "../bridges";
  *
  * ## Why a `HostBridge` rather than `host.receive`
  *
- * Intake takes real `ValModule` instances and derives schema, source and renders
- * from them. A story has none: it has serialized schemas, plain JSON sources and
- * hand-written renders, which is the point — a story is meant to pin one visual
- * state, not to evaluate a project.
+ * Intake takes real `ValModule` instances and derives schema, source and
+ * previews from them. A story has none: it has serialized schemas, plain JSON
+ * sources and hand-written previews, which is the point — a story is meant to
+ * pin one visual state, not to evaluate a project.
  *
  * So the stores are fed directly (`schemaStore.receive`, `sourceStore.receive`)
- * and the render/validate seam is answered by a bridge that returns the story's
- * renders. `HostBridge` is a seam, `HostStore` is one implementation of it, and
+ * and the preview/validate seam is answered by a bridge that returns the story's
+ * previews. `HostBridge` is a seam, `HostStore` is one implementation of it, and
  * this is the second — the same shape of substitution `workerRealm` and
  * `schemaValidation` already have.
  *
@@ -34,18 +34,18 @@ import type { HostBridge } from "../bridges";
 export function createStorySystem({
   schemas,
   sources,
-  renders,
+  previews,
 }: {
   schemas: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources: Record<ModuleFilePath, Json | undefined>;
-  renders?: Record<ModuleFilePath, ReifiedRender | null>;
+  previews?: Record<ModuleFilePath, ReifiedPreview | null>;
 }): System {
   const hostBridge: HostBridge = {
-    async render(moduleFilePath) {
-      const render = renders?.[moduleFilePath];
-      return render === undefined || render === null
+    async preview(moduleFilePath) {
+      const preview = previews?.[moduleFilePath];
+      return preview === undefined || preview === null
         ? { status: "unknown-module" }
-        : { status: "rendered", render };
+        : { status: "previewed", preview };
     },
     async customValidate() {
       // A story has no user closures to run — its schemas are already

@@ -74,8 +74,8 @@ describe("ValRouter", () => {
   });
 
   // NOTE: the studio applies patches on the client and therefore requests
-  // sources with apply_patches=false. Renders must be returned either way:
-  // the select functions only exist on the server (they are not part of the
+  // sources with apply_patches=false. Previews must be returned either way:
+  // the preview functions only exist on the server (they are not part of the
   // serialized schema), so the client cannot compute them itself.
   const patchedAuthorName = "Fredrik Ekholdt (patched)";
   const patchedAuthorsSource = {
@@ -103,7 +103,7 @@ describe("ValRouter", () => {
       expectedBaseSource: authorsSource,
     },
   ])(
-    "/sources/~ returns renders (query: $query)",
+    "/sources/~ returns previews (query: $query)",
     async ({ query, expectedSource, expectedBaseSource }) => {
       // This case creates a real pending patch, and an fs-mode server stores
       // patches under `${process.cwd()}/.val`. Rooted at the repo that writes
@@ -115,7 +115,7 @@ describe("ValRouter", () => {
       const valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-router-"));
       const cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
       try {
-        await runRenderCase({ query, expectedSource, expectedBaseSource });
+        await runPreviewCase({ query, expectedSource, expectedBaseSource });
       } finally {
         cwdSpy.mockRestore();
         fs.rmSync(valRoot, { recursive: true, force: true });
@@ -123,7 +123,7 @@ describe("ValRouter", () => {
     },
   );
 
-  async function runRenderCase({
+  async function runPreviewCase({
     query,
     expectedSource,
     expectedBaseSource,
@@ -133,20 +133,17 @@ describe("ValRouter", () => {
     expectedBaseSource: typeof authorsSource | undefined;
   }) {
     {
-      const onRouteWithRender = createOnRoute(
+      const onRouteWithPreview = createOnRoute(
         c.define(
           "/content/authors.val.ts",
-          authorsSchema.render({
-            as: "list",
-            select: ({ val }) => ({
-              title: val.name,
-              subtitle: val.birthdate,
-            }),
-          }),
+          authorsSchema.preview(({ val }) => ({
+            title: val.name,
+            subtitle: val.birthdate,
+          })),
           authorsSource,
         ),
       );
-      const patchesRes = await onRouteWithRender(
+      const patchesRes = await onRouteWithPreview(
         fakeRequest({
           method: "GET",
           url: new URL("http://localhost:3000/api/val/patches"),
@@ -173,7 +170,7 @@ describe("ValRouter", () => {
       ) {
         throw new Error("Expected the patches response to carry a baseSha");
       }
-      const createPatchRes = await onRouteWithRender(
+      const createPatchRes = await onRouteWithPreview(
         fakeRequest({
           method: "PUT",
           url: new URL("http://localhost:3000/api/val/patches"),
@@ -202,7 +199,7 @@ describe("ValRouter", () => {
         }),
       );
       expect(createPatchRes.status).toBe(200);
-      const serverRes = await onRouteWithRender(
+      const serverRes = await onRouteWithPreview(
         fakeRequest({
           method: "PUT",
           url: new URL(
@@ -221,7 +218,7 @@ describe("ValRouter", () => {
       const json = serverRes.json as unknown as {
         modules: Record<
           string,
-          { source?: unknown; baseSource?: unknown; render?: unknown }
+          { source?: unknown; baseSource?: unknown; preview?: unknown }
         >;
       };
       expect(json.modules["/content/authors.val.ts"]?.source).toEqual(
@@ -230,11 +227,10 @@ describe("ValRouter", () => {
       expect(json.modules["/content/authors.val.ts"]?.baseSource).toEqual(
         expectedBaseSource,
       );
-      expect(json.modules["/content/authors.val.ts"]?.render).toEqual({
+      expect(json.modules["/content/authors.val.ts"]?.preview).toEqual({
         "/content/authors.val.ts": {
           status: "success",
           data: {
-            layout: "list",
             parent: "record",
             items: Object.entries(patchedAuthorsSource).map(([key, author]) => [
               key,

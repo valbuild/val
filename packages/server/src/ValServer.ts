@@ -15,7 +15,7 @@ import {
   SelectorSource,
   hasRemoteFileSchema,
 } from "@valbuild/core";
-import { ReifiedRender } from "@valbuild/core";
+import { ReifiedPreview } from "@valbuild/core";
 import {
   Api,
   ParentRef,
@@ -1513,11 +1513,11 @@ export const ValServer = (
         // The studio client always passes false: it owns patch application
         // and validation, and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
-        // NOTE: renders are computed here even when the client applies patches
-        // itself: the render select functions live on the Schema instances and
-        // are not part of the serialized schema, so the client cannot derive
-        // them. They are computed on the patched sources, so that previews
-        // (list titles / subtitles / images) reflect the patches that apply.
+        // NOTE: previews are computed here even when the client applies patches
+        // itself: the preview functions live on the Schema instances and are not
+        // part of the serialized schema, so the client cannot derive them. They
+        // are computed on the patched sources, so that previews (list titles /
+        // subtitles / images) reflect the patches that apply.
         let patchedSources = sourcesRes.sources;
         if ((patchOps.patches?.length ?? 0) > 0) {
           const onlyPatchedTreeModules = await serverOps.getSources({
@@ -1538,7 +1538,7 @@ export const ValServer = (
             };
           }
         }
-        const renderRes = await serverOps.getRenders(
+        const previewRes = await serverOps.getPreviews(
           schemasRes,
           patchedSources,
         );
@@ -1587,7 +1587,7 @@ export const ValServer = (
           {
             source: Json;
             baseSource?: Json;
-            render: ReifiedRender | null;
+            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1631,7 +1631,7 @@ export const ValServer = (
                 applyPatches && hasPatches
                   ? unpatchedSources[moduleFilePath]
                   : undefined,
-              render: renderRes.renders[moduleFilePath] || null,
+              preview: previewRes.previews[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||

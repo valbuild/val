@@ -1,27 +1,15 @@
 import { useMemo } from "react";
-import {
-  ImageSource,
-  Internal,
-  ListArrayRender,
-  ListRecordRender,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, PreviewItem, SourcePath } from "@valbuild/core";
 import { useParent } from "../hooks/useParent";
-import { useRenderOverrideAtPath } from "./ValFieldProvider";
+import { usePreviewAtPath } from "./ValFieldProvider";
 
-export type RefPreview = {
-  title: string;
-  subtitle?: string | null;
-  image?: ImageSource | null;
-};
-
-export function useRefPreview(path: SourcePath): RefPreview | undefined {
+export function useRefPreview(path: SourcePath): PreviewItem | undefined {
   const { path: parentPath, schema: parentSchema } = useParent(path);
-  const renderAtPath = useRenderOverrideAtPath(parentPath);
+  const previewAtPath = usePreviewAtPath(parentPath);
 
   return useMemo(
-    () => resolveRefPreview(path, parentPath, parentSchema, renderAtPath),
-    [path, parentPath, parentSchema, renderAtPath],
+    () => resolveRefPreview(path, parentPath, parentSchema, previewAtPath),
+    [path, parentPath, parentSchema, previewAtPath],
   );
 }
 
@@ -29,19 +17,19 @@ export function resolveRefPreview(
   path: SourcePath,
   parentPath: SourcePath,
   parentSchema: ReturnType<typeof useParent>["schema"],
-  renderAtPath: ReturnType<typeof useRenderOverrideAtPath>,
-): RefPreview | undefined {
+  previewAtPath: ReturnType<typeof usePreviewAtPath>,
+): PreviewItem | undefined {
   if (
     parentPath === path ||
     !parentSchema ||
-    !renderAtPath ||
-    !("data" in renderAtPath) ||
-    !renderAtPath.data
+    !previewAtPath ||
+    !("data" in previewAtPath) ||
+    !previewAtPath.data
   ) {
     return undefined;
   }
 
-  const renderData = renderAtPath.data;
+  const previewData = previewAtPath.data;
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!modulePath) {
     return undefined;
@@ -50,37 +38,30 @@ export function resolveRefPreview(
   const pathParts = Internal.splitModulePath(modulePath);
   const lastPart = pathParts[pathParts.length - 1];
 
-  if (
-    parentSchema.type === "array" &&
-    renderData.layout === "list" &&
-    renderData.parent === "array"
-  ) {
-    const arrayRender = renderData as ListArrayRender;
+  if (parentSchema.type === "array" && previewData.parent === "array") {
     let index: number;
     try {
       index = JSON.parse(lastPart);
     } catch {
       index = Number(lastPart);
     }
-    // By index, not by position: a windowed render carries only the items that
-    // were asked for. See ListArrayRender.
-    const item = arrayRender.items.find(([itemIndex]) => itemIndex === index);
+    // By index, not by position: a windowed preview carries only the items that
+    // were asked for. See ArrayPreview.
+    const item = previewData.items.find(([itemIndex]) => itemIndex === index);
     if (!Number.isNaN(index) && item) {
       return item[1];
     }
   } else if (
     parentSchema.type === "record" &&
-    renderData.layout === "list" &&
-    renderData.parent === "record"
+    previewData.parent === "record"
   ) {
-    const recordRender = renderData as ListRecordRender;
     let key: string;
     try {
       key = JSON.parse(lastPart);
     } catch {
       key = lastPart;
     }
-    const item = recordRender.items.find(([itemKey]) => itemKey === key);
+    const item = previewData.items.find(([itemKey]) => itemKey === key);
     if (item) {
       return item[1];
     }

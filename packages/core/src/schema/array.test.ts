@@ -19,21 +19,19 @@ describe("ArraySchema", () => {
       false,
     );
   });
-  test("render: list render is kept when chaining after render", () => {
-    const base = array(object({ name: string() })).render({
-      as: "list",
-      select: ({ val }) => ({ title: val.name }),
-    });
+  test("preview: preview is kept when chaining after preview", () => {
+    const base = array(object({ name: string() })).preview(({ val }) => ({
+      title: val.name,
+    }));
     const src = [{ name: "Ada" }];
     const expected = {
       "/test.val.ts": {
         status: "success",
         data: {
-          layout: "list",
           parent: "array",
-          // `[index, value]`, matching the record shape: a windowed render (see
-          // RenderScope) carries only the rows that were asked for, so the index
-          // travels with the item rather than being its position.
+          // `[index, value]`, matching the record shape: a windowed preview (see
+          // PreviewScope) carries only the rows that were asked for, so the
+          // index travels with the item rather than being its position.
           items: [[0, { title: "Ada", subtitle: undefined, image: undefined }]],
         },
       },
@@ -47,19 +45,16 @@ describe("ArraySchema", () => {
       base.validate(() => false),
     ]) {
       expect(
-        schema["executeRender"]("/test.val.ts" as SourcePath, src),
+        schema["executePreview"]("/test.val.ts" as SourcePath, src),
       ).toEqual(expected);
     }
   });
 
-  test("render: does not mutate the schema it was called on", () => {
+  test("preview: does not mutate the schema it was called on", () => {
     const base = array(object({ name: string() }));
-    base.render({
-      as: "list",
-      select: ({ val }) => ({ title: val.name }),
-    });
+    base.preview(({ val }) => ({ title: val.name }));
     expect(
-      base["executeRender"]("/test.val.ts" as SourcePath, [{ name: "Ada" }]),
+      base["executePreview"]("/test.val.ts" as SourcePath, [{ name: "Ada" }]),
     ).toEqual({});
   });
 });

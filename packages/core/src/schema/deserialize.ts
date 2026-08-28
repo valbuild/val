@@ -51,7 +51,10 @@ function deserializeSchemaImpl(
         serialized.opt,
         serialized.raw,
         [],
-        null,
+        // A render is static data, so it survives serialization and must be
+        // carried back: it is the schema's own configuration now, not something
+        // recomputed from an instance.
+        serialized.render ?? null,
         false,
         false,
         serialized.description,

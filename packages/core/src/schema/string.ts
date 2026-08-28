@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { CodeLanguage, ReifiedRender, RenderScope } from "../render";
-import { ModuleFilePath, SourcePath } from "../val";
+import { ReifiedPreview } from "../preview";
+import { StringRender } from "../render";
+import { SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
@@ -16,8 +16,16 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
-  /** Set when this schema declares a `render`. See `SerializedArraySchema`. */
-  render?: true;
+  /**
+   * How this field is laid out in the editor, carried WHOLE rather than as a
+   * marker.
+   *
+   * A render is static configuration — no closure, no dependency on source — so
+   * unlike a `preview` it serializes in full, and the editor reads it straight
+   * off the schema it already has. See `render.ts` for what that assumption
+   * buys, and what to do if a render ever needs to stop being static.
+   */
+  render?: StringRender;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -47,10 +55,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput:
-      | { as: "textarea" }
-      | { as: "code"; language: CodeLanguage }
-      | null = null,
+    private readonly renderInput: StringRender | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
@@ -290,7 +295,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
-      render: this.renderInput ? true : undefined,
+      render: this.renderInput ?? undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
@@ -314,9 +319,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  render(
-    input: { as: "textarea" } | { as: "code"; language: CodeLanguage },
-  ): StringSchema<Src> {
+  /**
+   * How this field is laid out in the editor: a textarea, or a code editor for
+   * the given language.
+   *
+   * Static configuration, not a callback — see `render.ts`. What a CONTAINER
+   * shows for its items is a `preview`, which is a different thing entirely.
+   */
+  render(input: StringRender): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -329,36 +339,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  protected executeRender(
-    sourcePath: SourcePath | ModuleFilePath,
-    src: Src,
-    // Accepted and unused: a string's render is a static layout hint
-    // (`{as:"textarea"}` / `{as:"code",language}`) with no closure behind it, so
-    // there is nothing a scope could prune. Declared so the signature is uniform
-    // across every schema rather than something a reader has to check.
-    _scope?: RenderScope,
-  ): ReifiedRender {
-    if (this.renderInput) {
-      if (this.renderInput.as === "code") {
-        return {
-          [sourcePath]: {
-            status: "success" as const,
-            data: {
-              layout: this.renderInput.as,
-              language: this.renderInput.language,
-            },
-          },
-        };
-      }
-      return {
-        [sourcePath]: {
-          status: "success" as const,
-          data: {
-            layout: this.renderInput.as,
-          },
-        },
-      };
-    }
+  /**
+   * Nothing: a string has no items, so there is nothing to preview. Its layout
+   * is a `render`, which travels in the serialized schema instead of through
+   * this pipeline.
+   */
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

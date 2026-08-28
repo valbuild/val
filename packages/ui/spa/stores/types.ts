@@ -216,7 +216,7 @@ export type SystemEvent =
    * A reader registered interest in a path, or dropped it.
    *
    * This IS coordination rather than observation, which is why it is a
-   * `SystemEvent` and not a work record: the render store reacts to it. A
+   * `SystemEvent` and not a work record: the preview store reacts to it. A
    * listener existing at a path is the system's own record that a field is on
    * screen showing it, and therefore the only trustworthy signal that the
    * expensive work behind that path is actually wanted. A caller invoking
@@ -417,14 +417,14 @@ export type SystemEvent =
       /** Whether the custom half actually ran, or the host could not do it. */
       customValidateStatus: "ran" | "not-needed" | "unavailable" | "error";
     }
-  /** Cached renders for these modules are stale. Nothing was recomputed. */
-  | { type: "render:invalidate"; modules: ModuleFilePath[] }
-  | { type: "render:result"; moduleFilePath: ModuleFilePath }
+  /** Cached previews for these modules are stale. Nothing was recomputed. */
+  | { type: "preview:invalidate"; modules: ModuleFilePath[] }
+  | { type: "preview:result"; moduleFilePath: ModuleFilePath }
   /**
-   * A render threw. Deliberately not fatal: a render is decoration, and a
-   * schema whose render throws must not take the module's fields down with it.
+   * A preview threw. Deliberately not fatal: a preview is decoration, and a
+   * schema whose preview throws must not take the module's fields down with it.
    */
-  | { type: "render:error"; moduleFilePath: ModuleFilePath; message: string }
+  | { type: "preview:error"; moduleFilePath: ModuleFilePath; message: string }
   | { type: "search:invalidate"; modules: ModuleFilePath[] }
   | {
       type: "search:build-index";

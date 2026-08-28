@@ -520,11 +520,12 @@ export default async function MyPage({ params }: { params:
 }
 ```
 
-### Custom render
+### Previews
 
-You can customize how records are displayed in the Val editor interface by using the `.render` method on `record`. This allows you to control how individual record items appear in the editor's preview.
-
-The only currently supported layout is `list`, which provides a customizable list view for record previews.
+A **preview** is what the Val editor shows for each ITEM of a container — the row
+you see in a list of records, or of array items. Declare one with `.preview()` on
+a `record` or an `array`, and return a `title`, and optionally a `subtitle` and an
+`image`.
 
 #### Example
 
@@ -532,18 +533,45 @@ The only currently supported layout is `list`, which provides a customizable lis
 const pagesSchema = s
   .record(s.object({ title: s.string(), image: s.image() }))
   .router(nextAppRouter)
-  .render({
-    layout: "list", // Use list layout for record preview
-    select({ key, val }) {
-      return {
-        // Capitalize the first letter of the key for display
-        title: key?.[0]?.toUpperCase() + key?.slice(1),
-        // Show the image from the record
-        image: val.image,
-      };
-    },
-  });
+  .preview(({ key, val }) => ({
+    // Capitalize the first letter of the key for display
+    title: key?.[0]?.toUpperCase() + key?.slice(1),
+    // Show the image from the record
+    image: val.image,
+  }));
 ```
+
+An array's preview gets the item alone, since there is no key:
+
+```ts
+const sectionsSchema = s
+  .array(s.object({ heading: s.string(), body: s.string() }))
+  .preview(({ val }) => ({ title: val.heading, subtitle: val.body }));
+```
+
+Your function is run on demand, for the rows actually on screen, so it is fine
+for it to read into the item's content.
+
+### Field rendering
+
+A **render** is how ONE field is laid out in the editor. It is static
+configuration rather than a function, and it is a different thing from a
+preview: a preview describes a container's items, a render describes a single
+field.
+
+```ts
+const articleSchema = s.object({
+  title: s.string(),
+  // A multi-line box instead of a single-line input
+  summary: s.string().render({ as: "textarea" }),
+  // A syntax-highlighted code editor
+  snippet: s.string().render({ as: "code", language: "typescript" }),
+});
+```
+
+`as: "code"` takes a `language` — `typescript`, `javascript`, `json`, `html`,
+`css`, `markdown`, `python`, `sql` and others; see `CodeLanguage` in
+`@valbuild/core` for the full list.
 
 ## RichText
 

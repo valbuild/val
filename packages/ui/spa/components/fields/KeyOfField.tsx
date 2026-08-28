@@ -1,10 +1,5 @@
 import * as React from "react";
-import {
-  ImageSource,
-  Internal,
-  ListRecordRender,
-  SourcePath,
-} from "@valbuild/core";
+import { ImageSource, Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -13,7 +8,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
 } from "../ValFieldProvider";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -173,7 +168,7 @@ export function KeyOfField({
     keyOf?.path,
     keyOf?.type as "record" | "object",
   );
-  const referencedRender = useRenderOverrideAtPath(
+  const referencedPreview = usePreviewAtPath(
     (keyOf?.path ?? path) as SourcePath,
   );
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -267,7 +262,7 @@ export function KeyOfField({
       ? Object.keys(referencedSource.data)
       : undefined;
   const source = sourceAtPath.data as string | null;
-  const previews = buildKeyPreviews(referencedRender);
+  const previews = buildKeyPreviews(referencedPreview);
   const isLoading =
     schemaAtPath.status === "loading" ||
     keyOf === undefined ||
@@ -318,18 +313,17 @@ export function KeyOfField({
 }
 
 function buildKeyPreviews(
-  renderAtPath: ReturnType<typeof useRenderOverrideAtPath>,
+  previewAtPath: ReturnType<typeof usePreviewAtPath>,
 ): Record<string, KeyPreview> | undefined {
-  if (!renderAtPath || !("data" in renderAtPath) || !renderAtPath.data) {
+  if (!previewAtPath || !("data" in previewAtPath) || !previewAtPath.data) {
     return undefined;
   }
-  const renderData = renderAtPath.data;
-  if (renderData.layout !== "list" || renderData.parent !== "record") {
+  const previewData = previewAtPath.data;
+  if (previewData.parent !== "record") {
     return undefined;
   }
-  const recordRender = renderData as ListRecordRender;
   const out: Record<string, KeyPreview> = {};
-  for (const [key, value] of recordRender.items) {
+  for (const [key, value] of previewData.items) {
     out[key] = {
       title: value.title,
       subtitle: value.subtitle ?? null,
