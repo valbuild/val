@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "degit": "^2.8.4",
+    "degit": "^2.8.6",
     "@inquirer/prompts": "^3.0.2",
     "chalk": "^4.1.2"
   },
