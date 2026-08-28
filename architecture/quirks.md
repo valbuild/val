@@ -183,10 +183,13 @@ to a table the endpoint already holds, so an absent filter is not "none" — it 
   request and pulls the whole project's pending changes.
 - "I asked for 5 and got 400 back" is not a bug in the server.
 
-The ids go on the query string as repeated `patch_id` params, and there is no
-paging. At ~46 characters each, a few hundred pending changes overruns the 16KB
-of request head Node accepts, so the studio chunks them
-(`packages/ui/spa/stores/react/patchIdChunks.ts`). Dropping the filter instead
+The ids go on the query string as repeated `patch_id` params (and `id` for the
+delete), and there is no paging. At ~46 characters each, a few hundred pending
+changes overruns any of the limits in play — Node caps the request head at 16KB
+and answers 431, a proxy caps it lower and answers 413 — so the studio chunks
+them (`packages/ui/spa/stores/react/patchIdChunks.ts`). One splitter and one
+budget for both endpoints, aimed at the ~2000 characters that are safe for a URL
+anywhere rather than at any particular server's cap. Dropping the filter instead
 would return the same set today, but then "did I get what I asked for" has no
 answer — which is the question that catches a server sending back less than it
 announced.

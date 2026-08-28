@@ -1,4 +1,3 @@
-import { chunkPatchIdsForDelete } from "./patchesQuery";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
@@ -206,7 +205,7 @@ export function createValSystem(
       let requestError: string | undefined;
       let chunks = 0;
       let failedChunks = 0;
-      for (const chunk of chunkPatchIds(patchIds)) {
+      for (const chunk of chunkPatchIds(patchIds, "patch_id")) {
         chunks++;
         const res = await client("/patches", "GET", {
           query: {
@@ -379,11 +378,19 @@ export function createValSystem(
     },
 
     discardPatches: async (patchIds) => {
-      // One request per chunk the URL can carry: "discard all" on a long chain
-      // otherwise built a query string the server refuses before the handler
-      // sees it. See `chunkPatchIdsForDelete`.
+      /*
+       * One request per chunk the URL can carry: "discard all" on a long chain
+       * otherwise built a query string the server refuses before the handler
+       * sees it.
+       *
+       * SEQUENTIAL, not a fan-out: each request deletes patches the next one's
+       * chain is computed against, and a half-applied `Promise.all` is harder to
+       * reason about than a stop at the first failure. (This rationale used to
+       * live in `chunkPatchIdsForDelete`'s docblock; it belongs at the call site
+       * that depends on it, not in the splitter, which has no opinion on order.)
+       */
       const deleted: PatchId[] = [];
-      for (const chunk of chunkPatchIdsForDelete(patchIds)) {
+      for (const chunk of chunkPatchIds(patchIds, "id")) {
         const res = await client("/patches", "DELETE", {
           query: { id: chunk },
         });

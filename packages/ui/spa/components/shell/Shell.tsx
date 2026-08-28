@@ -100,6 +100,18 @@ export type ShellProps = {
   /** How Val is running. See `StatusBarProps`. */
   mode?: StatusBarProps["mode"];
   saveState?: SaveState;
+  /**
+   * Whether changes are written to the working tree on a pause in typing.
+   *
+   * A prop, like `saveState`, rather than state this component owns: the
+   * setting is `fs`-mode-only, persisted, and shared with the classic layout's
+   * toggle and the Save button that disables itself while it is on. A local
+   * `useState` here — which is what this was — put a checkbox on screen that
+   * showed `true`, changed nothing when clicked, and disagreed with the real
+   * setting, whose default is `false`.
+   */
+  autoSave?: boolean;
+  onAutoSaveChange?: (autoSave: boolean) => void;
   /** Number of changes Publish would ship. */
   pendingChanges?: number;
   publishState?: PublishState;
@@ -298,6 +310,8 @@ export function Shell({
   onThemeChange,
   mode,
   saveState = "saved",
+  autoSave = false,
+  onAutoSaveChange = () => undefined,
   pendingChanges = 12,
   publishState = "idle",
   isLoading = false,
@@ -346,7 +360,6 @@ export function Shell({
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
-  const [autoSave, setAutoSave] = useState(true);
   const [isDevMode, setIsDevMode] = useState(true);
   const [notifications, setNotifications] = useState<ShellNotification[]>(
     data.notifications ?? [],
@@ -723,7 +736,7 @@ export function Shell({
           saveState={saveState}
           mode={mode}
           autoSave={autoSave}
-          onAutoSaveChange={setAutoSave}
+          onAutoSaveChange={onAutoSaveChange}
           branch={data.branch}
           deployments={deployments}
           deploymentsOpen={deploymentsOpen}
@@ -806,6 +819,7 @@ export function Shell({
       {openPanel === "settings" && (
         <SettingsPanel
           breakpoint={breakpoint}
+          mode={mode}
           user={data.user}
           accountError={accountError}
           theme={theme}
@@ -813,7 +827,7 @@ export function Shell({
           isDevMode={isDevMode}
           onDevModeChange={setIsDevMode}
           autoSave={autoSave}
-          onAutoSaveChange={setAutoSave}
+          onAutoSaveChange={onAutoSaveChange}
           branch={data.branch}
           /**
            * No deploy feed in dev.
