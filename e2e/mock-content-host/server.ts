@@ -219,6 +219,15 @@ type MockAiSession = {
   name: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The conversation so far, as `/ai/sessions/{id}/messages` reports it.
+   *
+   * Kept because reloading a conversation is a real feature and the studio uses
+   * it for something a test can see: the assistant panel unmounts when it is
+   * closed, so what is on screen after reopening it comes from HERE rather than
+   * from anything the browser still held.
+   */
+  messages: { role: "user" | "assistant"; content: string }[];
 };
 
 type State = {
@@ -921,6 +930,7 @@ const aiRenameSession: Handler = async (req, res, url) => {
       name: body?.name ?? null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
+      messages: [],
     });
   }
   json(res, 200, {});
@@ -929,13 +939,16 @@ const aiRenameSession: Handler = async (req, res, url) => {
 /**
  * `GET /v1/{project}/ai/sessions/{id}/messages`
  *
- * Empty: this mock keeps no transcript. Reloading a past conversation is a
- * feature of the service, not of the tool plumbing these tests are for — but the
- * route has to answer, because the Studio calls it whenever a session id is
- * restored from the URL.
+ * The conversation, as the service would replay it. The Studio asks whenever a
+ * session id is restored — from the URL on load, and every time the assistant
+ * panel is reopened, since closing it unmounts the chat.
  */
-const aiSessionMessages: Handler = (req, res) => {
-  json(res, 200, { messages: [], nextCursor: null });
+const aiSessionMessages: Handler = (req, res, url) => {
+  const sessionId = url.pathname.split("/").at(-2) ?? "";
+  json(res, 200, {
+    messages: state.aiSessions.get(sessionId)?.messages ?? [],
+    nextCursor: null,
+  });
 };
 
 /**
@@ -1116,17 +1129,23 @@ async function playAiTurn(
     text: promptTextOf(prompt.message),
     imageKeys,
   });
-  const existing = state.aiSessions.get(sessionId);
-  if (existing) {
-    existing.updatedAt = nowIso();
+  let session = state.aiSessions.get(sessionId);
+  if (session) {
+    session.updatedAt = nowIso();
   } else {
-    state.aiSessions.set(sessionId, {
+    session = {
       id: sessionId,
       name: null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
-    });
+      messages: [],
+    };
+    state.aiSessions.set(sessionId, session);
   }
+  session.messages.push({
+    role: "user",
+    content: promptTextOf(prompt.message),
+  });
   const send = (message: unknown): void => {
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify(message));
@@ -1188,6 +1207,7 @@ async function playAiTurn(
    * editor would ever see.
    */
   const response = script.response ?? "Done.";
+  session.messages.push({ role: "assistant", content: response });
   send({ type: "ai_streaming", id: messageId, chunk: response });
   send({ type: "ai_response", id: messageId, sessionId, response });
 }

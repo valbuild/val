@@ -46,24 +46,25 @@ const IMAGE = "e2e/fixtures/blue-8x8.png";
 
 test.use({
   storageState: { cookies: [sessionCookie("ada")], origins: [] },
-  // The chat lives in a sidebar that is `hidden xl:block`, so a narrower viewport
-  // renders no chat at all and every locator here finds nothing. Comfortably past
-  // the breakpoint rather than exactly on it.
+  // A desktop shell: the assistant is reached from the top bar, which the mobile
+  // breakpoint replaces with its own chrome. Wide enough to be unambiguous.
   viewport: { width: 1600, height: 1000 },
 });
 
 /**
- * Open the Studio with the assistant on screen.
+ * Open the Studio and the assistant panel.
  *
- * `?val-ui=classic` because that is where the wired chat is: the floating shell's
- * AI panel is still the design-system stand-in — it echoes what you type and
- * calls no tools — while `ToolsMenu` mounts the real `AIChat` on `useAI`, the
- * hook that implements every tool. Testing the stub would assert nothing about
- * the product. When the shell adopts `useAI`, this helper is the one place that
- * changes.
+ * The assistant is a floating panel rather than a fixed column, so it is behind
+ * the top bar's button and is not mounted until it is opened — which is also
+ * when its socket is opened. Everything below therefore starts here rather than
+ * with `openHttpStudio`.
  */
 async function openChatStudio(page: Page): Promise<void> {
-  await openHttpStudio(page, "/val?val-ui=classic");
+  await openHttpStudio(page);
+  await page
+    .locator("#val-shadow-root")
+    .getByRole("button", { name: "AI assistant" })
+    .click();
 }
 
 /**
@@ -754,6 +755,96 @@ test.describe("ai chat tools", () => {
       ],
     });
     await expect(studio.getByText("Updating the About page.")).toBeVisible();
+  });
+
+  /**
+   * The panel is a panel: it closes, and the conversation is still there.
+   *
+   * The shell renders the assistant on demand, so closing it UNMOUNTS the chat —
+   * the transcript on screen after reopening cannot be something the browser was
+   * still holding. It is read back from the service by the session id in the URL,
+   * which is the whole reason `AIChatSurface` seeds itself from there.
+   */
+  test("keeps the conversation when the panel is closed and reopened", async ({
+    page,
+  }) => {
+    await openChatStudio(page);
+    await mock.aiScript({
+      steps: [{ type: "tool", name: "get_all_schema" }],
+      response: "There are a few content files.",
+    });
+
+    await send(page, "What content is there?");
+    await toolCalls(1);
+    const studio = page.locator("#val-shadow-root");
+    await expect(
+      studio.getByText("There are a few content files."),
+    ).toBeVisible();
+
+    await studio.getByRole("button", { name: "Close AI assistant" }).click();
+    await expect(
+      studio.getByText("There are a few content files."),
+      "the panel did not actually close",
+    ).toBeHidden();
+
+    await studio.getByRole("button", { name: "AI assistant" }).click();
+    await expect(
+      studio.getByText("There are a few content files."),
+      "the conversation was not restored",
+    ).toBeVisible();
+    await expect(studio.getByText("What content is there?")).toBeVisible();
+  });
+
+  /**
+   * Mentioning a field opens the assistant and puts the field in the composer.
+   *
+   * Both halves matter and the second is the one that broke: the mention OPENS
+   * the panel, and opening the panel is what mounts the editor the reference has
+   * to go into — so the insert happens against a ref that is still null. The
+   * reference is queued in `AIChatActionsProvider` and delivered when the editor
+   * arrives, and what proves it is the path reaching the assistant.
+   */
+  test("mentioning a field opens the assistant with the field in it", async ({
+    page,
+  }) => {
+    await openHttpStudio(page, `/val/~${TAGS}`);
+    const studio = page.locator("#val-shadow-root");
+    await mock.aiScript({ steps: [], response: "Looking at that field." });
+
+    // A record opens on its list of entries, and the mention button is on a
+    // field — so one has to be open before there is anything to mention.
+    await studio.getByText("guides", { exact: true }).click();
+    await expect(
+      studio.getByRole("button", { name: "Mention this field in AI chat" }),
+    ).not.toHaveCount(0);
+
+    // The assistant is closed: this click has to open it AND land the reference.
+    await expect(
+      studio.locator(".val-chat-editor-content"),
+      "the assistant was already open, so this proves nothing",
+    ).toHaveCount(0);
+    await studio
+      .getByRole("button", { name: "Mention this field in AI chat" })
+      .first()
+      .click();
+
+    const editor = await composer(page);
+    await editor.click();
+    await page.keyboard.type("what is this?");
+    await studio.getByRole("button", { name: "Send message" }).click();
+
+    await expect
+      .poll(async () => (await mock.aiState()).prompts.length, {
+        timeout: 30_000,
+        message: "the prompt never reached the assistant",
+      })
+      .toBe(1);
+    const [prompt] = (await mock.aiState()).prompts;
+    expect(
+      prompt.text,
+      "the mentioned field did not reach the assistant",
+    ).toContain(TAGS);
+    expect(prompt.text).toContain("what is this?");
   });
 
   /**

@@ -128,7 +128,14 @@ export type PageWorkspaceProps = {
   onViewChange: (view: CanvasView) => void;
   isDevMode?: boolean;
   /** Hand a field to the assistant, which opens the AI panel. */
-  onAttachToChat?: (fieldId: string, label: string) => void;
+  /**
+   * Mention this field in the assistant, by its val source path.
+   *
+   * The SOURCE path rather than the canvas's own field id: what reaches the
+   * assistant is a reference the model can look up, and a canvas id means
+   * nothing outside this component.
+   */
+  onAttachToChat?: (sourcePath: string) => void;
   /** Skips the entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
 };
@@ -491,7 +498,7 @@ export function PageWorkspace({
         current.includes(fieldId) ? current : [...current, fieldId],
       );
       const field = page?.fields[fieldId];
-      if (field) onAttachToChat?.(field.id, field.label);
+      if (field) onAttachToChat?.(field.sourcePath);
     },
     [page, onAttachToChat],
   );

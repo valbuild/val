@@ -1,6 +1,4 @@
 export * from "./types";
-export * from "./NavMenu";
-export * from "./NavMenuWrapper";
 export * from "./SitemapSection";
 export * from "./ExplorerSection";
 export * from "./ExternalButton";

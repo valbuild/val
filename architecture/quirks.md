@@ -299,14 +299,25 @@ a fresh element each time or the probe never runs again.
 `input[type="file"]`, and it is `multiple`. Select the field's with
 `input[type="file"]:not([multiple])`.
 
-**The wired AI chat is only in the classic layout.** The floating shell's AI panel
-(`shell/AIChatPanel.tsx`) is still the design-system stand-in: it echoes what you
-type into local state and calls no tools. The real one is `AIChat` on `useAI`,
-mounted by `ToolsMenu` — reachable at `/val?val-ui=classic`, and in the on-page
-overlay. So a test that drives the assistant has to ask for the classic layout, or
-it will assert against a component with no `useAI` in it and see nothing happen.
-It also lives in a sidebar that is `hidden xl:block`, so the viewport has to be at
-least 1280 wide or there is no chat in the DOM at all.
+**The assistant is not mounted until its panel is opened.** It is a floating
+panel behind the top bar's "AI assistant" button, so a test has to click that
+button before any chat locator resolves, and a mobile-width viewport does not
+offer the button at all. Closing the panel unmounts the chat but NOT the socket,
+which belongs to `ValProvider`; the conversation comes back because
+`AIChatSurface` seeds itself from the session id in the URL, the same trick the
+on-page overlay plays with `sessionStorage`. What does not survive is a turn in
+flight — its tool calls have nobody to answer them until the panel is back.
+
+**A field mention can arrive before the chat exists, and then arrive too early.**
+"Mention this field" opens the assistant and inserts a reference, and in the
+shell the first of those is what mounts the second — so an insert straight after
+`openAIChat()` lands on a ref that is still null and the field goes missing with
+no error. Hence the queue in `AIChatActionsProvider`; use `insertFieldRef` rather
+than reaching for `chatEditorRef` yourself. Draining it from a mount effect is
+still not enough: `StrictMode` runs mount effects, cleans up and runs them again,
+rebuilding the ProseMirror view in between, so the field went into the view that
+was then thrown away. `AIChatSurface` drains on a `requestAnimationFrame` the
+cleanup cancels, which is the only pass that writes to the editor that survives.
 
 ## Dev environment
 

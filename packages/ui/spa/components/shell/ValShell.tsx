@@ -52,7 +52,8 @@ import {
 import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { useAIChatActions } from "../AIChatActionsContext";
+import { AIChatSurface } from "../AIChatSurface";
+import { useAIChatActions, useInsertFieldRef } from "../AIChatActionsContext";
 import { useValSystem } from "../../stores/react/SystemContext";
 
 /**
@@ -114,7 +115,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * a configured assistant that is currently offline still gets its panel,
    * which is where `aiConnectionError` and its retry are shown.
    */
-  const { isAIChatEnabled } = useAIChatActions();
+  const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
+  const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
@@ -183,6 +185,36 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);
   }, []);
+
+  /**
+   * Open the assistant from outside the shell.
+   *
+   * Through the same `restoreViewState` command channel `popstate` uses,
+   * because it is the only way in: the shell owns which panel is open, and a
+   * mention on a field — or on the canvas — has to be able to say "the
+   * assistant, now" without becoming a controlled prop that fights every panel
+   * the user opens themselves.
+   *
+   * The canvas half of the command is carried through unchanged, from a ref
+   * rather than from `viewState` directly: this is registered once, and
+   * rebuilding it whenever the canvas moves would re-register on every pan.
+   * Without it, mentioning a field would shut the canvas the field is on.
+   */
+  const viewStateRef = useRef(viewState);
+  viewStateRef.current = viewState;
+  const openAIPanel = useCallback(() => {
+    setRestoreViewState((previous) => ({
+      epoch: (previous?.epoch ?? 0) + 1,
+      panel: "ai",
+      canvasOpen: viewStateRef.current.canvasOpen,
+      canvasView: viewStateRef.current.canvasView,
+    }));
+  }, []);
+  useEffect(() => {
+    if (!isAIChatEnabled) return;
+    setOpenAIChatImpl(openAIPanel);
+    return () => setOpenAIChatImpl(null);
+  }, [isAIChatEnabled, setOpenAIChatImpl, openAIPanel]);
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
@@ -783,6 +815,18 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           : undefined
       }
       aiEnabled={isAIChatEnabled}
+      /*
+       * The real assistant, not a stand-in.
+       *
+       * Mounted only while the panel is open — same as the on-page overlay.
+       * The socket is not: it belongs to `ValProvider`, so closing the panel
+       * does not disconnect, and the conversation comes back because
+       * `AIChatSurface` seeds itself from the session id in the URL.
+       */
+      aiSlot={
+        isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
+      }
+      onMentionField={(sourcePath) => insertFieldRef(sourcePath as SourcePath)}
       // Held until the first load's patches are in — see `PendingChangesGate`.
       pendingChangesLoaded={pendingChangesLoaded}
       pendingChangesProgress={pendingChangesProgress}
