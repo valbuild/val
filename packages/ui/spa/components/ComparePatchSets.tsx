@@ -45,6 +45,7 @@ import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import {
   useCommittedPatches,
   useDeletePatches,
+  useDeployingCommitShas,
   useDeployments,
   Profile,
 } from "./ValProvider";
@@ -225,6 +226,7 @@ export function ComparePatchSets({
           deployingCount={summary.deployingCount}
           canDiscard={canDiscard}
           portalContainer={portalContainer}
+          layout="stacked"
         />
       )}
       {trees.map((tree, index) => (
@@ -390,6 +392,7 @@ export function CompareSummaryStrip({
   deployingCount,
   canDiscard,
   portalContainer,
+  layout = "inline",
 }: {
   /** Everyone whose work is on screen — the avatar stack shows all of them. */
   authorIds: string[];
@@ -410,7 +413,18 @@ export function CompareSummaryStrip({
   deployingCount: number;
   canDiscard: boolean;
   portalContainer: HTMLElement | null;
+  /**
+   * `stacked` breaks into two rows below `sm`; `inline` stays one row at every
+   * width.
+   *
+   * The classic layout puts this strip in a fixed `h-16` header, where a second
+   * row spills out of the chrome — so stacking is asked for by the caller that
+   * has room for it rather than assumed by the strip. The floating shell renders
+   * it in the scrolling column and asks for `stacked`.
+   */
+  layout?: "inline" | "stacked";
 }) {
+  const isStacked = layout === "stacked";
   const { deletePatches } = useDeletePatches();
   const authorNames = useMemo(
     () =>
@@ -429,26 +443,53 @@ export function CompareSummaryStrip({
    * unpublished work. The count and the faces belong together; the action and
    * what it acts on belong together; so the break goes between those pairs.
    */
+  /*
+   * "0 changes to review" when there is nothing at all.
+   *
+   * Only the DEPLOYING count switches the wording, and only when there is
+   * something deploying — testing `pendingPatchIds.length === 0` alone made an
+   * empty project read "0 changes deploying", which the classic layout's header
+   * renders as soon as the grouping is computed.
+   */
+  const isAllDeploying = pendingPatchIds.length === 0 && deployingCount > 0;
+  const count = isAllDeploying ? deployingCount : pendingPatchIds.length;
+
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-1 min-w-0">
+    <div
+      className={classNames(
+        "flex flex-1 min-w-0",
+        isStacked
+          ? "flex-col sm:flex-row sm:items-center gap-2 sm:gap-4"
+          : "flex-row items-center gap-4",
+      )}
+    >
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-xl font-medium leading-none text-fg-primary tabular-nums">
-          {pendingPatchIds.length > 0 ? pendingPatchIds.length : deployingCount}
+          {count}
         </span>
         <span className="text-sm text-fg-secondary truncate">
-          {pendingPatchIds.length > 0
-            ? `${pendingPatchIds.length === 1 ? "change" : "changes"} to review`
-            : `${deployingCount === 1 ? "change" : "changes"} deploying`}
+          {isAllDeploying
+            ? `${count === 1 ? "change" : "changes"} deploying`
+            : `${count === 1 ? "change" : "changes"} to review`}
         </span>
-        <span className="ml-auto sm:hidden">
-          <AvatarStack
-            authorIds={authorIds}
-            profilesByAuthorIds={profilesByAuthorIds}
-            mode={mode}
-          />
-        </span>
+        {isStacked && (
+          <span className="ml-auto sm:hidden">
+            <AvatarStack
+              authorIds={authorIds}
+              profilesByAuthorIds={profilesByAuthorIds}
+              mode={mode}
+            />
+          </span>
+        )}
       </div>
-      <div className="flex items-center gap-3 shrink-0 sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0">
+      <div
+        className={classNames(
+          "flex items-center gap-3 shrink-0",
+          isStacked
+            ? "sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0"
+            : "ml-auto",
+        )}
+      >
         {deployingCount > 0 && pendingPatchIds.length > 0 && (
           <span className="text-xs text-fg-tertiary whitespace-nowrap">
             {deployingCount} deploying
@@ -485,7 +526,12 @@ export function CompareSummaryStrip({
             Nothing left to discard
           </span>
         )}
-        <span className="ml-auto hidden sm:inline-flex">
+        <span
+          className={classNames(
+            "ml-auto",
+            isStacked ? "hidden sm:inline-flex" : "inline-flex",
+          )}
+        >
           <AvatarStack
             authorIds={authorIds}
             profilesByAuthorIds={profilesByAuthorIds}
@@ -514,8 +560,26 @@ export function CompareSummaryStrip({
  */
 function DeployedDivider() {
   const { deployments } = useDeployments();
-  // Newest first — `mergeCommitsAndDeployments` sorts by `updatedAt` descending.
-  return <DeployedDividerPure deployment={deployments[0] ?? null} />;
+  const commitShas = useDeployingCommitShas();
+  /*
+   * The deploy for THIS commit, not the newest one in the feed.
+   *
+   * `commitShas` comes off the patches themselves, so it names the commits the
+   * patches below the line actually went out in. The feed is then searched for a
+   * matching entry: it may have none — dismissed, or not reported yet — in which
+   * case the line still names the commit and simply says nothing about its state,
+   * which is better than confidently reporting another commit's.
+   */
+  const deployment = useMemo(() => {
+    for (const sha of commitShas) {
+      const match = deployments.find((d) => d.commitSha === sha);
+      if (match) return match;
+    }
+    return null;
+  }, [deployments, commitShas]);
+  return (
+    <DeployedDividerPure deployment={deployment} commitShas={commitShas} />
+  );
 }
 
 /**
@@ -528,8 +592,17 @@ function DeployedDivider() {
  */
 export function DeployedDividerPure({
   deployment: latest,
+  commitShas = [],
 }: {
   deployment: ValEnrichedDeployment | null;
+  /**
+   * The commits the patches below the line shipped in, newest first.
+   *
+   * Named separately from `deployment` because the two can disagree about how
+   * much is down there: one deploy entry can be found while the patches span two
+   * commits, and then naming a single sha would be describing only half of them.
+   */
+  commitShas?: string[];
 }) {
   const [now] = useState(() => new Date());
   const state = latest?.deploymentState;
@@ -544,12 +617,16 @@ export function DeployedDividerPure({
       : isLive
         ? "Published — live"
         : "Published";
-  const detail = latest
-    ? `${latest.commitSha.slice(0, 7)} · ${relativeLocalDate(
-        now,
-        latest.updatedAt,
-      )}`
-    : null;
+  const shas =
+    commitShas.length > 0 ? commitShas : latest ? [latest.commitSha] : [];
+  const detail =
+    shas.length > 1
+      ? `${shas.length} commits`
+      : shas.length === 1
+        ? `${shas[0].slice(0, 7)}${
+            latest ? ` · ${relativeLocalDate(now, latest.updatedAt)}` : ""
+          }`
+        : null;
 
   const hairline = (
     <span
@@ -619,6 +696,21 @@ type RowProps = {
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   canDiscard: boolean;
+  /**
+   * This row's change has shipped, so it has NO before and after left to show.
+   *
+   * A publish promotes the patched source to base (`SourceStore.promotePublished`),
+   * so a committed patch's effect is in the "before" side and the "after" side
+   * alike. Rendering the usual diff for such a row therefore does not show the
+   * change that shipped — it shows whatever is still PENDING at the same path,
+   * attributed to the commit. Which is how a straddling field ("A"→"B", publish,
+   * "B"→"C") had both of its cards claiming `B→C`.
+   *
+   * There is no honest diff to put here instead: the pre-publish value is gone
+   * from the store by the time the row exists. So the row states what shipped and
+   * stops, and the card says why.
+   */
+  isCommitted: boolean;
   parentMediaType?: "images" | "files";
 };
 
@@ -728,10 +820,20 @@ function ModuleGroup({
     portalContainer,
     mode,
     canDiscard: canDiscardHere,
+    isCommitted: tree.isCommitted,
   };
 
   return (
     <section
+      /*
+       * Not unique when a module straddles the deploy line: it is then two
+       * sections, both naming the same module. That is deliberate and safe in one
+       * direction only — `findStudioPathTarget` takes the FIRST match, and
+       * `computeChangedSourcePaths` sorts every pending tree above every
+       * committed one, so the first match is the card whose changes can still be
+       * acted on. The test "pending trees sort above committed ones" is what
+       * holds that ordering in place.
+       */
       data-val-studio-path={tree.sourcePath}
       className={classNames(
         "border rounded-lg overflow-hidden",
@@ -796,6 +898,20 @@ function ModuleGroup({
       </header>
       {!isCollapsed && (
         <div className="divide-y divide-border-primary">
+          {tree.isCommitted && (
+            /*
+             * Why there is no before and after down here.
+             *
+             * Without it the section reads as a diff that failed to load. See
+             * `RowProps.isCommitted`: the published value IS the base now, so
+             * both sides of the comparison hold it and there is nothing left to
+             * put side by side.
+             */
+            <p className="px-4 lg:px-5 py-3 text-xs text-fg-tertiary">
+              Already part of the published content, so there is no before and
+              after to compare. Open a field to see its current value.
+            </p>
+          )}
           <RenderTree node={tree} rowProps={rowProps} />
         </div>
       )}
@@ -1057,6 +1173,7 @@ function ListChangeRow({
   portalContainer,
   mode,
   canDiscard,
+  isCommitted,
 }: {
   row: ChangeTreeNode;
   moduleFilePath: ModuleFilePath;
@@ -1065,6 +1182,7 @@ function ListChangeRow({
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   canDiscard: boolean;
+  isCommitted: boolean;
 }) {
   const { deletePatches } = useDeletePatches();
   const [now] = useState(() => new Date());
@@ -1073,7 +1191,10 @@ function ListChangeRow({
   const sourcePath = row.sourcePath as SourcePath;
   const beforeSource = useServerSourceAtPath(sourcePath);
   const afterSource = useSourceAtPath(sourcePath);
+  // Never "unchanged" below the deploy line: the two sides are equal there
+  // BECAUSE the change shipped, which is the opposite of nothing happening.
   const isEqual =
+    !isCommitted &&
     beforeSource.status === "success" &&
     afterSource.status === "success" &&
     deepEqual(
@@ -1119,8 +1240,9 @@ function ListChangeRow({
         onToggleExpand={() => setIsExpanded((prev) => !prev)}
         isEqual={isEqual}
         canDiscard={canDiscard}
+        hideExpand={isCommitted}
       />
-      {isExpanded && (
+      {isExpanded && !isCommitted && (
         <div className="mt-4">
           <PrimitiveListDiff sourcePath={sourcePath} />
         </div>
@@ -1137,6 +1259,7 @@ function ChangeRow({
   portalContainer,
   mode,
   canDiscard,
+  isCommitted,
   parentMediaType,
 }: {
   row: ChangeTreeNode;
@@ -1146,6 +1269,7 @@ function ChangeRow({
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   canDiscard: boolean;
+  isCommitted: boolean;
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
@@ -1161,7 +1285,10 @@ function ChangeRow({
 
   if (!change) return null;
 
+  // See `RowProps.isCommitted`: below the deploy line the two sides are equal
+  // because the change shipped, so "Unchanged" would be exactly backwards.
   const isEqual =
+    !isCommitted &&
     change.changeType === "field-change" &&
     beforeSource.status === "success" &&
     afterSource.status === "success" &&
@@ -1211,17 +1338,21 @@ function ChangeRow({
         onToggleExpand={() => setIsExpanded((prev) => !prev)}
         isEqual={isEqual}
         canDiscard={canDiscard}
+        hideExpand={isCommitted}
         parentMediaType={parentMediaType}
       />
-      <div className="mt-4">
-        <ChangeRowBody
-          sourcePath={sourcePath}
-          changeType={change.changeType}
-          isExpanded={isExpanded}
-          isEqual={isEqual}
-          parentMediaType={parentMediaType}
-        />
-      </div>
+      {/* No diff below the deploy line — see `RowProps.isCommitted`. */}
+      {!isCommitted && (
+        <div className="mt-4">
+          <ChangeRowBody
+            sourcePath={sourcePath}
+            changeType={change.changeType}
+            isExpanded={isExpanded}
+            isEqual={isEqual}
+            parentMediaType={parentMediaType}
+          />
+        </div>
+      )}
     </article>
   );
 }
@@ -1243,6 +1374,7 @@ function ChangeRowHeader({
   onToggleExpand,
   isEqual,
   canDiscard,
+  hideExpand,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
@@ -1261,6 +1393,8 @@ function ChangeRowHeader({
   onToggleExpand: () => void;
   isEqual: boolean;
   canDiscard: boolean;
+  /** No body to collapse — a committed row has no diff. See `RowProps.isCommitted`. */
+  hideExpand?: boolean;
   parentMediaType?: "images" | "files";
 }) {
   return (
@@ -1293,12 +1427,14 @@ function ChangeRowHeader({
           portalContainer={portalContainer}
           mode={mode}
         />
-        <CollapseToggle
-          isOpen={isExpanded}
-          onToggle={onToggleExpand}
-          openLabel="Collapse"
-          closedLabel="Expand"
-        />
+        {!hideExpand && (
+          <CollapseToggle
+            isOpen={isExpanded}
+            onToggle={onToggleExpand}
+            openLabel="Collapse"
+            closedLabel="Expand"
+          />
+        )}
       </div>
     </div>
   );

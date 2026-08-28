@@ -905,6 +905,19 @@ export class PatchStore {
   }
 
   /**
+   * The ids this session published, which no record's `appliedAt` will show.
+   *
+   * The other half of "has this shipped?" — see {@link publishedIds}. A reader
+   * that asks only the server's answer misses everything published in the current
+   * session until a refetch delivers it, which is the window in which the review
+   * UI would still be offering to discard a patch that is already in a commit.
+   * {@link filePatchIds} applies the same union internally.
+   */
+  publishedPatchIds(): ReadonlySet<PatchId> {
+    return this.publishedIds;
+  }
+
+  /**
    * Modules this session has published into, in no particular order.
    *
    * For the canvas and the overlay: a page that renders one of these from the

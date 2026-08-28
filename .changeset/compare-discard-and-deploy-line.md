@@ -38,11 +38,29 @@ to production as one undifferentiated list. There is now a divider between them:
 Below the line the module is dashed, its discard controls are gone rather than
 disabled — the commit exists, and there is nothing a Discard button could
 honestly do about it — and Discard-all offers the pending subset only, so it
-says "Discard 4", never "Discard 12". The pill carries the deploy itself
-(building, live, or failed) from the same feed the status bar reads, so the two
-cannot end up describing the same commit differently. A failed deploy locks what
-is below it just the same. None of this appears in `fs` mode, where a published
-patch is deleted rather than kept.
+says "Discard 4", never "Discard 12". The pill names the commit those patches
+actually shipped in, taken from their own `appliedAt` rather than from the head
+of the deployment feed, which can be filtered by a dismissal or lag a commit the
+chain already knows about; its state (building, live, failed) comes from the same
+feed the status bar reads. A failed deploy locks what is below it just the same.
+None of this appears in `fs` mode, where a published patch is deleted rather
+than kept.
+
+Below the line there is no before-and-after, because there is none left to show.
+Publishing promotes the patched source to base (`SourceStore.promotePublished`),
+so a committed patch's effect sits in the "before" side and the "after" side
+alike — and the diff a committed row would render is therefore not the change
+that shipped but whatever is still pending at the same path. A field edited
+`"A"→"B"`, published, then edited `"B"→"C"` had both of its cards claiming
+`B→C`. The pre-publish value is gone from the store by then, so the committed
+rows now state what shipped and stop, and the card says why.
+
+Relatedly, `useCommittedPatches` was only ever consulting the server's
+`appliedAt`, which is seen only on a record fetched after its commit — so the
+session that had just published saw none of its own patches as shipped, and got
+full discard controls over them, until a refetch. It now unions in the ids this
+client published, which is the rule `PatchStore.filePatchIds` already applied for
+the same reason.
 
 A patch set groups patches by the path they touch, which says nothing about
 whether they have been published — so one set can hold a patch that shipped in

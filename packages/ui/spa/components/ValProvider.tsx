@@ -1192,9 +1192,17 @@ export function usePublishCount(): number {
 /**
  * Patches in the chain that have already shipped in a commit.
  *
- * Only possible in `http` mode: there a published patch stays on the server and
- * is re-applied, so being in the chain and having shipped are different facts.
- * In `fs` mode a published patch is deleted, so this is always empty.
+ * Mostly an `http` mode question: there a published patch stays on the server and
+ * is re-applied, so being in the chain and having shipped are different facts. In
+ * `fs` mode a published patch is deleted, so this empties out as soon as the
+ * publish is forgotten.
+ *
+ * TWO sources, because either one alone is wrong for a while. `appliedAt` is the
+ * server's answer and is only ever seen on a record FETCHED after its commit — so
+ * a session that just published its own patches would see none of them as
+ * shipped until a refetch, and the review UI would go on offering to discard
+ * patches that are already in a commit. `publishedPatchIds()` covers exactly that
+ * window. `PatchStore.filePatchIds` applies the same union, for the same reason.
  */
 export function useCommittedPatches(): ReadonlySet<PatchId> {
   const val = useValSystem();
@@ -1203,12 +1211,43 @@ export function useCommittedPatches(): ReadonlySet<PatchId> {
     const committed = new Set<PatchId>();
     if (val === null) return committed;
     void chainVersion;
+    const published = val.system.patchStore.publishedPatchIds();
     for (const record of val.system.patchStore.allRecords()) {
-      if (record.appliedAt) {
+      if (record.appliedAt || published.has(record.patchId)) {
         committed.add(record.patchId);
       }
     }
     return committed;
+  }, [val, chainVersion]);
+}
+
+/**
+ * The commits the patches still in the chain went out in, newest first.
+ *
+ * The deploy line is drawn over patches that shipped in a specific commit, and
+ * that commit is the one thing they can be labelled with honestly. Reading the
+ * newest entry of the deployment feed instead is wrong in three ways at once: the
+ * feed is filtered by `dismissDeployment`, it can lag a commit the chain already
+ * knows about, and two undeployed commits would both be described by whichever
+ * one happened to be first.
+ */
+export function useDeployingCommitShas(): string[] {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    const shas: string[] = [];
+    const seen = new Set<string>();
+    // Records are in chain order, so the newest commit is at the end.
+    for (const record of val.system.patchStore.allRecords()) {
+      const sha = record.appliedAt?.commitSha;
+      if (sha !== undefined && !seen.has(sha)) {
+        seen.add(sha);
+        shas.unshift(sha);
+      }
+    }
+    return shas;
   }, [val, chainVersion]);
 }
 
